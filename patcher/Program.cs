@@ -75,6 +75,7 @@ namespace McvsOffline.Patcher
                         else if (signer == "builtin") o.Signer = SignerChoice.BuiltIn;
                         else throw new ArgumentException("--signer must be auto, apksigner or builtin");
                         break;
+                    case "--abi": o.Abis = PatcherOptions.ParseAbiList(Value(args, ref i)); break;
                     case "--strip-aot":
                         string mode = Value(args, ref i);
                         if (mode == "modified") o.StripAot = AotStripMode.Modified;
@@ -164,6 +165,7 @@ namespace McvsOffline.Patcher
                 "  --build-tools <dir>   folder with apksigner and zipalign (else PATH, then $ANDROID_HOME/build-tools/*)\n" +
                 "  --signer <s>          auto (default: apksigner if found, else built-in), apksigner, builtin (v1+v2, no Java needed)\n" +
                 "  --strip-aot <m>       modified (default): delete the AOT images of patched assemblies; all: delete every AOT image\n" +
+                "  --abi <list>          native-library ABIs to keep (default: " + PatcherOptions.Arm64 + ", 64-bit only; e.g. arm64-v8a,armeabi-v7a, or all)\n" +
                 "  --dry-run             verify every patch site and report, write nothing\n" +
                 "  --force               patch an APK that is not the verified " + KnownBuild.Version + " build (sites are still verified)\n" +
                 "  -v, --verbose         more output\n\n" +

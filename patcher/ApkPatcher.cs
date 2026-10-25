@@ -39,6 +39,8 @@ namespace McvsOffline.Patcher
     /// <item>add McvsOffline.Server.dll to assemblies/ (STORED, 4-byte aligned, like every assembly there);</item>
     /// <item>delete lib/&lt;abi&gt;/libaot-X.dll.so of every modified assembly X so Mono JITs the patched IL (AOT
     /// mode "normal" falls back to JIT, verify-C7 §3);</item>
+    /// <item>keep only the native libraries of the selected ABIs (default arm64-v8a: lib/armeabi-v7a/** and any other
+    /// lib/&lt;abi&gt;/ folder are dropped; nothing else in the APK refers to them, Android picks the ABI from lib/);</item>
     /// <item>never touch the six typemap-pinned assemblies (their MVIDs are baked into libxamarin-app.so);</item>
     /// <item>rename the manifest's vendor-wide signature permission into the package's namespace, so the re-signed APK
     /// installs next to other Gameloft games (<see cref="ManifestPatch"/>);</item>
@@ -118,7 +120,8 @@ namespace McvsOffline.Patcher
 
             byte[] rawArgs = RawArgsFor(input, options, report);
 
-            List<ZipEntry> output = ComposeEntries(input, modifiedAssemblies, manifest, rawArgs, serverBytes, options.StripAot, report);
+            CheckAbis(input, options.Abis, report);
+            List<ZipEntry> output = ComposeEntries(input, modifiedAssemblies, manifest, rawArgs, serverBytes, options.StripAot, options.Abis, report);
             report.Warnings.AddRange(StaleAotNotes(input, output, modifiedAssemblies.Keys));
             byte[] unsigned = ZipArchiveWriter.Write(output);
             var modifiedEntries = modifiedAssemblies.Keys.Select(f => KnownBuild.AssembliesDir + f).ToList();
@@ -208,8 +211,44 @@ namespace McvsOffline.Patcher
             return Encoding.ASCII.GetBytes(KnownBuild.RawArgsAllLevels);
         }
 
+        /// <summary>lib/&lt;abi&gt;/... -> abi, or null for any other entry.</summary>
+        internal static string AbiOf(string entryName)
+        {
+            if (!entryName.StartsWith("lib/", StringComparison.Ordinal)) return null;
+            int slash = entryName.IndexOf('/', 4);
+            return slash < 0 ? null : entryName.Substring(4, slash - 4);
+        }
+
+        /// <summary>
+        /// Every kept ABI must be in the APK with the Mono runtime (libmonodroid.so), and something must be left: an output with no
+        /// native code for the phone would install and then fail to start.
+        /// </summary>
+        private static void CheckAbis(ZipArchiveReader.Archive input, SortedSet<string> keep, PatchReport report)
+        {
+            var present = new SortedSet<string>(input.Entries.Select(e => AbiOf(e.Name)).Where(a => a != null), StringComparer.Ordinal);
+            if (present.Count == 0)
+            {
+                report.Warnings.Add("the APK has no native libraries (lib/): nothing to select by ABI");
+                return;
+            }
+            if (keep == null)
+            {
+                report.Notes.Add("native libraries: every ABI kept (" + string.Join(", ", present) + ")");
+                return;
+            }
+            foreach (string abi in keep)
+            {
+                if (input.Find("lib/" + abi + "/libmonodroid.so") == null)
+                    throw new InvalidDataException("the APK has no lib/" + abi + "/libmonodroid.so: cannot keep only " + string.Join(",", keep) +
+                                                   " (ABIs in the APK: " + (present.Count == 0 ? "none" : string.Join(", ", present)) + "; see --abi)");
+            }
+            var dropped = present.Where(a => !keep.Contains(a)).ToList();
+            report.Notes.Add("native libraries: kept " + string.Join(", ", keep) + (dropped.Count == 0 ? "" : "; dropped " + string.Join(", ", dropped) +
+                             " (the offline build is " + (keep.Count == 1 && keep.Contains(PatcherOptions.Arm64) ? "64-bit ARM only" : string.Join("/", keep) + " only") + ")"));
+        }
+
         private static List<ZipEntry> ComposeEntries(ZipArchiveReader.Archive input, Dictionary<string, byte[]> modified, byte[] manifest,
-                                                     byte[] rawArgs, byte[] serverBytes, AotStripMode stripAot, PatchReport report)
+                                                     byte[] rawArgs, byte[] serverBytes, AotStripMode stripAot, SortedSet<string> keepAbis, PatchReport report)
         {
             var removeAot = new HashSet<string>(modified.Keys.Select(f => "libaot-" + f + ".so"), StringComparer.Ordinal);
             var output = new List<ZipEntry>();
@@ -220,6 +259,12 @@ namespace McvsOffline.Patcher
                 if (BuiltInSigner.IsSignatureFile(e.Name))
                 {
                     report.Removed.Add(e.Name + " (old signature)");
+                    continue;
+                }
+                string abi = AbiOf(e.Name);
+                if (abi != null && keepAbis != null && !keepAbis.Contains(abi))
+                {
+                    report.Removed.Add(e.Name + " (native library of an ABI not kept, --abi)");
                     continue;
                 }
                 if (IsAotImage(e.Name))

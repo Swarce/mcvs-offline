@@ -30,7 +30,7 @@ namespace McvsOffline.Embedded.Android
     /// it is the same folder the installer would pick.
     /// </para>
     /// </summary>
-    internal sealed class AndroidPlatform : IEmbeddedPlatform, IPlatformDiagnostics
+    internal sealed class AndroidPlatform : IEmbeddedPlatform, IPlatformDiagnostics, IInstallerPlatform
     {
         public const string PackageName = "com.gameloft.android.ANMP.GloftMVHM";
         private const string PreferencesName = "MainActivityPrefs";   // GameInstaller.mPreferencesName
@@ -90,6 +90,30 @@ namespace McvsOffline.Embedded.Android
         public LogSink CreateSystemLogSink(LogLevel minLevel)
         {
             return new LogcatSink(minLevel);
+        }
+
+        // ------------------------------------------------------------------ IInstallerPlatform
+
+        public string InternalFilesDir()
+        {
+            return AndroidDiagnostics.FilesDir();
+        }
+
+        public McvsOffline.Embedded.Install.IInstallerPrefs InstallerPrefs()
+        {
+            return new AndroidInstallerPrefs();
+        }
+
+        public void MonitorInstaller(Log log, BootTrace boot)
+        {
+            try
+            {
+                InstallerMonitor.Start(log, boot);
+            }
+            catch (Exception ex)
+            {
+                log.Info("[installer] monitor not started: " + ex.GetType().Name + ": " + ex.Message);
+            }
         }
 
         // ------------------------------------------------------------------ IPlatformDiagnostics

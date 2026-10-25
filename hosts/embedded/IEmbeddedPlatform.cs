@@ -48,6 +48,22 @@ namespace McvsOffline.Embedded
         string StatusExtras();
     }
 
+    /// <summary>
+    /// Optional: what <see cref="Install.InstallerData"/> needs to prepare the Java installer's state before it runs (Android:
+    /// getFilesDir() and the installer's SharedPreferences through the game's own SUtils). Every member must catch everything.
+    /// </summary>
+    public interface IInstallerPlatform
+    {
+        /// <summary>Context.getFilesDir() (GameInstaller.SaveFolder), or null.</summary>
+        string InternalFilesDir();
+
+        /// <summary>The installer's preferences (MainActivityPrefs), or null.</summary>
+        Install.IInstallerPrefs InstallerPrefs();
+
+        /// <summary>Starts logging the installer's progress (state machine, errors) while it runs; diagnostics only.</summary>
+        void MonitorInstaller(Log log, BootTrace boot);
+    }
+
     /// <summary>A fixed directory as game root (tests, and running the embedded host on a PC).</summary>
     public sealed class DirectoryPlatform : IEmbeddedPlatform
     {
