@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using McvsOffline.Embed.Tests.Support;
 using McvsOffline.Patcher;
+using McvsOffline.Patcher.Manifest;
 using McvsOffline.Patcher.Signing;
 using McvsOffline.Patcher.Tools;
 using McvsOffline.Patcher.Zip;
@@ -141,7 +142,7 @@ namespace McvsOffline.Embed.Tests.Patcher
         {
             var entries = new List<ZipEntry>
             {
-                ZipEntry.CreateDeflated("AndroidManifest.xml", Encoding.UTF8.GetBytes("<manifest/>"), null),
+                ZipEntry.CreateDeflated("AndroidManifest.xml", AxmlWriter.Write(AxmlWriter.GameLikeManifest()), null),
                 ZipEntry.CreateDeflated("META-INF/MANIFEST.MF", Encoding.ASCII.GetBytes("Manifest-Version: 1.0\r\n\r\n"), null),
                 ZipEntry.CreateDeflated("META-INF/GAMELOFT.SF", Encoding.ASCII.GetBytes("old"), null),
                 ZipEntry.CreateDeflated("META-INF/GAMELOFT.RSA", new byte[] { 1, 2, 3 }, null),
@@ -199,7 +200,12 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.DoesNotContain("lib/armeabi-v7a/libaot-NicePlaySDK.dll.so", names);
             Assert.DoesNotContain("META-INF/GAMELOFT.SF", names);
             Assert.Contains("META-INF/CERT.SF", names);
-            foreach (string kept in new[] { "AndroidManifest.xml", "assemblies/Other.dll", "lib/arm64-v8a/libmonodroid.so", "lib/arm64-v8a/libaot-Other.dll.so",
+            // The manifest's vendor-wide permission was renamed (ManifestPatchTests); it stays DEFLATED.
+            Assert.Contains("AndroidManifest.xml", report.Modified);
+            Assert.Equal(ZipEntry.MethodDeflated, result.Find("AndroidManifest.xml").Method);
+            Assert.Equal(ManifestPatch.Apply(input.Find("AndroidManifest.xml").GetData(), null), result.Find("AndroidManifest.xml").GetData());
+            Assert.Contains(report.Notes, n => n.Contains("glshare.permission.ACCESS_SHARED_DATA renamed"));
+            foreach (string kept in new[] { "assemblies/Other.dll", "lib/arm64-v8a/libmonodroid.so", "lib/arm64-v8a/libaot-Other.dll.so",
                                              "res/raw/odd.bin", "resources.arsc", "META-INF/maven/x/pom.xml" })
             {
                 ZipEntry a = input.Find(kept), b = result.Find(kept);

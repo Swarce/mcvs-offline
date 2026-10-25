@@ -62,6 +62,23 @@ namespace McvsOffline.Tests
             Assert.Equal(51780, s.Port);
             Assert.Equal("{\"port\": 1234,,}", File.ReadAllText(path));
             Assert.True(logs.Contains("not a valid JSON object"));
+
+            // The in-memory defaults are never written over the player's file, whoever asks (a host adding its keys).
+            Assert.True(s.IsFallback);
+            s.Set("embedded.manageArgs", true);
+            Assert.Throws<System.InvalidOperationException>(() => s.Save());
+            Assert.Equal("{\"port\": 1234,,}", File.ReadAllText(path));
+            Assert.True(s.GetBool("embedded.manageArgs", false)); // still usable in memory
+        }
+
+        [Fact]
+        public void AReadableFileIsNotAFallback()
+        {
+            using var dir = new TempDir();
+            string path = dir.Combine("settings.json");
+            Assert.False(Settings.Load(path, null).IsFallback); // created
+            Assert.False(Settings.Load(path, null).IsFallback); // read back
+            Assert.False(new Settings().IsFallback);
         }
 
         [Fact]

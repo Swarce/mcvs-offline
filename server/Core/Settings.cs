@@ -51,6 +51,13 @@ namespace McvsOffline.Server.Core
         /// <summary>The file this instance was loaded from (null for in-memory settings).</summary>
         public string FilePath { get; private set; }
 
+        /// <summary>
+        /// True when <see cref="FilePath"/> exists but could not be read or is not a JSON object: this instance holds the
+        /// defaults in memory and <see cref="Save"/> refuses to write them over the player's file (a typo must never
+        /// cost the player's settings).
+        /// </summary>
+        public bool IsFallback { get; private set; }
+
         /// <summary>The default document. Order here is the order a fresh settings.json is written in.</summary>
         public static Dictionary<string, object> CreateDefaults()
         {
@@ -85,25 +92,26 @@ namespace McvsOffline.Server.Core
 
         /// <summary>
         /// Loads <paramref name="path"/> over the defaults. A missing file is created with the defaults; new default
-        /// keys are added to an existing file. An unreadable file is left untouched (defaults are used in memory) so a
-        /// typo never destroys the player's settings.
+        /// keys are added to an existing file. A file that cannot be read or parsed is left untouched: the defaults
+        /// are used in memory (<see cref="IsFallback"/>) so a typo never destroys the player's settings.
         /// </summary>
         public static Settings Load(string path, Log log)
         {
             log = log ?? Log.Null;
             string full = Path.GetFullPath(path);
             Dictionary<string, object> doc = CreateDefaults();
-            string text = null;
+            string text;
             try
             {
                 text = AtomicFile.ReadAllTextOrNull(full);
             }
             catch (Exception ex)
             {
-                log.Error("cannot read " + full + "; using defaults", ex);
+                log.Error("cannot read " + full + "; using defaults (the file is left unchanged)", ex);
+                return Fallback(doc, full, log);
             }
 
-            bool writeBack = text == null;
+            bool writeBack = text == null; // only a missing file is created
             if (text != null)
             {
                 object parsed;
@@ -115,10 +123,8 @@ namespace McvsOffline.Server.Core
                 }
                 else
                 {
-                    log.Error(full + " is not a valid JSON object; using defaults (the file is left unchanged)");
-                    var broken = new Settings(doc, full);
-                    broken.Validate(log);
-                    return broken;
+                    log.Error(full + " is not a valid JSON object; using defaults (the file is left unchanged: fix it and restart)");
+                    return Fallback(doc, full, log);
                 }
             }
 
@@ -138,10 +144,22 @@ namespace McvsOffline.Server.Core
             return settings;
         }
 
-        /// <summary>Saves the document (without overrides) to <see cref="FilePath"/>, atomically.</summary>
+        private static Settings Fallback(Dictionary<string, object> defaults, string full, Log log)
+        {
+            var fallback = new Settings(defaults, full);
+            fallback.IsFallback = true;
+            fallback.Validate(log);
+            return fallback;
+        }
+
+        /// <summary>
+        /// Saves the document (without overrides) to <see cref="FilePath"/>, atomically. Throws for in-memory settings
+        /// and for a <see cref="IsFallback"/> instance, which would replace the player's unreadable file with defaults.
+        /// </summary>
         public void Save()
         {
             if (FilePath == null) throw new InvalidOperationException("settings are not backed by a file");
+            if (IsFallback) throw new InvalidOperationException(FilePath + " could not be read; refusing to overwrite it with defaults");
             string text;
             lock (gate) text = MiniJson.Serialize(values, true) + "\n";
             AtomicFile.WriteAllText(FilePath, text);

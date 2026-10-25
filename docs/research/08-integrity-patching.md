@@ -35,7 +35,8 @@ Tooling note: no Ghidra. Native analysis done with `readelf`, `llvm-objdump` (aa
   assemblies (`Game.dll`, `Gameloft.*.dll`) are **not** in `libxamarin-app.so`'s typemap, so modifying them does **not**
   require preserving their MVID. Only 6 Android-binding assemblies are MVID-locked.
 * **[V] Re-signing breaks only online/cross-app features** (Google Play Games sign-in, Google OAuth, Facebook login,
-  the `glshare` cross-Gameloft-app content provider). All of these are irrelevant to an offline build.
+  the `glshare` cross-Gameloft-app content provider). All of these are irrelevant to an offline build, **but** the
+  re-signed manifest must not keep declaring the vendor-wide `glshare` permission (see §L below, correction).
 
 ---
 
@@ -346,6 +347,17 @@ Re-signing with your own key is mandatory for any APK modification. It breaks **
   ACCESS_SHARED_DATA` are `protectionLevel="signature"` (`AndroidManifest.xml:19-22`, `249+30`). After re-signing, this
   app can no longer share the `gameloft_sharing` SQLite db with **other** Gameloft apps signed by the original key.
   Irrelevant for standalone MCVS.
+  **Correction (review, October 2026): the sharing is irrelevant, the declaration is not.** The permission name is not
+  package-scoped and every Gameloft game declares it (Asphalt 8/9, MC5, N.O.V.A. 3, Six-Guns, Gameloft Pad...). Since
+  Android 5.0 PackageManager refuses a package that redeclares a permission owned by an installed package with a
+  different certificate (`INSTALL_FAILED_DUPLICATE_PERMISSION: ... glshare.permission.ACCESS_SHARED_DATA already owned
+  by com.gameloft.android.ANMP.GloftA9HM`, field report on 4PDA), so a re-signed APK that keeps the declaration cannot
+  be installed next to any official Gameloft game, and blocks their installation afterwards. The patcher therefore
+  renames the pool string (shared by `<permission>`, `<uses-permission>` and the provider's `android:permission`) to
+  `<package>.mcvs.glshare.permission.ACCESS_SHARED_DATA` (`patcher/Manifest/ManifestPatch.cs`). The only other custom
+  permission, `C2D_MESSAGE`, and every provider authority are already package-scoped. Nothing is lost: the game reads
+  its own provider without a permission check (same UID), and `DataSharing.fillDBArray` swallows the
+  `SecurityException` from other apps' providers.
 * **No Play Licensing to worry about** (§3).
 
 Net: for a fully offline target, re-signing costs you nothing you still want.

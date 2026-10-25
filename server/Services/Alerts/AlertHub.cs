@@ -137,11 +137,22 @@ namespace McvsOffline.Server.Services.Alerts
         /// <summary>Number of open streams that would receive an alert for <paramref name="recipient"/> (diagnostics, tests).</summary>
         public int ListenerCount(string recipient)
         {
+            return ListenerCount(recipient, null);
+        }
+
+        /// <summary>
+        /// Number of open streams of <paramref name="recipient"/> that would receive an alert of
+        /// <paramref name="type"/> (null = any type). The TS's per-connection listener asks for "connection" only, so
+        /// <c>ListenerCount(fedId, "set_profile")</c> counts the player's AlertsComponent streams (AlertType.All).
+        /// </summary>
+        public int ListenerCount(string recipient, string type)
+        {
             string to = NormalizeRecipient(recipient);
             int count = 0;
             lock (gate)
             {
-                foreach (Subscription s in subscribers) if (s.Recipients.Contains(to)) count++;
+                foreach (Subscription s in subscribers)
+                    if (s.Recipients.Contains(to) && (type == null || s.Accepts(type))) count++;
             }
             return count;
         }

@@ -12,8 +12,14 @@ namespace McvsOffline.Server.Services.Storage
     /// </summary>
     public interface IProfileAccess
     {
-        /// <summary>True when the account has a stored profile.</summary>
+        /// <summary>True when the account has a stored profile (any write creates one, even an R3 section creation).</summary>
         bool HasProfile(string accountId);
+
+        /// <summary>
+        /// True when the stored profile holds a non-empty game-profile dump (<c>_mcvs.gameProfile</c>, written by the
+        /// TS's first R4 save; verify-C3 §2.3). The dump itself is not copied.
+        /// </summary>
+        bool HasGameProfile(string accountId);
 
         /// <summary>
         /// A deep copy of the value at <paramref name="path"/> as plain MiniJson values ("" = the document as the
@@ -71,6 +77,12 @@ namespace McvsOffline.Server.Services.Storage
         public bool HasProfile(string accountId)
         {
             return store.ReadDocument(accountId).IsStored;
+        }
+
+        public bool HasGameProfile(string accountId)
+        {
+            ProfileDocument doc = store.ReadDocument(accountId);
+            return doc.IsStored && SeshatOperations.HasGameProfile(doc);
         }
 
         public object Read(string accountId, string path)

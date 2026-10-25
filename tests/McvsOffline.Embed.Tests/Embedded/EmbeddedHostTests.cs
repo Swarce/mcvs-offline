@@ -114,6 +114,36 @@ namespace McvsOffline.Embed.Tests.Embedded
             }
         }
 
+        /// <summary>
+        /// A settings.json with a syntax error survives the game start byte for byte: the host runs on the defaults in
+        /// memory and does not add its embedded.* keys to the file (which would replace it with the defaults).
+        /// </summary>
+        [Fact]
+        public void AMalformedSettingsFileSurvivesTheStartByteForByte()
+        {
+            string root = TestEnvironment.NewTempDir("badsettings");
+            Directory.CreateDirectory(Path.Combine(root, "McvsOffline"));
+            string path = Path.Combine(root, "McvsOffline", "settings.json");
+            const string broken = "{\n  \"unlockAll\": true\n  \"devMenu\": true\n}\n"; // missing comma
+            File.WriteAllText(path, broken);
+
+            EmbeddedHost host = EmbeddedHost.Start(new DirectoryPlatform(root, false),
+                                                   new EmbeddedHostOptions { Port = TestEnvironment.FreePort() });
+            try
+            {
+                Assert.True(host.WaitForServer(30000));
+                Assert.NotNull(host.Server);
+                Assert.True(host.Settings.IsFallback);
+                Assert.False(host.Server.Context.Settings.UnlockAll); // defaults in memory
+                Assert.True(File.Exists(Path.Combine(root, "args.txt"))); // the game still finds the server
+            }
+            finally
+            {
+                host.Server?.Dispose();
+            }
+            Assert.Equal(broken, File.ReadAllText(path));
+        }
+
         [Fact]
         public void LanModeAddsLocalAnubisHostAndListensOnAllInterfaces()
         {

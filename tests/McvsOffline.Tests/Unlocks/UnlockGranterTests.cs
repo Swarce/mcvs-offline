@@ -36,7 +36,10 @@ namespace McvsOffline.Tests.Unlocks
                 };
                 Server = McvsServer.Create(options);
                 Server.Context.Settings.Override("unlockAll", unlockAll);
-                Server.Context.Settings.Override("unlocks", new Dictionary<string, object> { ["batchSize"] = batchSize, ["batchDelaySeconds"] = 0L });
+                Server.Context.Settings.Override("unlocks", new Dictionary<string, object>
+                {
+                    ["batchSize"] = batchSize, ["batchDelaySeconds"] = 0L, ["startDelaySeconds"] = 0L, ["streamWaitSeconds"] = 30L,
+                });
                 Server.Context.Events.Subscribe(AlertHub.PushTopic, payload => { lock (Alerts) Alerts.Add((Dictionary<string, object>)payload); });
             }
 
@@ -48,20 +51,51 @@ namespace McvsOffline.Tests.Unlocks
 
             public IProfileAccess Profiles => Server.Context.Features.Get<IProfileAccess>();
 
-            /// <summary>The TS saving the game profile for a player (R4), with its for_username token.</summary>
+            /// <summary>
+            /// The TS loading a player and saving the game profile, with its for_username token: LoadSections creates
+            /// the sections that are absent (R3, verify-C3 §2.3), then R4.
+            /// </summary>
             public string SaveGameProfile(string user)
             {
-                Account account = Server.Context.Accounts.GetOrCreate("anonymous:" + user, "d");
-                string token = Server.Context.Tokens.Issue(account.Id, "anonymous:" + user, McvsConstants.ClientId,
-                                                           StorageHarness.ServerScopes, "d", "game:mcvsoffline").Token;
+                Token(user, out string accountId);
+                foreach (string section in new[] { "_mcvs.matchers", "_mcvs.snapshot", "inventory", "_inventory" })
+                    if (Profiles.Read(accountId, section) == null) Post(user, section, "{}");
+                return Post(user, "_mcvs.gameProfile", GameData.GameProfileDump);
+            }
+
+            /// <summary>
+            /// A selector Set by the TS for a player (<c>POST profiles/me/myprofile/&lt;selector&gt;
+            /// visibility=restricted&amp;object=...</c>): R3 with "{}", R4 with the dump (verify-C3 §2.3).
+            /// </summary>
+            public string Post(string user, string selector, string objectText)
+            {
+                string token = Token(user, out string accountId);
                 string form = UrlEncoding.EncodeForm(new[]
                 {
                     new KeyValuePair<string, string>("access_token", token),
                     new KeyValuePair<string, string>("visibility", "restricted"),
-                    new KeyValuePair<string, string>("object", GameData.GameProfileDump),
+                    new KeyValuePair<string, string>("object", objectText),
                 });
-                Assert.Equal(200, Server.Handle(HttpRequest.Create("POST", "/profiles/me/myprofile/_mcvs.gameProfile", form)).StatusCode);
-                return account.Id;
+                Assert.Equal(200, Server.Handle(HttpRequest.Create("POST", "/profiles/me/myprofile/" + selector, form)).StatusCode);
+                return accountId;
+            }
+
+            /// <summary>A GET by the TS for a player (R1 with a selector, R2 with "" and include_fields); returns the body.</summary>
+            public string Get(string user, string selector, string query = "")
+            {
+                string token = Token(user, out _);
+                var response = Server.Handle(HttpRequest.Create("GET", "/profiles/me/myprofile" + (selector.Length > 0 ? "/" + selector : "")
+                                                                       + "?access_token=" + Uri.EscapeDataString(token) + query));
+                Assert.Equal(200, response.StatusCode);
+                return response.BodyText;
+            }
+
+            private string Token(string user, out string accountId)
+            {
+                Account account = Server.Context.Accounts.GetOrCreate("anonymous:" + user, "d");
+                accountId = account.Id;
+                return Server.Context.Tokens.Issue(account.Id, "anonymous:" + user, McvsConstants.ClientId,
+                                                   StorageHarness.ServerScopes, "d", "game:mcvsoffline").Token;
             }
 
             public Dictionary<string, object> WaitForStatus(string account, string prefix)
@@ -118,6 +152,120 @@ namespace McvsOffline.Tests.Unlocks
             Assert.Empty(h.Alerts);
         }
 
+        /// <summary>
+        /// A brand-new player's first TS load (ProfileManagerComponent.LoadPlayerProfile): R1 and R2 read {}, then
+        /// LoadSections creates each absent section with an R3 Set of "{}" (OP/ProfileSection.cs:232-239, 326-333),
+        /// inventory included, and only then does the TS save the game profile (R4). Nothing may be granted before R4:
+        /// an R3 inventory landing after a grant would erase UnlockMerc_ALL_MAX and every merc-dependent key claimed
+        /// after it would become an alternate reward (verify-C5 (c)).
+        /// </summary>
+        [Fact]
+        public void NothingIsGrantedDuringTheFirstLoadAndTheLedgerStartsWithTheMercUnlockAfterR4()
+        {
+            using var h = new Harness(unlockAll: true, batchSize: 4000);
+            Assert.Equal("{}", h.Get("fresh", "_mcvs.gameProfile"));                       // R1
+            Assert.Equal("{}", h.Get("fresh", "", "&include_fields=_mcvs.matchers,_mcvs.snapshot,inventory,_inventory")); // R2
+
+            string account = h.Post("fresh", "_mcvs.matchers", "{}");                       // R3, the first write ever
+            Thread.Sleep(300);
+            Assert.Null(h.Profiles.Read(account, "inventory"));
+            h.Post("fresh", "_mcvs.snapshot", "{}");                                        // R3
+            h.Post("fresh", "inventory", "{}");                                             // R3: Set, replaces the section
+            h.Post("fresh", "_inventory", "{}");                                            // R3
+            Thread.Sleep(300);
+            Assert.Empty((Dictionary<string, object>)h.Profiles.Read(account, "inventory"));
+            Assert.Empty(h.Alerts);
+            Assert.DoesNotContain(account, h.Granter.Status().Where(kv => ((string)kv.Value).StartsWith("done", StringComparison.Ordinal)).Select(kv => kv.Key));
+
+            h.SaveGameProfile("fresh");                                                     // R4
+            h.WaitForStatus(account, "done (");
+            List<string> keys = h.Granter.AllKeys();
+            var inventory = (Dictionary<string, object>)h.Profiles.Read(account, "inventory");
+            Assert.Equal("UnlockMerc_ALL_MAX", inventory.Keys.First());
+            Assert.Equal(keys, inventory.Keys.ToList());
+
+            // The one-way backup holds the game profile the TS just saved, not an empty document.
+            LocalProfileStore store = h.Server.Context.Features.Get<LocalProfileStore>();
+            BackupInfo backup = store.Backups.List(account).Single(b => b.Reason == "unlockall");
+            Assert.Contains("gameProfile", store.Backups.Read(account, backup.Id));
+        }
+
+        /// <summary>
+        /// The ledger loses the merc unlock between two batches (a late R3 Set from another load, a hand edit): the
+        /// next batch puts UnlockMerc_ALL_MAX back first, alone, and the lost keys are written again.
+        /// </summary>
+        [Fact]
+        public void ALedgerResetBetweenBatchesPutsTheMercUnlockBackFirst()
+        {
+            using var h = new Harness(unlockAll: false, batchSize: 4000);
+            string account = h.SaveGameProfile("reset1");
+            h.Server.Context.Settings.Override("unlockAll", true); // granted below, on this thread only (no worker)
+            bool wiped = false;
+            h.Server.Context.Events.Subscribe(AlertHub.PushTopic, payload =>
+            {
+                // Runs on the granter's thread right after a batch was written: reset the ledger once, after batch 2.
+                if (!wiped && h.Alerts.Count == 2)
+                {
+                    wiped = true;
+                    h.Post("reset1", "inventory", "{}");
+                }
+            });
+            h.Granter.Grant(account);
+            Assert.True(wiped);
+
+            List<string> keys = h.Granter.AllKeys();
+            var inventory = (Dictionary<string, object>)h.Profiles.Read(account, "inventory");
+            Assert.Equal("UnlockMerc_ALL_MAX", inventory.Keys.First());
+            Assert.Equal(new HashSet<string>(keys), new HashSet<string>(inventory.Keys));
+
+            // Alerts: merc unlock, batch 1 (wiped after it), then the merc unlock again alone, then every batch again.
+            int batches = (keys.Count - 1 + 3999) / 4000;
+            Assert.Equal(2 + 1 + batches, h.Alerts.Count);
+            Assert.Equal(0, h.Granter.Grant(account)); // complete
+        }
+
+        /// <summary>
+        /// The first batch waits until the TS's AlertsComponent listens for the player (a stream that takes set_profile;
+        /// the TS's per-connection "connection"-only listener does not count), so the first alert is not lost.
+        /// </summary>
+        [Fact]
+        public void TheFirstBatchWaitsForThePlayersAlertStream()
+        {
+            using var h = new Harness(unlockAll: true, batchSize: 4000);
+            AlertHub hub = AlertHub.For(h.Server.Context);
+            string account = h.SaveGameProfile("stream1");
+            h.WaitForStatus(account, "waiting: for the player's alert stream");
+            Assert.Empty((Dictionary<string, object>)h.Profiles.Read(account, "inventory"));
+
+            string fedId = McvsConstants.FedIdPrefix + account;
+            using (hub.Subscribe(new[] { fedId }, new[] { "connection" }, null))
+            {
+                Thread.Sleep(600);
+                Assert.Empty((Dictionary<string, object>)h.Profiles.Read(account, "inventory"));
+                using (AlertHub.Subscription all = hub.Subscribe(new[] { fedId }, new string[0], null))
+                {
+                    h.WaitForStatus(account, "done (");
+                    var inventory = (Dictionary<string, object>)h.Profiles.Read(account, "inventory");
+                    Assert.Equal("UnlockMerc_ALL_MAX", inventory.Keys.First());
+                    Assert.Contains("set_profile", string.Join("\n", all.Take(1000, () => false)));
+                }
+            }
+        }
+
+        [Fact]
+        public void OnlyTheGameProfileSectionSelectorsTrigger()
+        {
+            Assert.True(UnlockGranter.IsTriggerSelector("_mcvs.gameProfile"));
+            Assert.True(UnlockGranter.IsTriggerSelector("_mcvs.matchers"));
+            Assert.True(UnlockGranter.IsTriggerSelector("_mcvs.snapshot"));
+            Assert.False(UnlockGranter.IsTriggerSelector("_mcvs"));            // R7
+            Assert.False(UnlockGranter.IsTriggerSelector("_mcvs.currentMatch")); // R9
+            Assert.False(UnlockGranter.IsTriggerSelector("_mcvs.gameProfile.x"));
+            Assert.False(UnlockGranter.IsTriggerSelector("inventory"));
+            Assert.False(UnlockGranter.IsTriggerSelector(""));                 // R5 root merge
+            Assert.False(UnlockGranter.IsTriggerSelector(null));
+        }
+
         [Fact]
         public void ExistingLedgerEntriesAreKeptAndOnlyMissingKeysAreWritten()
         {
@@ -142,7 +290,7 @@ namespace McvsOffline.Tests.Unlocks
             using var h = new Harness(unlockAll: false);
             string account = h.SaveGameProfile("unlock3");
             Thread.Sleep(200);
-            Assert.Null(h.Profiles.Read(account, "inventory"));
+            Assert.Empty((Dictionary<string, object>)h.Profiles.Read(account, "inventory")); // as the R3 creation left it
             Assert.Empty(h.Granter.Status());
 
             // On, but the write is not a game-profile save by the game (an in-process API write): still nothing.

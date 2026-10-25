@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Linq;
 using McvsOffline.Embed.Tests.Support;
@@ -41,10 +42,11 @@ namespace McvsOffline.Embed.Tests.Patcher
             PatchReport report = ApkPatcher.Run(options, s => output.WriteLine(s));
             foreach (string note in report.Notes) output.WriteLine(note);
 
-            Assert.Equal(new[] { "assemblies/Game.dll", "assemblies/Gameloft.Engine.dll", "assemblies/Gameloft.Util.dll", "assemblies/NicePlaySDK.dll" },
-                         report.Modified.OrderBy(m => m));
+            Assert.Equal(new[] { "AndroidManifest.xml", "assemblies/Game.dll", "assemblies/Gameloft.Engine.dll", "assemblies/Gameloft.Util.dll", "assemblies/NicePlaySDK.dll" },
+                         report.Modified.OrderBy(m => m, StringComparer.Ordinal));
             Assert.Equal(new[] { "assemblies/McvsOffline.Server.dll" }, report.Added);
-            Assert.Equal(7, report.Notes.Count);
+            Assert.Equal(8, report.Notes.Count); // 7 IL patch notes + the manifest permission rename
+            Assert.Contains(report.Notes, n => n.StartsWith("manifest: vendor-wide signature permission glshare.permission.ACCESS_SHARED_DATA renamed"));
             Assert.Contains(report.Notes, n => n.Contains("<NativeStartMatchWithBots>b__354_0") && n.Contains("IL_0007"));
             Assert.Contains(report.Notes, n => n.Contains("http://127.0.0.1:51780/location/?ip="));
             // Both ABIs lose the AOT images of exactly the four modified assemblies; v1 signature files go.
@@ -71,7 +73,7 @@ namespace McvsOffline.Embed.Tests.Patcher
                 return;
             }
             PatchReport report = ApkPatcher.Run(new PatcherOptions { InputApk = apk, ServerDll = server, DryRun = true }, null);
-            Assert.Equal(4, report.Notes.Count);
+            Assert.Equal(5, report.Notes.Count); // 4 IL patch notes + the manifest permission rename
             Assert.DoesNotContain(report.Notes, n => n.Contains("LocalAnubisManager"));
         }
     }

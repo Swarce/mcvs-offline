@@ -170,8 +170,9 @@ deterministic id the auth module derives).
   no locator or it returns null. A LAN forwarder implements `IProfileStore` by relaying the same request to the
   account's home device and returning that device's status and body unchanged. The guest's own server then stays
   the single source of truth. The locator is consulted on every request, so it may be registered later.
-- **`IProfileAccess`** (`context.Features.Get<IProfileAccess>()`): `HasProfile`, `Read`/`ReadText`, `Set`, `Merge`,
-  `Remove`. Same locking, durability and backups as game requests.
+- **`IProfileAccess`** (`context.Features.Get<IProfileAccess>()`): `HasProfile` (any write creates a profile, even an
+  R3 section creation), `HasGameProfile` (a non-empty `_mcvs.gameProfile`, i.e. the TS's R4 happened),
+  `Read`/`ReadText`, `Set`, `Merge`, `Remove`. Same locking, durability and backups as game requests.
   - `AddToInventory(account, rewardKey, delta)` is the **IAP ledger grant channel**. The TS diffs `inventory`
     against what it already granted, on every login and on a `set_profile` alert, and grants the difference as an
     IAP_BUNDLE reward (report 03 §13.3; EN/IapStoreComponent.cs:1243-1305).

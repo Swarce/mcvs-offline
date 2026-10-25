@@ -70,5 +70,5 @@ keys, with defaults and meaning in each protocol note:
 | matchmaker | `matchmaker.passDataCenter`, `matchmaker.tsArgs`, `matchmaker.gsArgs`, `matchmaker.tsRoomCapacity`, `matchmaker.gsRoomCapacity` |
 | assets | `assets.couponsEnabled`, `assets.coupons` |
 | misc | `alerts.streamSeconds`, `alerts.keepAliveSeconds`, `alerts.replaySeconds`, `chat.streamSeconds`, `chat.keepAliveSeconds`, `chat.historySize`, `messaging.maxMessagesPerMailbox`, `leaderboards.groupSize`, `leaderboards.virtualPlayers`, `leaderboards.virtualTopScore`, `wall.maxPostsPerWall`, `geo.country`, `tracking.disable` |
-| unlocks | `unlocks.batchSize`, `unlocks.batchDelaySeconds` |
+| unlocks | `unlocks.batchSize`, `unlocks.batchDelaySeconds`, `unlocks.startDelaySeconds`, `unlocks.streamWaitSeconds` |
 | embedded host | `embedded.manageArgs`, `embedded.lanAdvertiseHost` ([PLAYER-SETUP.md](PLAYER-SETUP.md)) |

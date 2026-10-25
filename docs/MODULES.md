@@ -114,7 +114,7 @@ exceptions in full) to the console and `<data>/logs/server.log`; unknown endpoin
 | Feature | Provider | Use |
 |---|---|---|
 | `Auth.IAuthenticator` (`server/Services/Auth/Authenticator.cs`) | AUTH | The standard token check for new code. `Authenticate(request)` finds the token (form, query, JSON body `access_token`, `Authorization: Bearer`) and returns an `AuthIdentity` (`AccountId`, `FedId`, `Credential`, `Actor`, `IsOnBehalf`, `IsGameServer`) or null for a missing, unknown, foreign-issuer or orphaned token; answer that with `Unauthorized(request, reason)` (401, never 403, with a diagnostic log line). `ResolveAccount(identity, routeCredential)` resolves `me`, `fed_id:x` (also `%3A`) and `type:user`; `identity.IsGameServer` allows cross-account access (the GS writing `_mcvs.currentMatch` with its own token). STORAGE and MISC predate it and resolve tokens with the same rules through `context.Tokens` |
-| `Storage.IProfileAccess` | STORAGE | In-process profile read/set/merge/remove under the account lock (durable, backed up, publishes `storage.profile.changed`); `AddToInventory`/`AddToLedger` for the IAP ledger grant channel; `Merge(..., backupReason)` backs up first |
+| `Storage.IProfileAccess` | STORAGE | In-process profile read/set/merge/remove under the account lock (durable, backed up, publishes `storage.profile.changed`); `HasProfile` vs `HasGameProfile` (any write vs the R4 game-profile dump); `AddToInventory`/`AddToLedger` for the IAP ledger grant channel; `Merge(..., backupReason)` backs up first |
 | `Storage.IProfileStoreLocator` | (LAN stage, M3) | Optional: return a forwarding `IProfileStore` for accounts whose home is another device; asked on every storage request |
 | `Storage.LocalProfileStore` | STORAGE | The local store itself (diagnostics, tests) |
 | `Crm.CrmDocumentCache` | CONTENT | The current CRM document (built at startup on a warm-up thread; `POST _mcvs/crm/reload` rebuilds it) |
@@ -129,7 +129,7 @@ synchronously on the publisher's thread (usually a request thread): do little, q
 
 | Topic | Payload | Publisher → typical subscriber |
 |---|---|---|
-| `storage.profile.changed` | `{account, fedId, revision, operation, selector, deleted, source}`; `source` is `"http"` for game requests, `"api"` for `IProfileAccess` | STORAGE, after every saved change → unlocks (grants after the first game-profile save) |
+| `storage.profile.changed` | `{account, fedId, revision, operation, selector, deleted, source}`; `source` is `"http"` for game requests, `"api"` for `IProfileAccess` | STORAGE, after every saved change → unlocks (grants after the first `_mcvs.gameProfile`/`matchers`/`snapshot` save once the game profile and the inventory section are stored) |
 | `storage.inventory.changed` | `{account, fedId, section, key, count, delta}` | STORAGE (`AddToLedger`) → whoever must tell a running TS to re-check the ledger |
 | `alerts.push` | `{"to": "fed_id:<id>" \| "<account id>" \| "group:<id>", "alert": {"type": ..., ...}}` (`alert` may be a JSON string); `connection` alerts are dropped (they kick the player) | anyone → MISC Kairos streams. `{"type":"set_profile"}` makes the TS re-run `IapStoreComponent.CheckInventory` (verify-C5) |
 | `messaging.post` | `{"to", "transport"? (default `secured`), "body", "type"?, "alert"? (default true), "label"?, "replaceMatchingLabel"?, "from"?, "fields"?}` | anyone → MISC Hermes mailboxes (inbox gifts, notices) |

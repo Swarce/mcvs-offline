@@ -200,6 +200,13 @@ namespace McvsOffline.Embedded
                 changed = true;
             }
             if (!changed) return;
+            if (Settings.IsFallback)
+            {
+                // The player's settings.json has a syntax error (or cannot be read): the defaults are only in memory and
+                // the file must stay exactly as it is, so the player can fix it.
+                Log.Warn(Paths.SettingsFile + " could not be read: running with the default settings and leaving the file unchanged");
+                return;
+            }
             try
             {
                 Settings.Save();

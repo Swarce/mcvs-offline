@@ -187,7 +187,9 @@ Decompiled the PoC's **output** DLLs to verify round-trip correctness:
    `SUtils.retrieveBarrels()` → return `{404250541,0,0,0}` (survives re-sign, no native edit). The native edit
    (constants at `0xed3140-0xed3158`, or force `w20=1`) is the alternative.
 5. **Re-sign:** `zipalign` + `apksigner` (v1+v2/v3) with your own key. Loses Google/Facebook/`glshare` online sign-in
-   (dead with servers down). No LVL to defeat.
+   (dead with servers down). No LVL to defeat. *Added after review:* first rename the manifest's vendor-wide signature
+   permission `glshare.permission.ACCESS_SHARED_DATA` into the package namespace, or the re-signed APK fails with
+   `INSTALL_FAILED_DUPLICATE_PERMISSION` next to any official Gameloft game (report 08 §L correction).
 
 ---
 

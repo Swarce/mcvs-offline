@@ -6,6 +6,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Text;
+using McvsOffline.Patcher.Manifest;
 using McvsOffline.Patcher.Patches;
 using McvsOffline.Patcher.Signing;
 using McvsOffline.Patcher.Tools;
@@ -39,6 +40,8 @@ namespace McvsOffline.Patcher
     /// <item>delete lib/&lt;abi&gt;/libaot-X.dll.so of every modified assembly X so Mono JITs the patched IL (AOT
     /// mode "normal" falls back to JIT, verify-C7 §3);</item>
     /// <item>never touch the six typemap-pinned assemblies (their MVIDs are baked into libxamarin-app.so);</item>
+    /// <item>rename the manifest's vendor-wide signature permission into the package's namespace, so the re-signed APK
+    /// installs next to other Gameloft games (<see cref="ManifestPatch"/>);</item>
     /// <item>keep every other entry byte-identical (same compression method and bytes; lib/ stays DEFLATED, which
     /// matches the default extractNativeLibs=true of this manifest);</item>
     /// <item>align (4 / 4096 for stored .so) and sign v1+v2(+v3) with the player's key.</item>
@@ -109,10 +112,15 @@ namespace McvsOffline.Patcher
                 try { Directory.Delete(resolverDir, true); } catch (Exception) { }
             }
 
-            List<ZipEntry> output = ComposeEntries(input, modifiedAssemblies, serverBytes, options.StripAot, report);
+            ZipEntry manifestEntry = input.Find(ManifestPatch.EntryName) ?? throw new InvalidDataException(options.InputApk + " has no " + ManifestPatch.EntryName);
+            byte[] manifest = ManifestPatch.Apply(manifestEntry.GetData(), report.Notes);
+
+            List<ZipEntry> output = ComposeEntries(input, modifiedAssemblies, manifest, serverBytes, options.StripAot, report);
             report.Warnings.AddRange(StaleAotNotes(input, output, modifiedAssemblies.Keys));
             byte[] unsigned = ZipArchiveWriter.Write(output);
-            VerifyUnchanged(input, ZipArchiveReader.Read(unsigned), modifiedAssemblies.Keys, report);
+            var modifiedEntries = modifiedAssemblies.Keys.Select(f => KnownBuild.AssembliesDir + f).ToList();
+            if (manifest != null) modifiedEntries.Add(ManifestPatch.EntryName);
+            VerifyUnchanged(input, ZipArchiveReader.Read(unsigned), modifiedEntries, report);
 
             if (options.DryRun)
             {
@@ -171,8 +179,8 @@ namespace McvsOffline.Patcher
             return AllPatches.Where(p => ids.Contains(p.Id)).ToList();
         }
 
-        private static List<ZipEntry> ComposeEntries(ZipArchiveReader.Archive input, Dictionary<string, byte[]> modified, byte[] serverBytes,
-                                                     AotStripMode stripAot, PatchReport report)
+        private static List<ZipEntry> ComposeEntries(ZipArchiveReader.Archive input, Dictionary<string, byte[]> modified, byte[] manifest,
+                                                     byte[] serverBytes, AotStripMode stripAot, PatchReport report)
         {
             var removeAot = new HashSet<string>(modified.Keys.Select(f => "libaot-" + f + ".so"), StringComparer.Ordinal);
             var output = new List<ZipEntry>();
@@ -211,6 +219,13 @@ namespace McvsOffline.Patcher
                     assemblyTemplate = e;
                     continue;
                 }
+                if (manifest != null && e.Name == ManifestPatch.EntryName)
+                {
+                    // Same compression method as the original (DEFLATED in 1.17.32).
+                    output.Add(e.Method == ZipEntry.MethodStored ? ZipEntry.CreateStored(e.Name, manifest, e) : ZipEntry.CreateDeflated(e.Name, manifest, e));
+                    report.Modified.Add(e.Name);
+                    continue;
+                }
                 output.Add(e);
                 report.UnchangedEntries++;
             }
@@ -221,9 +236,9 @@ namespace McvsOffline.Patcher
         }
 
         /// <summary>Every entry we did not mean to change must come out with the same method, CRC and stored bytes.</summary>
-        private static void VerifyUnchanged(ZipArchiveReader.Archive input, ZipArchiveReader.Archive output, IEnumerable<string> modified, PatchReport report)
+        private static void VerifyUnchanged(ZipArchiveReader.Archive input, ZipArchiveReader.Archive output, IEnumerable<string> modifiedEntries, PatchReport report)
         {
-            var modifiedNames = new HashSet<string>(modified.Select(f => KnownBuild.AssembliesDir + f), StringComparer.Ordinal);
+            var modifiedNames = new HashSet<string>(modifiedEntries, StringComparer.Ordinal);
             var removed = new HashSet<string>(report.Removed.Select(r => r.Split(' ')[0]), StringComparer.Ordinal);
             foreach (ZipEntry e in input.Entries)
             {

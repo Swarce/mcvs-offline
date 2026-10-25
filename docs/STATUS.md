@@ -1,9 +1,10 @@
 # Status
 
 What is implemented, how it was checked, what has not been run on a device, and the checklist for the first device
-sessions. Last updated at the integration of all module branches (October 2026).
+sessions. Last updated after the review fixes of October 2026 (unlockAll trigger, manifest permission, settings
+fallback, embedded SO_REUSEADDR; see "Review fixes" below).
 
-**Summary:** the Federation server is complete for the offline single-player goals and passes 549 tests, including a
+**Summary:** the Federation server is complete for the offline single-player goals and passes 567 tests, including a
 conformance harness that runs the game's own client libraries against it. The player build (patcher + embedded host)
 is complete and verified offline. **Nothing has run on an Android device yet**; that is the next step, and the
 checklist below is ordered so that the first session finds the blockers first.
@@ -17,26 +18,26 @@ checklist below is ordered so that the first session finds the blockers first.
 | STORAGE | Seshat profiles with verbatim values, nested `include_fields`, deep merge, no ETag, 401-never-403, arrival-order lock, cache, backups, corrupt-file recovery (503, never "missing"), batch/backups/visibility/data endpoints, `IProfileAccess`, LAN seam | `server/Services/Storage` | [storage.md](protocol/storage.md) |
 | CONTENT | CRM over the player's own preconfiguration (validated against every client cast), matchmaker `lobbyconfigs`, unlock coupons, local Iris assets, generated VersusCoins economy (1,864 entries) | `server/Services/{Crm,Matchmaker,Assets}`, `server/Content`, `tools/content-gen` | [content.md](protocol/content.md), [ECONOMY.md](ECONOMY.md) |
 | MISC | Hermes mailboxes, Kairos alert stream, Olympus leaderboards with league groups, Osiris events/profiles, clans, wall, group chat, profanity, game_stats, BanTool, geolocation, tracking/marketing catch-alls | `server/Services/{Social,Messaging,Alerts,...,Misc}` | [misc.md](protocol/misc.md) |
-| Unlocks | `settings.unlockAll` through the inventory ledger (backup, ordered batches, `set_profile` alerts) | `server/Services/Unlocks` | [unlocks.md](protocol/unlocks.md) |
-| EMBED | In-game bootstrap (game root via the game's own Java helpers, `args.txt` managed block, device id, logcat, server thread); patcher (hook, geo, bottile, finder, lan; AOT strip; raw zip rewrite; v1/v2/v3 signing) | `hosts/embedded`, `patcher` | [PLAYER-SETUP.md](PLAYER-SETUP.md) |
+| Unlocks | `settings.unlockAll` through the inventory ledger (starts only once the game profile and the inventory section are stored, waits for the player's alert stream, backup, ordered batches with the merc unlock re-checked before each, `set_profile` alerts) | `server/Services/Unlocks` | [unlocks.md](protocol/unlocks.md) |
+| EMBED | In-game bootstrap (game root via the game's own Java helpers, `args.txt` managed block, device id, logcat, server thread); patcher (hook, geo, bottile, finder, lan; vendor-wide manifest permission renamed into the package namespace; AOT strip; raw zip rewrite; v1/v2/v3 signing) | `hosts/embedded`, `patcher` | [PLAYER-SETUP.md](PLAYER-SETUP.md) |
 | Hosts | Standalone net8 console host; embedded DLL compiled against the game's trimmed Mono BCL (ILVerify-clean) | `hosts/standalone`, `server/McvsOffline.Server.Embedded.csproj` | [DEV-LOOP.md](DEV-LOOP.md) |
 
 ### How it was checked
 
 `MCVS_REFS=<apk assemblies> scripts/build.sh`: net8 solution, embedded build against the game's own BCL, then all
-tests. Result at integration: **McvsOffline.Tests 470/470, McvsOffline.Embed.Tests 79/79, 0 skipped**:
+tests. Result after the review fixes: **McvsOffline.Tests 478/478, McvsOffline.Embed.Tests 89/89, 0 skipped**:
 
 | Tests | Count |
 |---|---|
-| Core (HTTP, router, JSON, accounts, settings, storage helpers, data pack, embedded-DLL references) | 134 |
+| Core (HTTP, router, JSON, accounts, settings, storage helpers, data pack, embedded-DLL references, libc SO_REUSEADDR) | 138 |
 | AUTH | 64 |
 | STORAGE | 83 |
 | CONTENT (including the generator's own Python tests and the real data pack) | 73 |
 | MISC | 110 |
-| Unlocks | 4 |
+| Unlocks | 8 |
 | End-to-end conformance (real client) | 2 |
-| Embedded host | 48 |
-| Patcher | 31 |
+| Embedded host | 49 |
+| Patcher (including the binary manifest rewrite) | 40 |
 
 **Real-client conformance** (the player's Gameloft.OnlinePlatform, Gameloft.Engine, Game, Gameloft.Templates and
 Gameloft.Util loaded from `MCVS_REFS` into net8; mandatory in `build.sh` when the folder has them). Flows that ran
@@ -57,8 +58,10 @@ through the game's own code against the complete server, over HTTP:
   client: same account and alias, R1 byte-exact at 1.4 MB, read back identically by the game's `TemplateReader`,
   sections persisted; `GetReadOnlySessionForUser` reading the player's profile from another game-server session.
   80 requests, all 200 on known routes.
-- **unlockAll**: 11,334 ledger keys read by the TS's `IapStoreComponent.InventorySection`, all JValue integers in
-  order, 4 `set_profile` alerts received by the real `AlertListener`, every key accepted by `RewardItem.Parse`.
+- **unlockAll**: the grant starts after the real `LoadSections` (R3 creations) and `GameProfileSection.Save` (R4),
+  once the real `AlertListener` is open (the granter's own readiness signal, checked); 11,334 ledger keys read by the
+  TS's `IapStoreComponent.InventorySection`, all JValue integers in order, 4 `set_profile` alerts received by the real
+  `AlertListener`, every key accepted by `RewardItem.Parse`.
 - **AUTH** (`Auth/RealClientConformanceTests`): anonymous, game-server, on-behalf and LocalAnubis sessions; first-run
   calls; transfer codes; recovery through the client's own 401 handling after the server lost its tokens and accounts.
 - **MISC** (`Misc/ClientConformanceTests`, now against the real AUTH): Hermes gifts and deletion, the Kairos stream,
@@ -66,12 +69,25 @@ through the game's own code against the complete server, over HTTP:
   game_stats; the time-limited-event validator agrees with the game's `ParseTemplate` on 36 templates.
 - **Embed**: our `args.txt` block through the native flattening and the game's real `GameApplication.Arguments`
   parser (`Embedded` / `QuickLaunch` / URL / super credential / device id / LAN host); the `geo` patch applied to the
-  real Gameloft.Util and its `GetRegion` answered by our server; patches checked on the real APK (dry run).
+  real Gameloft.Util and its `GetRegion` answered by our server; patches checked on the real APK (dry run); the real
+  manifest round-trips byte for byte through the patcher's binary-XML code, and after the permission rename
+  `aapt2 dump xmltree` is the original dump with exactly the three `glshare` uses renamed.
 
 Also checked by hand: the standalone host with curl (boot sequence, byte-exact storage, CRM, `lobbyconfigs`,
-lobby hand-off, coupons, geo, alerts with a pushed gift, unknown-endpoint logging, `unlockAll` after a restart);
-`apksigner verify` and `zipalign -c` on a patched APK; ILVerify on the embedded DLL against the game's BCL (no
-findings).
+lobby hand-off, coupons, geo, alerts with a pushed gift, unknown-endpoint logging, `unlockAll` after a restart, and a
+new player's first load replayed request by request: R1, R2, the four R3 creations, R4, the alert stream, then a late
+R3 `inventory` reset mid-grant); the patcher on the real APK: `apksigner verify`, `zipalign -c`, `aapt2 dump xmltree`
+(every declared permission package-scoped) and `aapt2 dump badging` of the output; ILVerify on the embedded DLL
+against the game's BCL (no findings).
+
+### Review fixes (October 2026)
+
+| Finding | Fix | Tests |
+|---|---|---|
+| unlockAll started at the first write under `_mcvs` (a new player's first R3), so the R3 `inventory` Set could erase `UnlockMerc_ALL_MAX` after it was written and the merc-dependent keys became alternate rewards | Trigger on the game-profile section Sets only, and grant only when the stored profile holds the game profile and the inventory section; not-ready accounts are retried at the next save; the ledger is re-read before each batch and the merc unlock rewritten first if it is gone (and heads every merge); the first batch waits for the player's alert stream; the backup now holds the game profile | `Unlocks/UnlockGranterTests` (first-load sequence, mid-grant reset, stream wait, selectors), conformance |
+| The re-signed APK redeclared the vendor-wide signature permission `glshare.permission.ACCESS_SHARED_DATA`: `INSTALL_FAILED_DUPLICATE_PERMISSION` next to any official Gameloft game | `patcher/Manifest`: the pool string is renamed to `<package>.mcvs.glshare.permission.ACCESS_SHARED_DATA` (permission, uses-permission and the KeyProvider's `android:permission` together); report 08 §L corrected | `Patcher/ManifestPatchTests`, pipeline and real-APK tests |
+| A `settings.json` with a syntax error was replaced by the defaults when the embedded host added its keys | `Settings.IsFallback`; `Save()` refuses for it; the host skips its save; an unreadable file is never written back | `SettingsTests`, `EmbeddedHostTests` |
+| Mono's `SetSocketOption(ReuseAddress)` also sets SO_REUSEPORT, so a same-UID second listener could share 51780 | The embedded listener sets SO_REUSEADDR alone through libc (`SocketReuse`) | `SocketReuseTests`, `EmbeddedAssemblyTests` (libc imports) |
 
 What the harness cannot show: Mono's HTTP stack (the client ran on net8's `SocketsHttpHandler`), anything native
 (Gaia, JNI, the engine's GameObjects), the Worlds themselves (no TS/GS World ran), timing on a phone.
@@ -110,6 +126,8 @@ modules' open issues.
    demand; the `NicePlaySDKDLL.OnInitialize` hook runs; the JNI calls to `SUtils`/`AndroidUtils` work before
    `base.OnCreate`; logcat tag `McvsOffline` shows `serving the Federation at http://127.0.0.1:51780/`; first run pins
    `SDFolder` (verify-C7 §8, EMBED notes). `<root>/McvsOffline/logs/bootstrap.log` has the details if logcat is empty.
+   Also: the APK installs on a phone that has another Gameloft game (no `INSTALL_FAILED_DUPLICATE_PERMISSION`), and
+   a quick kill-and-restart of the game binds 51780 again (no "SO_REUSEADDR not set" warning in the log).
 3. **The TS World loads within the timeouts.** `Menus.level` headless plus the TS handshake inside the 60 s Anubis and
    handshake windows on a phone, two Worlds sharing memory (verify-C2 §4.3). Watch the time between
    `GET /lobbyconfigs/.../ts` and the TS's first profile request. Fallback: `-DisableTimeout` in `args.txt`.
@@ -146,8 +164,10 @@ modules' open issues.
 
 ### P2: everything obtainable
 
-15. **unlockAll.** The TS receives `set_profile` on the player's alert stream and claims each batch; reward popups
-    with 400 keys are acceptable; check whether the GS also diffs and double-grants ([unlocks.md](protocol/unlocks.md)).
+15. **unlockAll.** On a brand-new player the log shows `waiting: no game profile saved yet` for the R3s, then the
+    grant after R4 once the alert stream is open (no "no alert stream" warning); the TS receives `set_profile` on the
+    player's alert stream and claims each batch, the mercs first; reward popups with 400 keys are acceptable; check
+    whether the GS also diffs and double-grants ([unlocks.md](protocol/unlocks.md)).
 16. **Coupons.** "Redeem code" shows under Settings → Account (`RedeemCoupons=1`); `UNLOCKALL` gives one inbox
     message of about 11.3k rewards (UI and save size untested; the split codes `UNLOCKMERCS`, `UNLOCKCAMOS`, ... are
     the fallback) (verify-C5 (b), CONTENT notes).

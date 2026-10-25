@@ -54,6 +54,21 @@ namespace McvsOffline.Embed.Tests.Support
             }
         }
 
+        /// <summary>aapt2 from <see cref="BuildToolsDir"/> or PATH, or null.</summary>
+        public static string Aapt2
+        {
+            get
+            {
+                string dir = BuildToolsDir;
+                if (dir != null && File.Exists(Path.Combine(dir, "aapt2"))) return Path.Combine(dir, "aapt2");
+                foreach (string p in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator))
+                {
+                    if (p.Length > 0 && File.Exists(Path.Combine(p, "aapt2"))) return Path.Combine(p, "aapt2");
+                }
+                return null;
+            }
+        }
+
         /// <summary>The embedded build of the server, if scripts/build.sh produced it.</summary>
         public static string EmbeddedServerDll
         {

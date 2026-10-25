@@ -65,6 +65,20 @@ namespace McvsOffline.Tests
                 }
             }
             Assert.True(bootstrap, "McvsOffline.Bootstrap.Init() missing");
+
+            // The listener's SO_REUSEADDR goes through libc (SocketReuse), not Mono's SetSocketOption, which would add
+            // SO_REUSEPORT; and the libc imports are the ones Android's bionic exports.
+            var imports = new List<string>();
+            foreach (var handle in md.MethodDefinitions)
+            {
+                MethodDefinition method = md.GetMethodDefinition(handle);
+                MethodImport import = method.GetImport();
+                if (import.Module.IsNil) continue;
+                imports.Add(md.GetString(md.GetModuleReference(import.Module).Name) + "!" + md.GetString(method.Name));
+            }
+            output.WriteLine("P/Invokes: " + string.Join(", ", imports));
+            Assert.Contains("libc!setsockopt", imports);
+            Assert.Contains("libc!getsockopt", imports);
         }
 
         private static string FindEmbeddedDll()

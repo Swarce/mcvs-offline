@@ -120,6 +120,13 @@ are gone, the installer's own test switch `SKIP_VALIDATION=1` in
 Later updates of the offline build install over the existing one, keeping everything, as long as you use the same key:
 `adb install -r mcvs-offline.apk`.
 
+**Other Gameloft games on the same phone.** The original game declares a permission that every Gameloft game shares
+(`glshare.permission.ACCESS_SHARED_DATA`). Android refuses to install an app that redeclares a permission owned by an
+app signed with a different key (`INSTALL_FAILED_DUPLICATE_PERMISSION ... already owned by com.gameloft...`), so the
+patcher renames it to `com.gameloft.android.ANMP.GloftMVHM.mcvs.glshare.permission.ACCESS_SHARED_DATA`: the offline
+build installs next to Asphalt, Modern Combat 5, N.O.V.A. and the others, and they can still be installed afterwards.
+If you see that error anyway, the APK was patched by an older version of the patcher: patch your original APK again.
+
 ## 6. First launch
 
 - The offline server starts before anything else in the game. On the first launch it creates
@@ -167,7 +174,8 @@ adb push mcvs-save-backup/. /sdcard/Android/data/com.gameloft.android.ANMP.Gloft
 ```
 
 `settings.json` is created with defaults on the first launch. Edit it (pull, edit, push) and force-stop the game for
-changes to apply. Shared keys are documented in `docs/ARCHITECTURE.md` §3 ("Settings"); the ones that belong to the
+changes to apply. If the file has a syntax error (a missing comma, say), the game runs with the defaults and leaves your
+file exactly as it is: `logs/bootstrap.log` says so; fix the file and restart. Shared keys are documented in `docs/ARCHITECTURE.md` §3 ("Settings"); the ones that belong to the
 in-game host:
 
 | Key | Default | Meaning |
@@ -219,5 +227,9 @@ For reviewers (details and evidence: `docs/research/verify-C7-integrity-patching
   the runtime and fall back the same way.
 - The six assemblies whose identity is baked into the game's native code (`XaLaunchANMP`, `Mono.Android`,
   `AdjustSdk.Xamarin.Android`, `BindAF`, `BindUnityAds`, `BindGPSrv-auth-base`) are never modified.
+- `AndroidManifest.xml`: the vendor-wide signature permission `glshare.permission.ACCESS_SHARED_DATA` (declared,
+  used, and required by the game's `KeyProvider`) is renamed into the game's own namespace, so the re-signed APK does
+  not collide with other Gameloft games (section 5). Only that one string of the compiled manifest changes; the patcher
+  refuses if the text is used for anything else.
 - Every other entry is copied byte for byte with its original compression; the old signature files are replaced by
   yours (v1+v2, plus v3 with apksigner).

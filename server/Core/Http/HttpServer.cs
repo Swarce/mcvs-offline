@@ -75,15 +75,18 @@ namespace McvsOffline.Server.Core.Http
                     if (address.AddressFamily == AddressFamily.InterNetworkV6 && address.Equals(IPAddress.IPv6Any))
                         socket.DualMode = true;
 #if MCVS_EMBEDDED
-                    // Mono maps ReuseAddress to plain SO_REUSEADDR for TCP: a restarted game can bind again while its
-                    // previous connections sit in TIME_WAIT (up to 60 s on Linux) instead of failing to start the server.
-                    if (Environment.OSVersion.Platform == PlatformID.Unix || Environment.OSVersion.Platform == PlatformID.MacOSX)
-                        socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, 1);
+                    // SO_REUSEADDR alone, through libc: a restarted game can bind again while its previous connections
+                    // sit in TIME_WAIT (up to 60 s on Linux) instead of failing to start the server. Not
+                    // SetSocketOption(ReuseAddress): Mono also sets SO_REUSEPORT then, and a second listener of the same
+                    // UID could share the port (see SocketReuse).
+                    string reuse = SocketReuse.TrySetReuseAddressOnly(socket);
+                    if (reuse != null) Warn("SO_REUSEADDR not set (" + reuse + "); right after a restart the port may stay busy for up to a minute", null);
 #endif
                     // net8: deliberately not set. .NET on Unix already enables SO_REUSEADDR for TCP before bind, and its
                     // ReuseAddress option additionally sets SO_REUSEPORT, which lets a second host bind the same port
-                    // and silently take half of the connections (MISC request; HttpServerTests pins both behaviours).
-                    // On Windows the flag would allow two servers on one port as well.
+                    // and silently take half of the connections (MISC request). HttpServerTests pins the net8 behaviour,
+                    // SocketReuseTests the libc call the embedded build makes. On Windows the flag would allow two
+                    // servers on one port as well.
                     socket.Bind(new IPEndPoint(address, requestedPort));
                     socket.Listen(128);
                 }

@@ -314,7 +314,10 @@ namespace McvsOffline.Tests.Conformance
             using var host = new Host(game, output, settings =>
             {
                 settings.Override("unlockAll", true);
-                settings.Override("unlocks", new Dictionary<string, object> { ["batchSize"] = 4000L, ["batchDelaySeconds"] = 0L });
+                settings.Override("unlocks", new Dictionary<string, object>
+                {
+                    ["batchSize"] = 4000L, ["batchDelaySeconds"] = 0L, ["startDelaySeconds"] = 0L, ["streamWaitSeconds"] = 30L,
+                });
             });
 
             dynamic fed = host.Federation();
@@ -329,6 +332,9 @@ namespace McvsOffline.Tests.Conformance
             alerts.Attach(listener);
             listener.StartListening();
             await Task.Delay(300, ct);
+            // The granter waits for exactly this before its first batch: a stream of the player that takes set_profile.
+            string fedId = "fed_id:" + AccountStore.DeriveAccountId("anonymous:unlockconformance");
+            Assert.Equal(1, McvsOffline.Server.Services.Alerts.AlertHub.For(host.Server.Context).ListenerCount(fedId, "set_profile"));
 
             var sections = new ProfileSections(game, ts);
             dynamic gameProfile = await GameClient.Await(GameClient.CallGeneric(sections.Profile, "GetGameProfile", new[] { sections.GameProfileType }, ct));
