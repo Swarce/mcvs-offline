@@ -1,10 +1,10 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-Last updated for build 5 with its review fixes (October 2026), after device test 4 (Samsung Galaxy S22, Android 16; see
-"Build 5" and "Device test 4" below).
+Last updated for build 6 (October 2026), after device test 5 (Samsung Galaxy S22, Android 16; see "Build 6" and
+"Device test 5" below).
 
-**Summary:** the Federation server is complete for the offline single-player goals and passes 662 tests, including a
+**Summary:** the Federation server is complete for the offline single-player goals and passes 672 tests, including a
 conformance harness that runs the game's own client libraries against it. Device test 1 put the player build (patcher +
 embedded host) on a phone for the first time and found two blockers (a stall with the internet on, a crash of the headless
 TS World). Build 2 fixed both: in device test 2 the whole boot chain up to the TS handshake ran, and the TS World loaded its
@@ -13,7 +13,61 @@ single-threaded physics, let only one World step at a time and added thread dump
 game booted to the menu and played matches**; it found two crashes (unlock-all, the shop), fixed in build 4. **Device test
 4: boot, bot matches, saves, the shop and the unlock codes work**; open were the installer stalling at 0 MB / 0 % on a
 copied `Data/` folder and the avatar editor freezing after unlock-all. Build 5 adds the offline data install, an optional
-64-bit-only APK (`--abi arm64-v8a`; 32-bit is kept by default again) and live ops (weekly division seasons, daily missions, weekly events); device test 5 is next (checklist below).
+64-bit-only APK (`--abi arm64-v8a`; 32-bit is kept by default again) and live ops (weekly division seasons, daily missions, weekly events).
+**Device test 5: live ops and the copied-data install work**; leaving the firing range took ~11 s on "connecting to the
+server". Build 6 makes the CRM document the game reloads there ~78% smaller for an unlock-all profile; device test 6 is
+next (checklist below).
+
+## Device test 5 (October 2026): live ops and the data restore work; firing-range exit lag
+
+Live ops (seasons, daily missions, weekly events) and the install from a copied `Data/` folder worked. Leaving the
+firing range sat on "please wait, connecting to the server" for ~11 s (19:43:18.6 → 19:43:29.5 in the logcat), all of it
+on the game thread (tid 25142 runs the client, TS and GS Worlds); the server answered every request in 0-4 ms (92 ms for
+the save). The log files arrived as 0-byte uploads again; the logcat was enough.
+
+What the TS does on every return to the menu, after a match as well (`GameServerComponent.ResumeServer`, the client sends
+it from `GameplayComponent._ExitGameplay`; the firing range only differs by `IsPractice`):
+
+| Step | Request | Game-thread time |
+|---|---|---|
+| `ReloadProfileAsync`: load and apply the game-profile dump | #61 GET `_mcvs.gameProfile`, 557,204 B | 3.4 s |
+| its forced CRM refresh (`RefreshCrmConfig(forceRefresh: true)`): parse twice, apply (`RefreshDatabases` reloads `MCVS_Meta`/`MCVS_System` from disk because the document carries `_OverrideTables`), sync the 400 KB text to the client, which parses it again, plus the native engine | #62 `configs/users/me`, 402,801 B; then #63 events | ~4.4 s |
+| `SaveProfile` (`MakeSureProfileIsUnlocked` first) | #64 POST dump, #65 merge | 0.5 s |
+| `DoSaveProfile`'s own CRM refresh: parsed twice, then found equal (`StandardCrm.Data.Equals`) | #67 `configs/users/me`, 402,801 B | 1.2 s |
+| client: `StartSynchronization`, shop and UI refresh | | ~1 s |
+
+99% of the CRM document (399 KB) is the generated `offline_store`, and 1,512 of its 1,858 entries are kill-signature
+avatars (35 more are backgrounds). The `[watchdog] STALL` at +119 s was the game in the background (`PlayerBase::pause`
+4 s earlier), not a hang.
+
+## Build 6 (October 2026): a smaller CRM document
+
+* **Owned kill signatures leave the player's `offline_store`** (`server/Services/Crm/CrmOwnedStoreItems.cs`). The
+  signature screen lists owned avatars and backgrounds from the profile and only the others from the store
+  (`GameOfflineStore.GetKillSignItems`), so their entries were never shown. For an unlock-all profile the document drops
+  from 402,636 to 89,282 characters (1,858 → 311 entries); a new player still gets everything. Sounds stay listed: the
+  screen takes their owned list from the backgrounds (a game bug), so the store is where they show up.
+* **When the owned set changes**: only when the game-profile dump is read (the TS does so at login and in each
+  `ReloadProfileAsync`; the storage module publishes `storage.gameprofile.read`). The fetch right after that read is the
+  forced refresh, which applies the document anyway; the one after each save gets the same text, which the TS recognises
+  without re-applying it. A newly bought avatar leaves the store at the next return to the menu (until then the screen
+  already hides it as owned).
+* **Fail-safe**: a dump in an unexpected shape (a list that appears twice, or holds anything but ids) logs
+  `CRM: owned kill signatures of ... not read (...)` and serves the whole store, as before. `crm.omitOwnedSignatures:
+  false` in settings.json turns the filter off.
+* Not changed (game code): the 557 KB profile reload, the two CRM fetches per return and the database reload of the
+  forced refresh. Those would need IL patches to the game's resume path; see [ROADMAP.md](ROADMAP.md).
+
+### What to check in device test 6
+
+1. **Firing range**: leave it and time "connecting to the server" (build 5: ~11 s). The server log line
+   `CRM: offline_store for <account> leaves out N owned kill signature(s) (... avatars, ... backgrounds owned): 402... -> 89... chars`
+   appears once per return to the menu, and `[http] #.. GET /configs/users/me ... -> 200 [crm.config]` shows ~89,000 B.
+2. **After a match**: the results screen and the return to the menu stutter less.
+3. **Signature screen** (avatars, backgrounds, sounds): owned ones are listed and equippable, the rest can still be
+   bought; buy one and check it stays owned after the next match.
+4. A `CRM: owned kill signatures of ... not read` warning means the dump has a shape the scanner does not expect: send
+   the logcat.
 
 ## Build 5 (October 2026): offline data install, 64-bit only, live ops
 
@@ -509,7 +563,7 @@ Superseded by the device-test-3 sequence above (steps 1-8 are what device test 2
 | MISC | Hermes mailboxes, Kairos alert stream, Olympus leaderboards with league groups, Osiris events/profiles, clans, wall, group chat, profanity, game_stats, BanTool, geolocation, tracking/marketing catch-alls | `server/Services/{Social,Messaging,Alerts,...,Misc}` | [misc.md](protocol/misc.md) |
 | LIVE OPS | Weekly division seasons (17 division events, 100-entry season boards with rivals that grow and freeze), daily missions, weekly events, weekly modifier as CRM table overrides, CRM `expiry` for the client's refresh, culture-safe dates | `server/Services/Social/LiveOps`, `server/Services/Leaderboards/SeasonRivals.cs`, `tools/content-gen/liveops_tuning.json` | [LIVEOPS.md](LIVEOPS.md), [misc.md](protocol/misc.md) |
 | Unlocks | `settings.unlockAll` through the inventory ledger (starts only once the game profile and the inventory section are stored, waits for the player's alert stream, backup, ordered batches with the merc unlock re-checked before each, `set_profile` alerts) | `server/Services/Unlocks` | [unlocks.md](protocol/unlocks.md) |
-| EMBED | In-game bootstrap (game root via the game's own Java helpers, `args.txt` managed block with `-DataCenter`, device id, logcat, server thread); diagnostics (crash reporter, self-reporting log files, boot trace, game-thread watchdog with managed and native thread dump, game-log bridge, phone-readable copy, exit reasons); patcher (hook, headless, headless-engine, physics, nativeonline, waits, geo, bottile, finder, lan; `res/raw/args.txt` for `--game-log`; vendor-wide manifest permission renamed into the package namespace; AOT strip; ABI selection, arm64-v8a by default; raw zip rewrite; v1/v2/v3 signing); installer-data restore (saved CDN index, journal and preferences, size-only index for a complete `Data/`, background CRC pass, installer monitor) | `hosts/embedded`, `patcher` | [PLAYER-SETUP.md](PLAYER-SETUP.md), [INSTALL-OFFLINE.md](INSTALL-OFFLINE.md) |
+| EMBED | In-game bootstrap (game root via the game's own Java helpers, `args.txt` managed block with `-DataCenter`, device id, logcat, server thread); diagnostics (crash reporter, self-reporting log files, boot trace, game-thread watchdog with managed and native thread dump, game-log bridge, phone-readable copy, exit reasons); patcher (hook, headless, headless-engine, physics, nativeonline, waits, geo, bottile, finder, lan; `res/raw/args.txt` for `--game-log`; vendor-wide manifest permission renamed into the package namespace; AOT strip; ABI selection (every ABI by default, `--abi arm64-v8a` for 64-bit only); raw zip rewrite; v1/v2/v3 signing); installer-data restore (saved CDN index, journal and preferences, size-only index for a complete `Data/`, background CRC pass, installer monitor) | `hosts/embedded`, `patcher` | [PLAYER-SETUP.md](PLAYER-SETUP.md), [INSTALL-OFFLINE.md](INSTALL-OFFLINE.md) |
 | Hosts | Standalone net8 console host; embedded DLL compiled against the game's trimmed Mono BCL (ILVerify-clean) | `hosts/standalone`, `server/McvsOffline.Server.Embedded.csproj` | [DEV-LOOP.md](DEV-LOOP.md) |
 
 ### How it was checked

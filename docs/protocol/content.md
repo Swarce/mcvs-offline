@@ -62,6 +62,14 @@ Built by `CrmDocumentBuilder`, layers in order (last wins):
 8. Ad pointcut actions (`show_ad*`) of the preconfiguration are dropped (`crm.keepAdPointcuts`), `crm.pointcutActions`
    appended after validation.
 
+9. **Per player, full document only** (`configs/users/me` with a player's token; `crm.omitOwnedSignatures`, default
+   true): the `offline_store` entries of the kill-signature avatars and backgrounds the player owns are left out
+   (`CrmOwnedStoreItems`): the signature screen lists owned ones from the profile, not the store
+   (`GM/GameOfflineStore.cs` GetKillSignItems). The owned set is read from the stored `_mcvs.gameProfile` dump
+   (`KillSignatureAvatars`/`KillSignatureBackgrounds` id arrays) and taken again only after that dump was read
+   (`storage.gameprofile.read`: the TS's login and `ReloadProfileAsync`), so the refetch after each save gets the same
+   text. An unexpected dump shape serves the whole store. Selectors and explicit user paths are never filtered.
+
 The result is checked by `CrmDocumentValidator` against every hard cast and unchecked dereference of the client
 parsers (`OP/StandardCrm.cs`, `OP/OfflineStore*.cs`, `OP/Iap*.cs`, `OP/PointCut*.cs`, `EN/CRMTableChanger.cs`); problems
 are logged and listed by `GET /_mcvs/crm`.

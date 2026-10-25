@@ -102,6 +102,14 @@ namespace McvsOffline.Server.Services.Storage
                 StorageResult result = s.Get(target, selector, fields);
                 log.Debug("read " + Describe(target, selector) + (fields.Count > 0 ? " include_fields=" + fields.Count.ToString(CultureInfo.InvariantCulture) : "")
                           + " via " + s.Name + " -> " + Status(result) + ", " + result.Body.Length.ToString(CultureInfo.InvariantCulture) + " chars");
+                if (IsGameProfileDump(selector))
+                {
+                    var read = new Dictionary<string, object>(StringComparer.Ordinal);
+                    read["account"] = target.AccountId;
+                    read["selector"] = selector;
+                    read["status"] = (long)result.Status;
+                    context.Events.Publish(StorageService.GameProfileReadTopic, read);
+                }
                 return result.ToResponse();
             });
         }
@@ -484,6 +492,14 @@ namespace McvsOffline.Server.Services.Storage
         private static string Selector(HttpRequest request)
         {
             return request.RouteValue("selector") ?? "";
+        }
+
+        /// <summary>True for exactly <c>_mcvs.gameProfile</c> (the R4 dump, GameProfileSection).</summary>
+        internal static bool IsGameProfileDump(string selector)
+        {
+            string[] path;
+            return !string.IsNullOrEmpty(selector) && ProfileJson.TryParsePath(selector, out path) && path.Length == 2
+                   && path[0] == McvsConstants.GameProfileSelector && path[1] == "gameProfile";
         }
 
         /// <summary>include_fields from the query and/or form, comma-separated, possibly repeated.</summary>

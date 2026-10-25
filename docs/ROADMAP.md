@@ -19,7 +19,7 @@ Done items are struck through. Device-test history and open risks are in [STATUS
 
 | Priority | Item |
 |---|---|
-| Medium | **Firing-range exit lag**: leaving the firing range sits on "please wait, connecting to the server" with extreme lag and takes a long time to return to the menu (normal matches only stutter briefly on the results screen). Tackle after the next device test, using its logcat and server logs. Fix only if safe. |
+| Medium | **Firing-range exit lag** (~11 s on "connecting to the server" in device test 5; cause in [STATUS.md](STATUS.md) "Device test 5"). Build 6 makes the CRM document ~78% smaller for unlock-all profiles (owned kill signatures are no longer listed); to confirm in device test 6. If still too slow, the next step is an IL patch that skips re-parsing and re-applying an unchanged CRM document (`StandardCrm.GetReader`, `CRMComponent.RefreshDatabases`); the 3.4 s profile reload is the game's own work. |
 | Low | **Server write speed**: faster profile saves and storage writes (currently usable). |
 | Low | **Avatar editor hang** with ~1,500 owned avatars: investigated in build 5, not patched (the work is in the UI's Flash VM, no managed hot spot); needs a thread dump of the freeze to decide on a fix. |
 | Low | Level jump to ~46 and save lag while unlock-all grants every mod (known game behaviour: each new mod gives XP). |
