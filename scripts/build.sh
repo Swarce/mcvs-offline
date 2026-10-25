@@ -2,13 +2,17 @@
 # Builds everything and runs the tests:
 #   1. McvsOffline.sln (net8: server library, standalone host, patcher, tests)
 #   2. server/McvsOffline.Server.Embedded.csproj against the game's own BCL (MCVS_REFS)
-#   3. dotnet test (with the embedded-DLL reference check made mandatory when step 2 ran)
+#   3. dotnet test (McvsOffline.Tests + McvsOffline.Embed.Tests). When step 2 ran, the embedded-DLL reference check
+#      and the real-client conformance tests (which load Gameloft.OnlinePlatform.dll from MCVS_REFS) are mandatory.
 #
 # Environment:
 #   CONFIG          Debug | Release (default Release)
-#   MCVS_REFS       assemblies/ folder of the player's MCVS 1.17.32 APK (default /home/user/mcvs-work/extracted/assemblies)
-#   MCVS_DATAPACK   optional on-device Data folder; enables the real-data-pack decoder test
+#   MCVS_REFS       assemblies/ folder of the player's MCVS 1.17.32 APK (default /home/user/mcvs-work/extracted/assemblies);
+#                   exported, so the tests load the same assemblies
+#   MCVS_DATAPACK   optional on-device Data folder; enables the real-data-pack tests
+#   MCVS_APK        optional original APK; enables the patcher's real-APK tests (default /home/user/mcvs-work/apk/mcvs.apk)
 #   MCVS_STRICT=1   fail instead of skipping the embedded build when MCVS_REFS is missing
+#   MCVS_REQUIRE_REAL_CLIENT=0  let the real-client tests skip even though MCVS_REFS has the game's assemblies
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -20,7 +24,10 @@ fi
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
 
 CONFIG="${CONFIG:-Release}"
-MCVS_REFS="${MCVS_REFS:-/home/user/mcvs-work/extracted/assemblies}"
+export MCVS_REFS="${MCVS_REFS:-/home/user/mcvs-work/extracted/assemblies}"
+if [ -z "${MCVS_APK:-}" ] && [ -f /home/user/mcvs-work/apk/mcvs.apk ]; then
+  export MCVS_APK=/home/user/mcvs-work/apk/mcvs.apk
+fi
 if [ -z "${MCVS_DATAPACK:-}" ] && [ -d /home/user/mcvs-work/datapack/1.17.32/ETC/files/Data ]; then
   export MCVS_DATAPACK=/home/user/mcvs-work/datapack/1.17.32/ETC/files/Data
 fi
@@ -32,6 +39,9 @@ if [ -f "$MCVS_REFS/mscorlib.dll" ]; then
   echo "==> embedded build against $MCVS_REFS"
   dotnet build server/McvsOffline.Server.Embedded.csproj -c "$CONFIG" -p:MCVS_REFS="$MCVS_REFS"
   export MCVS_REQUIRE_EMBEDDED=1
+  if [ -f "$MCVS_REFS/Gameloft.OnlinePlatform.dll" ]; then
+    export MCVS_REQUIRE_REAL_CLIENT="${MCVS_REQUIRE_REAL_CLIENT:-1}"
+  fi
 else
   echo "warning: MCVS_REFS='$MCVS_REFS' has no mscorlib.dll; skipping the embedded build" >&2
   if [ "${MCVS_STRICT:-0}" = "1" ]; then exit 1; fi

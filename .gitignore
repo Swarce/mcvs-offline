@@ -35,3 +35,13 @@ decompiled-java/
 datapack/
 datapack-decoded/
 captures/
+
+# Python tool caches (tools/content-gen)
+__pycache__/
+*.pyc
+
+# Signing keys: the patcher creates the player's private key wherever --keystore points
+*.p12
+*.pfx
+*.jks
+*.keystore
