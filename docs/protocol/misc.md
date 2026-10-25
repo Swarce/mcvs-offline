@@ -240,7 +240,9 @@ All catch-all routes use `Router.CatchAllOrder`, so any module's specific route 
    non-ISO dates are logged (the TS reads them as `DateTime.MinValue`). **Event dates should not use the ISO `T`**:
    SocialEvent reads them through `JValue.ToString()`, i.e. in the phone's culture once Newtonsoft has turned a
    `yyyy-MM-ddT…` string into a DateTime, and a day-first locale swaps day and month (`2026-10-05T00:00:00Z` → 10 May);
-   live ops send `"2026-10-05 00:00:00Z"`, which stays a string (`LiveOpsConformanceTests`).
+   live ops send `"2026-10-05 00:00:00Z"`, which stays a string (`LiveOpsConformanceTests`). Any parseable
+   `start_date`/`end_date` (from a provider or `social/events.json`) is rewritten to that form when served, so a
+   content file written with ISO dates is safe too.
 9. **Clans are a real local store** rather than "always not in a clan": the game writes the clan id into the profile
    itself after `POST groups` / a successful join (`EN/ClanComponent.cs SetClanInProfile`), so a player can create
    and run a solo clan offline. Joining is immediate (200) whatever the membership mode, since nobody can approve a

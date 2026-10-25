@@ -194,7 +194,16 @@ namespace McvsOffline.Server.Core.Http
             Connection connection;
             lock (gate)
             {
-                if (stopping || connections.Count >= limits.MaxConnections)
+                if (stopping)
+                {
+                    // Accepted just before Stop() took its snapshot of the open connections: close it like
+                    // the ones Stop() aborts. A "server busy" reply would tell the client to retry a server
+                    // that is going away.
+                    try { socket.Shutdown(SocketShutdown.Both); } catch (Exception) { }
+                    try { socket.Close(); } catch (Exception) { }
+                    return;
+                }
+                if (connections.Count >= limits.MaxConnections)
                 {
                     RejectBusy(socket);
                     return;

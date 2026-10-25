@@ -58,7 +58,12 @@ namespace McvsOffline.Tests.Misc
             using var s = new MiscServer();
             TestPlayer p = s.NewPlayer("bob");
             WriteContent(s, SocialEvents.ContentName, EventsJson);
-            Assert.Equal("season_1", MiscServer.Obj(s.Get("/events/season_1?language=en", p.OnBehalfToken))["id"]);
+            var season = MiscServer.Obj(s.Get("/events/season_1?language=en", p.OnBehalfToken));
+            Assert.Equal("season_1", season["id"]);
+            // Content dates written with the ISO 'T' go out in the culture-safe form (docs/LIVEOPS.md, the day/month
+            // swap on a day-first locale): same instant, no 'T'.
+            Assert.Equal("2026-10-19 00:00:00Z", season["start_date"]);
+            Assert.Equal("2026-10-26 00:00:00Z", season["end_date"]);
             Assert.Equal(404, s.Get("/events/broken", p.OnBehalfToken).StatusCode);
             Assert.Equal(404, s.Get("/events/none", p.OnBehalfToken).StatusCode);
             var bad = MiscServer.Obj(s.Get("/events/bad_version", p.OnBehalfToken));
