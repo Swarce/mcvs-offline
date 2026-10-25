@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Json;
+using McvsOffline.Server.Services.Social.LiveOps;
 
 namespace McvsOffline.Server.Services.Crm
 {
@@ -29,6 +30,13 @@ namespace McvsOffline.Server.Services.Crm
 
         public static Dictionary<string, object> Build(Dictionary<string, object> preconfig, CrmContent content, CrmOptions options, Log log)
         {
+            return Build(preconfig, content, options, log, null);
+        }
+
+        /// <param name="liveOps">The live-ops layer (event ids, CRM expiry, weekly modifier cells); null for none.</param>
+        public static Dictionary<string, object> Build(Dictionary<string, object> preconfig, CrmContent content, CrmOptions options, Log log,
+                                                       LiveOpsSnapshot liveOps)
+        {
             log = log ?? Log.Null;
             content = content ?? new CrmContent();
             options = options ?? new CrmOptions();
@@ -51,7 +59,15 @@ namespace McvsOffline.Server.Services.Crm
             var game = ChildObject(doc, "game");
             ApplyGameParameters(game, options);
             ApplyMultipliers(ChildObject(game, "_OverrideTables"), content.Economy, options, log);
-            ApplyEvents(doc, options);
+            ApplyLiveOpsCells(ChildObject(game, "_OverrideTables"), liveOps);
+            ApplyEvents(doc, options, liveOps);
+            if (liveOps != null && liveOps.Expiry.HasValue)
+            {
+                // The TS refetches CRM (and with it the events) when this passes: the next schedule step
+                // (EN/CRMComponent.cs OnConstantUpdate; StandardCrm.Data.DeserializeExpiry). WireDate, not ISO 'T'
+                // (LiveOpsSchedule.WireDate: culture-proof on the client).
+                doc["expiry"] = LiveOpsSchedule.WireDate(liveOps.Expiry.Value);
+            }
 
             if (options.Overlay != null) JsonPath.DeepMerge(doc, options.Overlay);
             CrmDocumentValidator.Sanitize(doc, log);
@@ -210,12 +226,18 @@ namespace McvsOffline.Server.Services.Crm
             }
         }
 
-        private static void ApplyEvents(Dictionary<string, object> doc, CrmOptions options)
+        private static void ApplyEvents(Dictionary<string, object> doc, CrmOptions options, LiveOpsSnapshot liveOps)
         {
-            // No event ids -> TimeLimitedEventsComponent sets an empty list without a request (verify-C2 §1.8).
-            if (options.EventIds.Count == 0) return;
-            var participation = new List<object>();
+            var ids = new List<string>();
             foreach (string id in options.EventIds)
+                if (!ids.Contains(id)) ids.Add(id);
+            if (liveOps != null)
+                foreach (string id in liveOps.EventIds)
+                    if (!ids.Contains(id)) ids.Add(id);
+            // No event ids -> TimeLimitedEventsComponent sets an empty list without a request (verify-C2 §1.8).
+            if (ids.Count == 0) return;
+            var participation = new List<object>();
+            foreach (string id in ids)
             {
                 var o = NewObject();
                 o["id"] = id;
@@ -265,7 +287,6 @@ namespace McvsOffline.Server.Services.Crm
                                    List<object> ids, double factor)
         {
             if (fields == null || IsOne(factor)) return;
-            string value = "*" + factor.ToString("R", CultureInfo.InvariantCulture);
             var t = ChildObject(ChildObject(tables, db), table);
             foreach (object f in fields)
             {
@@ -276,8 +297,38 @@ namespace McvsOffline.Server.Services.Crm
                 foreach (object id in ids)
                 {
                     string key = JsonValue.AsString(id);
-                    if (!string.IsNullOrEmpty(key)) cells[key] = value;
+                    if (!string.IsNullOrEmpty(key)) cells[key] = CombineMul(JsonValue.Get(cells, key), factor);
                 }
+            }
+        }
+
+        /// <summary>
+        /// "*f", or the product with a MUL cell already there (economy multiplier × weekly modifier: one cell holds one
+        /// operation, CRMTableCell). A SET/ADD cell already there (preconfiguration, crm.overlay) is kept as it is.
+        /// </summary>
+        private static object CombineMul(object existing, double factor)
+        {
+            string text = JsonValue.AsString(existing);
+            if (!string.IsNullOrEmpty(text))
+            {
+                double current;
+                if (text[0] != '*') return existing;
+                if (double.TryParse(text.Substring(1), NumberStyles.Float, CultureInfo.InvariantCulture, out current)) factor *= current;
+            }
+            return "*" + factor.ToString("R", CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>The season modifier and the season-reward multiplier (docs/LIVEOPS.md "Modifiers").</summary>
+        private static void ApplyLiveOpsCells(Dictionary<string, object> tables, LiveOpsSnapshot liveOps)
+        {
+            if (liveOps == null) return;
+            foreach (LiveOpsCells cells in liveOps.Cells)
+            {
+                var fields = new List<object>();
+                foreach (string f in cells.Fields) fields.Add(f);
+                var ids = new List<object>();
+                foreach (string id in cells.Ids) ids.Add(id);
+                AddMul(tables, cells.Database, cells.Table, cells.Index, fields, ids, cells.Factor);
             }
         }
 

@@ -2,7 +2,7 @@
 
 Owner group: **CONTENT** (Crm, Matchmaker, Assets, server/Content, tools/content-gen).
 Scope: CRM configuration, matchmaker lobby configs and rooms, Iris assets and coupons, generated content.
-Evidence: ARCHITECTURE §2.2, §3 'CRM' and 'Economy / unlocks'; verify-C2 §1.3-1.7, §3; verify-C4 §3-4; verify-C5;
+Evidence: ARCHITECTURE §2.2, §3 'CRM' and 'Economy / unlocks'; verify-C2 §1.3-1.7, §3; verify-C4 §3-4; verify-C5; live ops: ../LIVEOPS.md;
 verify-C6 §2.6, §5; report 04 §4-6, §10-11, §15; report 06 §4.5-4.8; report 10 §5. Economy design: [../ECONOMY.md](../ECONOMY.md).
 
 ## Endpoints
@@ -49,6 +49,12 @@ Built by `CrmDocumentBuilder`, layers in order (last wins):
    with `crm.matchmaking`; `game.AgeGateParams.Ignore = crm.skipAgeGate` (true: no age gate on first boot);
    `crm.redeemCoupons=false` removes the RedeemCoupons cell; economy multipliers become `_OverrideTables` MUL cells
    (`economy.json` targets, see ECONOMY.md); `crm.eventIds` → `groupware.events.participation`.
+5b. **Live ops** ([../LIVEOPS.md](../LIVEOPS.md), from `LiveOpsService.Snapshot(now)`): the current and next season's 17
+   division event ids, today's and tomorrow's daily missions, the season's weekly event (and the next one during the
+   last day) appended to `groupware.events.participation` (after `crm.eventIds`); top-level **`expiry`** = the next
+   schedule step as `"yyyy-MM-dd HH:mm:ssZ"` (the TS refetches CRM, and with it the events, when it passes; always ≥ 2 s
+   ahead); the season's modifier cells and the `liveops.seasonRewardMultiplier` cells as MUL cells. A MUL cell that
+   is already there (economy multiplier) is multiplied, never overwritten; a SET/ADD cell is left alone.
 6. `crm.overlay` from settings.json, deep-merged.
 7. `game._OverrideTables` is pruned (empty changers, keys without exactly one `@`, non-scalar cells) and **mirrored**
    into `_ServerConfig.default._OverrideTables`: the TS applies the former, the GS applies the latter and forwards it to
@@ -67,7 +73,8 @@ preconfiguration, full-document requests `crm.documentWaitMs` (5 s), and any exc
 document (never a 5xx). The document is cached and rebuilt when the effective settings change.
 
 **Cross-module.** `CrmDocumentCache` is registered in `context.Features` (other modules may read the current document;
-no events are published).
+no events are published). The cache key includes `LiveOpsSnapshot.Key` (settings, content hash, season, day,
+announcement, modifier), so the document is rebuilt once per schedule step, never per request.
 
 ## Matchmaker lobbyconfigs
 
@@ -150,3 +157,5 @@ listing in `GET assets/{cid}`. Names are sanitised (no `..`, no absolute paths).
 - [ ] Redeem code button visible; `UNLOCKALL` inbox message (≈11k rewards) claims fully; else use the split codes.
 - [ ] Economy multipliers (MUL cells) change match rewards on the GS (`*` on integer columns).
 - [ ] The preconfiguration is found in the embedded layout on first boot after the installer finished.
+- [ ] With live ops: the TS refetches `configs/users/me` once at each `expiry` (midnight UTC, Monday), not in a loop;
+      the weekly modifier cells change the match rewards (and the division perks) after the Monday refresh.

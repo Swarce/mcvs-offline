@@ -38,4 +38,5 @@ All of them are written by `tools/content-gen` (see its README); do not edit the
 | `economy.json` | Crm | `_OverrideTables` rows for the economy multipliers; cost summary |
 | `unlocks.json` | Assets | ordered reward-id groups for the unlock coupons |
 | `coupons.json` | Assets | built-in coupon codes |
+| `liveops.json` | Social (LiveOps), Crm, Leaderboards | live-ops catalogue: objectives, rewards, modifiers, rival targets (docs/LIVEOPS.md) |
 | `manifest.json` | – | generator, source version and file list |

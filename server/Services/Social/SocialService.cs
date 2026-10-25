@@ -15,6 +15,7 @@ using McvsOffline.Server.Core.Json;
 using McvsOffline.Server.Core.Routing;
 using McvsOffline.Server.Services.Clans;
 using McvsOffline.Server.Services.Misc;
+using McvsOffline.Server.Services.Social.LiveOps;
 
 namespace McvsOffline.Server.Services.Social
 {
@@ -30,8 +31,14 @@ namespace McvsOffline.Server.Services.Social
         public static void Register(Router router, ServerContext context)
         {
             Log log = context.Logger.For("social");
+            // Live ops (weekly division seasons, daily quests, weekly achievement events) are the default event
+            // provider; LiveOpsService.For registers it unless a provider is already set (docs/LIVEOPS.md).
+            LiveOpsService liveOps = LiveOpsService.For(context);
+            liveOps.StartWarmup();
             var events = new SocialEvents(context);
             SocialProfiles profiles = SocialProfiles.For(context);
+
+            router.Get("_mcvs/liveops", "social.liveops.debug", r => HttpResponse.Json(liveOps.Describe(context.Clock.UtcNow)));
 
             // Events (TLEs).
             router.Get("events", "social.events", r => Events(events, r));
