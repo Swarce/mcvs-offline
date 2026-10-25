@@ -1,0 +1,5 @@
+# Gameloft data: never committed. mirror.py and verify.py --fetch download the 1.17.32 indexes (pack.info) on demand;
+# a local copy placed here (manifests/<version>/<ASTC|ETC>/pack.info) is used by verify.py when nothing else is given.
+manifests/*/*/pack.info
+__pycache__/
+*.pyc

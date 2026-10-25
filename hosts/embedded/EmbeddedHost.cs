@@ -276,6 +276,9 @@ namespace McvsOffline.Embedded
             GameHooks.Configure(Settings.GetBool("embedded.nativeOnlineSdk", false), Logger.For("game"), Boot);
             ConfigurePhysics();
             ApplyGameLog();
+            // Before the Java GameInstaller (it starts after OnCreate returns): data already on the device must be accepted
+            // without Gameloft's CDN (docs/INSTALL-OFFLINE.md).
+            PrepareInstallerData(platform);
 
             int port = options.Port ?? Settings.Port;
             if (port <= 0 || port > 65535)
@@ -308,6 +311,65 @@ namespace McvsOffline.Embedded
             thread.Start();
 
             StartDiagnostics(options);
+        }
+
+        /// <summary>settings.json "install.*": the Java installer's state (InstallerData) and its progress in the log.</summary>
+        private void PrepareInstallerData(IEmbeddedPlatform platform)
+        {
+            var installer = platform as IInstallerPlatform;
+            if (installer == null) return;
+            Log log = Logger.For("install");
+            try
+            {
+                if (Settings.GetBool("install.monitorInstaller", true)) installer.MonitorInstaller(log, Boot);
+                string internalDir = installer.InternalFilesDir();
+                if (string.IsNullOrEmpty(internalDir))
+                {
+                    log.Warn("installer data: internal storage (getFilesDir) unknown; the installer's state is left alone");
+                    return;
+                }
+                var options = new McvsOffline.Embedded.Install.InstallerDataOptions
+                {
+                    Manage = Settings.GetBool("install.manageInstaller", true),
+                    SuppressUpdateCheck = Settings.GetBool("install.suppressUpdateCheck", true),
+                    RebuildIndex = Settings.GetBool("install.rebuildIndex", true),
+                    VerifyRestoredData = Settings.GetBool("install.verifyRestoredData", true),
+                };
+                var locations = new McvsOffline.Embedded.Install.InstallerDataLocations(internalDir, Paths.GameRoot);
+                long now = (long)(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds;
+                McvsOffline.Embedded.Install.InstallerDataResult result =
+                    McvsOffline.Embedded.Install.InstallerData.Prepare(locations, installer.InstallerPrefs(), options, log, now);
+                Boot.Mark(result.Summary);
+                if (result.IndexToVerify != null) StartDataVerify(locations, result.IndexToVerify, log);
+            }
+            catch (Exception ex)
+            {
+                log.Warn("installer data: preparation failed; the game's installer runs as usual", ex);
+            }
+        }
+
+        /// <summary>
+        /// The CRC32 check of data whose Gameloft index was just given back to the installer (sizes were checked before it ran):
+        /// a background thread that waits until the game has loaded, then reads the whole pack with a 2 ms pause per MiB.
+        /// </summary>
+        private void StartDataVerify(McvsOffline.Embedded.Install.InstallerDataLocations locations, McvsOffline.Embedded.Install.PackIndex index, Log log)
+        {
+            var thread = new Thread(() =>
+            {
+                try
+                {
+                    Thread.Sleep(90000);
+                    log.Info("installer data: checking the CRC32 of every file in the background (" + index.LogicalFiles + " files)");
+                    McvsOffline.Embedded.Install.InstallerData.VerifyContent(locations, index, log, null, 2);
+                }
+                catch (Exception ex)
+                {
+                    log.Warn("installer data: background data check failed", ex);
+                }
+            });
+            thread.IsBackground = true;   // (Thread.Priority is trimmed from the game's BCL; the pauses keep it light)
+            thread.Name = "mcvs-data-check";
+            thread.Start();
         }
 
         /// <summary>
@@ -471,6 +533,11 @@ namespace McvsOffline.Embedded
             changed |= AddDefault("embedded.physics.clientMultithreaded", true);
             changed |= AddDefault("embedded.physics.stepGate", true);
             changed |= AddDefault("embedded.physics.stepGateTimeoutMs", GameHooks.DefaultStepGateTimeoutMs);
+            changed |= AddDefault("install.manageInstaller", true);
+            changed |= AddDefault("install.suppressUpdateCheck", true);
+            changed |= AddDefault("install.rebuildIndex", true);
+            changed |= AddDefault("install.verifyRestoredData", true);
+            changed |= AddDefault("install.monitorInstaller", true);
             if (!changed) return;
             if (Settings.IsFallback)
             {

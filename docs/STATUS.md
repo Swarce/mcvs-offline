@@ -86,6 +86,35 @@ is no longer sold or part of UNLOCKALL/`unlockAll` (UNLOCKALL: 11,368 rewards). 
 ("no shipped source" alone would wrongly catch Witch and Bli-P, which the live server sold) and every exclusion:
 docs/ECONOMY.md "Paid and unreleased content". Not tried on a device yet.
 
+### Open: the kill-signature avatar editor freezes after unlock-all (investigated, not patched)
+
+Logcat `25_10-12-30-37`, second watchdog STALL (`1792945929.086`): opening the avatar (emblem) editor with every avatar
+owned, the game thread (`Thread-22`, tid 31784) is in state R with `+2542 ticks` (25 s of CPU time since the watchdog's
+previous snapshot), and no server request is in flight. The managed thread dump of that stall (`logs/threaddump-20261025-163218.txt`)
+arrived empty (0 bytes), so the frames on the game thread are not known yet.
+
+What the code does (Game.dll, Gameloft.Engine.dll, `Menus/UI.swf`):
+
+- The editor is ActionScript (`MenuCustomization` in `Menus/UI.swf`), run by the engine's native Flash VM on the game
+  thread. It calls the native function `GetSignatureLibrary` once, which is
+  `PlayerProfileComponent.NativeGetSignatureLibrary`: three `GetAssetsObject` calls (avatars, backgrounds, sounds), each
+  `GetSignatureAssetsList` over the **whole** table (`KillsignatureAvatars` has 1,518 rows) with
+  `List<string>.Contains` on the owned and "new" lists, then `OrderBy(locked)`. With 1,518 owned avatars that is about
+  2.3 million string comparisons, far below a second; nothing in it is quadratic in a way that reaches 25 s.
+- The result reaches the VM as an array of 1,518 `ASManagedObject`s (`ASValue.SetArray`/`SetManagedObject`); the
+  ActionScript reads their fields through `ASManagedObject.GetMember`, whose reflection lookups are cached
+  (`MoreReflection` caches per type), so per access it is a dictionary lookup and a property get.
+- **The editor always receives all 1,518 rows, owned or not.** Unlock-all changes only the flags: every row becomes
+  unlocked, and every granted avatar is also "new" (`KillSignatureNewAvatars`). So the extra work is what the
+  ActionScript does for unlocked and new entries (an emblem image and a "new" badge per tile instead of a lock), which
+  happens in the native VM and its texture loading, not in managed code.
+
+Not patched: no managed hot spot was found to cache, and the managed-side levers (hiding or capping entries, clearing
+the "new" flags) change what the player sees and are not clearly safe without the stack. Next, on the phone: send
+`logs/threaddump-<time>.txt` of such a stall (a dump whose game-thread frames sit in `ASManagedObject.GetMember` or
+`GetSignatureAssetsList` would point back at managed code; frames in `(wrapper managed-to-native)` UI calls confirm the
+VM), and say whether the editor opens after waiting one to two minutes and whether a second opening is fast.
+
 ## Device test 2 (October 2026): "connecting" forever
 
 Same phone (Samsung Galaxy S22, Android 16), build 2 (`d9a433f`: hook, headless, headless-engine, nativeonline, geo, bottile,

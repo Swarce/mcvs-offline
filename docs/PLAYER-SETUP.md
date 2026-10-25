@@ -12,6 +12,7 @@ project or redistributed: the patcher works on your APK, and the server reads yo
 
 You need:
 
+- a 64-bit Android phone (arm64-v8a, every phone from about 2017 on): the offline build ships 64-bit ARM code only;
 - a PC (Linux, macOS or Windows) with the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0);
 - `adb` (Android platform-tools) and USB debugging enabled on the phone;
 - optional: Android **build-tools** (`apksigner`, `zipalign`) and Java. Without them the patcher signs with its own
@@ -47,8 +48,9 @@ On Android 11 and later, file managers on the phone cannot open `Android/data`; 
 shows the folder).
 
 Gameloft's download servers still worked when this was written (October 2026), so the game can also download the data
-again. They will not stay up forever, so keep your backup: a CDN mirror tool that archives the data and checks a
-backup against Gameloft's own CRC index (report 10) is planned but not part of this repository yet.
+again. They will not stay up forever, so keep your backup, and consider archiving the data with
+`tools/cdn-mirror` (it also checks a backup against Gameloft's own CRC index). Restoring a backup or a mirror needs no
+internet with the offline build: [INSTALL-OFFLINE.md](INSTALL-OFFLINE.md).
 
 ## 3. Build the server for your game
 
@@ -81,6 +83,7 @@ The patcher prints every change it makes and finishes with a signature check. Us
 | `--keystore <file.p12>` | Your signing key. Without it a key is created once in `~/.config/McvsOffline/` (Windows: `%APPDATA%\McvsOffline\`) and reused. |
 | `--build-tools <dir>` | Folder with `apksigner` and `zipalign`; otherwise they are looked up on `PATH` and in `$ANDROID_HOME/build-tools`. |
 | `--signer builtin` | Do not use apksigner, even if it is installed. |
+| `--abi arm64-v8a` | Native libraries to keep. The default is **64-bit ARM only**: the 32-bit copies (`lib/armeabi-v7a`) are dropped (about 16 MB of the APK; a 64-bit phone never used them). `--abi all` keeps them (for a 32-bit phone; untested). |
 | `--dry-run` | Check that every patch site matches, write nothing. |
 
 What the patches do:
@@ -136,10 +139,11 @@ adb push mcvs-files-backup/. /sdcard/Android/data/com.gameloft.android.ANMP.Glof
 If the game later cannot read the restored files (Android versions differ in how they treat files pushed by `adb`),
 launch the game once so Android creates the folder itself, force-stop it, and push again.
 
-After a reinstall the game's installer checks the data against Gameloft's index, which needs internet. If the servers
-are gone, the installer's own test switch `SKIP_VALIDATION=1` in
-`/sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/qaTestingConfigs.txt` skips that check (report 10
-§4.3; not yet tried on a device).
+A restored backup needs no internet: before the game's installer runs, the offline build gives it the index of the
+data (the copy it keeps in `files/McvsOffline/install/pack.info`, or one rebuilt from a complete `Data/` folder) and the
+installer's other markers, so the installer accepts the files instead of going to Gameloft's CDN. A fresh install from a
+mirror made with `tools/cdn-mirror` works the same way. Details, the checks it makes and what to do when the installer
+screen stalls: [INSTALL-OFFLINE.md](INSTALL-OFFLINE.md).
 
 Later updates of the offline build install over the existing one, keeping everything, as long as you use the same key:
 `adb install -r mcvs-offline.apk`.
@@ -156,7 +160,9 @@ If you see that error anyway, the APK was patched by an older version of the pat
 - The offline server starts before anything else in the game. On the first launch it creates
   `.../files/McvsOffline/` and writes `.../files/args.txt`, which makes the game use its built-in ("Embedded") servers
   and the local backend at `http://127.0.0.1:51780/`.
-- The game's own installer screen still appears and checks or downloads the data as usual.
+- The game's own installer screen still appears. With the data already on the phone it only checks the files and
+  starts the game, with or without internet; with no data it downloads it as usual
+  ([INSTALL-OFFLINE.md](INSTALL-OFFLINE.md)).
 - The first launch and the first match are slower than with the original APK: the patched libraries run without
   their precompiled (AOT) code and are compiled on the phone as they are used.
 - Google Play Games and Facebook sign-in no longer work (they are tied to Gameloft's signature, and their servers are
