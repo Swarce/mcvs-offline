@@ -9,7 +9,7 @@ the server compiles into ``McvsOffline.Server.dll`` (``server/Content/``):
                       generic ``#VersusCoins`` shop-hub tab), see docs/ECONOMY.md and verify-C5 (d)
   unlocks.json        ordered reward-id groups for a full unlock (coupon payloads), compressed as
                       ``Prefix_{2,4-231}`` ranges
-  coupons.json        built-in coupon codes (UNLOCKALL first claims UnlockMerc_ALL_MAX, verify-C5 (b))
+  coupons.json        built-in coupon codes (UNLOCKALL first claims every merc and its mods, verify-C5 (b))
   economy.json        ``_OverrideTables`` targets for the settings.json economy multipliers + a cost summary
   crm_overlay.json    static CRM overlay (game parameters we always send)
   manifest.json       what was generated from what
@@ -25,6 +25,7 @@ Usage (Python 3 standard library only; run isolated):
 import argparse
 import json
 import os
+import re
 import sys
 
 GENERATOR = "tools/content-gen/content_gen.py"
@@ -150,6 +151,18 @@ class Catalog(object):
         self.merc_ids = [m for m, _ in self.mercs]
         if not self.mercs:
             raise ContentError("no displayed mercs in the catalogue")
+        # Mercs every new profile starts with: an UnlockMerc reward for an owned merc is unavailable and turns into
+        # its alternate reward (AlternateRewards "UnlockMerc_<rarity>": 40 random gear), so the unlock skips them.
+        self.starting_mercs = set(int(m["id"]) for m in cats.get("mercs", [])
+                                  if "starting-inventory" in (m.get("unlock_kinds") or []))
+        # Highest mod tier (Mod_<merc>_<stat>Tier<n>-<k>): ModTier_<merc>_<n> unlocks every mod of that merc with
+        # Tiers <= n, perks included only at tier 4 or with the "WithPerks" suffix (GM/ModTierRewardItem.cs OnClaimed).
+        tiers = []
+        for x in cats.get("mods", []):
+            found = re.search(r"Tier(\d+)-", x.get("item_id") or "")
+            if found:
+                tiers.append(int(found.group(1)))
+        self.mod_max_tier = max(tiers) if tiers else 4
 
         self.skins = []          # (item_id, crate_only)
         self.locked_skins = []
@@ -358,12 +371,12 @@ def validate_offline_store(prices):
 
 
 def build_unlocks(cat):
-    """Ordered groups for a full unlock (verify-C5 recommended order). UnlockMerc_ALL_MAX must come first:
-    skins, weapons, camos, accessories and gear slots of a locked merc are unavailable and would be converted to
+    """Ordered groups for a full unlock (verify-C5 recommended order). The merc unlocks must come first: skins,
+    weapons, camos, accessories, gear slots and mod tiers of a locked merc are unavailable and would be converted to
     their alternate reward and lost (GM/RewardItem.cs Claim)."""
     groups = []
-    groups.append({"id": "mercs", "items": ["UnlockMerc_ALL_MAX"],
-                   "note": "every merc, plus every mod up to the MAX tier (GM/MercsComponent.cs:2400-2470)"})
+    groups.append({"id": "mercs", "items": merc_unlock_items(cat),
+                   "note": "every merc, then every mod of every merc (ModTier_<merc>_%d)" % cat.mod_max_tier})
     groups.append({"id": "weapons", "items": sorted((w for w, _ in cat.weapons), key=natural_key)})
     groups.append({"id": "gearSlots", "items": compress_items(cat.gear_slots)})
     sig = []
@@ -391,6 +404,25 @@ def build_unlocks(cat):
                 if reward_type(item) not in KNOWN_REWARD_TYPES:
                     raise ContentError("unknown reward type in unlock group %s: %s" % (g["id"], item))
     return {"format": FORMAT, "order": [g["id"] for g in groups], "groups": groups}, counts
+
+
+def merc_unlock_items(cat):
+    """One UnlockMerc_<id> per displayed merc the player does not start with, then one ModTier_<id>_<max> per merc.
+
+    Not UnlockMerc_ALL_MAX: its claim works (CheatUnlockAllMercs) but every reward display then looks the merc up by
+    its id, and "ALL" is no merc (GM/LotteryComponent.cs DisplayLotteryRewards: "Could not find merc data for mercId
+    'ALL'", fatal on the device). UnlockMerc_<id> is the plain merc grammar (Subtype = merc id, GM/RewardItem.cs Parse;
+    GM/UnlockMercRewardItem.cs OnClaimed); ModTier rewards are not IPrintableRewardItem, so the lottery never shows them,
+    and the inventory diff and inbox claim them in order, after their merc is unlocked (ModTierRewardItem.IsAvailable
+    needs an unlocked merc)."""
+    tier = int(cat.mod_max_tier)
+    suffix = "" if tier == 4 else "_WithPerks"  # tier 4 includes perks anyway (GM/ModTierRewardItem.cs OnClaimed)
+    unlock = [m for m in cat.merc_ids if m not in cat.starting_mercs]
+    items = []
+    if unlock:
+        items.append("UnlockMerc_{%s}" % compress_ranges(unlock))
+    items.append("ModTier_{%s}_%d%s" % (compress_ranges(cat.merc_ids), tier, suffix))
+    return items
 
 
 def natural_key(item_id):

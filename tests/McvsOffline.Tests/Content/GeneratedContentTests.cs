@@ -135,7 +135,9 @@ namespace McvsOffline.Tests.Content
                 }
                 Assert.Equal(group["count"], expanded);
             }
-            Assert.Equal(new[] { "UnlockMerc_ALL_MAX" }, new List<string>(RewardPattern.Expand((string)JsonPath.Get(unlocks, "groups.0.items.0"))));
+            var mercGroup = new List<string>();
+            foreach (object p in (List<object>)JsonPath.Get(unlocks, "groups.0.items")) mercGroup.AddRange(RewardPattern.Expand((string)p));
+            Assert.Equal(AssetsTests.MercGroup, mercGroup);
 
             var coupons = Load("coupons.json");
             foreach (var code in (Dictionary<string, object>)coupons["codes"])

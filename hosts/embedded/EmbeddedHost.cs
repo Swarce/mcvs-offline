@@ -162,7 +162,8 @@ namespace McvsOffline.Embedded
                 }
                 if (gameLogFile != null) sb.Append("log ").Append(gameLogFile.Describe()).Append('\n');
                 sb.Append("native online SDK init calls: ").Append(GameHooks.NativeOnlineCalls)
-                  .Append(", headless-World exceptions: ").Append(GameHooks.HeadlessReports).Append('\n');
+                  .Append(", headless-World exceptions: ").Append(GameHooks.HeadlessReports)
+                  .Append(", store items skipped: ").Append(GameHooks.StoreReports).Append('\n');
                 sb.Append(GameHooks.DescribePhysics());
                 string extras = diagnostics == null ? null : diagnostics.StatusExtras();
                 if (!string.IsNullOrEmpty(extras)) sb.Append('\n').Append(extras);

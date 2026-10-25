@@ -1,9 +1,9 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-Last updated after device test 2 (October 2026: Samsung Galaxy S22, Android 16; see "Device test 2" below).
+Last updated after device test 3 (October 2026: Samsung Galaxy S22, Android 16; see "Device test 3" below).
 
-**Summary:** the Federation server is complete for the offline single-player goals and passes 604 tests, including a
+**Summary:** the Federation server is complete for the offline single-player goals and passes 607 tests, including a
 conformance harness that runs the game's own client libraries against it. Device test 1 put the player build (patcher +
 embedded host) on a phone for the first time and found two blockers (a stall with the internet on, a crash of the headless
 TS World). Build 2 fixed both: in device test 2 the whole boot chain up to the TS handshake ran, and the TS World loaded its
@@ -12,7 +12,68 @@ happens, inferred that it is the deadlock) is that the in-process TS World and t
 at the same time through the engine's single process-wide worker pool. Build 3 gives the server Worlds single-threaded
 physics (as on Gameloft's servers), lets only one World step at a time, bounds the engine's pumping waits (hardening), and
 adds a managed and native thread dump to the watchdog, so a remaining hang names its cause. Device test 3 is the next step
-(expected log sequence below); it confirms or refutes the hypothesis.
+(expected log sequence below); it confirms or refutes the hypothesis. **Device test 3: the game boots to the menu and plays
+matches**; it found two crashes (unlock-all, the shop), fixed in build 4 (below).
+
+## Device test 3 (October 2026): boots and plays; two crashes
+
+Same phone, build 3 (default patch set, `--game-log all`), logcat from LogFox (three runs: 22031 unlock-all crash, 22595 the
+slow next start, 24715 shop crash). **The game boots to the main menu and plays matches**: the device-test-2 physics fix
+works. Every server request was fast (the slowest a few tens of ms).
+
+### Bug 1: unlock-all lags, then crashes ("Could not find merc data for mercId 'ALL'")
+
+* Seen: with `unlockAll: true` (and the `UNLOCKALL` coupon, which uses the same "mercs" group), the player level jumps to 46,
+  level-up rewards tick up, the game lags, then dies with `System.InvalidOperationException: Could not find merc data for mercId
+  'ALL'` in `LotteryComponent.DisplayLotteryRewards`, fatal (an unobserved fire-and-forget task, `GameApplication.UpdateWorlds`;
+  logged four times: stdout, our crash hook, the game's handler, mono-rt).
+  The next start was slow; once everything was claimed, unlock-all worked.
+* Cause: the "mercs" unlock group was the single reward `UnlockMerc_ALL_MAX`. Claiming it works (`UnlockMercRewardItem.OnClaimed`
+  -> `MercsComponent.CheatUnlockAllMercs(profile, "MAX")`), but it is an `IPrintableRewardItem`, so the reward display shows it,
+  and the display looks the merc up by its id (`GetBuiltMerc("ALL")` -> null -> throw). The reward-string grammar is
+  `Type_Subtype_Subtype2...` split on `_` (GM/RewardItem.cs Parse); `"ALL"` is only understood by `OnClaimed`, by nothing that
+  displays a reward.
+* Fix: the "mercs" group (tools/content-gen, `merc_unlock_items`) is now `UnlockMerc_{2-21}` (every displayed merc but the
+  starting merc 1, whose reward would only turn into its alternate reward, 40 random gear) followed by `ModTier_{1-21}_4`
+  (`ModTierRewardItem.OnClaimed`: every mod of that merc with `Tiers <= 4`, perks included at tier 4; mod names in the catalogue
+  go up to Tier4). `UnlockMerc_<id>` takes the plain merc path of every display (`GetBuiltMerc(<id>)` exists for 1-21);
+  `ModTier` is not printable, so the lottery skips it, and the inventory diff / inbox claim it after its merc
+  (`ModTierRewardItem.IsAvailable` needs an unlocked merc; the diff keeps the ledger's key order, only `MercSkin_*` moves last).
+  41 rewards instead of 1; UNLOCKALL now has 11374. The conformance test parses the UNLOCKMERCS coupon with the real
+  `RewardHelper.CreateRewardItem` and checks every id is a numeric merc.
+* Also fixed by build 4's 'store' patch (bug 2): every `KillSignature_Sound_*` of the signatures group made
+  `RewardItem.GetRewardInfo` (which calls `IsAvailable`) throw in the reward popups and the lottery.
+* **The level jump is a known one-time behaviour, not changed.** Levels come from the mods: `PlayerProfileComponent.UnlockModForMerc`
+  calls `AddXp(modSpecs.PlayerXP)` for each newly unlocked mod (21 mercs x 23 mods), the same with `UnlockMerc_ALL_MAX` or
+  `ModTier`. Every XP change recomputes the level; each level crossed runs `OnPlayerLevelUp` (its kill-signature/credits rewards
+  are claimed at once, no popup each) and a fire-and-forget `SaveProfile` of the whole (now large) profile: run 22031 made 50
+  `POST /profiles/me/myprofile`, each followed by the same `DELETE /messages/secured/me` of one long-deleted message and
+  about every second one by a reload of the 400 KB CRM document (`GET /configs/users/me`), all parsed on the game thread.
+  That is the lag; it ends once the grant is done. The slow next start (run 22595) was the grant continuing: the crash had
+  stopped it after 801 of 11334 keys, so the next start diffed the remaining 10533. A mitigation would mean patching XP or
+  save batching in the game; not small and not clearly safe, so not done.
+
+### Bug 2: opening the shop crashes at once
+
+* Seen (run 24715): `NullReferenceException` in `Game.KillSignatureRewardItem.GetAvailableId(PlayerProfileComponent)` [IL 0x84]
+  <- `IsAvailable` <- `GameUnifiedStoreComponent.<>c__DisplayClass25_0.<SelectItems>b__8` <- `SelectItems` <- `GetStoreData`
+  <- `TryDispatchStore` <- `NativeSetStoreCallback`.
+* Cause: `GetAvailableId` builds its candidate list only for "Avatar" and "Background"; for "Sound" the list stays null and
+  `list.Count` throws, so `IsAvailable` throws for every `KillSignature_Sound_*` our `#VersusCoins` hub sells (the official
+  store never listed sounds). The SelectItems filter (`x.Content.FirstOrDefault()?.RewardPrototype.IsAvailable(profile)`) is
+  evaluated for every item when the shop opens.
+* Fix: new default patch **'store'** (patcher/Patches/StorePatch.cs, Game.dll, both methods fingerprint-checked):
+  S1 the "other subtype" branch of `GetAvailableId` returns `Subtype2` for a sound the player does not own yet
+  (`KillSignatureSounds.Contains`, the same test `OnPrepareToClaim` makes), null for a random sound or any other subtype, and a
+  null `Subtype2` returns null; avatars and backgrounds run the shipped code. S2 the SelectItems filter lambda runs in
+  `try/catch (Exception)`: an item whose check throws is left out of the shop and reported once per id as
+  `[McvsOffline] store item <id> threw <exception>` (stdout/logcat, bootstrap.log via `GameHooks.StoreItemException`; the
+  crash report counts them). Both executed against the real Game.dll on net8 (RealStorePatchTests).
+* The other hub rewards (MercWeapon, GearSlot, ModTier, crates, VIP, packs, `WeaponCamo_<merc>_Random`,
+  `MercAccessory_<merc>_Random`) were read in the decompiled `IsAvailable`/`GetRewardInfo`: no null path for the ids we generate
+  (GearSlots always has 6 entries, slots are 1-6; crates check their contents, where a random sound now is simply unavailable).
+  Not verified on a device: the serialisation of each hub entry (`SerializeObject` -> `GetObject`) is not covered by the safety
+  net; a throw there would still stop the shop.
 
 ## Device test 2 (October 2026): "connecting" forever
 

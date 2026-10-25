@@ -34,7 +34,7 @@ def sample_catalog():
         "categories": {
             "mercs": [
                 {"id": 0, "rarity": "Rarity01", "displayed": "YES"},
-                {"id": 1, "rarity": "Rarity01", "displayed": "YES"},
+                {"id": 1, "rarity": "Rarity01", "displayed": "YES", "unlock_kinds": ["offline-store", "starting-inventory"]},
                 {"id": 2, "rarity": "Rarity06", "displayed": "YES"},
                 {"id": 3, "rarity": "Rarity03", "displayed": "NO"},
             ],
@@ -76,6 +76,7 @@ def sample_catalog():
                     {"id": 2, "item_id": "KillSignature_Sound_2", "unlock_kinds": []},
                 ],
             },
+            "mods": [{"item_id": "Mod_1_HealthTier1-1"}, {"item_id": "Mod_1_HealthTier4-1"}, {"item_id": "Mod_Random"}],
             "gear_slot_unlocks": [{"item_id": "GearSlot_1_1"}, {"item_id": "GearSlot_1_2"}, {"item_id": "GearSlot_2_1"},
                                   {"item_id": "GearSlot_3_1"}],
             "crates": [{"id": "Crate_MOD_T1"}],
@@ -175,7 +176,13 @@ class GeneratorTests(unittest.TestCase):
         unlocks = out["unlocks.json"]
         self.assertEqual(unlocks["order"], ["mercs", "weapons", "gearSlots", "signatures", "camos", "accessories", "skins"])
         groups = {g["id"]: g for g in unlocks["groups"]}
-        self.assertEqual(groups["mercs"]["items"], ["UnlockMerc_ALL_MAX"])
+        # Explicit per-merc rewards, never UnlockMerc_ALL(_MAX): every reward display looks the merc up by id and
+        # "ALL" is no merc (device test 3 crash). The starting merc is not unlocked again (its alternate reward would
+        # be 40 random gear), but its mods are.
+        self.assertEqual(groups["mercs"]["items"], ["UnlockMerc_{2}", "ModTier_{1-2}_4"])
+        self.assertEqual(groups["mercs"]["count"], 3)
+        self.assertEqual([cg.expand_pattern(p) for p in groups["mercs"]["items"]],
+                         [["UnlockMerc_2"], ["ModTier_1_4", "ModTier_2_4"]])
         self.assertEqual(groups["camos"]["items"], ["WeaponCamo_1_{2-4,9}"])
         self.assertEqual(groups["camos"]["count"], 4)
         self.assertEqual(groups["accessories"]["items"], ["MercAccessory_1_{1}", "MercAccessory_2_{1}"])

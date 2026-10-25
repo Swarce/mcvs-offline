@@ -76,7 +76,7 @@ The patcher prints every change it makes and finishes with a signature check. Us
 
 | Option | Meaning |
 |---|---|
-| `--patch nativeonline,waits,geo,bottile,finder` | The optional patches (this is the default set). `none` keeps only the mandatory patches (the server hook, the headless-server fixes and the server physics), `all` adds `lan`. |
+| `--patch nativeonline,waits,geo,bottile,finder,store` | The optional patches (this is the default set). `none` keeps only the mandatory patches (the server hook, the headless-server fixes and the server physics), `all` adds `lan`. |
 | `--game-log all` | The game's own log at every level in logcat (`mono-stdout`), for bug reports; this is the default while the offline build is being tested. `--game-log fatal` keeps the game's original setting (fatal errors only). |
 | `--keystore <file.p12>` | Your signing key. Without it a key is created once in `~/.config/McvsOffline/` (Windows: `%APPDATA%\McvsOffline\`) and reused. |
 | `--build-tools <dir>` | Folder with `apksigner` and `zipalign`; otherwise they are looked up on `PATH` and in `$ANDROID_HOME/build-tools`. |
@@ -109,6 +109,9 @@ What the patches do:
   patch it starts the same bot-filled match as "Battle", with full rewards and progression (after the tutorial).
 - **finder**: the game's matchmaking service listens on all network interfaces instead of the one that was active at
   start-up, so switching Wi-Fi or airplane mode on and off does not break matchmaking until a restart.
+- **store**: opening the shop crashed the game because of the kill-signature sounds it sells (the game's availability
+  check had no code for sounds). With the patch sounds work, and any shop item whose check still fails is left out of the
+  shop (and logged as `[McvsOffline] store item <id> threw ...`) instead of closing the game.
 - **lan** (experimental): groundwork for LAN play (see the end of this guide). It changes nothing for single-device
   play.
 
@@ -284,7 +287,7 @@ For reviewers (details and evidence: `docs/research/verify-C7-integrity-patching
   only; physics: `PhysicsComponent`'s constructor asks `McvsPhysics.UseMultithreading(this)` instead of reading the
   game option, and `UpdateSimulationSteps` runs inside a process-wide, time-bounded gate). Optional: `Gameloft.Engine.dll`
   (nativeonline, waits: `WaitHandle.WaitAny(handles)` -> `WaitAny(handles, 100)` in both `TaskExtension.WaitAndWork`
-  overloads, finder, lan), `Gameloft.Util.dll` (geo), `Game.dll` (bottile). Each site is checked against the exact code
+  overloads, finder, lan), `Gameloft.Util.dll` (geo), `Game.dll` (bottile; store: `KillSignatureRewardItem.GetAvailableId` handles sounds, the `GameUnifiedStoreComponent.SelectItems` availability filter skips an item that throws). Each site is checked against the exact code
   of 1.17.32 first (the device-test-2 patches against an IL fingerprint of the whole method); if anything differs, the
   patcher stops without writing.
 - `res/raw/args.txt` (with `--game-log all`, the default): `-LogCategoryFilter Fatal` is replaced by a line the game

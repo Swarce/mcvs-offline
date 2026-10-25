@@ -2,7 +2,7 @@
   "format": 1,
   "order": ["mercs","weapons","gearSlots","signatures","camos","accessories","skins"],
   "groups": [
-    {"id":"mercs","items":["UnlockMerc_ALL_MAX"],"note":"every merc, plus every mod up to the MAX tier (GM/MercsComponent.cs:2400-2470)","count":1},
+    {"id":"mercs","items":["UnlockMerc_{2-21}","ModTier_{1-21}_4"],"note":"every merc, then every mod of every merc (ModTier_<merc>_4)","count":41},
     {"id":"weapons","items":["MercWeapon_1_2","MercWeapon_2_22","MercWeapon_3_33","MercWeapon_4_23","MercWeapon_6_24","MercWeapon_7_25","MercWeapon_8_26","MercWeapon_9_28","MercWeapon_11_34","MercWeapon_15_30","MercWeapon_16_32","MercWeapon_17_29","MercWeapon_19_27"],"count":13},
     {"id":"gearSlots","items":["GearSlot_1_{1-6}","GearSlot_2_{1-6}","GearSlot_3_{1-6}","GearSlot_4_{1-6}","GearSlot_5_{1-6}","GearSlot_6_{1-6}","GearSlot_7_{1-6}","GearSlot_8_{1-6}","GearSlot_9_{1-6}","GearSlot_10_{1-5}","GearSlot_11_{1-5}","GearSlot_12_{1-5}","GearSlot_13_{1-5}","GearSlot_14_{1-5}","GearSlot_15_{1-5}","GearSlot_16_{1-5}","GearSlot_17_{1-5}","GearSlot_18_{1-5}","GearSlot_19_{1-5}","GearSlot_20_{1-5}"],"count":109},
     {"id":"signatures","items":["KillSignature_Avatar_{2-1518}","KillSignature_Background_{2-35}","KillSignature_Sound_{2-5}"],"count":1555},

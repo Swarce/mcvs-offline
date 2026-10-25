@@ -46,9 +46,11 @@ namespace McvsOffline.Embed.Tests.Patcher
                                  "res/raw/args.txt" },
                          report.Modified.OrderBy(m => m, StringComparer.Ordinal));
             Assert.Equal(new[] { "assemblies/McvsOffline.Server.dll" }, report.Added);
-            // 20 IL patch notes (hook 1, headless 5, headless-engine 3, physics 2, nativeonline 1, waits 2, geo 1, bottile 1,
-            // finder 1, lan 3), the manifest permission rename and the res/raw/args.txt rewrite.
-            Assert.Equal(22, report.Notes.Count);
+            // 22 IL patch notes (hook 1, headless 5, headless-engine 3, physics 2, nativeonline 1, waits 2, geo 1, bottile 1,
+            // finder 1, lan 3, store 2), the manifest permission rename and the res/raw/args.txt rewrite.
+            Assert.Equal(24, report.Notes.Count);
+            Assert.Contains(report.Notes, n => n.Contains("KillSignatureRewardItem::GetAvailableId") && n.Contains("\"Sound\""));
+            Assert.Contains(report.Notes, n => n.Contains("<SelectItems>b__8") && n.Contains("McvsStoreSafety.Report"));
             Assert.Contains(report.Notes, n => n.StartsWith("Game.InputSettingsComponent: + [KeepInHeadlessMode(false)]"));
             Assert.Contains(report.Notes, n => n.Contains("OnStart IL_0441 -> McvsBindingToActionPreset") && n.Contains("OnStop IL_01a2 -> McvsBindingToDefaultPreset"));
             Assert.Contains(report.Notes, n => n.Contains("FlameZoneComponent::BroadcastEnd(): IL_0035"));
@@ -86,15 +88,15 @@ namespace McvsOffline.Embed.Tests.Patcher
                 return;
             }
             PatchReport report = ApkPatcher.Run(new PatcherOptions { InputApk = apk, ServerDll = server, DryRun = true }, null);
-            // 17 IL patch notes (hook, headless 5 + 3, physics 2, nativeonline, waits 2, geo, bottile, finder), the manifest
-            // rename, res/raw/args.txt.
-            Assert.Equal(19, report.Notes.Count);
+            // 19 IL patch notes (hook, headless 5 + 3, physics 2, nativeonline, waits 2, geo, bottile, finder, store 2), the
+            // manifest rename, res/raw/args.txt.
+            Assert.Equal(21, report.Notes.Count);
             Assert.DoesNotContain(report.Notes, n => n.Contains("LocalAnubisManager"));
 
             // --game-log fatal leaves res/raw/args.txt byte for byte (VerifyUnchanged checks the bytes).
             PatchReport fatal = ApkPatcher.Run(new PatcherOptions { InputApk = apk, ServerDll = server, DryRun = true, GameLog = GameLogMode.Fatal }, null);
             Assert.DoesNotContain("res/raw/args.txt", fatal.Modified);
-            Assert.Equal(18, fatal.Notes.Count);
+            Assert.Equal(20, fatal.Notes.Count);
         }
     }
 }

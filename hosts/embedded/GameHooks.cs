@@ -9,7 +9,7 @@ using McvsOffline.Server.Core;
 namespace McvsOffline
 {
     /// <summary>
-    /// Entry points the patched game code calls (patcher/Patches: NativeOnlinePatch, HeadlessEnginePatch, PhysicsPatch). Their
+    /// Entry points the patched game code calls (patcher/Patches: NativeOnlinePatch, HeadlessEnginePatch, PhysicsPatch, StorePatch). Their
     /// signatures are part of the patch contract (the patcher looks them up by name and parameter types). They run on the game
     /// thread or a loading-pool thread: cheap, never throw (the patched IL also guards every call), and the only one that can
     /// wait is <see cref="EnterPhysicsStep"/>, for at most <c>embedded.physics.stepGateTimeoutMs</c>.
@@ -21,6 +21,8 @@ namespace McvsOffline
         private static volatile BootTrace boot;
         private static int nativeOnlineCalls;
         private static int headlessReports;
+        private static int storeReports;
+        private static readonly System.Collections.Generic.HashSet<string> storeReported = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
 
         // Physics (device test 2). The defaults are the fix; settings.json can revert each part for an A/B run.
         private static volatile bool serverPhysicsMultithreaded;
@@ -118,6 +120,56 @@ namespace McvsOffline
             catch (Exception)
             {
             }
+        }
+
+        /// <summary>
+        /// Called by the shop's safety net (patch 'store', <c>Game.McvsStoreSafety.Report</c>) when the availability check of one
+        /// unified-store item threw; that item is left out of the shop. One line per item id (the shop rebuilds its lists on every
+        /// visit), on stdout (logcat mono-stdout) and in bootstrap.log.
+        /// </summary>
+        public static void StoreItemException(object item, Exception exception)
+        {
+            try
+            {
+                string id = ItemId(item);
+                lock (storeReported)
+                {
+                    if (storeReported.Count >= 100 || !storeReported.Add(id)) return;
+                }
+                Interlocked.Increment(ref storeReports);
+                string text = "store item " + id + " threw " + (exception == null ? "?" : exception.ToString());
+                try
+                {
+                    Console.WriteLine("[McvsOffline] " + text);
+                }
+                catch (Exception)
+                {
+                }
+                Log l = log;
+                if (l != null) l.Warn("store item " + id + " is left out of the shop: its availability check threw", exception);
+                else SelfLog.Write(SelfLog.Warn, "[store] " + text);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>Items the store safety net reported (distinct ids).</summary>
+        public static int StoreReports { get { return storeReports; } }
+
+        private static string ItemId(object item)
+        {
+            if (item == null) return "(null)";
+            try
+            {
+                PropertyInfo p = item.GetType().GetProperty("Id", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                object v = p == null ? null : p.GetValue(item, null);
+                if (v != null) return Convert.ToString(v, CultureInfo.InvariantCulture);
+            }
+            catch (Exception)
+            {
+            }
+            return item.GetType().FullName;
         }
 
         /// <summary>

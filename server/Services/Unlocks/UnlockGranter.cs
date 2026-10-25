@@ -23,7 +23,7 @@ namespace McvsOffline.Server.Services.Unlocks
     /// <list type="bullet">
     /// <item>values must be JSON integers: we write 1 (long);</item>
     /// <item>a camo, accessory, weapon or skin claimed while its merc is locked becomes an alternate reward and is never
-    /// retried: <c>UnlockMerc_ALL_MAX</c> goes first, alone in its own batch, then the groups in unlocks.json "order"
+    /// retried: the "mercs" group (<c>UnlockMerc_&lt;id&gt;</c> for every merc, then <c>ModTier_&lt;id&gt;_4</c>) goes first, alone in its own batch, then the groups in unlocks.json "order"
     /// (skins last, as the diff does anyway); keys keep insertion order in the stored section;</item>
     /// <item>reward popups: the rest goes in batches (unlocks.batchSize, default 400) one set_profile alert apart
     /// (unlocks.batchDelaySeconds, default 10 s); a missed alert is harmless, the next login diffs everything that is
@@ -32,7 +32,7 @@ namespace McvsOffline.Server.Services.Unlocks
     /// 232-239, 326-333), inventory included, and that Set replaces the whole ledger. So a grant only starts once the
     /// stored profile holds a game-profile dump and an inventory section: after R4, the TS's first save, which follows
     /// LoadSections (GM/ProfileManagerComponent.cs:891-894, 980-987). An account that is not ready yet is retried on
-    /// its next save. Before every later batch the ledger is read again, and a missing UnlockMerc_ALL_MAX (a late R3
+    /// its next save. Before every later batch the ledger is read again, and a missing merc unlock (a late R3
     /// Set, a hand edit) is written again first, alone;</item>
     /// <item>the TS's own start-up diff can run before its handler is attached (the "subscription race"), and an alert
     /// sent before its AlertsComponent stream is open only reaches the next login: the first batch waits for the
@@ -183,7 +183,7 @@ namespace McvsOffline.Server.Services.Unlocks
 
             List<string> all = AllKeys();
             var mercSet = new HashSet<string>(CouponCatalog.Load(context.Content, context.Settings, log).Group(MercsGroup), StringComparer.Ordinal);
-            List<string> mercs = all.FindAll(mercSet.Contains); // UnlockMerc_ALL_MAX, in grant order
+            List<string> mercs = all.FindAll(mercSet.Contains); // UnlockMerc_<id>..., ModTier_<id>_4..., in grant order
             Dictionary<string, object> ledger;
             List<string> missing = Missing(profiles, accountId, all, out ledger);
             if (missing.Count == 0)

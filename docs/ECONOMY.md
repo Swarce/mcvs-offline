@@ -107,7 +107,7 @@ Examples: *relaxed* = `versusCoinsMultiplier 2` + `priceMultiplier 0.5` (≈4× 
 
 | Way | How | Notes |
 |---|---|---|
-| Coupon | Settings › Account › Redeem code: `UNLOCKALL` | one inbox message with UnlockMerc_ALL_MAX first, then weapons, gear slots, signatures, camos, accessories, skins (≈11k rewards, claimed in order). Each code works once per profile; `UNLOCKALL2`, `UNLOCKALL3`… redeem again. Smaller codes if the big message is too heavy: `UNLOCKMERCS`, `UNLOCKWEAPONS`, `UNLOCKGEARSLOTS`, `UNLOCKSIGNATURES`, `UNLOCKCAMOS`, `UNLOCKACCESSORIES`, `UNLOCKSKINS` (all but signatures unlock the mercs first). `assets.couponsEnabled=false` disables codes. |
+| Coupon | Settings › Account › Redeem code: `UNLOCKALL` | one inbox message with every merc first (`UnlockMerc_<id>` for each merc but the starting one, then `ModTier_<id>_4`: every mod; not `UnlockMerc_ALL_MAX`, which crashed the reward display), then weapons, gear slots, signatures, camos, accessories, skins (≈11k rewards, claimed in order). Each code works once per profile; `UNLOCKALL2`, `UNLOCKALL3`… redeem again. Smaller codes if the big message is too heavy: `UNLOCKMERCS`, `UNLOCKWEAPONS`, `UNLOCKGEARSLOTS`, `UNLOCKSIGNATURES`, `UNLOCKCAMOS`, `UNLOCKACCESSORIES`, `UNLOCKSKINS` (all but signatures unlock the mercs first). `assets.couponsEnabled=false` disables codes. |
 | Dev cheat menu | `devMenu: true`, then tap top-left, top-right, bottom-left, bottom-right, top-left, bottom-right | exposes destructive cheats too (verify-C5 (a)); off by default |
 | Inventory ledger | `unlockAll: true` | the storage `inventory` section diff (STORAGE module, verify-C5 (c)) |
 

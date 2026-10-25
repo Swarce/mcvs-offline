@@ -60,6 +60,13 @@ namespace McvsOffline
         public static bool EnterPhysicsStep() { EnterCalls++; return GateAnswer; }
 
         public static void ExitPhysicsStep() { ExitCalls++; }
+
+        // patch 'store'
+        public static int StoreCalls;
+        public static object LastStoreItem;
+        public static System.Exception LastStoreException;
+
+        public static void StoreItemException(object item, System.Exception exception) { StoreCalls++; LastStoreItem = item; LastStoreException = exception; }
     }
 }";
 
@@ -109,6 +116,7 @@ namespace McvsOffline
         internal static readonly IlPatch[] DefaultGamePatches =
         {
             new HeadlessGamePatch(), new HeadlessEnginePatch(), new PhysicsPatch(), new NativeOnlinePatch(), new WaitsPatch(), new BotTilePatch(), new FinderPatch(),
+            new StorePatch(),
         };
 
         [Fact]
@@ -317,6 +325,9 @@ namespace McvsOffline
                     ("Gameloft.Engine", "Gameloft.Engine.McvsPhysics", "ForwardEnter"),
                     ("Gameloft.Engine", "Gameloft.Engine.McvsPhysics", "ForwardExit"),
                     ("Gameloft.Engine", "Gameloft.Engine.TaskExtension", "WaitAndWork"),
+                    ("Game", "Game.KillSignatureRewardItem", "GetAvailableId"),
+                    ("Game", "Game.GameUnifiedStoreComponent+<>c__DisplayClass25_0", "<SelectItems>b__8"),
+                    ("Game", "Game.McvsStoreSafety", "Report"), ("Game", "Game.McvsStoreSafety", "Forward"),
                 };
                 foreach (var (assembly, type, name) in sites)
                 {
@@ -346,6 +357,7 @@ namespace McvsOffline
             Assert.Throws<PatchException>(() => PatchReal(dir, server, null, new NativeOnlinePatch()));
             Assert.Throws<PatchException>(() => PatchReal(dir, server, null, new PhysicsPatch()));
             Assert.Contains("IL fingerprint", Assert.Throws<PatchException>(() => PatchReal(dir, server, null, new WaitsPatch())).Message);
+            Assert.Throws<PatchException>(() => PatchReal(dir, server, null, new StorePatch()));
 
             // A different Init_private body (ldarg.2 -> ldarg.1) is refused, and so is a server without GameHooks.
             string changed = TestEnvironment.NewTempDir("changed");

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Json;
@@ -13,6 +14,10 @@ namespace McvsOffline.Tests.Content
     /// <summary>Coupons (coupons/{cid}/{code}) and Iris assets (assets/{cid}/...).</summary>
     public class AssetsTests
     {
+        /// <summary>The "mercs" unlock group: every displayed merc but the starting one (1), then every merc's mods.</summary>
+        internal static readonly string[] MercGroup = Enumerable.Range(2, 20).Select(i => "UnlockMerc_" + i)
+            .Concat(Enumerable.Range(1, 21).Select(i => "ModTier_" + i + "_4")).ToArray();
+
         private static string CouponPath(string code) => "/coupons/" + ContentTestSupport.ClientId + "/" + code;
 
         private static List<object> Redeem(McvsServerHandle h, string code)
@@ -36,8 +41,11 @@ namespace McvsOffline.Tests.Content
             var rewards = Redeem(h, "UNLOCKALL");
             var types = Types(rewards);
             // verify-C5 (b): rewards are claimed in array order and merc-dependent items of a locked merc are lost,
-            // so UnlockMerc_ALL_MAX (every merc and every mod) must come first.
-            Assert.Equal("UnlockMerc_ALL_MAX", types[0]);
+            // so every merc (then every mod) comes first, as explicit per-merc rewards: UnlockMerc_ALL_MAX crashed the
+            // reward display ("Could not find merc data for mercId 'ALL'", device test 3).
+            Assert.Equal(MercGroup, types.Take(MercGroup.Length));
+            Assert.DoesNotContain(types, t => t.Contains("_ALL"));
+            Assert.DoesNotContain("UnlockMerc_1", types); // starting merc: its reward would become 40 random gear
             Assert.True(types.Count > 10000, "only " + types.Count + " rewards");
             Assert.Equal(types.Count, new HashSet<string>(types).Count);
             foreach (object r in rewards)
@@ -63,9 +71,9 @@ namespace McvsOffline.Tests.Content
         public void CodesAreCaseInsensitiveAndAcceptANumericSuffix()
         {
             using var h = new McvsServerHandle();
-            Assert.Equal("UnlockMerc_ALL_MAX", Types(Redeem(h, "unlockall"))[0]);
+            Assert.Equal(MercGroup[0], Types(Redeem(h, "unlockall"))[0]);
             // The game remembers claimed codes per profile; UNLOCKALL2 lets a player redeem again.
-            Assert.Equal("UnlockMerc_ALL_MAX", Types(Redeem(h, "UnlockAll2"))[0]);
+            Assert.Equal(MercGroup[0], Types(Redeem(h, "UnlockAll2"))[0]);
             Assert.Equal(404, ContentTestSupport.Get(h.Server, CouponPath("UNLOCKALLX")).StatusCode);
             Assert.Equal(404, ContentTestSupport.Get(h.Server, CouponPath("NOPE")).StatusCode);
             Assert.Equal(404, ContentTestSupport.Get(h.Server, CouponPath("2")).StatusCode);
@@ -78,12 +86,12 @@ namespace McvsOffline.Tests.Content
             foreach (string code in new[] { "UNLOCKWEAPONS", "UNLOCKGEARSLOTS", "UNLOCKCAMOS", "UNLOCKACCESSORIES", "UNLOCKSKINS" })
             {
                 var types = Types(Redeem(h, code));
-                Assert.Equal("UnlockMerc_ALL_MAX", types[0]);
-                Assert.True(types.Count > 1, code);
+                Assert.Equal(MercGroup, types.Take(MercGroup.Length));
+                Assert.True(types.Count > MercGroup.Length, code);
             }
-            Assert.Equal(new[] { "UnlockMerc_ALL_MAX" }, Types(Redeem(h, "UNLOCKMERCS")));
+            Assert.Equal(MercGroup, Types(Redeem(h, "UNLOCKMERCS")));
             Assert.StartsWith("KillSignature_", Types(Redeem(h, "UNLOCKSIGNATURES"))[0]);
-            Assert.Equal(4409, Types(Redeem(h, "UNLOCKCAMOS")).Count - 1);
+            Assert.Equal(4409, Types(Redeem(h, "UNLOCKCAMOS")).Count - MercGroup.Length);
         }
 
         [Fact]
@@ -98,7 +106,7 @@ namespace McvsOffline.Tests.Content
             Assert.Equal(2, gift.Count); // ResetProfile is never sent
             Assert.Equal(500L, JsonPath.Get(gift[0], "quantity"));
             Assert.Equal(1L, JsonPath.Get(gift[1], "quantity")); // default quantity
-            Assert.Equal(new[] { "UnlockMerc_ALL_MAX", "Crate_MOD_T1" }, Types(Redeem(h, "mix")));
+            Assert.Equal(MercGroup.Concat(new[] { "Crate_MOD_T1" }), Types(Redeem(h, "mix")));
             Assert.Equal(new[] { "VersusCoins" }, Types(Redeem(h, "UNLOCKALL"))); // settings replace built-in codes
             Assert.True(h.Logs.Contains("ResetProfile"));
 

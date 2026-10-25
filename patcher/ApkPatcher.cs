@@ -54,7 +54,7 @@ namespace McvsOffline.Patcher
         public static readonly IlPatch[] AllPatches =
         {
             new BootstrapHookPatch(), new HeadlessGamePatch(), new HeadlessEnginePatch(), new PhysicsPatch(), new NativeOnlinePatch(),
-            new WaitsPatch(), new GeoPatch(), new BotTilePatch(), new FinderPatch(), new LanPatch(),
+            new WaitsPatch(), new GeoPatch(), new BotTilePatch(), new FinderPatch(), new LanPatch(), new StorePatch(),
         };
 
         public static PatchReport Run(PatcherOptions options, Action<string> log)

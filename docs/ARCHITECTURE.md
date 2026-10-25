@@ -123,6 +123,9 @@ Recommended extra IL patches (all optional, patcher flags):
   60 s handshake) at our server.
 - `bottile`: route the BOTMATCH tile to the full-progression GS flow (verify-C4: `NativeStartMatchWithBots`
   lambda `IL_0007 ldc.i4.2 -> ldc.i4.1`).
+- `store` (default, device test 3): `KillSignatureRewardItem.GetAvailableId` no longer dereferences its null list for
+  sounds (unowned sound -> its id, random/other -> null), and the `GameUnifiedStoreComponent.SelectItems` availability
+  filter runs in try/catch (an item that throws is skipped and reported through `GameHooks.StoreItemException`).
 - `lan`: P1 Finder prefix `"*"`, P2 cache a real `PublicHost` at `LocalAnubisManager.Start`, P3
   `ClientSettings.LocalAnubisFinderHost = Args.RemoteIp ?? PublicHost` (verify-C6).
 
@@ -156,7 +159,7 @@ over loopback — send `false` unless the player enabled it), `_OverrideTables` 
 **Economy / unlocks.** Everything purchasable for **VersusCoins** (the repeatable currency; HC is
 finite) via `offline_store` and the generic `#VersusCoins` hub category (which can sell any reward
 string, incl. weapons, camos, sounds, crates). Unlock-all, all opt-in through settings: dev cheat
-menu, a coupon code (`assets coupons/{cid}/{code}` → `[{type:"UnlockMerc_ALL_MAX",quantity:1}, ...]`),
+menu, a coupon code (`assets coupons/{cid}/{code}` → `[{type:"UnlockMerc_2",quantity:1}, ...]`),
 and the inventory ledger.
 
 **Everything else** (social events, Hermes messaging/inbox, Kairos alerts, Olympus leaderboards,
