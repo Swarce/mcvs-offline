@@ -202,12 +202,19 @@ namespace McvsOffline.Tests.Auth
                 // A broad catch-all like the MISC module's: it must see the path the client sent.
                 router.Any("{*path}", "test.catchall", r => { seen = r.RouteValue("path"); return HttpResponse.EmptyObject(); });
             });
-            Assert.Equal(200, server.Post("/etsv2/events", "{}").StatusCode);
-            Assert.Equal("etsv2/events", seen);
-            Assert.Equal(200, server.Post("/etsv2", "x=1").StatusCode);
-            Assert.Equal("etsv2", seen);
+            // ads_agency is a service name we hand out but no module serves paths under it.
+            Assert.Equal(200, server.Post("/ads_agency/events", "{}").StatusCode);
+            Assert.Equal("ads_agency/events", seen);
+            Assert.Equal(200, server.Post("/ads_agency", "x=1").StatusCode);
+            Assert.Equal("ads_agency", seen);
             Assert.Equal(200, server.Get("/auth//nothing/here?x=1").StatusCode);
             Assert.Equal("auth/nothing/here", seen);
+
+            // Tracking under the etsv2 prefix belongs to MISC's tracking route, ahead of any later catch-all.
+            seen = null;
+            var tracking = HttpRequest.Create("POST", "/etsv2/events", "{}", "application/json");
+            Assert.Equal(200, server.Handle(tracking).StatusCode);
+            Assert.Null(seen);
         }
 
         [Fact]
