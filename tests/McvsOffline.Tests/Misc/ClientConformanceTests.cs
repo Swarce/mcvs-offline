@@ -26,8 +26,8 @@ namespace McvsOffline.Tests.Misc
     /// the chat room stream, the profanity filter and game_stats.
     /// <para>
     /// The assemblies are loaded at run time from MCVS_REFS (default /home/user/mcvs-work/extracted/assemblies, as for
-    /// the embedded build) into an isolated load context; the test is skipped when they are absent. Eve, pandora and
-    /// authorize are minimal fakes registered ahead of the AUTH module, so only the MISC answers are under test.
+    /// the embedded build) into an isolated load context; the test is skipped when they are absent (and fails instead
+    /// with MCVS_REQUIRE_REAL_CLIENT=1). The server is the complete one: the sessions are opened through the AUTH module.
     /// </para>
     /// </summary>
     public class ClientConformanceTests
@@ -63,7 +63,7 @@ namespace McvsOffline.Tests.Misc
      ""awards"":[{""gifts"":[{""name"":""Credits"",""value"":100}],""rank_interval"":[1,10]}]}}]");
 
             var options = new ServerOptions { DataDir = data, Port = 0, ConsoleLog = false, FileLog = false };
-            options.RegisterServices = (r, c) => { ServiceRegistry.RegisterAll(r, c); FakeAuth(r, c); };
+            // The complete server: eve, pandora and authorize are the AUTH module's real ones.
             using var server = McvsServer.Create(options);
             server.Start();
             var ct = new CancellationTokenSource(TimeSpan.FromSeconds(60)).Token;
@@ -234,35 +234,6 @@ namespace McvsOffline.Tests.Misc
             }
         }
 
-        /// <summary>Eve/pandora/authorize/users-me just good enough to open client sessions (AUTH owns the real ones).</summary>
-        private static void FakeAuth(Router router, ServerContext context)
-        {
-            const int first = -100; // ahead of the AUTH module's routes: only MISC answers are under test
-            router.Get("config/{cid}/datacenters", "test.dcs", r => HttpResponse.RawJson("[{\"name\":\"mcvs\",\"preferred\":true}]"), first);
-            router.Get("config/{cid}/datacenters/{dc}/urls", "test.urls", r =>
-                HttpResponse.RawJson("{\"status\":\"none\",\"pandora\":\"" + context.BaseUrlFor(r).TrimEnd('/') + "\"}"), first);
-            router.Get("locate/{svc}", "test.locate", r => HttpResponse.Text(context.BaseUrlFor(r).TrimEnd('/')), first);
-            router.Post("authorize", "test.authorize", r =>
-            {
-                string credential = r.Param("credential_type") + ":" + r.Param("username");
-                string actor = null;
-                if (!string.IsNullOrEmpty(r.Param("for_username")))
-                {
-                    actor = credential;
-                    credential = r.Param("for_credential_type") + ":" + r.Param("for_username");
-                }
-                Account account = context.Accounts.GetOrCreate(credential, r.Param("device_id"));
-                TokenInfo token = context.Tokens.Issue(account.Id, credential, r.Param("client_id"), TokenService.ParseScopes(r.Param("scope")), r.Param("device_id"), actor);
-                return HttpResponse.Json(new Dictionary<string, object> { ["access_token"] = token.Token, ["scope"] = token.ScopeString });
-            }, first);
-            router.Get("users/me", "test.me", r =>
-            {
-                TokenInfo token = context.Tokens.Resolve(r.Param("access_token"));
-                if (token == null) return HttpResponse.Error(401, "bad token");
-                return HttpResponse.Json(new Dictionary<string, object> { ["account"] = token.AccountId, ["credentials"] = new List<object> { token.Credential } });
-            }, first);
-        }
-
         /// <summary>Records the arguments of a client event (EventHandler&lt;T&gt; or the chat delegate).</summary>
         private sealed class Recorder
         {
@@ -325,7 +296,11 @@ namespace McvsOffline.Tests.Misc
                 string dir = Environment.GetEnvironmentVariable("MCVS_REFS");
                 if (string.IsNullOrEmpty(dir)) dir = "/home/user/mcvs-work/extracted/assemblies";
                 string path = Path.Combine(dir, "Gameloft.OnlinePlatform.dll");
-                if (!File.Exists(path)) return null;
+                if (!File.Exists(path))
+                {
+                    if (Conformance.GameClient.Required) throw new InvalidOperationException("MCVS_REQUIRE_REAL_CLIENT=1 but " + path + " is missing");
+                    return null;
+                }
                 var context = new AssemblyLoadContext("mcvs-game-client");
                 context.Resolving += (ctx, name) =>
                 {

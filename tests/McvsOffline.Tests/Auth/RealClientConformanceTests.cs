@@ -170,6 +170,7 @@ namespace McvsOffline.Tests.Auth
         private bool Available()
         {
             if (File.Exists(Path.Combine(RefsDirectory, "Gameloft.OnlinePlatform.dll"))) return true;
+            if (Conformance.GameClient.Required) throw new InvalidOperationException("MCVS_REQUIRE_REAL_CLIENT=1 but Gameloft.OnlinePlatform.dll is not in " + RefsDirectory);
             output.WriteLine("Gameloft.OnlinePlatform.dll not found in MCVS_REFS (" + RefsDirectory + "): skipped");
             return false;
         }
