@@ -62,6 +62,12 @@ namespace McvsOffline.Embedded
 
         /// <summary>Starts logging the installer's progress (state machine, errors) while it runs; diagnostics only.</summary>
         void MonitorInstaller(Log log, BootTrace boot);
+
+        /// <summary>
+        /// Whether the Java installer has handed over to the game (GameInstaller.sbStarted, or its state 21): 1 yes, 0 not yet,
+        /// -1 cannot tell (its class or fields cannot be read). Reads fields only; never throws.
+        /// </summary>
+        int InstallerHandedOver();
     }
 
     /// <summary>A fixed directory as game root (tests, and running the embedded host on a PC).</summary>

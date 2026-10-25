@@ -79,14 +79,53 @@ namespace McvsOffline.Tests.Misc
 
             foreach (string bad in new[] { "mcvs_season_2026101900x7", "mcvs_season_2026101900x7_d5", "mcvs_season_20261019x7_d05",
                                            "mcvs_season_2026133100x7_d05", "mcvs_season_2026101900x99_d05", "mcvs_daily_2026102500x1",
+                                           "mcvs_season_2026101900x1_d05", "mcvs_season_2026101900x07_d05", "mcvs_season_2026101900x_d05",
                                            "mcvs_weekly_2026102500", "season_1", null })
             {
                 Assert.False(LiveOpsSchedule.TryParseDivisionEvent(bad, out parsed, out division), bad);
             }
             Assert.Null(LiveOpsSchedule.TryParseDaily("mcvs_daily_2026102500x1"));
-            Assert.Null(LiveOpsSchedule.TryParseWeekly("mcvs_weekly_2026102500"));
+            Assert.Null(LiveOpsSchedule.TryParseDaily("mcvs_daily_2026102500x7"));
+            Assert.Null(LiveOpsSchedule.TryParseWeekly("mcvs_weekly_2026102500x1"));   // not the form Key writes
+            Assert.Null(LiveOpsSchedule.TryParseWeekly("mcvs_weekly_2026102500x07"));
             Assert.False(LiveOpsSchedule.TryParseBoard("mcvs_division_2026101900x7_d05", out parsed, out division));
             Assert.False(LiveOpsSchedule.TryParseBoard("Leaderboard_S1_D3", out parsed, out division));
+        }
+
+        [Theory]
+        [InlineData(1)]
+        [InlineData(2)]
+        [InlineData(3)]
+        [InlineData(7)]
+        [InlineData(28)]
+        public void EverySeasonLengthGivesIdsThatParseBack(int days)
+        {
+            // liveops.seasonDays is 1..28: a one-day season has the bare "yyyyMMddHH" key (as a quest day).
+            LiveOpsWindow season = LiveOpsSchedule.SeasonAt(Settings(days), Sunday);
+            Assert.Equal(days, season.Days);
+            Assert.Equal(days == 1 ? 10 : 12 + (days >= 10 ? 1 : 0), season.Key.Length);
+            for (int d = 1; d <= 17; d++)
+            {
+                string id = LiveOpsSchedule.DivisionEventId(season, d);
+                Assert.True(LiveOpsSchedule.TryParseDivisionEvent(id, out LiveOpsWindow parsed, out int division), id);
+                Assert.Equal(d, division);
+                Assert.Equal(season.Start, parsed.Start);
+                Assert.Equal(season.End, parsed.End);
+                Assert.Equal(id, LiveOpsSchedule.DivisionEventId(parsed, division));
+
+                string board = LiveOpsSchedule.BoardName(season, d);
+                Assert.True(LiveOpsSchedule.TryParseBoard(board, out parsed, out division), board);
+                Assert.True(LiveOpsSchedule.TryParseBoard(board.Replace("Leaderboard", "Leaderboard_QA"), out parsed, out division), board);
+                Assert.Equal(season.End, parsed.End);
+                Assert.Equal(board, LiveOpsSchedule.BoardName(parsed, division));
+            }
+            string weekly = LiveOpsSchedule.WeeklyEventId(season);
+            LiveOpsWindow w = LiveOpsSchedule.TryParseWeekly(weekly);
+            Assert.NotNull(w);
+            Assert.Equal(season.End, w.End);
+            Assert.Equal(weekly, LiveOpsSchedule.WeeklyEventId(w));
+            // A quest day's key never passes for a longer window, nor a season's for a quest day.
+            Assert.Null(LiveOpsSchedule.TryParseDaily(LiveOpsSchedule.DailyPrefix + season.Key + (days == 1 ? "x1" : "")));
         }
 
         [Fact]
@@ -217,15 +256,27 @@ namespace McvsOffline.Tests.Misc
 
         // ------------------------------------------------------------------------------------------ events
 
-        [Fact]
-        public void EveryListedEventIsServedParserSafeAndDeterministic()
+        [Theory]
+        [InlineData(7)]
+        [InlineData(3)]
+        [InlineData(1)]
+        public void EveryListedEventIsServedParserSafeAndDeterministic(int seasonDays)
         {
             var clock = new ManualClock(Wednesday);
             using var s = new MiscServer(clock);
+            s.Set("liveops.seasonDays", (long)seasonDays);
             TestPlayer p = s.NewPlayer("quests");
             for (int day = 0; day < 15; day++)
             {
                 List<string> ids = Participation(MiscServer.Obj(s.Get("/configs/users/me?access_token=t")));
+                Assert.Equal(17 * 2 + 2 + (seasonDays > 1 && clock.UtcNow.AddSeconds(2) >= LiveOpsSchedule.SeasonAt(Settings(seasonDays), clock.UtcNow.AddSeconds(2)).End.AddDays(-1) ? 2 : 1),
+                             ids.Count);
+                // Every listed id has a definition (FindEvent), the division boards resolve to season boards.
+                foreach (string id in ids.Where(i => i.StartsWith(LiveOpsSchedule.SeasonPrefix, StringComparison.Ordinal)))
+                {
+                    Assert.True(LiveOpsSchedule.TryParseDivisionEvent(id, out LiveOpsWindow w, out int division), id);
+                    Assert.True(LiveOpsService.For(s.Context).TryGetSeasonBoard(LiveOpsSchedule.BoardName(w, division), out SeasonBoardInfo _), id);
+                }
                 string query = "/events?event_ids=" + string.Join(",", ids) + "&language=en";
                 string body = s.Get(query, p.OnBehalfToken).BodyText;
                 var events = MiniJson.ParseArray(body);

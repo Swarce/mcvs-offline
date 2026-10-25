@@ -340,7 +340,7 @@ namespace McvsOffline.Embedded
                 McvsOffline.Embedded.Install.InstallerDataResult result =
                     McvsOffline.Embedded.Install.InstallerData.Prepare(locations, installer.InstallerPrefs(), options, log, now);
                 Boot.Mark(result.Summary);
-                if (result.IndexToVerify != null) StartDataVerify(locations, result.IndexToVerify, log);
+                if (result.IndexToVerify != null) StartDataVerify(installer, locations, result, log);
             }
             catch (Exception ex)
             {
@@ -348,17 +348,54 @@ namespace McvsOffline.Embedded
             }
         }
 
+        /// <summary>The background CRC check waits this long for the installer to hand over to the game, polling every second.</summary>
+        private const int DataVerifyHandOverTimeoutMs = 2 * 60 * 60 * 1000;
+
+        /// <summary>After the hand-over, the game loads first.</summary>
+        private const int DataVerifyAfterHandOverMs = 60000;
+
+        /// <summary>When the installer's state cannot be read and it had nothing to download: a fixed wait from the start.</summary>
+        private const int DataVerifyFallbackDelayMs = 90000;
+
         /// <summary>
-        /// The CRC32 check of data whose Gameloft index was just given back to the installer (sizes were checked before it ran):
-        /// a background thread that waits until the game has loaded, then reads the whole pack with a 2 ms pause per MiB.
+        /// The CRC32 check of data whose Gameloft index was given back to the installer (only sizes were checked before it ran):
+        /// a background thread that waits until the installer has handed over to the game (until then it may still be writing
+        /// files it downloads, which would look damaged) and the game has loaded, then reads the whole pack with a 2 ms pause per
+        /// MiB. A check that does not get through resumes at the next start (InstallerData.VerifyContent, verify-pending).
         /// </summary>
-        private void StartDataVerify(McvsOffline.Embedded.Install.InstallerDataLocations locations, McvsOffline.Embedded.Install.PackIndex index, Log log)
+        private void StartDataVerify(IInstallerPlatform installer, McvsOffline.Embedded.Install.InstallerDataLocations locations,
+                                     McvsOffline.Embedded.Install.InstallerDataResult result, Log log)
         {
+            McvsOffline.Embedded.Install.PackIndex index = result.IndexToVerify;
+            bool mustWait = result.WaitForInstaller;
             var thread = new Thread(() =>
             {
                 try
                 {
-                    Thread.Sleep(90000);
+                    int handedOver = 0;
+                    int started = Environment.TickCount;
+                    while (Environment.TickCount - started < DataVerifyHandOverTimeoutMs)
+                    {
+                        handedOver = installer.InstallerHandedOver();
+                        if (handedOver != 0) break;
+                        Thread.Sleep(1000);
+                    }
+                    if (handedOver > 0)
+                    {
+                        Thread.Sleep(DataVerifyAfterHandOverMs);
+                    }
+                    else if (handedOver < 0 && !mustWait)
+                    {
+                        // Every file passed the installer's size test, so it downloads nothing: nothing changes under the check.
+                        Thread.Sleep(Math.Max(0, DataVerifyFallbackDelayMs - (Environment.TickCount - started)));
+                    }
+                    else
+                    {
+                        log.Info("installer data: the background CRC check is left for a later start (" +
+                                 (handedOver < 0 ? "the installer's state cannot be read and it still has files to fetch"
+                                                 : "the installer has not handed over to the game after " + (DataVerifyHandOverTimeoutMs / 60000) + " minutes") + ")");
+                        return;
+                    }
                     log.Info("installer data: checking the CRC32 of every file in the background (" + index.LogicalFiles + " files)");
                     McvsOffline.Embedded.Install.InstallerData.VerifyContent(locations, index, log, null, 2);
                 }

@@ -51,7 +51,7 @@ the data pack (only their texts remain in `Localization/Achiev_*.json`). The tim
 |---|---|---|
 | `enabled` | `true` | `false` = no ids in CRM, no expiry, no modifiers, events answered as unknown: the game as before. |
 | `seasonStart` | `"2024-01-01T00:00:00Z"` (a Monday) | Any season start (truncated to the hour, UTC). Seasons repeat every `seasonDays` from it, also backwards. |
-| `seasonDays` | `7` | 1–28. Weekly-event goals scale with it (×days/7); the rivals' targets are per day, so they scale too. |
+| `seasonDays` | `7` | 1–28. Weekly-event goals scale with it (×days/7); the rivals' targets are per day, so they scale too. With 1 the ids carry the bare start (`mcvs_season_2026102500_d05`), otherwise `<start>x<days>`. |
 | `dailyResetHour` | `0` | UTC hour (0–23) at which the daily missions change. |
 | `divisionSeasons`, `dailyQuests`, `weeklyEvents` | `true` | Switch one part off (its ids leave CRM). |
 | `modifiers` | `"rotate"` | `"rotate"` (season ordinal mod rotation), `"off"`, or a modifier id (`coinRush`, `trophyFever`, …) every week. |

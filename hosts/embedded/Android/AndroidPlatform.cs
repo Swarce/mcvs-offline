@@ -116,6 +116,11 @@ namespace McvsOffline.Embedded.Android
             }
         }
 
+        public int InstallerHandedOver()
+        {
+            return InstallerMonitor.HandedOver();
+        }
+
         // ------------------------------------------------------------------ IPlatformDiagnostics
 
         public void InstallCrashHooks()

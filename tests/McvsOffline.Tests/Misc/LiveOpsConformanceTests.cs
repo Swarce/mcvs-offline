@@ -33,8 +33,10 @@ namespace McvsOffline.Tests.Misc
             this.output = output;
         }
 
-        [Fact]
-        public void EveryGeneratedEventInitializesInTheRealClient()
+        [Theory]
+        [InlineData(7)]
+        [InlineData(1)]   // liveops.seasonDays 1: a season (and its weekly event) a day, bare "yyyyMMddHH" keys
+        public void EveryGeneratedEventInitializesInTheRealClient(int seasonDays)
         {
             GameClient game = GameClient.TryGet(output, "Gameloft.Engine", "Game", "Gameloft.Util");
             if (game == null) return;
@@ -63,6 +65,7 @@ namespace McvsOffline.Tests.Misc
             CultureInfo dayFirst = TryCulture("de-DE");
             var clock = new ManualClock(new DateTime(2026, 10, 23, 15, 0, 0, DateTimeKind.Utc));
             using var s = new MiscServer(clock);
+            s.Set("liveops.seasonDays", (long)seasonDays);
             TestPlayer p = s.NewPlayer("conformance");
             var checkedIds = new HashSet<string>();
             var types = new Dictionary<string, int>();

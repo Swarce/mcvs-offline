@@ -87,8 +87,15 @@ namespace McvsOffline.Embedded.Install
 
         public string SavedIndexNote { get { return SavedIndex + ".txt"; } }
 
-        /// <summary>Files the background CRC check found damaged; deleted (and so downloaded again) at the next start.</summary>
+        /// <summary>Files the background CRC check found damaged; checked again and, if still damaged, deleted (and so downloaded
+        /// again) at the next start.</summary>
         public string DamagedList { get { return Path.Combine(Path.GetDirectoryName(SavedIndex), "damaged.txt"); } }
+
+        /// <summary>
+        /// Present from the moment a Gameloft index is given back to the installer (sizes checked, CRC32s not yet) until the
+        /// background CRC check has read every file: "index &lt;hash&gt;" and "next &lt;entry&gt;", where it resumes at a later start.
+        /// </summary>
+        public string VerifyPending { get { return Path.Combine(Path.GetDirectoryName(SavedIndex), "verify-pending"); } }
 
         /// <summary>An index the player copied next to Data/ (for example from a mirror made with tools/cdn-mirror).</summary>
         public string PlayerIndex { get { return Path.Combine(GameRoot, "pack.info"); } }
@@ -131,17 +138,25 @@ namespace McvsOffline.Embedded.Install
     /// <summary>What <see cref="InstallerData.Prepare"/> did.</summary>
     public sealed class InstallerDataResult
     {
-        internal InstallerDataResult(string summary, PackIndex verify)
+        internal InstallerDataResult(string summary, PackIndex verify, bool waitForInstaller)
         {
             Summary = summary;
             IndexToVerify = verify;
+            WaitForInstaller = verify != null && waitForInstaller;
         }
 
         /// <summary>One line for the boot trace.</summary>
         public string Summary { get; private set; }
 
-        /// <summary>A Gameloft index just given back to the installer, whose CRC32s <see cref="InstallerData.VerifyContent"/> should check; or null.</summary>
+        /// <summary>A Gameloft index given back to the installer (now, or at an earlier start whose check did not finish), whose CRC32s
+        /// <see cref="InstallerData.VerifyContent"/> should check; or null.</summary>
         public PackIndex IndexToVerify { get; private set; }
+
+        /// <summary>
+        /// Some entries did not pass the installer's size test: it downloads them first, so the CRC check must not start before
+        /// the installer has handed over to the game (until then a file is missing or half-written and would look damaged).
+        /// </summary>
+        public bool WaitForInstaller { get; private set; }
     }
 
     /// <summary>
@@ -155,7 +170,10 @@ namespace McvsOffline.Embedded.Install
     /// <item>with no installer index, the saved copy (or a <c>files/pack.info</c> the player put there) is checked against the
     /// files and given back to the installer with <c>gl_ver</c>, the journal of split pieces and its preferences;</item>
     /// <item>with no index at all, a Data folder that holds exactly the complete 1.17.32 pack gets a rebuilt index (same
-    /// names and layout, CRC 0) that lets the installer accept it; it is re-checked every boot.</item>
+    /// names and layout, CRC 0) that lets the installer accept it; it is re-checked every boot;</item>
+    /// <item>a Gameloft index given back has only passed the size test: its CRC32s are read in the background once the installer
+    /// has handed over to the game (<see cref="VerifyContent"/>), resumed at later starts until done (verify-pending), and files
+    /// that fail are deleted at the next start if they still fail then.</item>
     /// </list>
     /// Missing or damaged data is never hidden: the installer then goes its normal (online) way. Never throws.
     /// </summary>
@@ -216,19 +234,22 @@ namespace McvsOffline.Embedded.Install
             try
             {
                 string summary = PrepareCore(loc, prefs, options, log, nowUnixSeconds, restored);
-                return new InstallerDataResult(summary, options.VerifyRestoredData ? restored.Index : null);
+                return new InstallerDataResult(summary, options.VerifyRestoredData ? restored.Index : null, restored.Incomplete);
             }
             catch (Exception ex)
             {
                 log.Warn("installer data: preparation failed; the game's installer runs as usual", ex);
-                return new InstallerDataResult("installer data: failed (" + ex.GetType().Name + ")", null);
+                return new InstallerDataResult("installer data: failed (" + ex.GetType().Name + ")", null, false);
             }
         }
 
-        /// <summary>The Gameloft index given back to the installer during this run, if any.</summary>
+        /// <summary>The Gameloft index whose CRC32s are still to be checked (given back during this run or an earlier one), if any.</summary>
         private sealed class Restored
         {
             public PackIndex Index;
+
+            /// <summary>Some entries failed the size test: the installer downloads them before the check may run.</summary>
+            public bool Incomplete;
         }
 
         private static string PrepareCore(InstallerDataLocations loc, IInstallerPrefs prefs, InstallerDataOptions options, Log log, long now, Restored restored)
@@ -238,12 +259,12 @@ namespace McvsOffline.Embedded.Install
                 log.Info("installer data: install.manageInstaller is false, the game's installer state is left alone");
                 return "installer data: not managed";
             }
-            RemoveDamaged(loc, log);
             string glVer = ReadText(loc.GlVer);
             byte[] internalRaw = ReadBytes(loc.PackInfo);
             string parseError = null;
             PackIndex internalIndex = internalRaw == null ? null : PackIndex.TryParse(internalRaw, out parseError);
             bool hasData = Directory.Exists(loc.DataDir);
+            RemoveDamaged(loc, internalIndex != null && !internalIndex.IsRebuilt ? internalIndex : null, log);
 
             if (internalIndex != null && glVer == ApkVersionCode)
             {
@@ -253,6 +274,18 @@ namespace McvsOffline.Embedded.Install
                     // size looks right, so pieces are never added to it from sizes here.
                     SaveCopy(loc, internalIndex, log);
                     RefreshInsTime(loc, options, log, now);
+                    if (options.VerifyRestoredData && File.Exists(loc.VerifyPending))
+                    {
+                        // Data given back at an earlier start whose CRC check did not get through (the session ended first):
+                        // until it has, a zero-filled piece of the right size would be accepted for good.
+                        DataCheck pending = Check(internalIndex, loc.GameRoot);
+                        restored.Index = internalIndex;
+                        restored.Incomplete = !pending.Complete;
+                        log.Info("installer data: the CRC32 check of the data given back to the installer has not finished yet; it " +
+                                 "continues in the background" + (pending.Complete ? "" : " after the installer has fetched " +
+                                 (pending.Missing + pending.WrongSize) + " entries (" + pending.Describe() + ")"));
+                        return "installer data: Gameloft index in place (" + Describe(internalIndex) + "), CRC check pending";
+                    }
                     return "installer data: Gameloft index in place (" + Describe(internalIndex) + ")";
                 }
                 DataCheck check = Check(internalIndex, loc.GameRoot);
@@ -405,7 +438,10 @@ namespace McvsOffline.Embedded.Install
             if (!index.IsRebuilt)
             {
                 SaveCopy(loc, index, log);
-                restored.Index = index;   // sizes only so far: the CRC32s are checked in the background (VerifyContent)
+                // Sizes only so far: the CRC32s are checked in the background (VerifyContent), resumed at later starts until done.
+                WritePending(loc, IndexHash(index), 0, log);
+                restored.Index = index;
+                restored.Incomplete = !check.Complete;
             }
             log.Info("installer data: wrote " + loc.PackInfo + " (" + index.Raw.Length + " bytes, from the " + source + "), " + loc.GlVer + " = " +
                      ApkVersionCode + ", " + check.GoodPieces.Count + " split pieces in the journal" + (variant == null ? "" : ", DATA_TYPE " + variant));
@@ -444,30 +480,50 @@ namespace McvsOffline.Embedded.Install
             return check;
         }
 
+        /// <summary>Progress of the background check is saved after about this many bytes read.</summary>
+        internal const long CheckpointBytes = 64L << 20;
+
+        /// <summary>At most this much of the files listed as damaged is read again at start-up (on the game's main thread, before
+        /// the installer); the rest stays listed for the next start. At least one file is always checked.</summary>
+        internal const long RecheckBudgetBytes = 256L << 20;
+
         /// <summary>
-        /// Background check of a Gameloft index just given back to the installer: the CRC32 of every file, and of every 2 MiB
-        /// window of split files (what the installer's own CRC pass checks after an APK change, CRC.java and SplitCRC). Files
-        /// that fail are listed in McvsOffline/install/damaged.txt; the next start deletes them before the installer runs, so it
-        /// downloads them again (needs internet), as its own CRC pass would. Low priority; returns the number of damaged files,
-        /// or -1 when it stopped early.
+        /// Background check of a Gameloft index given back to the installer: the CRC32 of every file, and of every 2 MiB window
+        /// of split files (what the installer's own CRC pass checks after an APK change, CRC.java and SplitCRC). Files whose size
+        /// is right but whose content is not are listed in McvsOffline/install/damaged.txt; the next start reads them again and
+        /// deletes those that still fail before the installer runs, so it downloads them again (needs internet), as its own CRC
+        /// pass would. A missing file or one of another size is not listed: the installer's own size test already fetches it.
+        /// Progress is kept in McvsOffline/install/verify-pending, so a check cut short (the session ended) resumes at the next
+        /// start; the marker goes once every entry has been read. Run it only after the installer has handed over to the game
+        /// (<see cref="InstallerDataResult.WaitForInstaller"/>). Low priority; returns the number of damaged files found, or -1
+        /// when it stopped early.
         /// </summary>
         public static int VerifyContent(InstallerDataLocations loc, PackIndex index, Log log, Func<bool> stop, int pauseMsPerMiB)
         {
+            string hash = IndexHash(index);
+            int first = PendingStart(loc, hash);
             var damaged = new List<string>();
             var seen = new HashSet<string>(StringComparer.Ordinal);
             var buffer = new byte[256 * 1024];
-            long checkedBytes = 0;
+            long checkedBytes = 0, checkpointAt = CheckpointBytes;
+            int notChecked = 0;
             int started = Environment.TickCount;
+            if (first > 0) log.Info("installer data: the background check resumes at entry " + first + " of " + index.Entries.Count);
             try
             {
                 string openPath = null;
                 FileStream stream = null;
                 try
                 {
-                    foreach (PackEntry e in index.Entries)
+                    for (int i = first; i < index.Entries.Count; i++)
                     {
-                        if (stop != null && stop()) return -1;
-                        if (seen.Contains(e.RelativePath)) continue;   // already damaged
+                        if (stop != null && stop())
+                        {
+                            Checkpoint(loc, hash, i, damaged, log);
+                            return -1;
+                        }
+                        PackEntry e = index.Entries[i];
+                        if (seen.Contains(e.RelativePath)) continue;   // already listed or left to the installer
                         string path = Path.Combine(loc.GameRoot, e.RelativePath.Replace('/', Path.DirectorySeparatorChar));
                         if (path != openPath)
                         {
@@ -483,32 +539,22 @@ namespace McvsOffline.Embedded.Install
                                 stream = null;
                             }
                         }
-                        bool good = false;
-                        if (stream != null)
+                        int verdict;
+                        try
                         {
-                            long start = e.Piece == 0 ? 0 : (long)(e.Piece - 1) * PackIndex.SplitSize;
-                            long length = e.Size;
-                            if (start + length <= stream.Length && (e.Piece > 0 || stream.Length == length))
-                            {
-                                stream.Position = start;
-                                uint crc = 0;
-                                long left = length;
-                                while (left > 0)
-                                {
-                                    int n = stream.Read(buffer, 0, (int)Math.Min(buffer.Length, left));
-                                    if (n <= 0) break;
-                                    crc = Crc32.Update(crc, buffer, 0, n);
-                                    left -= n;
-                                    checkedBytes += n;
-                                    if (pauseMsPerMiB > 0 && (checkedBytes & 0xFFFFF) < n) System.Threading.Thread.Sleep(pauseMsPerMiB);
-                                }
-                                good = left == 0 && crc == (uint)e.Crc;
-                            }
+                            verdict = EntryVerdict(stream, e, buffer, ref checkedBytes, pauseMsPerMiB);
                         }
-                        if (!good)
+                        catch (IOException)
                         {
-                            seen.Add(e.RelativePath);
-                            damaged.Add(e.RelativePath);
+                            verdict = -1;
+                        }
+                        if (verdict == 0) damaged.Add(e.RelativePath);
+                        else if (verdict < 0) notChecked++;
+                        if (verdict <= 0) seen.Add(e.RelativePath);
+                        if (checkedBytes >= checkpointAt)
+                        {
+                            Checkpoint(loc, hash, i + 1, damaged, log);
+                            checkpointAt = checkedBytes + CheckpointBytes;
                         }
                     }
                 }
@@ -519,90 +565,269 @@ namespace McvsOffline.Embedded.Install
             }
             catch (Exception ex)
             {
-                log.Warn("installer data: the background data check stopped", ex);
+                log.Warn("installer data: the background data check stopped (it resumes at the next start)", ex);
                 return -1;
             }
+            MergeDamaged(loc, damaged, log);
+            TryDelete(loc.VerifyPending, log);
             int seconds = Math.Max(0, (Environment.TickCount - started) / 1000);
+            string skippedNote = notChecked == 0 ? "" : "; " + notChecked + " files missing or of another size were left to the installer's own size check";
             if (damaged.Count == 0)
             {
                 log.Info("installer data: background check done, every file matches the CRC32 in Gameloft's index (" +
-                         (checkedBytes >> 20) + " MiB in " + seconds + " s)");
+                         (checkedBytes >> 20) + " MiB in " + seconds + " s" + skippedNote + ")");
                 return 0;
             }
+            log.Warn("installer data: background check: " + damaged.Count + " damaged files (" +
+                     string.Join(", ", damaged.GetRange(0, Math.Min(5, damaged.Count)).ToArray()) + (damaged.Count > 5 ? ", ..." : "") +
+                     skippedNote + "). The next start checks them again and deletes those still damaged, so the game's installer " +
+                     "downloads them again (needs internet); to avoid that, copy good ones from another backup or a mirror first");
+            return damaged.Count;
+        }
+
+        /// <summary>1: the bytes of the entry match its CRC32; 0: the file covers the entry but its bytes differ; -1: the file is
+        /// missing or does not have the entry's size (the installer's own size test deals with it).</summary>
+        private static int EntryVerdict(FileStream stream, PackEntry e, byte[] buffer, ref long readBytes, int pauseMsPerMiB)
+        {
+            if (stream == null) return -1;
+            long start = e.Piece == 0 ? 0 : (long)(e.Piece - 1) * PackIndex.SplitSize;
+            long length = e.Size;
+            if (start + length > stream.Length || (e.Piece == 0 && stream.Length != length)) return -1;
+            stream.Position = start;
+            uint crc = 0;
+            long left = length;
+            while (left > 0)
+            {
+                int n = stream.Read(buffer, 0, (int)Math.Min(buffer.Length, left));
+                if (n <= 0) return -1;
+                crc = Crc32.Update(crc, buffer, 0, n);
+                left -= n;
+                long before = readBytes;
+                readBytes += n;
+                if (pauseMsPerMiB > 0 && (readBytes >> 20) != (before >> 20)) System.Threading.Thread.Sleep(pauseMsPerMiB);
+            }
+            return crc == (uint)e.Crc ? 1 : 0;
+        }
+
+        /// <summary>The verdict of a whole file (every entry of it): 1 good, 0 damaged, -1 missing, of another size or unreadable.</summary>
+        private static int FileVerdict(string path, List<PackEntry> entries, byte[] buffer, ref long readBytes)
+        {
             try
             {
-                AtomicFile.WriteAllText(loc.DamagedList, string.Join("\n", damaged.ToArray()) + "\n");
+                using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                {
+                    int result = 1;
+                    foreach (PackEntry e in entries)
+                    {
+                        int v = EntryVerdict(stream, e, buffer, ref readBytes, 0);
+                        if (v == 0) return 0;
+                        if (v < 0) result = -1;
+                    }
+                    return result;
+                }
+            }
+            catch (Exception)
+            {
+                return -1;
+            }
+        }
+
+        /// <summary>Saves where the background check is, and the damaged files found so far, for a later start.</summary>
+        private static void Checkpoint(InstallerDataLocations loc, string hash, int next, List<string> damaged, Log log)
+        {
+            MergeDamaged(loc, damaged, log);
+            WritePending(loc, hash, next, log);
+        }
+
+        private static void WritePending(InstallerDataLocations loc, string hash, int next, Log log)
+        {
+            try
+            {
+                AtomicFile.WriteAllText(loc.VerifyPending, "index " + hash + "\nnext " + next.ToString(CultureInfo.InvariantCulture) + "\n");
+            }
+            catch (Exception ex)
+            {
+                log.Warn("installer data: cannot write " + loc.VerifyPending, ex);
+            }
+        }
+
+        /// <summary>The entry the check resumes at: the saved one when the marker is for this index, otherwise 0.</summary>
+        private static int PendingStart(InstallerDataLocations loc, string hash)
+        {
+            string text = ReadText(loc.VerifyPending);
+            if (text == null) return 0;
+            string markerHash = null;
+            int next = 0;
+            foreach (string raw in text.Split('\n'))
+            {
+                string line = raw.Trim();
+                if (line.StartsWith("index ", StringComparison.Ordinal)) markerHash = line.Substring(6).Trim();
+                else if (line.StartsWith("next ", StringComparison.Ordinal) &&
+                         !int.TryParse(line.Substring(5).Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out next)) next = 0;
+            }
+            return markerHash == hash && next > 0 ? next : 0;
+        }
+
+        /// <summary>CRC32 and length of the index file: what a saved check position belongs to.</summary>
+        internal static string IndexHash(PackIndex index)
+        {
+            return Crc32.Update(0, index.Raw, 0, index.Raw.Length).ToString("x8", CultureInfo.InvariantCulture) + "-" +
+                   index.Raw.Length.ToString(CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>Adds files to damaged.txt (keeping what is listed there already).</summary>
+        private static void MergeDamaged(InstallerDataLocations loc, List<string> damaged, Log log)
+        {
+            if (damaged.Count == 0) return;
+            var lines = new List<string>();
+            var present = new HashSet<string>(StringComparer.Ordinal);
+            string existing = ReadText(loc.DamagedList);
+            if (existing != null)
+            {
+                foreach (string line in existing.Split('\n'))
+                {
+                    string rel = line.Trim();
+                    if (rel.Length > 0 && present.Add(rel)) lines.Add(rel);
+                }
+            }
+            int before = lines.Count;
+            foreach (string rel in damaged)
+            {
+                if (present.Add(rel)) lines.Add(rel);
+            }
+            if (lines.Count == before) return;
+            try
+            {
+                AtomicFile.WriteAllText(loc.DamagedList, string.Join("\n", lines.ToArray()) + "\n");
             }
             catch (Exception ex)
             {
                 log.Warn("installer data: cannot write " + loc.DamagedList, ex);
             }
-            log.Warn("installer data: background check: " + damaged.Count + " damaged or incomplete files (" +
-                     string.Join(", ", damaged.GetRange(0, Math.Min(5, damaged.Count)).ToArray()) + (damaged.Count > 5 ? ", ..." : "") +
-                     "). The next start deletes them so the game's installer downloads them again (needs internet); to avoid that, " +
-                     "copy them from another backup or a mirror and delete " + loc.DamagedList);
-            return damaged.Count;
         }
 
-        /// <summary>Deletes the files the last background check found damaged (and their journal lines), before the installer runs.</summary>
-        private static void RemoveDamaged(InstallerDataLocations loc, Log log)
+        /// <summary>
+        /// Before the installer runs: reads each file the last background check found damaged once more, against the installer's
+        /// index (or the saved copy), and deletes it (and its journal lines) only if it still fails, so the installer downloads it
+        /// again. A file finished by the installer since, or replaced with a good copy, is kept; a missing one or one of another
+        /// size is the installer's own business; one no index describes is left alone. At most <see cref="RecheckBudgetBytes"/>
+        /// are read; files beyond that stay listed for the next start.
+        /// </summary>
+        private static void RemoveDamaged(InstallerDataLocations loc, PackIndex reference, Log log)
         {
             string list = ReadText(loc.DamagedList);
             if (list == null) return;
-            var damaged = new HashSet<string>(StringComparer.Ordinal);
-            int deleted = 0;
+            if (reference == null)
+            {
+                byte[] raw = ReadBytes(loc.SavedIndex);
+                string error;
+                PackIndex saved = raw == null ? null : PackIndex.TryParse(raw, out error);
+                if (saved != null && !saved.IsRebuilt) reference = saved;
+            }
+            var byPath = new Dictionary<string, List<PackEntry>>(StringComparer.Ordinal);
+            if (reference != null)
+            {
+                foreach (PackEntry e in reference.Entries)
+                {
+                    List<PackEntry> entries;
+                    if (!byPath.TryGetValue(e.RelativePath, out entries)) byPath[e.RelativePath] = entries = new List<PackEntry>();
+                    entries.Add(e);
+                }
+            }
+            var removed = new HashSet<string>(StringComparer.Ordinal);
+            var deferred = new List<string>();
+            var listed = new HashSet<string>(StringComparer.Ordinal);
+            var buffer = new byte[256 * 1024];
+            long read = 0;
+            int good = 0, leftToInstaller = 0, unknown = 0;
             foreach (string line in list.Split('\n'))
             {
                 string rel = line.Trim();
-                if (rel.Length == 0) continue;
+                if (rel.Length == 0 || !listed.Add(rel)) continue;
                 if (!rel.StartsWith("Data/", StringComparison.Ordinal) || rel.Contains("..") || rel.Contains("\\")) continue;
-                damaged.Add(rel);
                 string path = Path.Combine(loc.GameRoot, rel.Replace('/', Path.DirectorySeparatorChar));
+                long length = Length(path);
+                if (length < 0)
+                {
+                    leftToInstaller++;
+                    continue;
+                }
+                List<PackEntry> entries;
+                if (!byPath.TryGetValue(rel, out entries))
+                {
+                    unknown++;
+                    continue;
+                }
+                if (read > 0 && read + length > RecheckBudgetBytes)
+                {
+                    deferred.Add(rel);
+                    continue;
+                }
+                int verdict = FileVerdict(path, entries, buffer, ref read);
+                if (verdict > 0)
+                {
+                    good++;
+                    continue;
+                }
+                if (verdict < 0)
+                {
+                    leftToInstaller++;
+                    continue;
+                }
                 try
                 {
-                    if (File.Exists(path))
-                    {
-                        File.Delete(path);
-                        deleted++;
-                    }
+                    File.Delete(path);
+                    removed.Add(rel);
                 }
                 catch (Exception ex)
                 {
                     log.Warn("installer data: cannot delete damaged " + path, ex);
                 }
             }
-            HashSet<string> journal = ReadJournal(loc.Journal);
-            var kept = new StringBuilder();
             int dropped = 0;
-            foreach (string key in journal)
+            if (removed.Count > 0)
             {
-                // A journal line is folder + piece name: ".\\Data\1" + "x.f.split_0001" -> Data/1/x.f
-                int split = key.LastIndexOf(".split_", StringComparison.Ordinal);
-                string withoutPiece = split < 0 ? key : key.Substring(0, split);
-                bool match = false;
-                foreach (string rel in damaged)
+                HashSet<string> journal = ReadJournal(loc.Journal);
+                var removedKeys = new HashSet<string>(StringComparer.Ordinal);
+                foreach (string rel in removed)
                 {
                     int slash = rel.LastIndexOf('/');
-                    if (PackIndex.FolderFor(rel.Substring(0, slash)) + rel.Substring(slash + 1) == withoutPiece)
-                    {
-                        match = true;
-                        break;
-                    }
+                    removedKeys.Add(PackIndex.FolderFor(rel.Substring(0, slash)) + rel.Substring(slash + 1));
                 }
-                if (match) dropped++;
-                else kept.Append(key).Append('\n');
+                var kept = new StringBuilder();
+                foreach (string key in journal)
+                {
+                    // A journal line is folder + piece name: ".\\Data\1" + "x.f.split_0001" -> Data/1/x.f
+                    int split = key.LastIndexOf(".split_", StringComparison.Ordinal);
+                    if (removedKeys.Contains(split < 0 ? key : key.Substring(0, split))) dropped++;
+                    else kept.Append(key).Append('\n');
+                }
+                try
+                {
+                    if (dropped > 0) AtomicFile.WriteAllBytes(loc.Journal, Encoding.UTF8.GetBytes(kept.ToString()));
+                }
+                catch (Exception ex)
+                {
+                    log.Warn("installer data: cannot update " + loc.Journal, ex);
+                }
             }
             try
             {
-                if (dropped > 0) AtomicFile.WriteAllBytes(loc.Journal, Encoding.UTF8.GetBytes(kept.ToString()));
-                File.Delete(loc.DamagedList);
+                if (deferred.Count > 0) AtomicFile.WriteAllText(loc.DamagedList, string.Join("\n", deferred.ToArray()) + "\n");
+                else File.Delete(loc.DamagedList);
             }
             catch (Exception ex)
             {
-                log.Warn("installer data: cannot update " + loc.Journal, ex);
+                log.Warn("installer data: cannot update " + loc.DamagedList, ex);
             }
-            log.Warn("installer data: deleted " + deleted + " files the last check found damaged (" + dropped +
-                     " journal lines); the game's installer downloads them again (needs internet)");
+            string detail = removed.Count + " still damaged and deleted (" + dropped + " journal lines), " + good + " good again" +
+                            (leftToInstaller > 0 ? ", " + leftToInstaller + " missing or of another size (left to the installer)" : "") +
+                            (unknown > 0 ? ", " + unknown + " not in " + (reference == null ? "any index (none found)" : "the index") + " (left alone)" : "") +
+                            (deferred.Count > 0 ? ", " + deferred.Count + " to check at the next start" : "");
+            if (removed.Count > 0)
+                log.Warn("installer data: files the last check found damaged, read again: " + detail + "; the game's installer downloads the deleted ones again (needs internet)");
+            else
+                log.Info("installer data: files the last check found damaged, read again: " + detail);
         }
 
         /// <summary>DownloadComponent.goodSize: the file covers the piece (and for its last piece, ends right after it).</summary>

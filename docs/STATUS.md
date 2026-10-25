@@ -1,10 +1,10 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-Last updated for build 5 (October 2026), after device test 4 (Samsung Galaxy S22, Android 16; see "Build 5" and "Device
-test 4" below).
+Last updated for build 5 with its review fixes (October 2026), after device test 4 (Samsung Galaxy S22, Android 16; see
+"Build 5" and "Device test 4" below).
 
-**Summary:** the Federation server is complete for the offline single-player goals and passes 651 tests, including a
+**Summary:** the Federation server is complete for the offline single-player goals and passes 662 tests, including a
 conformance harness that runs the game's own client libraries against it. Device test 1 put the player build (patcher +
 embedded host) on a phone for the first time and found two blockers (a stall with the internet on, a crash of the headless
 TS World). Build 2 fixed both: in device test 2 the whole boot chain up to the TS handshake ran, and the TS World loaded its
@@ -27,7 +27,8 @@ APK and live ops (weekly division seasons, daily missions, weekly events); devic
   the 0 MB / 0 % screen (not proven: no log of that run exists). Now, in Bootstrap before `GameInstaller` runs: the
   installer's index is saved to `files/McvsOffline/install/pack.info` every start (a backup of `files/` carries it); a
   missing or stub index is restored from that copy or a mirror's, with `gl_ver`, the journal and the installer's
-  preferences, then CRC-checked in the background (damaged files are deleted at the next start and downloaded again); a
+  preferences, then CRC-checked in the background once the installer has handed over to the game (resumed at later starts
+  until done; files still damaged at the next start are deleted and downloaded again); a
   `Data/` that is exactly the complete 1.17.32 pack (15,747 files, size per texture format) gets a rebuilt, size-only
   index; `InsTime` is refreshed so the weekly CDN version check never runs; `[installer]` lines log the installer's
   states. No `classes.dex` change; the installer's own checks still run. Settings `install.*`.
@@ -58,6 +59,20 @@ both seasons, with the same rank on every later read (9 days) and the rival scor
 `apksigner` v1+v2+v3 with certificate SHA-256 `fc0db84e...7d16`, `lib/` only `arm64-v8a`; the patched game assemblies
 differ from build 4's only in their 16-byte module id (no new IL patch in this build).
 
+### Review fixes to build 5
+
+APK `mcvs-offline-<commit>.apk` of the review-fix commit, same key; it replaces build 5's APK for device test 5.
+
+| Finding | Fix | Tests |
+|---|---|---|
+| After a *partial* restore (saved index, some files missing), the background CRC check started after a fixed 90 s, while the installer was still downloading: every missing or half-written file went into `damaged.txt`, and the next start deleted the files the installer had finished in the meantime, without looking at them again (offline, the game could then not start) | The check waits until the installer has handed over to the game (`GameInstaller.sbStarted` or state 21, read over JNI), then one more minute; only if that cannot be read *and* every file passed the size test does it fall back to the fixed wait. Missing files and files of another size are never listed (the installer's own size test fetches them). The next start reads each listed file again against the installer's index (or the saved copy) and deletes only those that still fail; a file the installer finished or the player replaced is kept, one no index describes is left alone; at most 256 MiB are re-read at start-up, the rest waits for the next start | `InstallerDataTests`: `APartialRestoreWaitsForTheInstallerAndAFileItFinishedIsNotDeleted`, `TheDamagedListIsReadAgainAndOnlyFilesThatStillFailAreDeleted` |
+| The CRC check ran only in the session that restored the index: if that session ended first (quit, crash, OOM), a zero-filled split piece of the right size, already in the journal from its size, was accepted for good | `Install()` writes `McvsOffline/install/verify-pending` (index hash and position); every start with it present schedules the check again ("CRC check pending" in the `[install]` line); the check saves its position every 64 MiB and resumes there for the same index (from the start for another); the marker goes once every entry has been read | `ACheckThatDidNotGetThroughIsScheduledAgainAndResumes` |
+| With `liveops.seasonDays` 1 (documented as valid) no season object resolved: the key of a one-day window has no `x<days>` suffix, but season ids were parsed as multi-day only, so the CRM listed ids for which `/events` had no definition and the division boards fell back to the static rivals | `LiveOpsWindow.Parse` reads a bare `yyyyMMddHH` key of a season-type id as one day, and accepts only the exact form `Key` writes (`x1`, `x07` refused), so a rebuilt id equals the requested one | `LiveOpsTests.EverySeasonLengthGivesIdsThatParseBack` (1, 2, 3, 7, 28 days), `EveryListedEventIsServedParserSafeAndDeterministic` (7, 3, 1 days), the real-client conformance loop also with 1-day seasons (289 division events, 16 weekly events initialized) |
+
+Checked: `scripts/build.sh` with `MCVS_REQUIRE_EMBEDDED=1 MCVS_REQUIRE_REAL_CLIENT=1`: McvsOffline.Tests 516/516,
+McvsOffline.Embed.Tests 146/146; ILVerify of the embedded DLL against the game's BCL: no findings; APK `zipalign -c -p 4`,
+`apksigner` v1+v2+v3 with certificate SHA-256 `fc0db84e...7d16`, `lib/` only `arm64-v8a`.
+
 ### What to check in device test 5
 
 1. **Update install** over build 4: the save is kept; `[install] installer data: ...` in the bootstrap log says the
@@ -77,6 +92,9 @@ differ from build 4's only in their 16-byte module id (no new IL patch in this b
    ([INSTALL-OFFLINE.md](INSTALL-OFFLINE.md)): uninstall, install build 5, copy, start in airplane mode; the
    `[install]` line says `index restored ...` or `index rebuilt ...` and the game starts without the CDN. Measure the
    first start (the size check of 15,747 files runs on the UI thread in `OnCreate`; with a rebuilt index on every start).
+   About a minute after `installer finished after N s`, `installer data: checking the CRC32 of every file` and later
+   `background check done` (or the damaged files) appear; closed before that, the next start's `[install]` line ends in
+   `CRC check pending` and the check resumes.
 6. **Avatar editor** after unlock-all: a thread dump of the freeze, sent from Downloads > MCVS-Offline (see "Device test 4").
 
 ## Device test 4 (October 2026): shop and codes work; installer stall and avatar editor

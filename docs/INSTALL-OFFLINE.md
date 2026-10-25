@@ -97,10 +97,15 @@ python3 tools/cdn-mirror/verify.py mcvs-files-backup --fetch         # Gameloft'
 ```
 
 Exit status 0 means intact. On the phone, after the offline build gave the installer a Gameloft index back (options 1
-and 3), it also checks every CRC32 in the background about 90 seconds after the start (`installer data: background
-check done` in the log). Damaged files are listed in `files/McvsOffline/install/damaged.txt` and deleted at the next
-start, so the installer downloads them again (that needs Gameloft's CDN: to avoid it, copy good files from another backup
-or a mirror and delete `damaged.txt` first).
+and 3), it also checks every CRC32 in the background: it starts a minute after the installer has handed over to the
+game (never while the installer is still downloading missing files), reads the whole pack at low priority and logs
+`installer data: background check done`. Until it has read everything, `files/McvsOffline/install/verify-pending`
+holds its position: if the game is closed first, the next start continues where it stopped (`CRC check pending` in the
+`[install]` line). A file whose size is right but whose content is not is listed in
+`files/McvsOffline/install/damaged.txt`; a missing file or one of another size is not listed, the installer's own size
+check already fetches it. At the next start each listed file is read once more and deleted only if it is still damaged,
+so the installer downloads it again (that needs Gameloft's CDN: to avoid it, copy a good file from another backup or a
+mirror over it before that start; it is then kept).
 
 ## What works without internet
 
@@ -128,7 +133,7 @@ Send that file with a bug report.
 |---|---|
 | `manageInstaller` | prepare the installer's state before it runs (everything on this page); `false` leaves the installer exactly as in the original game |
 | `rebuildIndex` | with no Gameloft index at hand, rebuild one from a complete `Data/` folder (option 2) |
-| `verifyRestoredData` | the background CRC32 check after a restored index |
+| `verifyRestoredData` | the background CRC32 check after a restored index (resumed at later starts until done) |
 | `suppressUpdateCheck` | keep the installer's weekly version check from running |
 | `monitorInstaller` | the `[installer]` progress lines in the log |
 

@@ -171,6 +171,46 @@ namespace McvsOffline.Embedded.Android
             { 5, "paused" },
         };
 
+        /// <summary>1 when the installer has handed over to the game (sbStarted, or state 21), 0 not yet, -1 cannot tell.</summary>
+        public static int HandedOver()
+        {
+            IntPtr cls = IntPtr.Zero;
+            try
+            {
+                cls = JNIEnv.FindClass(InstallerClass);
+                IntPtr startedField = JNIEnv.GetStaticFieldID(cls, "sbStarted", "Z");
+                if (JNIEnv.GetStaticBooleanField(cls, startedField)) return 1;
+                IntPtr instanceField = JNIEnv.GetStaticFieldID(cls, "m_sInstance", "Lcom/gameloft/android/installer/GameInstaller;");
+                IntPtr instance = JNIEnv.GetStaticObjectField(cls, instanceField);
+                if (instance == IntPtr.Zero) return 0;
+                try
+                {
+                    return JNIEnv.GetIntField(instance, JNIEnv.GetFieldID(cls, "f", "I")) == 21 ? 1 : 0;
+                }
+                finally
+                {
+                    JNIEnv.DeleteLocalRef(instance);
+                }
+            }
+            catch (Exception)
+            {
+                return -1;
+            }
+            finally
+            {
+                if (cls != IntPtr.Zero)
+                {
+                    try
+                    {
+                        JNIEnv.DeleteGlobalRef(cls);
+                    }
+                    catch (Exception)
+                    {
+                    }
+                }
+            }
+        }
+
         public static void Start(Log log, BootTrace boot)
         {
             var thread = new Thread(() => Run(log, boot));

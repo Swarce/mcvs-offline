@@ -20,7 +20,8 @@ namespace McvsOffline.Server.Services.Social.LiveOps
         public int Days { get; private set; }
 
         /// <summary>"yyyyMMddHH" of the start, plus "x&lt;days&gt;" for multi-day windows: the window is
-        /// recoverable from its key alone, whatever the settings are later.</summary>
+        /// recoverable from its key alone, whatever the settings are later. A one-day season (liveops.seasonDays 1)
+        /// has the bare form too; <see cref="Parse"/> reads it back as such.</summary>
         public string Key
         {
             get
@@ -43,20 +44,19 @@ namespace McvsOffline.Server.Services.Social.LiveOps
             return (utc - Start).TotalSeconds / (End - Start).TotalSeconds;
         }
 
-        /// <summary>Parses a <see cref="Key"/>; null when it is not one.</summary>
+        /// <summary>Parses a <see cref="Key"/>; null when it is not one. <paramref name="multiDay"/> (season-type ids)
+        /// accepts every season length, 1 to 28 days ("yyyyMMddHH" for one day, "yyyyMMddHHx&lt;days&gt;" otherwise); without
+        /// it only a one-day key. Only the exact form <see cref="Key"/> writes is accepted ("x1" or "x07" are not), so
+        /// an id rebuilt from the parsed window is the id that was asked for.</summary>
         public static LiveOpsWindow Parse(string key, bool multiDay)
         {
             if (string.IsNullOrEmpty(key) || key.Length < 10) return null;
             int year, month, day, hour, days = 1;
             if (!Int(key, 0, 4, out year) || !Int(key, 4, 2, out month) || !Int(key, 6, 2, out day) || !Int(key, 8, 2, out hour)) return null;
-            if (multiDay)
+            if (key.Length != 10)
             {
-                if (key.Length < 12 || key[10] != 'x' || !Int(key, 11, key.Length - 11, out days)) return null;
-                if (days < 1 || days > 28) return null;
-            }
-            else if (key.Length != 10)
-            {
-                return null;
+                if (!multiDay || key.Length < 12 || key[10] != 'x' || !Int(key, 11, key.Length - 11, out days)) return null;
+                if (days < 2 || days > 28 || key[11] == '0') return null;
             }
             if (year < 2000 || year > 2200 || month < 1 || month > 12 || day < 1 || day > DateTime.DaysInMonth(year, month) || hour > 23) return null;
             return new LiveOpsWindow(new DateTime(year, month, day, hour, 0, 0, DateTimeKind.Utc), days);

@@ -362,6 +362,147 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.Contains("Gameloft index in place", result.Summary);
         }
 
+        /// <summary>Restores files/ with the saved Gameloft index (internal storage empty, as after a reinstall).</summary>
+        private static (Env env, byte[] index) RestoredBackup(string name)
+        {
+            Env env = NewPack(name);
+            byte[] gameloft = GameloftIndex(env.Root, Files);
+            Directory.CreateDirectory(Path.GetDirectoryName(env.Loc.SavedIndex));
+            File.WriteAllBytes(env.Loc.SavedIndex, gameloft);
+            return (env, gameloft);
+        }
+
+        private static void ZeroPiece2(Env env)
+        {
+            using (var fs = new FileStream(env.Path_("Data/a/4309cd.f"), FileMode.Open, FileAccess.Write))
+            {
+                fs.Position = Split;
+                fs.Write(new byte[Split], 0, Split);   // pre-allocated, never written: the size is still right
+            }
+        }
+
+        [Fact]
+        public void APartialRestoreWaitsForTheInstallerAndAFileItFinishedIsNotDeleted()
+        {
+            Env env = RestoredBackup("partial").env;
+            byte[] good = File.ReadAllBytes(env.Path_("Data/1/0018344.f"));
+            File.Delete(env.Path_("Data/1/0018344.f"));
+            InstallerDataResult result = InstallerData.Prepare(env.Loc, env.Prefs, Options(), env.Log, 1000);
+            output.WriteLine(result.Summary);
+            Assert.Contains("1 entries to download", result.Summary);
+            Assert.NotNull(result.IndexToVerify);
+            Assert.True(result.WaitForInstaller);   // the CRC check starts only after the installer has handed over
+            Assert.True(File.Exists(env.Loc.VerifyPending));
+
+            // Even if it ran early: a missing file is the installer's business, never listed as damaged.
+            Assert.Equal(0, InstallerData.VerifyContent(env.Loc, result.IndexToVerify, env.Log, null, 0));
+            Assert.False(File.Exists(env.Loc.DamagedList));
+            Assert.Contains("1 files missing or of another size were left to the installer", env.Text);
+            Assert.False(File.Exists(env.Loc.VerifyPending));   // every entry was read: done
+
+            // A file listed as damaged that the installer finished (or the player replaced) since is read again and kept.
+            File.WriteAllBytes(env.Path_("Data/1/0018344.f"), good);
+            File.WriteAllText(env.Loc.DamagedList, "Data/1/0018344.f\n");
+            result = InstallerData.Prepare(env.Loc, env.Prefs, Options(), env.Log, 2000);
+            output.WriteLine(env.Text);
+            Assert.True(File.Exists(env.Path_("Data/1/0018344.f")));
+            Assert.Equal(good, File.ReadAllBytes(env.Path_("Data/1/0018344.f")));
+            Assert.False(File.Exists(env.Loc.DamagedList));
+            Assert.Contains("0 still damaged and deleted (0 journal lines), 1 good again", env.Text);
+            Assert.Equal("installer data: Gameloft index in place (4 files, 6 entries)", result.Summary);
+            Assert.Null(result.IndexToVerify);
+
+            // A complete restore has nothing to download: the check need not wait for the installer.
+            Env full = RestoredBackup("partial-full").env;
+            result = InstallerData.Prepare(full.Loc, full.Prefs, Options(), full.Log, 1000);
+            Assert.NotNull(result.IndexToVerify);
+            Assert.False(result.WaitForInstaller);
+        }
+
+        [Fact]
+        public void TheDamagedListIsReadAgainAndOnlyFilesThatStillFailAreDeleted()
+        {
+            (Env env, byte[] gameloft) = RestoredBackup("recheck");
+            InstallerDataResult result = InstallerData.Prepare(env.Loc, env.Prefs, Options(), env.Log, 1000);
+            Assert.Equal(0, InstallerData.VerifyContent(env.Loc, result.IndexToVerify, env.Log, null, 0));   // clean
+            ZeroPiece2(env);
+            env.File("Data/2/extra.f", 100, 9);   // in no index
+            File.Delete(env.Path_("Data/Config/EngineConfig.json"));
+            File.WriteAllText(env.Loc.DamagedList, string.Join("\n", "Data/a/4309cd.f", "Data/MCVS.game", "Data/Config/EngineConfig.json",
+                                                                "Data/2/extra.f", "Data/../settings.json", "Data/a/4309cd.f") + "\n");
+            result = InstallerData.Prepare(env.Loc, env.Prefs, Options(), env.Log, 2000);
+            output.WriteLine(env.Text);
+            Assert.False(File.Exists(env.Path_("Data/a/4309cd.f")));   // still damaged: deleted, its pieces left the journal
+            Assert.Equal("", File.ReadAllText(env.Loc.Journal).Trim());
+            Assert.True(File.Exists(env.Path_("Data/MCVS.game")));     // good: kept
+            Assert.True(File.Exists(env.Path_("Data/2/extra.f")));     // not in the index: left alone
+            Assert.False(File.Exists(env.Loc.DamagedList));
+            Assert.Contains("1 still damaged and deleted (3 journal lines), 1 good again, 1 missing or of another size (left to the installer), " +
+                            "1 not in the index (left alone)", env.Text);
+            Assert.Equal(gameloft, File.ReadAllBytes(env.Loc.PackInfo));
+
+            // Without the installer's index the saved copy is the reference; without any index nothing is deleted.
+            env.File("Data/a/4309cd.f", 2 * Split + 12345, 4);
+            ZeroPiece2(env);
+            File.Delete(env.Loc.PackInfo);
+            File.Delete(env.Loc.SavedIndex);
+            File.WriteAllText(env.Loc.DamagedList, "Data/a/4309cd.f\n");
+            InstallerData.Prepare(env.Loc, env.Prefs, Options(rebuild: false), env.Log, 3000);
+            Assert.True(File.Exists(env.Path_("Data/a/4309cd.f")));
+            Assert.Contains("1 not in any index (none found) (left alone)", env.Text);
+        }
+
+        [Fact]
+        public void ACheckThatDidNotGetThroughIsScheduledAgainAndResumes()
+        {
+            (Env env, byte[] gameloft) = RestoredBackup("resume");
+            ZeroPiece2(env);
+            InstallerDataResult first = InstallerData.Prepare(env.Loc, env.Prefs, Options(), env.Log, 1000);
+            Assert.Contains("index restored from the saved index (4 files, 6 entries)", first.Summary);
+            Assert.NotNull(first.IndexToVerify);
+            Assert.Equal(3, File.ReadAllText(env.Loc.Journal).Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);   // sizes only
+            Assert.Equal("index " + InstallerData.IndexHash(first.IndexToVerify) + "\nnext 0\n", File.ReadAllText(env.Loc.VerifyPending));
+
+            // The session ends before the check started: the next start schedules it again.
+            InstallerDataResult second = InstallerData.Prepare(env.Loc, env.Prefs, Options(), env.Log, 2000);
+            output.WriteLine(second.Summary);
+            Assert.Equal("installer data: Gameloft index in place (4 files, 6 entries), CRC check pending", second.Summary);
+            Assert.NotNull(second.IndexToVerify);
+            Assert.False(second.WaitForInstaller);
+            // ... unless the check is switched off.
+            var off = Options();
+            off.VerifyRestoredData = false;
+            Assert.Null(InstallerData.Prepare(env.Loc, env.Prefs, off, env.Log, 2000).IndexToVerify);
+
+            // Stopped part-way: the position is kept, and the next run resumes there (what was read before is not read again).
+            IList<PackEntry> entries = second.IndexToVerify.Entries;
+            int splitAt = Enumerable.Range(0, entries.Count).First(i => entries[i].RelativePath == "Data/a/4309cd.f");
+            int calls = 0;
+            Assert.Equal(-1, InstallerData.VerifyContent(env.Loc, second.IndexToVerify, env.Log, () => calls++ >= splitAt, 0));
+            Assert.Contains("next " + splitAt, File.ReadAllText(env.Loc.VerifyPending));
+            Assert.False(File.Exists(env.Loc.DamagedList));
+            byte[] game = File.ReadAllBytes(env.Path_("Data/MCVS.game"));
+            game[3] ^= 0xFF;   // damaged after it was read: not found by the resumed run
+            File.WriteAllBytes(env.Path_("Data/MCVS.game"), game);
+            InstallerDataResult third = InstallerData.Prepare(env.Loc, env.Prefs, Options(), env.Log, 3000);
+            Assert.Contains("CRC check pending", third.Summary);
+            Assert.Equal(1, InstallerData.VerifyContent(env.Loc, third.IndexToVerify, env.Log, null, 0));
+            Assert.Contains("resumes at entry " + splitAt + " of 6", env.Text);
+            Assert.Equal("Data/a/4309cd.f", File.ReadAllText(env.Loc.DamagedList).Trim());
+            Assert.False(File.Exists(env.Loc.VerifyPending));
+
+            // The next start deletes the still-damaged file; the check is done, so nothing more is scheduled.
+            InstallerDataResult fourth = InstallerData.Prepare(env.Loc, env.Prefs, Options(), env.Log, 4000);
+            Assert.False(File.Exists(env.Path_("Data/a/4309cd.f")));
+            Assert.Equal("installer data: Gameloft index in place (4 files, 6 entries)", fourth.Summary);
+            Assert.Null(fourth.IndexToVerify);
+
+            // A saved position belongs to one index: for another one the check starts from the beginning.
+            File.WriteAllText(env.Loc.VerifyPending, "index 00000000-1\nnext 5\n");
+            Assert.Equal(1, InstallerData.VerifyContent(env.Loc, PackIndex.Parse(gameloft), env.Log, null, 0));
+            Assert.Contains("Data/MCVS.game", File.ReadAllText(env.Loc.DamagedList));
+        }
+
         [Fact]
         public void AnIndexFromAMirrorNextToDataIsUsedAndAnotherVariantIsNot()
         {
@@ -515,6 +656,8 @@ namespace McvsOffline.Embed.Tests.Embedded
             public IInstallerPrefs InstallerPrefs() => new MapPrefs(Prefs);
 
             public void MonitorInstaller(Log log, BootTrace boot) { Monitored = true; }
+
+            public int InstallerHandedOver() => 1;
 
             private sealed class MapPrefs : IInstallerPrefs
             {
