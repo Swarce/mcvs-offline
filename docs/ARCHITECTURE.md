@@ -16,7 +16,7 @@ All claims below are backed by `docs/research/` (reports `01`–`11`, plus the a
 | Authoritative game logic: Transaction Server (TS: menus, meta, rewards, profile) and Game Server (GS: matches) | **Ships in the APK** | The same C# `GameServerComponent`, run as headless Worlds. |
 | `ServerLocation.Embedded` dev mode (`Gameloft.Engine.LocalAnubis`) | **Ships, works in-process** | Lobby/Controller (TCP) + Finder (HTTP `localhost:51750`); `connect game` spawns TS/GS Worlds in the same process. |
 | Netcode | **Ships** | TCP control frames + ENet UDP, 20 Hz, bots fill GS matches. |
-| Game data | **CDN still alive** | `tools/cdn-mirror`; decoded with `tools/datapack`. |
+| Game data | **CDN still alive** | Archiving tool planned (`tools/cdn-mirror`, report 10); decoder in `server/Core/Content` (GCBF/LZ4, crc32 names; report 11). |
 | Gameloft "Federation" backend (eve, pandora, auth, Seshat storage, CRM, matchmaker `lobbyconfigs`, social/events, messaging, alerts, leaderboards, assets/coupons) | **Dead** (eve returns 404 for our client id) | **This is the only thing we reimplement.** |
 
 The game saves **no** progression on the device. The TS/GS Worlds load and save the profile through
@@ -37,7 +37,7 @@ hosts/
 patcher/       McvsOffline.Patcher (net8 + Mono.Cecil): turns the player's own APK into the offline APK
 tests/         unit tests, protocol tests, and a conformance harness that drives the REAL
                Gameloft.OnlinePlatform.dll (taken from the player's APK, never committed) against the server
-tools/         cdn-mirror (archive the CDN), datapack (decode GCBF/LZ4 + names), content-gen (tables -> Content/)
+tools/         content-gen (tables -> Content/); planned: cdn-mirror (archive the CDN), datapack (decode GCBF/LZ4 + names)
 docs/          this file, protocol spec, setup guides, research/
 ```
 

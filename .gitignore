@@ -1,0 +1,47 @@
+# Build outputs (everything builds into artifacts/)
+artifacts/
+bin/
+obj/
+TestResults/
+*.user
+*.suo
+.vs/
+.idea/
+.vscode/
+
+# Runtime data of a local standalone host (settings, accounts, profiles, logs)
+/data/
+*.log
+*.jsonl
+
+# Never commit Gameloft binaries, game data, decompiled sources or anything derived from them.
+# (Generated item ids/prices in server/Content are the only exception.)
+*.apk
+*.aab
+*.obb
+*.amz
+*.dll
+*.so
+*.pdb
+*.dex
+*.f
+*.game
+*.tx
+*.level
+*.xlsx
+extracted/
+decompiled/
+decompiled-java/
+datapack/
+datapack-decoded/
+captures/
+
+# Python tool caches (tools/content-gen)
+__pycache__/
+*.pyc
+
+# Signing keys: the patcher creates the player's private key wherever --keystore points
+*.p12
+*.pfx
+*.jks
+*.keystore

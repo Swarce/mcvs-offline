@@ -1,0 +1,45 @@
+{
+  "format": 1,
+  "codes": {
+    "UNLOCKALL": {
+      "groups": ["mercs","weapons","gearSlots","signatures","camos","accessories","skins"],
+      "description": "Full unlock in one inbox message (about 11k rewards, claimed in this order)",
+      "allowNumericSuffix": true
+    },
+    "UNLOCKMERCS": {
+      "groups": ["mercs"],
+      "description": "Every merc and every mod",
+      "allowNumericSuffix": true
+    },
+    "UNLOCKWEAPONS": {
+      "groups": ["mercs","weapons"],
+      "description": "Every merc, then all weapons",
+      "allowNumericSuffix": true
+    },
+    "UNLOCKGEARSLOTS": {
+      "groups": ["mercs","gearSlots"],
+      "description": "Every merc, then all gearSlots",
+      "allowNumericSuffix": true
+    },
+    "UNLOCKSIGNATURES": {
+      "groups": ["signatures"],
+      "description": "Every kill-signature avatar, background and sound",
+      "allowNumericSuffix": true
+    },
+    "UNLOCKCAMOS": {
+      "groups": ["mercs","camos"],
+      "description": "Every merc, then all camos",
+      "allowNumericSuffix": true
+    },
+    "UNLOCKACCESSORIES": {
+      "groups": ["mercs","accessories"],
+      "description": "Every merc, then all accessories",
+      "allowNumericSuffix": true
+    },
+    "UNLOCKSKINS": {
+      "groups": ["mercs","skins"],
+      "description": "Every merc, then all skins",
+      "allowNumericSuffix": true
+    }
+  }
+}

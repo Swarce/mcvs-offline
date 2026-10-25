@@ -1,0 +1,58 @@
+// Host: embedded - owner group: EMBED (hosts/embedded, patcher/)
+// Compiled into McvsOffline.Server.Embedded.csproj (the DLL that runs inside the game process) and, without
+// MCVS_EMBEDDED, into the net8 tests.
+// Wiring: ARCHITECTURE §2.3 "Embedded wiring"; verify-C7 §5-§7; verify-C1 (args.txt format).
+using System;
+using System.Threading;
+using McvsOffline.Embedded;
+
+namespace McvsOffline
+{
+    /// <summary>
+    /// Entry point of the offline server inside the game. The patcher rewrites
+    /// <c>Gameloft.NicePlaySDK.NicePlaySDKDLL.OnInitialize</c> (invoked reflectively, and unguarded, by
+    /// <c>XamarinMainActivity.OnCreate</c> before <c>MainLoop.Start</c>, the Java GameInstaller and native init) so that
+    /// it first runs <c>try { McvsOffline.Bootstrap.Init(); } catch { }</c> (verify-C7 §5).
+    /// <para>Contract: idempotent, returns within milliseconds, and never throws into the game's OnCreate.</para>
+    /// </summary>
+    public static class Bootstrap
+    {
+        private static int initialized;
+
+        /// <summary>The running host (kept here so nothing is collected while the game runs).</summary>
+        public static EmbeddedHost Host { get; private set; }
+
+        public static void Init()
+        {
+            if (Interlocked.Exchange(ref initialized, 1) != 0) return;
+            try
+            {
+                // A separate method: if anything in it fails to JIT on this runtime, the exception surfaces here.
+                InitCore();
+            }
+            catch (Exception ex)
+            {
+                // Never let a server problem prevent the game from starting.
+                try
+                {
+                    Console.WriteLine("McvsOffline: bootstrap failed: " + ex);
+                }
+                catch (Exception)
+                {
+                }
+            }
+        }
+
+        private static void InitCore()
+        {
+#if MCVS_EMBEDDED
+            Host = EmbeddedHost.Start(new McvsOffline.Embedded.Android.AndroidPlatform(), new EmbeddedHostOptions());
+#else
+            // Off-device (a PC running the embedded host for testing): the game root comes from MCVS_GAME_ROOT.
+            string root = Environment.GetEnvironmentVariable("MCVS_GAME_ROOT");
+            if (string.IsNullOrEmpty(root)) root = System.IO.Path.Combine(Environment.CurrentDirectory, "game-root");
+            Host = EmbeddedHost.Start(new DirectoryPlatform(root, true), new EmbeddedHostOptions());
+#endif
+        }
+    }
+}

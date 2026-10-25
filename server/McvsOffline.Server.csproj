@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    The Federation emulator as a normal net8.0 library: used by hosts/standalone and the tests.
+    The same sources are also compiled against the game's own Mono BCL by McvsOffline.Server.Embedded.csproj;
+    keep all code C# 7.3 and free of APIs that the trimmed BCL lacks (see docs/MODULES.md).
+  -->
+  <Import Project="build/McvsOffline.Server.Shared.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Library</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="McvsOffline.Tests" />
+  </ItemGroup>
+</Project>

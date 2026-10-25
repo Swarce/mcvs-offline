@@ -1,0 +1,218 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Net;
+using McvsOffline.Server.Core;
+using McvsOffline.Server.Core.Content;
+using McvsOffline.Server.Core.Http;
+using McvsOffline.Server.Core.Routing;
+using McvsOffline.Server.Services;
+
+namespace McvsOffline.Server
+{
+    /// <summary>How a host wants the server set up. Null/unset members fall back to settings.json and defaults.</summary>
+    public sealed class ServerOptions
+    {
+        public ServerOptions()
+        {
+            DataDir = "data";
+            ConsoleLog = true;
+            FileLog = true;
+            ExtraSinks = new List<LogSink>();
+        }
+
+        /// <summary>Data directory (settings.json, accounts, profiles, logs). Standalone default ./data.</summary>
+        public string DataDir { get; set; }
+
+        /// <summary>The player's on-device-style data pack directory (.../files/Data); optional.</summary>
+        public string DataPackDir { get; set; }
+
+        /// <summary>Overrides settings.port for this run (0 = any free port, useful in tests).</summary>
+        public int? Port { get; set; }
+
+        /// <summary>Overrides settings.bind for this run.</summary>
+        public string Bind { get; set; }
+
+        /// <summary>Overrides settings.lanMode for this run.</summary>
+        public bool? LanMode { get; set; }
+
+        /// <summary>Overrides the console log level for this run.</summary>
+        public LogLevel? ConsoleLevel { get; set; }
+
+        public bool ConsoleLog { get; set; }
+
+        public bool FileLog { get; set; }
+
+        /// <summary>Additional sinks (e.g. logcat in the embedded host, a MemoryLogSink in tests).</summary>
+        public List<LogSink> ExtraSinks { get; set; }
+
+        public IClock Clock { get; set; }
+
+        /// <summary>Replaces <see cref="ServiceRegistry.RegisterAll"/> (tests that want a bare router).</summary>
+        public Action<Router, ServerContext> RegisterServices { get; set; }
+
+        public HttpServerLimits Limits { get; set; }
+    }
+
+    /// <summary>
+    /// The Federation emulator: builds the <see cref="ServerContext"/>, registers the core routes and every service
+    /// module, and serves them over HTTP. Hosts (standalone console, embedded bootstrap) only create, start and stop it.
+    /// <see cref="Handle"/> is the transport-independent entry point (also usable in-process without a socket).
+    /// </summary>
+    public sealed class McvsServer : IDisposable
+    {
+        private readonly object gate = new object();
+        private readonly RequestLogger requestLogger;
+        private readonly HttpServerLimits limits;
+        private HttpServer http;
+        private bool disposed;
+
+        private McvsServer(ServerContext context, Router router, RequestLogger requestLogger, HttpServerLimits limits)
+        {
+            Context = context;
+            Router = router;
+            this.requestLogger = requestLogger;
+            this.limits = limits ?? new HttpServerLimits();
+        }
+
+        public ServerContext Context { get; private set; }
+
+        public Router Router { get; private set; }
+
+        public bool IsRunning { get { lock (gate) return http != null && http.IsRunning; } }
+
+        /// <summary>Actual listening port (after <see cref="Start"/>).</summary>
+        public int Port { get { return Context.Port; } }
+
+        public static McvsServer Create(ServerOptions options)
+        {
+            options = options ?? new ServerOptions();
+            string dataDir = Path.GetFullPath(string.IsNullOrEmpty(options.DataDir) ? "data" : options.DataDir);
+            Directory.CreateDirectory(dataDir);
+
+            var logger = new Logger();
+            // Console first with defaults, so problems loading settings.json are visible.
+            ConsoleLogSink console = null;
+            if (options.ConsoleLog)
+            {
+                console = new ConsoleLogSink(options.ConsoleLevel ?? LogLevel.Info);
+                logger.AddSink(console);
+            }
+            foreach (var sink in options.ExtraSinks ?? new List<LogSink>()) logger.AddSink(sink);
+
+            Settings settings = Settings.Load(Path.Combine(dataDir, Settings.FileName), logger.For("settings"));
+            if (options.Port.HasValue) settings.Override("port", (long)options.Port.Value);
+            if (!string.IsNullOrEmpty(options.Bind)) settings.Override("bind", options.Bind);
+            if (options.LanMode.HasValue) settings.Override("lanMode", options.LanMode.Value);
+
+            if (console != null)
+            {
+                console.MinLevel = options.ConsoleLevel ?? settings.ConsoleLogLevel;
+                logger.Recompute();
+            }
+            if (options.FileLog)
+            {
+                logger.AddSink(new RotatingFileLogSink(Path.Combine(dataDir, "logs", "server.log"), settings.FileLogLevel,
+                                                       settings.LogFileMaxBytes, settings.LogFileCount));
+            }
+
+            Log log = logger.For("core");
+            log.Info("MCVS Offline server " + McvsVersion.Current + ", data directory " + dataDir);
+
+            DataPack pack = null;
+            if (!string.IsNullOrEmpty(options.DataPackDir))
+            {
+                pack = new DataPack(options.DataPackDir);
+                if (pack.IsValid) log.Info("data pack: " + pack.DataDirectory);
+                else log.Warn("data pack directory " + pack.DataDirectory + " does not look like a game Data folder (no MCVS.game)");
+            }
+            else
+            {
+                log.Warn("no data pack configured; modules that need game files (e.g. the CRM default) will degrade");
+            }
+            var content = new ContentProvider(pack, Path.Combine(dataDir, "content"), logger.For("content"));
+
+            var context = new ServerContext(dataDir, settings, logger, options.Clock, content);
+            var requestLogger = new RequestLogger(logger, Path.Combine(dataDir, "logs", "unknown-endpoints.jsonl"),
+                                                  () => settings.LogBodyLimit);
+            var router = new Router(requestLogger);
+            var server = new McvsServer(context, router, requestLogger, options.Limits);
+
+            CoreRoutes.Register(router, context);
+            var register = options.RegisterServices ?? ServiceRegistry.RegisterAll;
+            register(router, context);
+            log.Info(router.Routes.Length + " routes registered");
+            return server;
+        }
+
+        /// <summary>Binds the configured address and port and starts serving.</summary>
+        public void Start()
+        {
+            lock (gate)
+            {
+                if (disposed) throw new ObjectDisposedException("McvsServer");
+                if (http != null) throw new InvalidOperationException("already started");
+                IPAddress address = ParseBind(Context.Settings.Bind);
+                Context.ResetStop();
+                var server = new HttpServer(address, Context.Settings.Port, Handle, Context.Logger.For("http"), limits);
+                server.Start();
+                http = server;
+                Context.Port = server.Port;
+                Context.Log.Info("serving the Federation at " + Context.BaseUrl + " (bound to " + server.LocalEndPoint + ")");
+            }
+        }
+
+        /// <summary>Stops serving; safe to call more than once.</summary>
+        public void Stop()
+        {
+            HttpServer server;
+            lock (gate)
+            {
+                server = http;
+                http = null;
+            }
+            if (server == null) return;
+            Context.SignalStop();
+            server.Stop();
+        }
+
+        /// <summary>Routes one request and logs it. Never throws.</summary>
+        public HttpResponse Handle(HttpRequest request)
+        {
+            int started = Environment.TickCount;
+            HttpResponse response = Router.Dispatch(request);
+            int elapsed = Environment.TickCount - started;
+            try
+            {
+                requestLogger.LogRequest(request, response, elapsed);
+            }
+            catch (Exception)
+            {
+            }
+            return response;
+        }
+
+        public void Dispose()
+        {
+            lock (gate)
+            {
+                if (disposed) return;
+                disposed = true;
+            }
+            Stop();
+            Context.Logger.Dispose();
+        }
+
+        /// <summary>"127.0.0.1", "0.0.0.0" / "*" (any IPv4), "::" (dual-stack), "localhost", or any literal address.</summary>
+        public static IPAddress ParseBind(string bind)
+        {
+            string b = (bind ?? "").Trim();
+            if (b.Length == 0 || b == "localhost") return IPAddress.Loopback;
+            if (b == "*" || b == "0.0.0.0") return IPAddress.Any;
+            if (b == "::" || b == "[::]") return IPAddress.IPv6Any;
+            IPAddress address;
+            if (IPAddress.TryParse(b.Trim('[', ']'), out address)) return address;
+            throw new ArgumentException("invalid bind address '" + bind + "'");
+        }
+    }
+}
