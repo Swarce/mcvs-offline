@@ -123,15 +123,23 @@ namespace McvsOffline.Server.Services.Social.LiveOps
         public static long Ordinal(LiveOpsWindow season)
         {
             long length = TicksPerDay * season.Days;
-            long offset = season.Start.Ticks - LiveOpsSettings.DefaultAnchor.Ticks;
+            long offset = season.Start.Ticks - AnchorTicks();
             return offset >= 0 ? offset / length : -((-offset + length - 1) / length);
         }
 
         /// <summary>Whole days between 2024-01-01 and the day start (the quest rotation index).</summary>
         public static long DayOrdinal(LiveOpsWindow day)
         {
-            long offset = day.Start.Ticks - LiveOpsSettings.DefaultAnchor.Ticks;
+            long offset = day.Start.Ticks - AnchorTicks();
             return offset >= 0 ? offset / TicksPerDay : -((-offset + TicksPerDay - 1) / TicksPerDay);
+        }
+
+        private static long AnchorTicks()
+        {
+            // Copy the readonly field first: calling a member on it directly takes its address, which ILVerify reports
+            // against the game's mscorlib ("cannot change initonly field outside its .ctor"); see TimeFormat.
+            DateTime anchor = LiveOpsSettings.DefaultAnchor;
+            return anchor.Ticks;
         }
 
         // ------------------------------------------------------------------------------------------ names
