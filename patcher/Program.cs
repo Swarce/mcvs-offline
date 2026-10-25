@@ -147,7 +147,7 @@ namespace McvsOffline.Patcher
                 "  --patch <list>        optional patches, comma-separated (default: " + string.Join(",", PatcherOptions.DefaultPatches) + ")\n" +
                 "                          nativeonline  native online SDK (GaiaInit) only when settings.json embedded.nativeOnlineSdk\n" +
                 "                                   is true (its network threads stalled boot with the internet on)\n" +
-                "                          waits    the engine's pumping waits (TaskExtension.WaitAndWork) re-check every 100 ms\n" +
+                "                          waits    the engine's pumping waits (TaskExtension.WaitAndWork) re-check every 100 ms (hardening)\n" +
                 "                          geo      IP geolocation URL -> the embedded server (no DNS wait in the handshake)\n" +
                 "                          bottile  BOTMATCH tile -> bot-filled PvP with full progression\n" +
                 "                          finder   LocalAnubis Finder on all interfaces (survives Wi-Fi changes)\n" +

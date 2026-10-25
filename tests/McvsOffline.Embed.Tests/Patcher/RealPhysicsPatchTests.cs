@@ -186,28 +186,35 @@ namespace McvsOffline.Embed.Tests.Patcher
         }
 
         [Fact]
-        public void PumpingWaitsPickUpWorkThatArrivesWithoutAWakeUp()
+        public void PumpingWaitsDrainAReEnabledContextButNotALateOne()
         {
             string refs = Refs();
             if (refs == null) return;
             byte[] server = Server();
             Dictionary<string, byte[]> patched = RealGamePatchTests.PatchReal(refs, server, null, new WaitsPatch());
 
-            // The patched helper: an item queued with DelayedPost (no WorkItemAdded) completes the task it waits for.
+            // The gap the slices bound: World.OnLoadedScene sets Context.Enabled = true, which raises no WorkItemAdded, so an
+            // item posted while the context was disabled (the wait woke once, ExecuteItems returned at once) waits for the
+            // next event. Patched: the next 100 ms slice drains it.
             using (var game = new GameContext(refs, patched, server))
             {
                 var waits = new WaitProbe(game.Get("Gameloft.Engine"));
-                Assert.True(waits.WaitOnTask(TimeSpan.FromSeconds(5), wakeAfterMs: -1), "WaitAndWork(Task, ExecuteContexts) missed a DelayedPost item");
-                Assert.True(waits.WaitOnSignal(TimeSpan.FromSeconds(5), wakeAfterMs: -1), "WaitAndWork(ManualResetEventSlim, ExecuteContexts) missed a DelayedPost item");
+                Assert.True(waits.ReEnabledContext(onTask: true, TimeSpan.FromSeconds(5), wakeAfterMs: -1), "WaitAndWork(Task) missed a re-enabled context");
+                Assert.True(waits.ReEnabledContext(onTask: false, TimeSpan.FromSeconds(5), wakeAfterMs: -1), "WaitAndWork(ManualResetEventSlim) missed a re-enabled context");
+                // Not covered, by design (documented): Currents is a snapshot taken when the wait begins, so a context
+                // registered to the thread afterwards is never pumped by that wait, slices or not.
+                Assert.False(waits.LateContext(onTask: true, TimeSpan.FromMilliseconds(1500)), "a late-registered context was pumped");
+                Assert.False(waits.LateContext(onTask: false, TimeSpan.FromMilliseconds(1500)), "a late-registered context was pumped");
             }
 
-            // The original helper sleeps until something raises WorkItemAdded (here a Post after 1.5 s): the lost wake-up the patch closes.
+            // The original helper sleeps until something raises WorkItemAdded (here a Post after 1.5 s).
             using (var original = new GameContext(refs, new Dictionary<string, byte[]>(), null))
             {
                 var waits = new WaitProbe(original.Get("Gameloft.Engine"));
                 var watch = System.Diagnostics.Stopwatch.StartNew();
-                Assert.True(waits.WaitOnTask(TimeSpan.FromSeconds(10), wakeAfterMs: 1500));
+                Assert.True(waits.ReEnabledContext(onTask: true, TimeSpan.FromSeconds(10), wakeAfterMs: 1500));
                 Assert.True(watch.ElapsedMilliseconds >= 1400, "the unpatched wait returned after " + watch.ElapsedMilliseconds + " ms");
+                Assert.False(waits.LateContext(onTask: true, TimeSpan.FromMilliseconds(1500)));
             }
         }
 
@@ -249,9 +256,9 @@ namespace McvsOffline.Embed.Tests.Patcher
         }
 
         /// <summary>
-        /// Runs <c>TaskExtension.WaitAndWork(x, ExecuteContexts)</c> on a thread that owns a GameSynchronizationContext, while
-        /// another thread queues the completing item with DelayedPost (which raises no WorkItemAdded) and, optionally, later posts
-        /// a no-op with Post (which does).
+        /// Runs <c>TaskExtension.WaitAndWork(x, ExecuteContexts)</c> of the real engine on a thread that owns a
+        /// GameSynchronizationContext, while the test thread changes the state the wait depends on. Every run ends with the
+        /// waiter released (the target completed directly when the wait did not finish in time), so no thread is left behind.
         /// </summary>
         private sealed class WaitProbe
         {
@@ -264,20 +271,39 @@ namespace McvsOffline.Embed.Tests.Patcher
                 options = engine.GetType("Gameloft.Engine.WaitAndWorkOptions", true);
             }
 
-            public bool WaitOnTask(TimeSpan limit, int wakeAfterMs)
+            /// <summary>The context is disabled when the wait begins (a World loading its scene); the completing item is
+            /// posted (WorkItemAdded: one wake-up, drained as nothing), then the context is re-enabled (no event) and,
+            /// optionally, a no-op is posted <paramref name="wakeAfterMs"/> later.</summary>
+            public bool ReEnabledContext(bool onTask, TimeSpan limit, int wakeAfterMs)
+            {
+                return Run(onTask, limit, ctx => Enabled(ctx, false), (ctx, complete) =>
+                {
+                    Post(ctx, complete);
+                    Thread.Sleep(200);   // the wait has woken, found the context disabled, and sleeps again
+                    Enabled(ctx, true);
+                    if (wakeAfterMs >= 0)
+                    {
+                        Thread.Sleep(wakeAfterMs);
+                        Post(ctx, () => { });
+                    }
+                });
+            }
+
+            /// <summary>An item run by the wait creates a new context (registered to the waiting thread) and posts the
+            /// completing item there.</summary>
+            public bool LateContext(bool onTask, TimeSpan limit)
+            {
+                return Run(onTask, limit, null, (ctx, complete) =>
+                    Post(ctx, () => Post(Activator.CreateInstance(context), complete)));
+            }
+
+            private bool Run(bool onTask, TimeSpan limit, Action<object> setup, Action<object, Action> drive)
             {
                 var tcs = new TaskCompletionSource<bool>();
-                return Run(limit, wakeAfterMs, () => tcs.TrySetResult(true), tcs.Task, typeof(Task));
-            }
-
-            public bool WaitOnSignal(TimeSpan limit, int wakeAfterMs)
-            {
                 var signal = new ManualResetEventSlim(false);
-                return Run(limit, wakeAfterMs, () => signal.Set(), signal, typeof(ManualResetEventSlim));
-            }
-
-            private bool Run(TimeSpan limit, int wakeAfterMs, Action complete, object target, Type targetType)
-            {
+                Action complete = onTask ? () => tcs.TrySetResult(true) : (Action)(() => signal.Set());
+                object target = onTask ? tcs.Task : (object)signal;
+                Type targetType = onTask ? typeof(Task) : typeof(ManualResetEventSlim);
                 object ctx = null;
                 var ready = new ManualResetEventSlim(false);
                 Exception failure = null;
@@ -286,6 +312,7 @@ namespace McvsOffline.Embed.Tests.Patcher
                     try
                     {
                         ctx = Activator.CreateInstance(context);   // registers to this thread: WaitAndWork pumps it
+                        setup?.Invoke(ctx);
                         ready.Set();
                         MethodInfo wait = extension.GetMethod("WaitAndWork", new[] { targetType, options });
                         wait.Invoke(null, new[] { target, Enum.Parse(options, "ExecuteContexts") });
@@ -300,17 +327,26 @@ namespace McvsOffline.Embed.Tests.Patcher
                 waiter.Start();
                 Assert.True(ready.Wait(5000));
                 Thread.Sleep(200);   // the waiter is asleep in WaitAny by now
-                SendOrPostCallback callback = _ => complete();
-                context.GetMethod("DelayedPost").Invoke(ctx, new object[] { callback, null });
-                if (wakeAfterMs >= 0)
-                {
-                    Thread.Sleep(wakeAfterMs);
-                    SendOrPostCallback noop = _ => { };
-                    context.GetMethod("Post").Invoke(ctx, new object[] { noop, null });
-                }
+                drive(ctx, complete);
                 bool done = waiter.Join(limit);
+                if (!done)
+                {
+                    complete();   // the target itself still ends the wait
+                    Assert.True(waiter.Join(5000), "the waiter did not end after its target completed");
+                }
                 if (failure != null) throw new InvalidOperationException("WaitAndWork failed", failure);
                 return done;
+            }
+
+            private void Post(object ctx, Action action)
+            {
+                SendOrPostCallback callback = _ => action();
+                context.GetMethod("Post").Invoke(ctx, new object[] { callback, null });
+            }
+
+            private void Enabled(object ctx, bool value)
+            {
+                context.GetProperty("Enabled").SetValue(ctx, value);
             }
         }
     }

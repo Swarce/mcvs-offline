@@ -3,15 +3,16 @@
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
 Last updated after device test 2 (October 2026: Samsung Galaxy S22, Android 16; see "Device test 2" below).
 
-**Summary:** the Federation server is complete for the offline single-player goals and passes 601 tests, including a
+**Summary:** the Federation server is complete for the offline single-player goals and passes 604 tests, including a
 conformance harness that runs the game's own client libraries against it. Device test 1 put the player build (patcher +
 embedded host) on a phone for the first time and found two blockers (a stall with the internet on, a crash of the headless
 TS World). Build 2 fixed both: in device test 2 the whole boot chain up to the TS handshake ran, and the TS World loaded its
-level. Then the game hung on "connecting": the in-process TS World and the client stepped multithreaded Havok physics at the
-same time through the engine's single process-wide worker pool. Build 3 gives the server Worlds single-threaded physics (as on
-Gameloft's servers), lets only one World step at a time, bounds the engine's pumping waits, and adds a managed and native
-thread dump to the watchdog, so a remaining hang names its cause. Device test 3 is the next step (expected log sequence
-below).
+level. Then the game hung on "connecting", with the game thread asleep in a futex. The leading hypothesis (verified that it
+happens, inferred that it is the deadlock) is that the in-process TS World and the client stepped multithreaded Havok physics
+at the same time through the engine's single process-wide worker pool. Build 3 gives the server Worlds single-threaded
+physics (as on Gameloft's servers), lets only one World step at a time, bounds the engine's pumping waits (hardening), and
+adds a managed and native thread dump to the watchdog, so a remaining hang names its cause. Device test 3 is the next step
+(expected log sequence below); it confirms or refutes the hypothesis.
 
 ## Device test 2 (October 2026): "connecting" forever
 
@@ -44,9 +45,11 @@ in the predicted order with no `datacenters` request: client session, LocalAnubi
   then `_Update`), in a wait that does not pump contexts. The #26 continuation had gone asynchronous and was queued on the
   TS World's context, which only that thread drains: hence the missing second line.
 
-### Cause
+### Cause (leading hypothesis, not yet confirmed on a device)
 
-Verified in the decompiled engine, the IL and libnativeengine.so (`/home/user/mcvs-work/reports/device2-deadlock.md`):
+The facts below are verified in the decompiled engine, the IL and libnativeengine.so
+(`/home/user/mcvs-work/reports/device2-deadlock.md`, tags [V]); that this overlap is what put the game thread to sleep is an
+inference (that report's [I], likelihood high): no device run has shown the game thread inside a Havok wait yet.
 
 * `GameOptions_android.json` (profile `Specific`) turns on **multithreaded Havok physics** for the whole process
   (`PhysicsComponent.PhysicsMultithreaded = true`, the only override that turns it off is never selected), and GPU defaults
@@ -67,16 +70,24 @@ Verified in the decompiled engine, the IL and libnativeengine.so (`/home/user/mc
   (`GameOptionPerformanceProfileComponent.OnCreate` returns on Linux), i.e. single-threaded, non-deferred Havok; the Android
   client has one World.
 
-Which Havok wait the game thread sits in exactly cannot be settled statically (the build 3 thread dump will show it); that
-the two steps overlap with no synchronisation is verified. **Ruled out** (same report and
+Which Havok wait the game thread sits in, and whether it sits in one at all, cannot be settled statically (the build 3
+thread dump will show it); that the two steps overlap with no synchronisation is verified. **Ruled out** (same report and
 `/home/user/mcvs-work/reports/device2-ourcode.md`): the context-pump mechanism (no game-thread wait in the frame loop pumps
 contexts; `Join`, `WaitLoading` and `Send` have no callers; `DelayedPost` has none either), the HTTP continuation chain (no
-blocking call), the loggers (`DeviceLogger_Log` is a bare `ret`; our bridge only enqueues), MenuComponent/SWF in the TS World
-(both `[KeepInHeadlessMode(false)]`), the render thread (no managed cycle in Full mode; its native queue lock is a spinlock),
-the network (futex, not poll/recv), and **our own code**: everything of ours on the game thread is bounded and was idle, our
-IAP P/Invoke first ran 33 s after the hang and takes no lock, and after the hang our threads still JIT-compiled, allocated and
-made JNI calls (no runtime-global lock held). The headless patches are not wrong; they let the TS reach code that had never
-run on Android.
+blocking call), the loggers (`DeviceLogger_Log` is a bare `ret`; our bridge only enqueues), MenuComponent/SWF in the TS
+World (both `[KeepInHeadlessMode(false)]`), the network (futex, not poll/recv), and **our own code**: everything of ours on
+the game thread is bounded and was idle, our IAP P/Invoke first ran 33 s after the hang and takes no lock, and after the
+hang our threads still JIT-compiled, allocated and made JNI calls (no runtime-global lock held). The headless patches are
+not wrong; they let the TS reach code that had never run on Android.
+
+**Not ruled out: the render path.** In `RenderThreadMode.Full` there is no managed cycle (the render thread waits for
+`UpdateSignal`, which the game thread sets before its own wait) and the native render-queue lock is a spinlock, but it is
+not verified that this phone runs Full. The GPU defaults in `GameOptions_android.json` are `enableRenderThread false`,
+`renderThreadMode 0` (None); only the named GPU profiles (VeryLowGPU to High_Ultra) set `true`/`3` (Full). The S22
+(SM-S901E, Adreno 730 per the device-test-2 logcat) is named by no rule (they list Adreno 3xx-6xx, Mali, PowerVR, Tegra and
+a few models); it gets MidGPU only through the last rule, `MidGPU: CORES>1`, a catch-all whose evaluation is native and was
+not checked. In None mode `Render()` runs on the game thread (`GameApplication.cs:883-895`), a path that was not analysed.
+The build-3 `[boot] physics:` line prints `RenderThreadEnabled`/`RenderThreadMode` and settles it.
 
 ### Fix (build 3)
 
@@ -94,12 +105,16 @@ run on Android.
     (contact callbacks post to the World's context).
   * Settings for A/B runs (defaults = the fix): `embedded.physics.serverMultithreaded` (false), `clientMultithreaded`
     (true), `stepGate` (true), `stepGateTimeoutMs` (2000).
-* **`waits`, a new default patch** (Gameloft.Engine.dll): both `TaskExtension.WaitAndWork` overloads wait in 100 ms slices
-  (`WaitAny(handles)` -> `WaitAny(handles, 100)`). These are the engine's pumping waits (contexts and native tasks); with
-  every World's work on the same game thread, work queued without a wake-up event (`DelayedPost`, a context registered
-  after the wait began) can no longer leave the thread asleep for good: each slice drains and re-checks. The non-pumping
-  paths (`task.Wait()`, `signal.Wait()`) are unchanged, so no work runs where it did not run before. Not the cause of this
-  hang (no pumping wait was active), but it closes that class of same-thread multi-World deadlocks.
+* **`waits`, a new default patch, hardening with no observed trigger** (Gameloft.Engine.dll): both
+  `TaskExtension.WaitAndWork` overloads wait in 100 ms slices (`WaitAny(handles)` -> `WaitAny(handles, 100)`). `Post`,
+  `Send` and `EnqueueDelayedItems` raise `WorkItemAdded` and native tasks call `NativeTaskAdded`, so ordinary work always
+  wakes these waits. The slices bound the two state changes in the shipped code that raise no event: a context re-enabled
+  by `World.OnLoadedScene` (`Context.Enabled = true`; only `World_Disposing` waits with contexts), and the native wake-up
+  callback, which the `NativeTaskAdded` accessors install and remove with an unlocked check-then-act. They do **not** cover
+  a context registered to the thread after the wait began (`Currents` is a snapshot, re-drained every slice), and
+  `DelayedPost` has no caller in the game. Every call site pumps exactly what it pumped before (the non-pumping
+  `task.Wait()`/`signal.Wait()` paths are unchanged), so no work runs where or in an order it did not run before. Not
+  related to this hang: no pumping wait was active.
 * Our code: the IAP status read now waits for the first heartbeat and stops after the first "yes"; the watchdog reports a
   heartbeat that ever runs on another thread than the game thread. No interference was found.
 
@@ -107,7 +122,7 @@ run on Android.
 
 | What | Where to find it |
 |---|---|
-| **Thread dump** at the 15 s and 180 s STALL (`diagnostics.threadDump`, default true), on its own thread `mcvs-threaddump`, never waited for: (1) native view, no suspension: every thread's state, wchan and `/proc/self/task/<tid>/syscall` (futex address, mapping, words, timeout, pc), read with `PR_SET_DUMPABLE` raised and restored (the reason for "syscall ?"), plus a stack scan of the game thread and the threads that share its name and the Finalizer, through `/proc/self/mem` (a bad address is an error, never a crash), raw `lib+0x...` first, then named (`dladdr`, `mono_pmip` for managed code); (2) Mono's own managed dump of every thread (`mono_threads_request_thread_dump`, printed by the finalizer thread to fd 1, which points at a file for at most 10 s) | logcat `McvsOffline` lines `[threaddump] ...`, the header `Full thread dump:` on tag `mono` (priority E), `logs/bootstrap.log` (copied to Download/MCVS-Offline), `logs/threaddump-<time>.txt` |
+| **Thread dump** at the 15 s and 180 s STALL (`diagnostics.threadDump`, default true), on its own thread `mcvs-threaddump`, never waited for: (1) native view, no suspension: every thread's state, wchan and `/proc/self/task/<tid>/syscall` (futex address, mapping, words, timeout, pc), read with `PR_SET_DUMPABLE` raised and restored (the reason for "syscall ?"), plus a stack scan (64-bit installs; the S22 runs arm64) of the game thread and the threads that share its name and the Finalizer, through `/proc/self/mem` (a bad address is an error, never a crash), raw `lib+0x...` first, then named (`dladdr`, `mono_pmip` for managed code); (2) Mono's own managed dump of every thread (`mono_threads_request_thread_dump`, printed by the finalizer thread to fd 1, which points at a file for at most 10 s) | logcat `McvsOffline` lines `[threaddump] ...`, the header `Full thread dump:` on tag `mono` (priority E), `logs/bootstrap.log` (copied to Download/MCVS-Offline), `logs/threaddump-<time>.txt` |
 | The STALL snapshot's game-thread line now reads the syscall too (`syscall 98 0x... (futex: waiting for a lock or condition)`) | logcat `[watchdog] STALL` |
 | Physics decisions and the engine's threading choices, once per World | `[boot] physics: client World #1: Havok multithreaded ...; engine threading: PhysicsComponent.DefaultDeferred ..., GameApplication.RenderThreadEnabled ..., RenderThreadMode ...`, `[boot] physics: server (headless) World #2: Havok single-threaded ...` |
 | Step-gate counters (entries, waits, longest wait, timeouts) | the `[status]` line, `physics: ...` |
@@ -125,7 +140,8 @@ numbers included), plus the physics milestones.
 2. **New, before #1:** `[boot] physics: client World #1: Havok multithreaded (GameOptions multithreadedPhysics true,
    settings embedded.physics.clientMultithreaded true; step gate on); engine threading: PhysicsComponent.DefaultDeferred True
    (client physics on a loading-pool thread), GameApplication.RenderThreadEnabled True, RenderThreadMode Full` (the values are
-   whatever the phone's GameOptions profile says; device test 2 implied True/True/Full).
+   whatever the phone's GameOptions profile says: True/Full if the S22 gets MidGPU through the `CORES>1` rule, False/None
+   if it keeps the GPU defaults; nothing has shown which yet).
 3. `#1 .../datacenters/mcvs/urls` -> `[boot] client Federation: eve config (#1)`, `[watchdog] game thread is tid N ''`, `#2
    locate/auth`, `[boot] native online SDK init requested (... call 1): skipped`, `#3 POST /authorize` -> `[boot] client
    anonymous session`, `#4 users/me`.
@@ -164,7 +180,9 @@ game thread is the `"<unnamed thread>"` block whose frames contain `Gameloft.Eng
 frames name the wait (a `(wrapper managed-to-native) ..._private` engine call, `Monitor.Enter`, `ManualResetEventSlim.Wait`,
 ...); see `/home/user/mcvs-work/reports/device2-threaddump.md` §5 for how to read it. Then one A/B run with
 `"embedded": {"physics": {"serverMultithreaded": true, "stepGate": false}}` in settings.json should reproduce the
-device-test-2 hang (and confirms the cause); a hang **with** the defaults is something else, which the dump names.
+device-test-2 hang (and confirms the cause); a hang **with** the defaults is something else, which the dump names. If the
+`[boot] physics:` line says `RenderThreadMode None`, `Render()` runs on the game thread and the render path is the first
+suspect.
 
 ## Device test 1 (October 2026)
 
@@ -299,8 +317,8 @@ Superseded by the device-test-3 sequence above (steps 1-8 are what device test 2
 ### How it was checked
 
 `MCVS_REFS=<apk assemblies> MCVS_REQUIRE_EMBEDDED=1 MCVS_REQUIRE_REAL_CLIENT=1 scripts/build.sh`: net8 solution, embedded
-build against the game's own BCL, then all tests. Result after the device-test-2 fixes: **McvsOffline.Tests 485/485,
-McvsOffline.Embed.Tests 116/116, 0 skipped**:
+build against the game's own BCL, then all tests. Result after the device-test-2 fixes and their review: **McvsOffline.Tests
+485/485, McvsOffline.Embed.Tests 119/119, 0 skipped**:
 
 | Tests | Count |
 |---|---|
@@ -311,7 +329,7 @@ McvsOffline.Embed.Tests 116/116, 0 skipped**:
 | MISC | 110 |
 | Unlocks | 8 |
 | End-to-end conformance (real client) | 2 |
-| Embedded host (including the crash reporter and its separate fatal/non-fatal budgets, the watchdog, the thread dump, the physics hooks and step gate, and a Cecil resolution of every reference of the built DLL against the game's assemblies) | 62 |
+| Embedded host (including the crash reporter and its separate fatal/non-fatal budgets, the watchdog, the thread dump, the physics hooks and step gate, a Cecil resolution of every reference of the built DLL against the game's assemblies, and every P/Invoke typed for both shipped ABIs: no 32-bit `off_t`/`ssize_t` mismatch on armeabi-v7a) | 65 |
 | Patcher (including the binary manifest rewrite, `res/raw/args.txt`, the device-1 and device-2 patches applied to the real Game.dll and Gameloft.Engine.dll, then executed and JIT-compiled on net8, and the IL fingerprints of the verified methods) | 54 |
 
 **Real-client conformance** (the player's Gameloft.OnlinePlatform, Gameloft.Engine, Game, Gameloft.Templates and

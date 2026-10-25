@@ -9,15 +9,17 @@ namespace McvsOffline.Patcher.Patches
     /// Mandatory 'physics' patch of Gameloft.Engine.dll (device test 2: the game thread slept in a futex for good during the
     /// TS handshake, "connecting" forever).
     /// <para>
-    /// The cause: GameOptions_android.json turns on multithreaded Havok (<c>multithreadedPhysics</c>) and deferred client physics
-    /// for the whole process, and every multithreaded hkpWorld steps through ONE process-wide hkCpuThreadPool and hkJobQueue
-    /// (libnativeengine.so 0x37fab4 creates them once; <c>PhysicsComponent_UpdateStep_private</c> passes them to
-    /// <c>hkpWorld::stepMultithreaded</c>). The pool supports one stepping thread at a time: <c>processJobQueue</c> and
-    /// <c>waitForCompletion</c> take no lock and share a single "processing" flag, worker callback and completion semaphore.
-    /// Once the in-process TS World plays its level, the client World's deferred step runs on a loading-pool thread while the
-    /// TS World steps on the game thread, through that same pool, and a thread then waits in <c>hkSemaphore::acquire</c>
-    /// (pthread_cond_wait) for a completion that never comes. Gameloft never ran this mix: dedicated servers ran one World per
-    /// Linux process and skip GameOptions (single-threaded Havok, no deferral), and the client has one World.
+    /// The leading hypothesis (the overlap is verified in code, IL and libnativeengine.so; that it is the hang is
+    /// inferred and not yet confirmed on a device): GameOptions_android.json turns on multithreaded Havok
+    /// (<c>multithreadedPhysics</c>) and deferred client physics for the whole process, and every multithreaded
+    /// hkpWorld steps through ONE process-wide hkCpuThreadPool and hkJobQueue (libnativeengine.so 0x37fab4 creates them
+    /// once; <c>PhysicsComponent_UpdateStep_private</c> passes them to <c>hkpWorld::stepMultithreaded</c>). The pool
+    /// supports one stepping thread at a time: <c>processJobQueue</c> and <c>waitForCompletion</c> take no lock and
+    /// share a single "processing" flag, worker callback and completion semaphore. Once the in-process TS World plays
+    /// its level, the client World's deferred step runs on a loading-pool thread while the TS World steps on the game
+    /// thread, through that same pool, so a thread can then wait in <c>hkSemaphore::acquire</c> (pthread_cond_wait) for
+    /// a completion that never comes. Gameloft never ran this mix: dedicated servers ran one World per Linux process
+    /// and skip GameOptions (single-threaded Havok, no deferral), and the client has one World.
     /// </para>
     /// <list type="bullet">
     /// <item>P2: the <c>PhysicsComponent</c> constructor asks <c>McvsPhysics.UseMultithreading(this)</c> instead of reading

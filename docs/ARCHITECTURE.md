@@ -103,17 +103,20 @@ Mandatory IL patches for the in-process servers (device test 1, STATUS.md): `hea
 (Gameloft.Engine.dll) keep client-only components out of the headless TS/GS Worlds (`InputSettingsComponent`,
 `SoundGroupSnapshotComponent` get `[KeepInHeadlessMode(false)]`; null-safe HudGamepad and VfxAnimator calls; audio and
 input singletons left alone) and turn `Component.Events.GetSafeAction` into a try/catch that applies to headless Worlds
-only, reporting instead of ending the player's process. Mandatory `physics` (Gameloft.Engine.dll, device test 2): every
-multithreaded Havok world in the process steps through one process-wide hkCpuThreadPool/hkJobQueue that serves one stepping
-thread at a time, and GameOptions_android.json makes every World multithreaded (client physics deferred to a loading-pool
-thread). Server Worlds therefore get single-threaded Havok, as on Gameloft's servers (`PhysicsComponent` constructor ->
-`McvsPhysics.UseMultithreading`), and every World's step runs inside a process-wide, time-bounded gate
-(`UpdateSimulationSteps`); settings `embedded.physics.*` revert each part for A/B runs.
+only, reporting instead of ending the player's process. Mandatory `physics` (Gameloft.Engine.dll; addresses the leading,
+not yet confirmed hypothesis for the device-test-2 hang): every multithreaded Havok world in the process steps through one
+process-wide hkCpuThreadPool/hkJobQueue that serves one stepping thread at a time, and GameOptions_android.json makes every
+World multithreaded (client physics deferred to a loading-pool thread). Server Worlds therefore get single-threaded Havok,
+as on Gameloft's servers (`PhysicsComponent` constructor -> `McvsPhysics.UseMultithreading`), and every World's step runs
+inside a process-wide, time-bounded gate (`UpdateSimulationSteps`); settings `embedded.physics.*` revert each part for A/B
+runs.
 
 Recommended extra IL patches (all optional, patcher flags):
-- `waits` (default): the pumping `TaskExtension.WaitAndWork` helpers wait in 100 ms slices (`WaitAny(handles, 100)`), so
-  work queued without a wake-up event (e.g. `DelayedPost`) can never leave a thread asleep for good; all Worlds share the
-  game thread in-process.
+- `waits` (default, hardening with no observed trigger): the pumping `TaskExtension.WaitAndWork` helpers wait in 100 ms
+  slices (`WaitAny(handles, 100)`). This bounds the two wake-up gaps in the shipped code: a context re-enabled by
+  `World.OnLoadedScene` raises no `WorkItemAdded`, and the `NativeTaskAdded` accessors install and remove the native
+  callback with an unlocked check-then-act. Not covered: contexts registered after the wait began, because `Currents`
+  is a snapshot. `DelayedPost` has no caller.
 - `nativeonline` (default): `OnlinePlatformComponent.Init_private` (the native "GaiaInit") runs only when
   `settings.json` `embedded.nativeOnlineSdk` is true; with the internet on, the native online SDK froze the boot.
 - `geo`: point the hard-coded `http://ip.ecomapis.gameloft.org/location/` (TS handshake, 100 s timeout vs

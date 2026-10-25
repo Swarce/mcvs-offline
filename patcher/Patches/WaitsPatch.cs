@@ -6,23 +6,31 @@ using Mono.Cecil.Rocks;
 namespace McvsOffline.Patcher.Patches
 {
     /// <summary>
-    /// Default 'waits' patch of Gameloft.Engine.dll: the game's pumping wait helpers never sleep unbounded.
+    /// Default 'waits' patch of Gameloft.Engine.dll: hardening with no observed trigger. The game's pumping wait helpers
+    /// never sleep longer than 100 ms between rounds.
     /// <para>
-    /// <c>TaskExtension.WaitAndWork(Task|ManualResetEventSlim, options)</c> is how engine code waits on a thread that must keep
-    /// draining work while it waits: with <c>ExecuteContexts</c> it runs the <c>GameSynchronizationContext</c>s registered to
-    /// the calling thread (every World's context, and GameApplication's, on the game thread), with <c>ExecuteNativeTasks</c> the
-    /// native task queue, and between rounds it sleeps in <c>WaitHandle.WaitAny(signal, target)</c> until a
-    /// <c>WorkItemAdded</c>/<c>NativeTaskAdded</c> wakes it. Work that arrives without that event (an item queued with
-    /// <c>DelayedPost</c>, which only <c>ExecuteItems</c> moves into the queue, or a context registered to the thread after the
-    /// wait began) is not drained until the target completes on its own; when the target needs that work, the thread sleeps
-    /// for good. With the in-process TS/GS Worlds every World's work runs on the same game thread, so this patch closes that
-    /// class of lost wake-ups: each <c>WaitAny(handles)</c> becomes <c>WaitAny(handles, 100)</c> and the loop simply
-    /// runs another round (drain, check, wait) every 100 ms. Nothing else changes: the non-pumping paths
-    /// (<c>task.Wait()</c>, <c>signal.Wait()</c>: no contexts and no native tasks asked for) keep their exact behaviour, so no
-    /// work runs anywhere it did not run before.
+    /// <c>TaskExtension.WaitAndWork(Task|ManualResetEventSlim, options)</c> waits while it keeps draining work: with
+    /// <c>ExecuteContexts</c> it runs the <c>GameSynchronizationContext</c>s registered to the calling thread (a snapshot,
+    /// <c>Currents</c>, taken once when the wait begins), with <c>ExecuteNativeTasks</c> the native task queue, and between
+    /// rounds it sleeps in <c>WaitHandle.WaitAny(signal, target)</c>. <c>Post</c>, <c>Send</c> and <c>EnqueueDelayedItems</c>
+    /// raise <c>WorkItemAdded</c> and the native side calls <c>NativeTaskAdded</c>, so ordinary work always wakes it. Two
+    /// state changes in the shipped code raise no event, and the slices bound them to one round:
+    /// <list type="bullet">
+    /// <item>re-enabling a context: <c>World.OnLoadingScene</c>/<c>OnLoadedScene</c> set <c>Context.Enabled</c> false/true,
+    /// and an item posted meanwhile woke the wait once while <c>ExecuteItems</c> returned at once. Only
+    /// <c>World_Disposing</c> waits with contexts (options Default).</item>
+    /// <item>the native wake-up callback: the <c>NativeTaskAdded</c> accessors install and remove it with an unlocked
+    /// check-then-act, and every <c>WaitAndWork</c> with native tasks subscribes and unsubscribes, so two threads doing that
+    /// at once can leave one wait without native wake-ups.</item>
+    /// </list>
+    /// Not covered: a context registered to the thread after the wait began (the loop drains the same snapshot every round);
+    /// <c>DelayedPost</c>, which raises no event either, has no caller in the game. The call sites (MenuComponent: native
+    /// tasks on the render thread; PhysicsComponent.WaitDeferred: native tasks and the task; World_Disposing: contexts and
+    /// native tasks; SWFComponent: the non-pumping <c>task.Wait()</c> path) pump exactly what they pumped before, so no work
+    /// runs anywhere or in an order it did not before; the cost is one extra wake-up per 100 ms of waiting.
     /// </para>
     /// Device test 2 showed no pumping wait on the game thread during the hang (the watchdog's heartbeat, posted to
-    /// GameApplication.Context with WorkItemAdded, never ran), so this is hardening, not the fix for that hang ('physics' is).
+    /// GameApplication.Context with WorkItemAdded, never ran), so this is not the fix for that hang.
     /// Both overloads are checked against the IL fingerprint of the verified 1.17.32 build first.
     /// </summary>
     public sealed class WaitsPatch : IlPatch

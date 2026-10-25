@@ -20,7 +20,8 @@ namespace McvsOffline.Embedded.Diagnostics
     /// printed "syscall ?", so PR_SET_DUMPABLE is raised for the reads and restored, as bionic's own crash handler does).
     /// For chosen threads a scan of the stack from sp: every word that points into executable memory just after a call
     /// instruction, named lib+offset (dladdr adds the nearest exported symbol) or, for JIT/AOT code, the managed method
-    /// (mono_pmip). Memory is read through /proc/self/mem, so a bad address is an EIO, never a SIGSEGV.</item>
+    /// (mono_pmip). Memory is read through /proc/self/mem, so a bad address is an EIO, never a SIGSEGV. The stack scan is
+    /// for 64-bit processes (arm64, x86_64); an armeabi-v7a install gets the thread table and the managed dump.</item>
     /// <item>Managed: Mono's own thread dump (mono_threads_request_thread_dump). The finalizer thread suspends each managed
     /// thread in turn with the same signal every GC uses, walks its managed frames and prints them with g_fprintf to C
     /// stdout, which on Android is /dev/null; fd 1 points at a file for the duration. Completion is the runtime's own
@@ -133,6 +134,12 @@ namespace McvsOffline.Embedded.Diagnostics
                 }
                 Emit(emit, sb.ToString());
 
+                if (!StackScanSupported(maps.Arch, IntPtr.Size))
+                {
+                    Emit(emit, "[threaddump] native stacks skipped: the scan reads 64-bit arm64/x86_64 stacks, this process is arch " +
+                               maps.Arch + " with " + Str(IntPtr.Size * 8) + "-bit pointers (the managed dump below still runs)");
+                    return;
+                }
                 foreach (int tid in scan)
                 {
                     Syscall sc;
@@ -164,10 +171,17 @@ namespace McvsOffline.Embedded.Diagnostics
             public MemoryMap.Region Region;
         }
 
+        /// <summary>The stack scan reads 8-byte words and knows the call instructions of arm64 and x86_64 only; on any other
+        /// process (armeabi-v7a: 4-byte words, Thumb/ARM calls) it would list garbage, so it is skipped there.</summary>
+        public static bool StackScanSupported(string arch, int pointerSize)
+        {
+            return pointerSize == 8 && (arch == "arm64" || arch == "x86_64");
+        }
+
         private static List<Frame> ScanStack(Syscall sc, MemoryMap maps, SelfMemory memory, int maxFrames)
         {
             var frames = new List<Frame>();
-            if (sc.Sp == 0 || memory == null) return frames;
+            if (sc.Sp == 0 || memory == null || !StackScanSupported(maps.Arch, IntPtr.Size)) return frames;
             MemoryMap.Region stack = maps.Find(sc.Sp);
             if (stack == null || !stack.Readable || !stack.Writable) return frames;
             long length = stack.End - sc.Sp;
@@ -333,7 +347,7 @@ namespace McvsOffline.Embedded.Diagnostics
                 while ((elapsed = Environment.TickCount - started) < timeoutMs)
                 {
                     Thread.Sleep(50);
-                    size = Libc.lseek(fd, 0, SEEK_CUR);   // shares the offset with fd 1: bytes written so far
+                    size = Libc.lseek64(fd, 0, SEEK_CUR);   // shares the offset with fd 1: bytes written so far
                     if (flag != 0)
                     {
                         if (Marshal.ReadByte(new IntPtr(flag), 0) == 0) { finished = true; break; }
@@ -747,7 +761,7 @@ namespace McvsOffline.Embedded.Diagnostics
             {
                 if (fd < 0 || count <= 0 || addr <= 0) return null;
                 var buffer = new byte[count];
-                long n = Libc.pread(fd, buffer, new IntPtr(count), addr);
+                long n = Libc.pread64(fd, buffer, new IntPtr(count), addr).ToInt64();
                 if (n <= 0) return null;
                 if (n < count)
                 {
@@ -768,8 +782,8 @@ namespace McvsOffline.Embedded.Diagnostics
         // ------------------------------------------------------------------------------------------------ libc
 
         private const int PR_GET_DUMPABLE = 3, PR_SET_DUMPABLE = 4;
-        private const int O_RDONLY = 0, O_WRONLY = 1, O_CREAT = 0x40, O_TRUNC = 0x200, O_CLOEXEC = 0x80000;   // Linux arm64/x86_64
-        private const int SEEK_CUR = 1;
+        internal const int O_RDONLY = 0, O_WRONLY = 1, O_CREAT = 0x40, O_TRUNC = 0x200, O_CLOEXEC = 0x80000;   // Linux arm, arm64, x86_64
+        internal const int SEEK_SET = 0, SEEK_CUR = 1, SEEK_END = 2;
 
         private static int SafePrctl(int option, long arg)
         {
@@ -795,7 +809,7 @@ namespace McvsOffline.Embedded.Diagnostics
             try
             {
                 var buffer = new byte[512];
-                long n = Libc.readlink(path, buffer, new IntPtr(buffer.Length));
+                long n = Libc.readlink(path, buffer, new IntPtr(buffer.Length)).ToInt64();
                 return n > 0 ? Encoding.UTF8.GetString(buffer, 0, (int)n) : null;
             }
             catch (Exception)
@@ -804,16 +818,25 @@ namespace McvsOffline.Embedded.Diagnostics
             }
         }
 
-        private static class Libc
+        /// <summary>
+        /// The C prototypes, typed for every ABI the APK ships (arm64-v8a and armeabi-v7a; x86_64 for the tests): size_t and
+        /// ssize_t are pointer-sized (IntPtr), and a file offset is only ever passed as off64_t through the *64 entry points,
+        /// which bionic (both ABIs) and glibc export. Plain lseek/pread take a 32-bit off_t on armeabi-v7a, where a C# long
+        /// lands in a register pair the callee does not read. Internal: the tests (same assembly) call the real bindings.
+        /// </summary>
+        internal static class Libc
         {
             [DllImport("libc", SetLastError = true)] public static extern int prctl(int option, IntPtr a2, IntPtr a3, IntPtr a4, IntPtr a5);
             [DllImport("libc", SetLastError = true)] public static extern int open(string path, int flags, int mode);
             [DllImport("libc", SetLastError = true)] public static extern int close(int fd);
             [DllImport("libc", SetLastError = true)] public static extern int dup(int fd);
             [DllImport("libc", SetLastError = true)] public static extern int dup2(int oldFd, int newFd);
-            [DllImport("libc", SetLastError = true)] public static extern long lseek(int fd, long offset, int whence);
-            [DllImport("libc", SetLastError = true)] public static extern long pread(int fd, byte[] buffer, IntPtr count, long offset);
-            [DllImport("libc", SetLastError = true)] public static extern long readlink(string path, byte[] buffer, IntPtr size);
+            /// <summary>off64_t lseek64(int fd, off64_t offset, int whence)</summary>
+            [DllImport("libc", SetLastError = true)] public static extern long lseek64(int fd, long offset, int whence);
+            /// <summary>ssize_t pread64(int fd, void* buf, size_t count, off64_t offset)</summary>
+            [DllImport("libc", SetLastError = true)] public static extern IntPtr pread64(int fd, byte[] buffer, IntPtr count, long offset);
+            /// <summary>ssize_t readlink(const char* path, char* buf, size_t size)</summary>
+            [DllImport("libc", SetLastError = true)] public static extern IntPtr readlink(string path, byte[] buffer, IntPtr size);
         }
 
         // C# structs are sequential by default (and StructLayoutAttribute is trimmed from the game's mscorlib).
