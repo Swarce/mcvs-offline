@@ -14,8 +14,11 @@ namespace McvsOffline.Server.Core
     /// touch this file). Typed properties cover the settings several modules share.
     /// </para>
     /// <para>
-    /// <see cref="Override"/> sets in-memory values (command line) that are never saved.
-    /// Thread-safe.
+    /// <see cref="Override"/> sets in-memory values (command line, tests) that are never saved. Overrides are applied
+    /// over the file in the order they were set: an object deep-merges into the object at its path, anything else
+    /// replaces the value. So <c>Override("assets", {"couponsEnabled": false})</c> leaves every other "assets.*" key
+    /// as the file has it, and <c>Override("economy.xpMultiplier", 2)</c> is also visible through
+    /// <c>GetObject("economy")</c>. Thread-safe.
     /// </para>
     /// </summary>
     public sealed class Settings
@@ -29,6 +32,9 @@ namespace McvsOffline.Server.Core
         private readonly object gate = new object();
         private readonly Dictionary<string, object> values;
         private readonly Dictionary<string, object> overrides = new Dictionary<string, object>(StringComparer.Ordinal);
+
+        // values + overrides, rebuilt lazily after Set/Override (settings are read on every request; written rarely).
+        private Dictionary<string, object> effective;
 
         /// <summary>Defaults only, not backed by a file.</summary>
         public Settings()
@@ -143,19 +149,10 @@ namespace McvsOffline.Server.Core
 
         // ------------------------------------------------------------------------- generic access
 
-        /// <summary>Value at a dotted path (overrides first), or null.</summary>
+        /// <summary>A copy of the effective value (file + overrides) at a dotted path, or null.</summary>
         public object Get(string path)
         {
-            lock (gate)
-            {
-                foreach (var kv in overrides)
-                {
-                    if (string.Equals(kv.Key, path, StringComparison.Ordinal)) return JsonValue.DeepClone(kv.Value);
-                    if (path.StartsWith(kv.Key + ".", StringComparison.Ordinal))
-                        return JsonValue.DeepClone(JsonPath.Get(kv.Value, path.Substring(kv.Key.Length + 1)));
-                }
-                return JsonValue.DeepClone(JsonPath.Get(values, path));
-            }
+            lock (gate) return JsonValue.DeepClone(JsonPath.Get(Effective(), path));
         }
 
         public string GetString(string path, string defaultValue)
@@ -187,24 +184,46 @@ namespace McvsOffline.Server.Core
         /// <summary>Sets a persisted value (call <see cref="Save"/> to write it).</summary>
         public void Set(string path, object value)
         {
-            lock (gate) JsonPath.Set(values, path, JsonValue.DeepClone(value));
+            lock (gate)
+            {
+                JsonPath.Set(values, path, JsonValue.DeepClone(value));
+                effective = null;
+            }
         }
 
-        /// <summary>Sets an in-memory value that wins over the file and is never saved (e.g. --port).</summary>
+        /// <summary>
+        /// Sets an in-memory value that wins over the file and is never saved (e.g. --port). An object is deep-merged
+        /// into the object at <paramref name="path"/>; see the class remarks.
+        /// </summary>
         public void Override(string path, object value)
         {
-            lock (gate) overrides[path] = JsonValue.DeepClone(value);
+            lock (gate)
+            {
+                overrides[path] = JsonValue.DeepClone(value);
+                effective = null;
+            }
         }
 
         /// <summary>Effective settings (file + overrides) as a new object, for diagnostics.</summary>
         public Dictionary<string, object> Snapshot()
         {
-            lock (gate)
+            lock (gate) return JsonValue.DeepCloneObject(Effective());
+        }
+
+        /// <summary>The effective document; callers hold <see cref="gate"/> and never hand it out uncloned.</summary>
+        private Dictionary<string, object> Effective()
+        {
+            if (effective != null) return effective;
+            var doc = JsonValue.DeepCloneObject(values);
+            foreach (var kv in overrides)
             {
-                var copy = JsonValue.DeepCloneObject(values);
-                foreach (var kv in overrides) JsonPath.Set(copy, kv.Key, JsonValue.DeepClone(kv.Value));
-                return copy;
+                var patch = kv.Value as Dictionary<string, object>;
+                var existing = JsonPath.Get(doc, kv.Key) as Dictionary<string, object>;
+                if (patch != null && existing != null) JsonPath.DeepMerge(existing, JsonValue.DeepCloneObject(patch));
+                else JsonPath.Set(doc, kv.Key, JsonValue.DeepClone(kv.Value));
             }
+            effective = doc;
+            return doc;
         }
 
         // ------------------------------------------------------------------------- shared typed settings
@@ -231,7 +250,10 @@ namespace McvsOffline.Server.Core
         /// <summary>LAN host mode: service URLs are built from the request's Host header (verify-C6 §5).</summary>
         public bool LanMode { get { return GetBool("lanMode", false); } }
 
-        /// <summary>Opt-in unlock-all through the inventory ledger / coupons (verify-C5).</summary>
+        /// <summary>
+        /// Opt-in unlock-all through the IAP inventory ledger (verify-C5 (c); server/Services/Unlocks). The unlock
+        /// coupon codes are independent of this (assets.couponsEnabled).
+        /// </summary>
         public bool UnlockAll { get { return GetBool("unlockAll", false); } }
 
         /// <summary>

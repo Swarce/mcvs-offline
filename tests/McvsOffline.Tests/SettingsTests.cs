@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Json;
@@ -79,6 +80,34 @@ namespace McvsOffline.Tests
             Assert.Equal(51780L, written["port"]);
             Assert.Equal(true, written["devMenu"]);
             Assert.Equal(0L, JsonPath.Get(s.Snapshot(), "port"));
+        }
+
+        [Fact]
+        public void ObjectOverridesMergeIntoTheFileInsteadOfHidingIt()
+        {
+            using var dir = new TempDir();
+            string path = dir.Combine("settings.json");
+            File.WriteAllText(path, "{\"assets\":{\"couponsEnabled\":true,\"coupons\":{\"A\":1}},\"economy\":{\"xpMultiplier\":4}}");
+            var s = Settings.Load(path, null);
+
+            // A parent override only replaces the keys it names (CONTENT request): deeper paths fall through.
+            s.Override("assets", MiniJson.ParseObject("{\"couponsEnabled\":false}"));
+            Assert.False(s.GetBool("assets.couponsEnabled", true));
+            Assert.Equal(1L, s.GetLong("assets.coupons.A", 0));
+
+            // A child override is visible through its parent object and the snapshot.
+            s.Override("economy.priceMultiplier", 2.5);
+            Dictionary<string, object> economy = s.GetObject("economy");
+            Assert.Equal(2.5, economy["priceMultiplier"]);
+            Assert.Equal(4L, economy["xpMultiplier"]);
+            Assert.Equal(2.5, JsonPath.Get(s.Snapshot(), "economy.priceMultiplier"));
+
+            // A scalar override over an object replaces it; later overrides apply on top, and Set stays visible.
+            s.Override("economy", 7L);
+            Assert.Equal(7L, s.Get("economy"));
+            s.Set("devMenu", true);
+            Assert.True(s.DevMenu);
+            Assert.Equal(7L, s.Get("economy"));
         }
 
         [Fact]
