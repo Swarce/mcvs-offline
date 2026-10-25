@@ -1,0 +1,39 @@
+{
+  "tags": [],
+  "game": {
+    "13yolimitationpopup": {
+      "enabled": false
+    },
+    "AgeGateParams": {
+      "Ignore": true
+    },
+    "ReviewPopupParams": {
+      "Ignore": true
+    },
+    "CrashlyticsParams": {
+      "Enable": false
+    },
+    "_OverrideTables": {
+      "MCVS_System": {
+        "GameFeatures": {
+          "Id@Enabled": {
+            "RedeemCoupons": "1"
+          }
+        }
+      }
+    },
+    "_ServerConfig": {
+      "default": {
+        "IsDevelopment": false,
+        "DisableServerTracking": true,
+        "DisableServerTrackingKills": true,
+        "DisableServerTrackingCaptures": true,
+        "UnsupportedLinkFrom": [],
+        "UnsupportedLinkTo": []
+      }
+    }
+  },
+  "iap": {
+    "prices": []
+  }
+}
