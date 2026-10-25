@@ -174,13 +174,5 @@ up; removed on uninstall), standalone `./data/`.
 
 ## 4. Roadmap
 
-| Stage | Deliverable |
-|---|---|
-| **M0** | Standalone server passes the conformance harness (real `Gameloft.OnlinePlatform.dll`); dev-loop guide (stock APK + `args.txt` + `adb reverse`). |
-| **M1** | Patcher + embedded build → offline APK boots to menu, saves, plays bot-filled PvP (device test). |
-| **M2** | Content: full VersusCoins catalogue, coupons, settings UI-free toggles, economy tuning. |
-| **M3** | LAN P2P: `lan` patches; host GS reaches guests' profiles by forwarding storage/verify to the guest's own embedded server (each device keeps its own progression); LAN discovery (reuse the UDP 50034 responder or our own). |
-| **M4** | Internet P2P: overlay VPN guide first; optional relay; host-leaves handling. |
-| **M5** | Preservation extras: missing maps from older CDN builds (Barrage, Bridge, Downtown, Gym), serving the data archive locally for fresh installs (`qaTestingConfigs.txt DATA_LINK`). |
-
-Open device-test risks are tracked in `docs/research/verify-*.md` ("remaining_risks").
+The roadmap, with finished items struck through, is in [ROADMAP.md](ROADMAP.md). Device-test history and open
+risks are tracked in [STATUS.md](STATUS.md) and `docs/research/verify-*.md` ("remaining_risks").

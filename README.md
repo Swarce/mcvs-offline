@@ -32,9 +32,9 @@ change to the game's logic. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (no
 | Everything obtainable | VersusCoins economy (1,864 store entries), unlock coupons (`UNLOCKALL` and split codes), optional `unlockAll` through the inventory ledger, optional developer menu | [ECONOMY.md](docs/ECONOMY.md), [protocol/content.md](docs/protocol/content.md), [protocol/unlocks.md](docs/protocol/unlocks.md) |
 | Bot matches with full rewards | Instant bot-filled PvP through CRM (`MinPlayers 1`), `bottile` patch routes the BOTMATCH tile to the full-progression GS flow | [verify-C4](docs/research/verify-C4-bot-match-progression.md), patcher |
 | Player build (offline APK) | Patcher complete (hook, geo, bottile, finder, store; signing v1/v2/v3); checked offline with apksigner, zipalign and ILVerify | [PLAYER-SETUP.md](docs/PLAYER-SETUP.md) |
-| LAN P2P | Experimental: `lan` patch and LAN mode exist; guests must use the host's server for everything (topology A). Forwarding to each device's own server is not implemented | roadmap M3, [verify-C6](docs/research/verify-C6-lan-p2p.md) |
-| Internet P2P | Not started (planned: overlay VPN guide first) | roadmap M4 |
-| Preservation extras (missing maps, local data archive) | Not started | roadmap M5 |
+| LAN P2P | Experimental: `lan` patch and LAN mode exist; guests must use the host's server for everything (topology A). Forwarding to each device's own server is not implemented | [roadmap](docs/ROADMAP.md) M3, [verify-C6](docs/research/verify-C6-lan-p2p.md) |
+| Internet P2P | Not started (planned: overlay VPN guide first) | [roadmap](docs/ROADMAP.md) M4 |
+| Preservation extras (missing maps, local data archive) | Not started | [roadmap](docs/ROADMAP.md) M5 |
 
 ## Quickstart
 
