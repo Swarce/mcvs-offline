@@ -1,0 +1,445 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
+using System.Security.Cryptography;
+using System.Text;
+using McvsOffline.Patcher.Patches;
+using McvsOffline.Patcher.Signing;
+using McvsOffline.Patcher.Tools;
+using McvsOffline.Patcher.Zip;
+using Mono.Cecil;
+using ModuleDefinition = Mono.Cecil.ModuleDefinition;
+using AssemblyReference = System.Reflection.Metadata.AssemblyReference;
+
+namespace McvsOffline.Patcher
+{
+    /// <summary>What a run did (also printed for the player).</summary>
+    public sealed class PatchReport
+    {
+        public List<string> Modified { get; } = new List<string>();
+        public List<string> Added { get; } = new List<string>();
+        public List<string> Removed { get; } = new List<string>();
+        public List<string> Notes { get; } = new List<string>();
+        public List<string> Warnings { get; } = new List<string>();
+        public int UnchangedEntries { get; set; }
+        public string Signer { get; set; }
+        public string KeystorePath { get; set; }
+        public bool KeystoreCreated { get; set; }
+        public string Verification { get; set; }
+    }
+
+    /// <summary>
+    /// Turns the player's own APK into the offline APK (ARCHITECTURE §2.3, verify-C7 §7):
+    /// <list type="number">
+    /// <item>IL-patch NicePlaySDK.dll so the game starts McvsOffline.Bootstrap.Init() (plus the optional patches);</item>
+    /// <item>add McvsOffline.Server.dll to assemblies/ (STORED, 4-byte aligned, like every assembly there);</item>
+    /// <item>delete lib/&lt;abi&gt;/libaot-X.dll.so of every modified assembly X so Mono JITs the patched IL (AOT
+    /// mode "normal" falls back to JIT, verify-C7 §3);</item>
+    /// <item>never touch the six typemap-pinned assemblies (their MVIDs are baked into libxamarin-app.so);</item>
+    /// <item>keep every other entry byte-identical (same compression method and bytes; lib/ stays DEFLATED, which
+    /// matches the default extractNativeLibs=true of this manifest);</item>
+    /// <item>align (4 / 4096 for stored .so) and sign v1+v2(+v3) with the player's key.</item>
+    /// </list>
+    /// The native signature check needs no patch: its result is only stored as an engine property and nothing
+    /// local reads it (verify-C7 §1).
+    /// </summary>
+    public static class ApkPatcher
+    {
+        public static readonly IlPatch[] AllPatches =
+        {
+            new BootstrapHookPatch(), new GeoPatch(), new BotTilePatch(), new FinderPatch(), new LanPatch(),
+        };
+
+        public static PatchReport Run(PatcherOptions options, Action<string> log)
+        {
+            log = log ?? (s => { });
+            var report = new PatchReport();
+            if (string.IsNullOrEmpty(options.InputApk)) throw new ArgumentException("--apk is required");
+            if (string.IsNullOrEmpty(options.ServerDll)) throw new ArgumentException("--server is required");
+            if (string.IsNullOrEmpty(options.OutputApk) && !options.DryRun) throw new ArgumentException("--out is required");
+            if (!options.DryRun && Path.GetFullPath(options.OutputApk) == Path.GetFullPath(options.InputApk))
+                throw new ArgumentException("--out must differ from --apk (keep your original APK)");
+
+            log("reading " + options.InputApk);
+            ZipArchiveReader.Archive input = ZipArchiveReader.Read(options.InputApk);
+            if (input.Find(KnownBuild.AssembliesDir + "NicePlaySDK.dll") == null)
+                throw new InvalidDataException(options.InputApk + " has no assemblies/NicePlaySDK.dll: not a Modern Combat Versus " + KnownBuild.Version + " APK");
+            if (input.Find(KnownBuild.AssembliesDir + KnownBuild.ServerAssemblyFile) != null)
+                throw new InvalidDataException(options.InputApk + " already contains " + KnownBuild.ServerAssemblyFile + ": run the patcher on your original APK");
+            CheckBuildIdentity(input, options, report, log);
+
+            byte[] serverBytes = File.ReadAllBytes(options.ServerDll);
+            if (!options.SkipServerReferenceCheck) CheckServerAssembly(serverBytes, options.ServerDll);
+
+            List<IlPatch> patches = SelectPatches(options.Patches);
+            var modifiedAssemblies = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+            string resolverDir = Path.Combine(Path.GetTempPath(), "mcvs-patcher-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                Directory.CreateDirectory(resolverDir);
+                foreach (ZipEntry e in input.Entries.Where(e => IsAssembly(e.Name)))
+                    File.WriteAllBytes(Path.Combine(resolverDir, Path.GetFileName(e.Name)), e.GetData());
+                File.WriteAllBytes(Path.Combine(resolverDir, KnownBuild.ServerAssemblyFile), serverBytes);
+
+                using (var resolver = new DefaultAssemblyResolver())
+                {
+                    resolver.AddSearchDirectory(resolverDir);
+                    foreach (string dir in resolver.GetSearchDirectories().Where(d => d != resolverDir).ToList()) resolver.RemoveSearchDirectory(dir);
+                    var reader = new ReaderParameters { AssemblyResolver = resolver, InMemory = true, ReadingMode = ReadingMode.Immediate };
+                    using (ModuleDefinition server = ModuleDefinition.ReadModule(new MemoryStream(serverBytes), reader))
+                    {
+                        var context = new PatchContext(server, options.Port);
+                        foreach (var group in patches.GroupBy(p => p.AssemblyFile))
+                        {
+                            string file = group.Key;
+                            if (KnownBuild.TypemapPinned.ContainsKey(file))
+                                throw new InvalidOperationException("refusing to modify " + file + ": its MVID is pinned in libxamarin-app.so (verify-C7 §4)");
+                            ZipEntry entry = input.Find(KnownBuild.AssembliesDir + file) ?? throw new InvalidDataException("assemblies/" + file + " missing");
+                            modifiedAssemblies[file] = PatchAssembly(entry.GetData(), group.ToList(), context, reader, server.Mvid, log);
+                        }
+                        report.Notes.AddRange(context.Notes);
+                    }
+                }
+            }
+            finally
+            {
+                try { Directory.Delete(resolverDir, true); } catch (Exception) { }
+            }
+
+            List<ZipEntry> output = ComposeEntries(input, modifiedAssemblies, serverBytes, options.StripAot, report);
+            report.Warnings.AddRange(StaleAotNotes(input, output, modifiedAssemblies.Keys));
+            byte[] unsigned = ZipArchiveWriter.Write(output);
+            VerifyUnchanged(input, ZipArchiveReader.Read(unsigned), modifiedAssemblies.Keys, report);
+
+            if (options.DryRun)
+            {
+                log("dry run: all patch sites verified, nothing written");
+                return report;
+            }
+
+            Sign(options, output, unsigned, report, log);
+            return report;
+        }
+
+        /// <summary>Applies the group's patches to one assembly and gives it a new (deterministic) MVID.</summary>
+        internal static byte[] PatchAssembly(byte[] original, List<IlPatch> patches, PatchContext context, ReaderParameters reader,
+                                             Guid serverMvid, Action<string> log)
+        {
+            using (ModuleDefinition module = ModuleDefinition.ReadModule(new MemoryStream(original), reader))
+            {
+                foreach (IlPatch patch in patches)
+                {
+                    log("patch " + patch.Id + ": " + patch.Description);
+                    patch.Apply(module, context);
+                }
+                // A new MVID is essential: other assemblies' AOT images record this one's MVID, and a match would make
+                // Mono run AOT code compiled against the unpatched metadata (verify-C7 §3).
+                module.Mvid = DerivedMvid(module.Mvid, patches.Select(p => p.Id), serverMvid);
+                var stream = new MemoryStream();
+                module.Write(stream);
+                byte[] patched = stream.ToArray();
+                using (ModuleDefinition check = ModuleDefinition.ReadModule(new MemoryStream(patched), reader))
+                {
+                    if (check.Mvid != module.Mvid) throw new InvalidOperationException("re-reading " + module.Name + " failed");
+                }
+                return patched;
+            }
+        }
+
+        public static Guid DerivedMvid(Guid original, IEnumerable<string> patchIds, Guid serverMvid)
+        {
+            using (SHA256 sha = SHA256.Create())
+            {
+                byte[] seed = original.ToByteArray().Concat(serverMvid.ToByteArray())
+                    .Concat(Encoding.UTF8.GetBytes("mcvs-offline:" + string.Join(",", patchIds))).ToArray();
+                byte[] hash = sha.ComputeHash(seed);
+                var bytes = new byte[16];
+                Array.Copy(hash, bytes, 16);
+                bytes[7] = (byte)((bytes[7] & 0x0F) | 0x40);   // RFC 4122 version 4 (in .NET's byte order)
+                bytes[8] = (byte)((bytes[8] & 0x3F) | 0x80);   // variant
+                return new Guid(bytes);
+            }
+        }
+
+        public static List<IlPatch> SelectPatches(ICollection<string> optional)
+        {
+            var ids = new HashSet<string>(optional ?? new string[0], StringComparer.Ordinal) { "hook" };
+            if (ids.Contains("lan")) ids.Add("finder");
+            return AllPatches.Where(p => ids.Contains(p.Id)).ToList();
+        }
+
+        private static List<ZipEntry> ComposeEntries(ZipArchiveReader.Archive input, Dictionary<string, byte[]> modified, byte[] serverBytes,
+                                                     AotStripMode stripAot, PatchReport report)
+        {
+            var removeAot = new HashSet<string>(modified.Keys.Select(f => "libaot-" + f + ".so"), StringComparer.Ordinal);
+            var output = new List<ZipEntry>();
+            int lastAssembly = -1;
+            ZipEntry assemblyTemplate = null;
+            foreach (ZipEntry e in input.Entries)
+            {
+                if (BuiltInSigner.IsSignatureFile(e.Name))
+                {
+                    report.Removed.Add(e.Name + " (old signature)");
+                    continue;
+                }
+                if (IsAotImage(e.Name))
+                {
+                    string file = e.Name.Substring(e.Name.LastIndexOf('/') + 1);
+                    if (stripAot == AotStripMode.All || removeAot.Contains(file))
+                    {
+                        report.Removed.Add(e.Name + " (AOT image; Mono JITs the assembly)");
+                        continue;
+                    }
+                }
+                if (IsAssembly(e.Name))
+                {
+                    string file = Path.GetFileName(e.Name);
+                    if (modified.TryGetValue(file, out byte[] patched))
+                    {
+                        output.Add(ZipEntry.CreateStored(e.Name, patched, e));
+                        report.Modified.Add(e.Name);
+                    }
+                    else
+                    {
+                        output.Add(e);
+                        report.UnchangedEntries++;
+                    }
+                    lastAssembly = output.Count - 1;
+                    assemblyTemplate = e;
+                    continue;
+                }
+                output.Add(e);
+                report.UnchangedEntries++;
+            }
+            string serverName = KnownBuild.AssembliesDir + KnownBuild.ServerAssemblyFile;
+            output.Insert(lastAssembly + 1, ZipEntry.CreateStored(serverName, serverBytes, assemblyTemplate));
+            report.Added.Add(serverName);
+            return output;
+        }
+
+        /// <summary>Every entry we did not mean to change must come out with the same method, CRC and stored bytes.</summary>
+        private static void VerifyUnchanged(ZipArchiveReader.Archive input, ZipArchiveReader.Archive output, IEnumerable<string> modified, PatchReport report)
+        {
+            var modifiedNames = new HashSet<string>(modified.Select(f => KnownBuild.AssembliesDir + f), StringComparer.Ordinal);
+            var removed = new HashSet<string>(report.Removed.Select(r => r.Split(' ')[0]), StringComparer.Ordinal);
+            foreach (ZipEntry e in input.Entries)
+            {
+                if (removed.Contains(e.Name)) continue;
+                ZipEntry o = output.Find(e.Name) ?? throw new InvalidOperationException("entry lost: " + e.Name);
+                if (modifiedNames.Contains(e.Name)) continue;
+                if (o.Method != e.Method || o.Crc32 != e.Crc32 || !o.RawData.AsSpan().SequenceEqual(e.RawData))
+                    throw new InvalidOperationException("entry changed unexpectedly: " + e.Name);
+            }
+            foreach (string pinned in KnownBuild.TypemapPinned.Keys)
+            {
+                ZipEntry e = input.Find(KnownBuild.AssembliesDir + pinned);
+                if (e != null && modifiedNames.Contains(e.Name)) throw new InvalidOperationException("pinned assembly modified: " + pinned);
+            }
+            foreach (ZipEntry e in output.Entries.Where(x => x.Method == ZipEntry.MethodStored))
+            {
+                if (e.Name.StartsWith(KnownBuild.AssembliesDir, StringComparison.Ordinal) && e.RawData.Length > 0 && e.RawData[0] != (byte)'M')
+                    throw new InvalidOperationException(e.Name + " is not a plain PE file");
+            }
+        }
+
+        /// <summary>
+        /// Kept AOT images of assemblies that reference a modified one go stale (their recorded dependency MVID no longer
+        /// matches) and Mono JITs those assemblies instead: harmless, a little slower to start (verify-C7 §3).
+        /// </summary>
+        private static IEnumerable<string> StaleAotNotes(ZipArchiveReader.Archive input, List<ZipEntry> output, IEnumerable<string> modified)
+        {
+            var modifiedNames = new HashSet<string>(modified.Select(Path.GetFileNameWithoutExtension), StringComparer.Ordinal);
+            var kept = new HashSet<string>(output.Where(e => IsAotImage(e.Name)).Select(e => e.Name.Substring(e.Name.LastIndexOf("/libaot-", StringComparison.Ordinal) + 8)),
+                                           StringComparer.Ordinal);
+            var notes = new List<string>();
+            foreach (ZipEntry e in input.Entries.Where(e => IsAssembly(e.Name)))
+            {
+                string file = Path.GetFileName(e.Name);
+                if (!kept.Contains(file + ".so") || modifiedNames.Contains(Path.GetFileNameWithoutExtension(file))) continue;
+                var dependsOn = ReferencedAssemblies(e.GetData()).Where(modifiedNames.Contains).ToList();
+                if (dependsOn.Count > 0)
+                {
+                    notes.Add("AOT image of " + file + " references modified " + string.Join(", ", dependsOn) +
+                              ": Mono will reject it and JIT " + file + " (harmless, verify-C7 §3)");
+                }
+            }
+            return notes;
+        }
+
+        private static void CheckBuildIdentity(ZipArchiveReader.Archive input, PatcherOptions options, PatchReport report, Action<string> log)
+        {
+            var problems = new List<string>();
+            foreach (var expected in KnownBuild.TypemapPinned.Concat(KnownBuild.PatchedOriginals))
+            {
+                ZipEntry e = input.Find(KnownBuild.AssembliesDir + expected.Key);
+                if (e == null)
+                {
+                    problems.Add(expected.Key + " missing");
+                    continue;
+                }
+                Guid mvid = ReadMvid(e.GetData());
+                if (mvid != expected.Value) problems.Add(expected.Key + " MVID " + mvid + " (expected " + expected.Value + ")");
+            }
+            if (problems.Count == 0)
+            {
+                log("recognised Modern Combat Versus " + KnownBuild.Version);
+                return;
+            }
+            string message = "this APK is not the Modern Combat Versus " + KnownBuild.Version + " build the patches were verified against: " +
+                             string.Join("; ", problems);
+            if (!options.Force) throw new InvalidDataException(message + " (use --force to try anyway)");
+            report.Warnings.Add(message);
+        }
+
+        private static void CheckServerAssembly(byte[] bytes, string path)
+        {
+            using (var pe = new PEReader(new MemoryStream(bytes)))
+            {
+                if (!pe.HasMetadata) throw new InvalidDataException(path + " is not a .NET assembly");
+                MetadataReader md = pe.GetMetadataReader();
+                string name = md.GetString(md.GetAssemblyDefinition().Name);
+                if (name != "McvsOffline.Server") throw new InvalidDataException(path + " is " + name + ", expected McvsOffline.Server");
+                foreach (AssemblyReferenceHandle h in md.AssemblyReferences)
+                {
+                    AssemblyReference r = md.GetAssemblyReference(h);
+                    string refName = md.GetString(r.Name);
+                    if (!KnownBuild.ServerAllowedReferences.Contains(refName))
+                    {
+                        throw new InvalidDataException(path + " references " + refName + ": that is not the embedded build. Build " +
+                                                       "server/McvsOffline.Server.Embedded.csproj against your APK's assemblies (scripts/build.sh).");
+                    }
+                    if (refName == "mscorlib" && r.Version != KnownBuild.MonoProfileVersion)
+                        throw new InvalidDataException(path + " references mscorlib " + r.Version + ", expected the game's " + KnownBuild.MonoProfileVersion);
+                }
+            }
+        }
+
+        private static void Sign(PatcherOptions options, List<ZipEntry> entries, byte[] unsigned, PatchReport report, Action<string> log)
+        {
+            BuildTools tools = BuildTools.Locate(options.BuildToolsDir);
+            string outputPath = Path.GetFullPath(options.OutputApk);
+            string outputDir = Path.GetDirectoryName(outputPath);
+            if (!string.IsNullOrEmpty(outputDir)) Directory.CreateDirectory(outputDir);
+
+            // No --keystore: one key generated once in the user's profile. A --keystore that does not exist yet is
+            // created there, so a player can choose where the key lives.
+            string keystore = string.IsNullOrEmpty(options.Keystore) ? SigningKey.DefaultPath() : options.Keystore;
+            string password = options.KeystorePassword ?? SigningKey.DefaultPassword;
+            SigningKey key;
+            if (File.Exists(keystore))
+            {
+                key = SigningKey.Load(keystore, password);
+            }
+            else
+            {
+                log("creating your signing key " + keystore + " (keep it: updates must be signed with the same key)");
+                key = SigningKey.Generate(keystore, password);
+                report.KeystoreCreated = true;
+            }
+            report.KeystorePath = keystore;
+            bool apksignerUsable = true;
+
+            using (key)
+            {
+                bool useApkSigner = options.Signer == SignerChoice.ApkSigner ||
+                                    (options.Signer == SignerChoice.Auto && tools.ApkSigner != null) ||
+                                    key.Certificate == null;
+                if (useApkSigner && tools.ApkSigner == null)
+                {
+                    throw new InvalidOperationException(key.Certificate == null
+                        ? keystore + " is not a PKCS#12 file (or the password is wrong); only apksigner can use it, and it was not found"
+                        : "apksigner not found: install Android build-tools, pass --build-tools <dir>, or use --signer builtin");
+                }
+
+                string temp = outputPath + ".unsigned.tmp";
+                if (File.Exists(outputPath)) File.Delete(outputPath);
+                try
+                {
+                    if (useApkSigner)
+                    {
+                        File.WriteAllBytes(temp, unsigned);
+                        if (tools.ZipAlign != null) CheckAlignment(tools.ZipAlign, temp, "before signing");
+                        log("signing with " + tools.ApkSigner + " (v1+v2+v3)");
+                        try
+                        {
+                            ExternalApkSigner.Sign(tools.ApkSigner, temp, outputPath, key, options.KeyAlias);
+                            report.Signer = "apksigner (v1+v2+v3)";
+                        }
+                        catch (Exception ex) when (options.Signer == SignerChoice.Auto && key.Certificate != null &&
+                                                   (ex is InvalidOperationException || ex is System.ComponentModel.Win32Exception))
+                        {
+                            // e.g. no Java on PATH: the built-in signer needs nothing else.
+                            report.Warnings.Add("apksigner failed, used the built-in signer instead: " + ex.Message.Split('\n')[0]);
+                            apksignerUsable = false;
+                        }
+                    }
+                    if (report.Signer == null)
+                    {
+                        log("signing with the built-in signer (v1+v2)");
+                        File.WriteAllBytes(outputPath, BuiltInSigner.Sign(entries, key.Certificate));
+                        report.Signer = "built-in (v1+v2)";
+                    }
+                }
+                finally
+                {
+                    try { File.Delete(temp); } catch (Exception) { }
+                }
+            }
+
+            var verification = new StringBuilder();
+            if (tools.ZipAlign != null)
+            {
+                CheckAlignment(tools.ZipAlign, outputPath, "after signing");
+                verification.AppendLine("zipalign -c -p 4: OK");
+            }
+            if (tools.ApkSigner != null && apksignerUsable)
+            {
+                string text = ExternalApkSigner.Verify(tools.ApkSigner, outputPath);
+                verification.AppendLine("apksigner verify: OK");
+                if (options.Verbose) verification.AppendLine(text);
+            }
+            if (verification.Length == 0) verification.AppendLine("not verified (apksigner/zipalign not found)");
+            report.Verification = verification.ToString().TrimEnd();
+        }
+
+        private static void CheckAlignment(string zipalign, string apk, string when)
+        {
+            int code = BuildTools.Run(zipalign, new[] { "-c", "-p", "4", apk }, null, out string text);
+            if (code != 0) throw new InvalidOperationException("zipalign -c -p 4 failed " + when + ":\n" + text);
+        }
+
+        internal static bool IsAssembly(string name)
+        {
+            return name.StartsWith(KnownBuild.AssembliesDir, StringComparison.Ordinal) && name.IndexOf('/', KnownBuild.AssembliesDir.Length) < 0 &&
+                   name.EndsWith(".dll", StringComparison.Ordinal);
+        }
+
+        internal static bool IsAotImage(string name)
+        {
+            if (!name.StartsWith("lib/", StringComparison.Ordinal)) return false;
+            string file = name.Substring(name.LastIndexOf('/') + 1);
+            return file.StartsWith("libaot-", StringComparison.Ordinal) && file.EndsWith(".dll.so", StringComparison.Ordinal);
+        }
+
+        internal static Guid ReadMvid(byte[] assembly)
+        {
+            using (var pe = new PEReader(new MemoryStream(assembly)))
+            {
+                MetadataReader md = pe.GetMetadataReader();
+                return md.GetGuid(md.GetModuleDefinition().Mvid);
+            }
+        }
+
+        private static IEnumerable<string> ReferencedAssemblies(byte[] assembly)
+        {
+            using (var pe = new PEReader(new MemoryStream(assembly)))
+            {
+                MetadataReader md = pe.GetMetadataReader();
+                return md.AssemblyReferences.Select(h => md.GetString(md.GetAssemblyReference(h).Name)).ToList();
+            }
+        }
+    }
+}
