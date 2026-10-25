@@ -17,8 +17,13 @@ namespace McvsOffline.Server.Services.Storage
     /// Consistency rules (verify-C3 §4, §7.1): every operation on an account runs under that account's FIFO lock,
     /// so requests are applied in arrival order and a read sees every write that arrived before it; a write is on
     /// disk (temp file + fsync + rename, <see cref="AtomicFile"/>) before it is answered, so a crash leaves the old
-    /// or the new file, never a partial one. Nothing is cached in memory: every request reads the file, so manual
-    /// edits made while the server runs are picked up too.
+    /// or the new file, never a partial one.
+    /// </para>
+    /// <para>
+    /// Parsed documents are cached per account and validated against the file's length and last-write time on
+    /// every request, so a hand edit made while the server runs is still picked up. Each request works on its own
+    /// copy (shared immutable leaves: the dump is never copied or re-parsed), which keeps reads cheap even with a
+    /// large game profile. <c>storage.cache: false</c> turns the cache off.
     /// </para>
     /// <para>
     /// A file that exists but cannot be read is never reported as missing (that would make the game reset the
@@ -44,6 +49,7 @@ namespace McvsOffline.Server.Services.Storage
         private readonly EventHub events;
         private readonly ProfileBackups backups;
         private readonly HashSet<string> reportedWarnings = new HashSet<string>(StringComparer.Ordinal);
+        private readonly Dictionary<string, CachedDocument> cache = new Dictionary<string, CachedDocument>(StringComparer.Ordinal);
 
         internal LocalProfileStore(string rootDirectory, IClock clock, Log log, StorageSettings settings,
                                    AccountStore accounts, EventHub events)
@@ -108,7 +114,7 @@ namespace McvsOffline.Server.Services.Storage
 
             object node;
             if (!ProfileJson.TryGet(view, path, out node)) return AbsentField(path);
-            if (project && ProfileJson.AsObject(node) != null)
+            if (project && ProfileJson.IsObjectNode(node))
                 return StorageResult.Ok(ProfileJson.Serialize(ProfileJson.Project(node, includeFields)));
             return StorageResult.Ok(ProfileJson.ResponseText(node));
         }
@@ -205,8 +211,7 @@ namespace McvsOffline.Server.Services.Storage
             if (string.IsNullOrEmpty(accountId)) throw new ArgumentException("account id required", "accountId");
             using (locks.Acquire(accountId))
             {
-                string text;
-                return LoadUnlocked(accountId, out text);
+                return LoadUnlocked(accountId);
             }
         }
 
@@ -223,8 +228,8 @@ namespace McvsOffline.Server.Services.Storage
             WriteOutcome outcome;
             using (locks.Acquire(accountId))
             {
-                string text;
-                ProfileDocument doc = LoadUnlocked(accountId, out text);
+                ProfileDocument doc = LoadUnlocked(accountId);
+                bool existed = doc.IsStored;
                 bool hadGameProfile = SeshatOperations.HasGameProfile(doc);
                 outcome = apply(doc) ?? new WriteOutcome();
                 foreach (string note in outcome.Notes) log.Debug(accountId + " " + operation + " '" + selector + "': " + note);
@@ -234,9 +239,10 @@ namespace McvsOffline.Server.Services.Storage
                 {
                     if (outcome.DeletesDocument)
                     {
-                        if (text == null) return outcome; // nothing stored: nothing to delete
-                        Backup(accountId, text, doc.Revision, outcome.BackupReason ?? "delete");
+                        if (!existed) return outcome; // nothing stored: nothing to delete
+                        Backup(accountId, doc.Revision, outcome.BackupReason ?? "delete");
                         File.Delete(PathFor(accountId));
+                        Forget(accountId);
                         log.Warn("profile of " + accountId + " deleted (" + operation + "); a backup was kept");
                         change = ChangePayload(accountId, doc.Revision, operation, selector, true, source);
                     }
@@ -249,11 +255,11 @@ namespace McvsOffline.Server.Services.Storage
                             log.Warn("profile of " + accountId + ": " + operation + " '" + selector
                                      + "' clears the stored game profile; the previous state was backed up");
                         }
-                        if (text != null)
+                        if (existed)
                         {
-                            if (reason != null) Backup(accountId, text, doc.Revision, reason);
+                            if (reason != null) Backup(accountId, doc.Revision, reason);
                             else if (settings.BackupsKeep > 0 && backups.IsDue(accountId, clock.UtcNow, settings.BackupIntervalMinutes))
-                                Backup(accountId, text, doc.Revision, "auto");
+                                Backup(accountId, doc.Revision, "auto");
                         }
                         string now = TimeFormat.Iso8601(clock.UtcNow);
                         doc.Revision = doc.Revision + 1;
@@ -261,12 +267,19 @@ namespace McvsOffline.Server.Services.Storage
                         if (string.IsNullOrEmpty(doc.Created)) doc.Created = now;
                         doc.IsStored = true;
                         AtomicFile.WriteAllText(PathFor(accountId), ProfileFile.Serialize(doc));
+                        RememberSaved(accountId, doc);
                         change = ChangePayload(accountId, doc.Revision, operation, selector, false, source);
                     }
                 }
                 catch (IOException ex)
                 {
-                    // Disk full, permissions...: a 5xx makes the game retry (report 02 §1.6); never pretend success.
+                    Forget(accountId);
+                    // Disk full, storage removed...: a 5xx makes the game retry (report 02 §1.6); never pretend success.
+                    throw new StorageUnavailableException("cannot save the profile of " + accountId + ": " + ex.Message, ex);
+                }
+                catch (UnauthorizedAccessException ex)
+                {
+                    Forget(accountId);
                     throw new StorageUnavailableException("cannot save the profile of " + accountId + ": " + ex.Message, ex);
                 }
             }
@@ -323,18 +336,57 @@ namespace McvsOffline.Server.Services.Storage
             return StorageResult.OkEmpty();
         }
 
+        /// <summary>_mcvs.gameProfile, _mcvs.currentMatch and the object sections: always {} when absent.</summary>
         private static bool IsCriticalSelector(string[] path)
         {
-            return path.Length > 0 && string.Equals(path[0], McvsConstants.GameProfileSelector, StringComparison.Ordinal)
-                   || path.Length == 1 && (path[0] == "inventory" || path[0] == "_inventory");
+            if (path.Length == 2 && string.Equals(path[0], McvsConstants.GameProfileSelector, StringComparison.Ordinal)
+                && (path[1] == "gameProfile" || path[1] == "currentMatch"))
+                return true;
+            return SeshatOperations.IsObjectSection(path);
         }
 
-        private ProfileDocument LoadUnlocked(string accountId, out string text)
+        private ProfileDocument LoadUnlocked(string accountId)
         {
             string path = PathFor(accountId);
             try
             {
-                text = AtomicFile.ReadAllTextOrNull(path);
+                FileStamp stamp;
+                if (!FileStamp.TryRead(path, out stamp))
+                {
+                    Forget(accountId);
+                    return new ProfileDocument(accountId);
+                }
+                ProfileDocument cached = Recall(accountId, stamp);
+                if (cached != null) return cached;
+
+                string text = AtomicFile.ReadAllTextOrNull(path);
+                if (text == null)
+                {
+                    Forget(accountId);
+                    return new ProfileDocument(accountId);
+                }
+                ProfileDocument doc;
+                try
+                {
+                    doc = Parse(text, accountId, path);
+                }
+                catch (ProfileFileException ex)
+                {
+                    log.Error("profile file " + path + " is unreadable: " + ex.Message);
+                    doc = RestoreFromBackup(accountId, path);
+                    if (doc == null)
+                    {
+                        Forget(accountId);
+                        throw new StorageUnavailableException("the profile of " + accountId + " exists but cannot be read (" + path
+                                                              + "); fix or remove the file, or restore a backup from "
+                                                              + backups.DirectoryFor(accountId), ex);
+                    }
+                    if (!FileStamp.TryRead(path, out stamp)) return doc;
+                }
+                // The stamp was taken before reading: if the file changed in between, the next stat differs and the
+                // document is simply parsed again.
+                Remember(accountId, stamp, doc);
+                return doc;
             }
             catch (IOException ex)
             {
@@ -344,21 +396,57 @@ namespace McvsOffline.Server.Services.Storage
             {
                 throw new StorageUnavailableException("cannot read " + path + ": " + ex.Message, ex);
             }
-            if (text == null) return new ProfileDocument(accountId);
+        }
 
-            try
+        /// <summary>A private copy of the cached document if the file is unchanged since it was cached, else null.</summary>
+        private ProfileDocument Recall(string accountId, FileStamp stamp)
+        {
+            if (!settings.CacheEnabled) return null;
+            CachedDocument entry;
+            lock (cache)
             {
-                return Parse(text, accountId, path);
+                if (!cache.TryGetValue(accountId, out entry) || !entry.Stamp.Equals(stamp)) return null;
             }
-            catch (ProfileFileException ex)
+            return CloneDocument(entry.Document);
+        }
+
+        private void Remember(string accountId, FileStamp stamp, ProfileDocument doc)
+        {
+            if (!settings.CacheEnabled)
             {
-                log.Error("profile file " + path + " is unreadable: " + ex.Message);
-                ProfileDocument restored = RestoreFromBackup(accountId, path, out text);
-                if (restored != null) return restored;
-                throw new StorageUnavailableException("the profile of " + accountId + " exists but cannot be read (" + path
-                                                      + "); fix or remove the file, or restore a backup from "
-                                                      + backups.DirectoryFor(accountId), ex);
+                Forget(accountId);
+                return;
             }
+            var entry = new CachedDocument { Stamp = stamp, Document = CloneDocument(doc) };
+            lock (cache) cache[accountId] = entry;
+        }
+
+        private void RememberSaved(string accountId, ProfileDocument doc)
+        {
+            FileStamp stamp;
+            if (FileStamp.TryRead(PathFor(accountId), out stamp)) Remember(accountId, stamp, doc);
+            else Forget(accountId);
+        }
+
+        private void Forget(string accountId)
+        {
+            lock (cache) cache.Remove(accountId);
+        }
+
+        /// <summary>
+        /// A copy that can be modified freely: new containers, shared immutable leaves (scalars and verbatim nodes,
+        /// so the game-profile dump is never copied).
+        /// </summary>
+        private static ProfileDocument CloneDocument(ProfileDocument doc)
+        {
+            var copy = new ProfileDocument(doc.AccountId);
+            copy.Revision = doc.Revision;
+            copy.Created = doc.Created;
+            copy.Modified = doc.Modified;
+            copy.IsStored = doc.IsStored;
+            copy.Visibility = ProfileJson.CloneObject(doc.Visibility ?? ProfileJson.NewObject());
+            copy.Root = ProfileJson.CloneObject(doc.Root ?? ProfileJson.NewObject());
+            return copy;
         }
 
         private ProfileDocument Parse(string text, string accountId, string path)
@@ -374,9 +462,8 @@ namespace McvsOffline.Server.Services.Storage
             return doc;
         }
 
-        private ProfileDocument RestoreFromBackup(string accountId, string path, out string restoredText)
+        private ProfileDocument RestoreFromBackup(string accountId, string path)
         {
-            restoredText = null;
             if (!settings.AutoRestoreCorrupt) return null;
             foreach (BackupInfo b in backups.List(accountId))
             {
@@ -395,18 +482,20 @@ namespace McvsOffline.Server.Services.Storage
                 FileSystem.Rename(path, aside);
                 AtomicFile.WriteAllText(path, candidate);
                 log.Error("profile of " + accountId + " restored from backup " + b.Id + "; the unreadable file was kept as " + aside);
-                restoredText = candidate;
                 return doc;
             }
             return null;
         }
 
-        private void Backup(string accountId, string fileText, long revision, string reason)
+        /// <summary>Copies the current file (the state before the write being committed) into the backups.</summary>
+        private void Backup(string accountId, long revision, string reason)
         {
             int keep = settings.BackupsKeep;
             if (keep <= 0) return;
             try
             {
+                string fileText = AtomicFile.ReadAllTextOrNull(PathFor(accountId));
+                if (fileText == null) return;
                 BackupInfo info = backups.Create(accountId, fileText, revision, reason, clock.UtcNow, keep);
                 log.Debug("backup " + info.Id + " of " + accountId);
             }
@@ -424,6 +513,33 @@ namespace McvsOffline.Server.Services.Storage
             if (text == null || !MiniJson.TryParse(text, out parsed)) return 0;
             object level = JsonPath.Get(parsed, "profile.level") ?? JsonPath.Get(parsed, "level");
             return JsonValue.AsLong(level) ?? 0;
+        }
+
+        private sealed class CachedDocument
+        {
+            public FileStamp Stamp;
+            public ProfileDocument Document;
+        }
+
+        /// <summary>Length and last-write time of a file: changes with every rewrite, ours or a hand edit.</summary>
+        private struct FileStamp
+        {
+            public long Length;
+            public long WriteTicks;
+
+            public static bool TryRead(string path, out FileStamp stamp)
+            {
+                stamp = default(FileStamp);
+                if (!File.Exists(path)) return false;
+                stamp.Length = new FileInfo(path).Length;
+                stamp.WriteTicks = File.GetLastWriteTimeUtc(path).Ticks;
+                return true;
+            }
+
+            public bool Equals(FileStamp other)
+            {
+                return Length == other.Length && WriteTicks == other.WriteTicks;
+            }
         }
 
         private static Dictionary<string, object> ChangePayload(string accountId, long revision, string operation, string selector,

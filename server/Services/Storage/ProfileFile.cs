@@ -189,7 +189,7 @@ namespace McvsOffline.Server.Services.Storage
                 // scanner and the parser disagree, and the parsed value wins.
                 if (MiniJson.TryParse(span, out spanValue) && ProfileJson.DeepEquals(spanValue, node))
                 {
-                    SetNode(root, segments, VerbatimJson.FromValidJson(span, node));
+                    SetNode(root, segments, VerbatimJson.FromValidJson(span));
                     return;
                 }
             }

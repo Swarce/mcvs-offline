@@ -203,7 +203,7 @@ namespace McvsOffline.Server.Services.Storage
             VerbatimJson verbatim = VerbatimJson.FromRequestText(objectText);
             if (!verbatim.IsJson)
                 outcome.Notes.Add("object= is not valid JSON; stored as opaque text (" + objectText.Length.ToString(CultureInfo.InvariantCulture) + " chars)");
-            if (verbatim.IsJson && verbatim.Value == null && IsObjectSection(path))
+            if (verbatim.IsJsonNull && IsObjectSection(path))
             {
                 outcome.Changed = ProfileJson.Remove(doc.Root, path);
                 outcome.Notes.Add("null for section '" + ProfileJson.FormatPath(path) + "' deleted instead of stored");
@@ -366,7 +366,8 @@ namespace McvsOffline.Server.Services.Storage
 
         // ------------------------------------------------------------------ helpers
 
-        private static bool IsObjectSection(string[] path)
+        /// <summary>True for one of <see cref="ObjectSections"/>.</summary>
+        public static bool IsObjectSection(string[] path)
         {
             foreach (string[] section in ObjectSections)
             {

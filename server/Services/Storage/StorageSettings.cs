@@ -8,7 +8,8 @@ namespace McvsOffline.Server.Services.Storage
     /// "storage": {
     ///   "backups": { "keep": 20, "intervalMinutes": 30 },
     ///   "autoRestoreCorrupt": true,
-    ///   "absentField": "empty"
+    ///   "absentField": "empty",
+    ///   "cache": true
     /// }
     /// </code>
     /// </summary>
@@ -46,6 +47,12 @@ namespace McvsOffline.Server.Services.Storage
         public bool AbsentFieldIsNotFound
         {
             get { return settings.GetString("storage.absentField", "empty") == "404"; }
+        }
+
+        /// <summary>Keep parsed profiles in memory (validated against the file on every request).</summary>
+        public bool CacheEnabled
+        {
+            get { return settings.GetBool("storage.cache", true); }
         }
 
         public string DataCenter

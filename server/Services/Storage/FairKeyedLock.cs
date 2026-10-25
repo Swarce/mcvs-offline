@@ -21,6 +21,17 @@ namespace McvsOffline.Server.Services.Storage
             get { lock (entries) return entries.Count; }
         }
 
+        /// <summary>Holders plus waiters for <paramref name="key"/> (diagnostics, tests).</summary>
+        public int QueueLength(string key)
+        {
+            Entry entry;
+            lock (entries)
+            {
+                if (!entries.TryGetValue(key, out entry)) return 0;
+            }
+            lock (entry) return (int)(entry.NextTicket - entry.Serving - entry.Abandoned.Count);
+        }
+
         public IDisposable Acquire(string key)
         {
             if (key == null) throw new ArgumentNullException("key");

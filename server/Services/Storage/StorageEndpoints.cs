@@ -478,13 +478,12 @@ namespace McvsOffline.Server.Services.Storage
         }
 
         /// <summary>
-        /// The selector from the path: one dotted segment as the game sends it; extra path segments are read as
-        /// further dots ("a/b" = "a.b").
+        /// The selector from the path: the rest of the path after "myprofile/", split on '.' only (verify-C3 §7.6).
+        /// A '/' stays part of a key, as in the dump's "/Profile" ("_mcvs.gameProfile.$default./Profile.Version").
         /// </summary>
         private static string Selector(HttpRequest request)
         {
-            string selector = request.RouteValue("selector");
-            return string.IsNullOrEmpty(selector) ? "" : selector.Replace('/', '.');
+            return request.RouteValue("selector") ?? "";
         }
 
         /// <summary>include_fields from the query and/or form, comma-separated, possibly repeated.</summary>

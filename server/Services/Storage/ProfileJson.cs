@@ -56,10 +56,11 @@ namespace McvsOffline.Server.Services.Storage
             return v != null ? v.Value : node;
         }
 
-        /// <summary>The node as an object (also through a verbatim JSON object), or null. Read-only use.</summary>
-        public static Dictionary<string, object> AsObject(object node)
+        /// <summary>True for an object, plain or verbatim (decided without parsing a verbatim value).</summary>
+        public static bool IsObjectNode(object node)
         {
-            return Unwrap(node) as Dictionary<string, object>;
+            var verbatim = node as VerbatimJson;
+            return verbatim != null ? verbatim.IsObject : node is Dictionary<string, object>;
         }
 
         /// <summary>
@@ -157,7 +158,7 @@ namespace McvsOffline.Server.Services.Storage
                 if (patchObj != null)
                 {
                     object existing;
-                    if (target.TryGetValue(kv.Key, out existing) && AsObject(existing) != null)
+                    if (target.TryGetValue(kv.Key, out existing) && IsObjectNode(existing))
                     {
                         DeepMerge(MaterializeChild(target, kv.Key), patchObj);
                         continue;
@@ -180,7 +181,7 @@ namespace McvsOffline.Server.Services.Storage
             var verbatim = node as VerbatimJson;
             if (verbatim != null && verbatim.IsObject)
             {
-                var copy = (Dictionary<string, object>)Clone(verbatim.Value);
+                var copy = (Dictionary<string, object>)verbatim.ParseCopy();
                 parent[key] = copy;
                 return copy;
             }
@@ -242,7 +243,7 @@ namespace McvsOffline.Server.Services.Storage
         public static object ToPlain(object value)
         {
             var verbatim = value as VerbatimJson;
-            if (verbatim != null) return verbatim.IsJson ? JsonValue.DeepClone(verbatim.Value) : verbatim.Text;
+            if (verbatim != null) return verbatim.ParseCopy();
             var obj = value as Dictionary<string, object>;
             if (obj != null)
             {
@@ -291,10 +292,12 @@ namespace McvsOffline.Server.Services.Storage
             return JsonValue.DeepEquals(a, b);
         }
 
-        /// <summary>True for an absent value, JSON null, or an empty object/array.</summary>
+        /// <summary>True for an absent value, JSON null, or an empty object/array (verbatim values are not parsed).</summary>
         public static bool IsEmpty(object node)
         {
-            object v = Unwrap(node);
+            var verbatim = node as VerbatimJson;
+            if (verbatim != null) return verbatim.IsEmptyJson;
+            object v = node;
             if (v == null) return true;
             var obj = v as Dictionary<string, object>;
             if (obj != null) return obj.Count == 0;
