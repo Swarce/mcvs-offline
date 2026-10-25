@@ -180,7 +180,9 @@ adb shell ls -l /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/M
 
 In `McvsOffline/logs/`: `bootstrap.log` covers the start-up, the boot milestones, the watchdog and the status lines;
 `server.log` every request; `game.log` a copy of the game's own log; `unknown-endpoints.jsonl` the requests the server
-does not handle yet; `crash-*.txt` one file per crash; `exit-*` the system's record of a previous crash or freeze. If a log
+does not handle yet; `crash-*.txt` one file per crash (always written for the crash itself); `exception-*.txt` the
+first 5 background errors that did not stop the game (unobserved task faults, mostly harmless); `exit-*` the system's
+record of a previous crash or freeze. If a log
 file cannot be written, logcat says so (`[logfile] cannot write ... at stage ...`) and the file continues in the game's
 internal storage. Copying the folder over USB with a file manager on the PC can show stale sizes while the game runs;
 the copies in Downloads do not have that problem.

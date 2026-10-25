@@ -18,6 +18,7 @@ namespace McvsOffline.Embed.Tests.Embedded
         {
             string dir = TestEnvironment.NewTempDir("crash");
             CrashReporter.Install();
+            CrashReporter.ResetForTests();
             Assert.Contains("AppDomain ok", CrashReporter.Hooks);
             Assert.Contains("unobserved-tasks ok", CrashReporter.Hooks);   // the backing field exists on net8 too
 
@@ -45,8 +46,9 @@ namespace McvsOffline.Embed.Tests.Embedded
 
                 CrashReporter.Context = () => throw new InvalidOperationException("context broken");
                 CrashReporter.Report("TaskScheduler.UnobservedTaskException", new AggregateException(new TimeoutException("t")), false);
-                string nonFatal = Assert.Single(Directory.GetFiles(dir, "exception-*.txt"));
-                Assert.Contains("inner[0] System.TimeoutException: t", File.ReadAllText(nonFatal));
+                // Any() rather than Single(): the hook is live, so a real unobserved fault of another test may land here too.
+                Assert.Contains(Directory.GetFiles(dir, "exception-*.txt"),
+                                f => File.ReadAllText(f).Contains("inner[0] System.TimeoutException: t"));
             }
             finally
             {
@@ -54,6 +56,64 @@ namespace McvsOffline.Embed.Tests.Embedded
                 CrashReporter.FlushLogs = null;
                 CrashReporter.Mirror = null;
                 CrashReporter.SetCrashDirectory(null);
+                CrashReporter.ResetForTests();
+            }
+        }
+
+        /// <summary>
+        /// Review finding: one shared budget of 5 let five unobserved task faults (routine: MoreAsync.WithCancellation never
+        /// observes the task it abandons) silence the FATAL report that follows. Fatal and non-fatal budgets are separate.
+        /// </summary>
+        [Fact]
+        public void NonFatalReportsNeverUseUpTheFatalReport()
+        {
+            string dir = TestEnvironment.NewTempDir("crash-budget");
+            CrashReporter.Install();
+            CrashReporter.ResetForTests();
+            int flushes = 0;
+            var mirrored = new List<string>();
+            CrashReporter.SetCrashDirectory(dir);
+            CrashReporter.FlushLogs = budget => flushes++;
+            CrashReporter.Mirror = p => mirrored.Add(p);
+            try
+            {
+                // An object first reported as an unobserved fault, then as the crash, gets its fatal report too.
+                var both = new InvalidOperationException("first unobserved, then fatal");
+                CrashReporter.Report("TaskScheduler.UnobservedTaskException", both, false);
+                CrashReporter.Report("AppDomain.UnhandledException", both, true);
+                Assert.Single(Directory.GetFiles(dir, "crash-*.txt"));
+
+                // Use up the rest of the non-fatal budget and more.
+                for (int i = 0; i < CrashReporter.NonFatalBudget + 3; i++)
+                    CrashReporter.Report("TaskScheduler.UnobservedTaskException",
+                                         new AggregateException(new OperationCanceledException("abandoned " + i)), false);
+                // Exactly the budget, whatever the source (the hook is live: a real unobserved fault would count too).
+                Assert.Equal(CrashReporter.NonFatalBudget, Directory.GetFiles(dir, "exception-*.txt").Length);
+                int flushesBefore = flushes;
+
+                // The crash after them is still reported: logcat, crash file, flush, mirror.
+                var crash = new NullReferenceException("probe: InputSettingsComponent.OnStart after the non-fatal budget");
+                CrashReporter.Report("AndroidEnvironment.UnhandledExceptionRaiser", crash, true);
+                CrashReporter.Report("AppDomain.UnhandledException", crash, true);   // same object: once
+                string[] crashes = Directory.GetFiles(dir, "crash-*.txt");
+                Assert.Equal(2, crashes.Length);
+                string file = Assert.Single(crashes, f => File.ReadAllText(f).Contains("after the non-fatal budget"));
+                Assert.StartsWith("FATAL unhandled exception via AndroidEnvironment.UnhandledExceptionRaiser", File.ReadAllText(file));
+                Assert.Equal(flushesBefore + 1, flushes);
+                Assert.Equal(file, mirrored.Last());
+                Assert.Equal(file, CrashReporter.LastCrashFile);
+
+                // The fatal budget is bounded too.
+                for (int i = 0; i < CrashReporter.FatalBudget + 2; i++)
+                    CrashReporter.Report("AppDomain.UnhandledException", new Exception("fatal " + i), true);
+                Assert.Equal(CrashReporter.FatalBudget, Directory.GetFiles(dir, "crash-*.txt").Length);
+            }
+            finally
+            {
+                CrashReporter.FlushLogs = null;
+                CrashReporter.Mirror = null;
+                CrashReporter.SetCrashDirectory(null);
+                CrashReporter.ResetForTests();
             }
         }
 

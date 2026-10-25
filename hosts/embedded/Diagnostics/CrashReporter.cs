@@ -26,14 +26,26 @@ namespace McvsOffline.Embedded.Diagnostics
     /// <item>Unobserved task faults, NON-FATAL: <c>TaskScheduler.add_UnobservedTaskException</c> is trimmed from the game's
     /// mscorlib, so the delegate is combined into its backing field by reflection.</item>
     /// </list>
-    /// Guards: a per-thread re-entrancy flag, the same exception object is reported once, at most 5 reports per process.
-    /// Never throws, never waits on another thread without a budget.
+    /// Guards: a per-thread re-entrancy flag; the same exception object is reported once (a fatal report of an object
+    /// already reported as non-fatal still goes through); separate budgets of <see cref="NonFatalBudget"/> non-fatal and
+    /// <see cref="FatalBudget"/> fatal reports per process, so routine unobserved task faults (MoreAsync.WithCancellation
+    /// abandons the task it waits on) can never use up the report of the crash itself. Never throws, never waits on
+    /// another thread without a budget.
     /// </summary>
     public static class CrashReporter
     {
+        /// <summary>Non-fatal reports (unobserved task faults) written per process; later ones are dropped.</summary>
+        public const int NonFatalBudget = 5;
+
+        /// <summary>Fatal reports written per process (the first always is; more only for distinct exceptions).</summary>
+        public const int FatalBudget = 3;
+
         private static int installed;
-        private static int reports;
+        private static int fatalReports;
+        private static int nonFatalReports;
+        private static int sequence;
         private static object lastReported;
+        private static bool lastReportedFatal;
         private static volatile string crashDirectory;
         [ThreadStatic] private static bool inReport;
 
@@ -133,19 +145,32 @@ namespace McvsOffline.Embedded.Diagnostics
             return false;
         }
 
+        /// <summary>Tests only: a fresh budget and duplicate guard (the reporter is process-wide).</summary>
+        internal static void ResetForTests()
+        {
+            Interlocked.Exchange(ref fatalReports, 0);
+            Interlocked.Exchange(ref nonFatalReports, 0);
+            lastReported = null;
+            lastReportedFatal = false;
+        }
+
         /// <summary>Writes one report (see the class remarks). Never throws.</summary>
         public static void Report(string source, object exception, bool fatal)
         {
             if (inReport) return;
-            if (exception != null && ReferenceEquals(exception, lastReported)) return;   // the raiser, then AppDomain
-            if (Interlocked.Increment(ref reports) > 5) return;
+            // The raiser, then AppDomain: the same object once. Only an equal or lesser report is a duplicate.
+            if (exception != null && ReferenceEquals(exception, lastReported) && (lastReportedFatal || !fatal)) return;
+            int used = fatal ? Interlocked.Increment(ref fatalReports) : Interlocked.Increment(ref nonFatalReports);
+            if (used > (fatal ? FatalBudget : NonFatalBudget)) return;
             inReport = true;
             try
             {
                 lastReported = exception;
+                lastReportedFatal = fatal;
+                int number = Interlocked.Increment(ref sequence);
                 string text = Build(source, exception, fatal);
                 SelfLog.Write(fatal ? SelfLog.Fatal : SelfLog.Error, text);
-                string path = WriteCrashFile(text, fatal);
+                string path = WriteCrashFile(text, fatal, number);
                 try
                 {
                     Action<int> flush = FlushLogs;
@@ -204,7 +229,7 @@ namespace McvsOffline.Embedded.Diagnostics
             return sb.ToString();
         }
 
-        private static string WriteCrashFile(string text, bool fatal)
+        private static string WriteCrashFile(string text, bool fatal, int number)
         {
             string dir = crashDirectory;
             if (string.IsNullOrEmpty(dir)) return null;
@@ -212,7 +237,7 @@ namespace McvsOffline.Embedded.Diagnostics
             {
                 Directory.CreateDirectory(dir);
                 string name = (fatal ? "crash-" : "exception-") + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff", CultureInfo.InvariantCulture) +
-                              "-" + reports.ToString(CultureInfo.InvariantCulture) + ".txt";
+                              "-" + number.ToString(CultureInfo.InvariantCulture) + ".txt";
                 string path = Path.Combine(dir, name);
                 byte[] bytes = Encoding.UTF8.GetBytes(text);
                 using (var fs = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read))

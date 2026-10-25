@@ -112,7 +112,7 @@ after 3 failures it continues in internal storage; at start it logs `exists, N b
 | What | Where to find it |
 |---|---|
 | The game's own log at every level (`--game-log all`, default for now: `res/raw/args.txt` without `-LogCategoryFilter`) | logcat `mono-stdout`; copy in `logs/game.log` (settings `gameLog.mute`, default `profile:debug`) |
-| Unhandled-exception reporter, installed first in `Bootstrap.Init` (AppDomain, AndroidEnvironment, unobserved tasks) | logcat `F McvsOffline: FATAL unhandled exception ...`; `logs/crash-*.txt` (fsync'ed) |
+| Unhandled-exception reporter, installed first in `Bootstrap.Init` (AppDomain, AndroidEnvironment, unobserved tasks). Separate budgets: up to 3 fatal reports (the first always) and up to 5 non-fatal ones, so unobserved task faults can never use up the crash report | logcat `F McvsOffline: FATAL unhandled exception ...`; `logs/crash-*.txt` (fsync'ed); unobserved task faults: `E McvsOffline: NON-FATAL ...`, `logs/exception-*.txt` |
 | Boot trace: one `[boot] +12.345 s` line per milestone of the boot chain (recognised from the requests), the native-init and headless-World hook calls, failed requests, a `quiet: no request for N s` line during boot | logcat `McvsOffline`, `logs/bootstrap.log` |
 | Game-thread watchdog: one heartbeat a second through the game's work queue; on a stall of 5/15/60/180 s, the game thread's kernel state, wchan and syscall, the busiest threads, the Java stacks of the game and UI threads (at 15 s), the server's last request | logcat `W McvsOffline: [watchdog] STALL ...`, `logs/bootstrap.log` |
 | Status line every 60 s for 10 minutes: boot trace, watchdog, every log file's size, bytes written, drops and last error, native IAP state | logcat `[status]`, `logs/bootstrap.log` |
@@ -140,9 +140,11 @@ airplane run alike; the `[boot]` lines follow the request they name.
    `[watchdog] game thread is tid N 'Thread-N'`, and the game's own `mono-stdout` Info/Debug lines (`LoadConfig for ...
    on mcvs`, `Send GET request ...`).
 5. `#2 locate/auth`, `#3 POST /authorize` (anonymous) -> `[boot] client anonymous session`, `#4 users/me`.
-6. **No `datacenters` request any more.** `#5 .../mcvs/urls` -> `[boot] second Federation: eve config (LocalAnubis)`,
-   `#6 locate/auth`, `#7 authorize game:mcvsoffline [auth auth_admin_ro]` -> `[boot] LocalAnubisManager.Start: super
-   session`, `#8 users/me`. **This is where RUN 1 stopped (internet on).**
+6. **No `datacenters` request any more.** `#5 .../mcvs/urls` -> `[boot] second Federation: eve config (LocalAnubis)`.
+   **This is where RUN 1 stopped (internet on):** right after the LocalAnubis Federation's first request (then `#5
+   datacenters`, now `#5 .../mcvs/urls`). If `#6 locate/auth` never comes, the stall reproduced at the same step; if `#5`
+   itself never comes, it moved one step earlier. Then `#6 locate/auth`, `#7 authorize game:mcvsoffline [auth
+   auth_admin_ro]` -> `[boot] LocalAnubisManager.Start: super session`, `#8 users/me`.
 7. `#9 verify`, `#10 locate/matchmaker`, `#11 authorize [lobby_game_admin]` -> `[boot] QuickLaunch: Finder session`,
    `#12 lobbyconfigs/<cid>/ts` -> `[boot] QuickLaunch: lobbyconfigs ts`, `#13 encrypt_token nonce=LocalAnubisNonce`,
    `#14 verify credential=system:Anubis` -> `[boot] Controller login of the client`, `#15 lobbyconfigs ts` ->
@@ -185,7 +187,7 @@ recvfrom = network on the game thread, R = busy) and, at 15 s, its Java stack. A
 
 `MCVS_REFS=<apk assemblies> MCVS_REQUIRE_EMBEDDED=1 MCVS_REQUIRE_REAL_CLIENT=1 scripts/build.sh`: net8 solution, embedded
 build against the game's own BCL, then all tests. Result after the device-test-1 fixes: **McvsOffline.Tests 485/485,
-McvsOffline.Embed.Tests 104/104, 0 skipped**:
+McvsOffline.Embed.Tests 105/105, 0 skipped**:
 
 | Tests | Count |
 |---|---|
@@ -196,7 +198,7 @@ McvsOffline.Embed.Tests 104/104, 0 skipped**:
 | MISC | 110 |
 | Unlocks | 8 |
 | End-to-end conformance (real client) | 2 |
-| Embedded host (including the crash reporter, the watchdog and a Cecil resolution of every reference of the built DLL against the game's assemblies) | 55 |
+| Embedded host (including the crash reporter and its separate fatal/non-fatal budgets, the watchdog and a Cecil resolution of every reference of the built DLL against the game's assemblies) | 56 |
 | Patcher (including the binary manifest rewrite, `res/raw/args.txt`, and the device-1 patches applied to the real Game.dll and Gameloft.Engine.dll, then executed and JIT-compiled on net8) | 49 |
 
 **Real-client conformance** (the player's Gameloft.OnlinePlatform, Gameloft.Engine, Game, Gameloft.Templates and
