@@ -74,7 +74,10 @@ namespace McvsOffline.Server.Core
 
         public static DateTime FromUnixSeconds(long seconds)
         {
-            return Epoch.AddSeconds(seconds);
+            // Copy the readonly field first: calling a method on it directly takes its address, which ILVerify
+            // reports against the game's mscorlib ("cannot change initonly field outside its .ctor").
+            DateTime epoch = Epoch;
+            return epoch.AddSeconds(seconds);
         }
 
         /// <summary>Parses ISO 8601 / RFC 1123 timestamps as UTC; false when unparseable.</summary>

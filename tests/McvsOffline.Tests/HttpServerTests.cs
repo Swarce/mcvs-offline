@@ -44,6 +44,43 @@ namespace McvsOffline.Tests
         }
 
         [Fact]
+        public void ASecondServerCannotBindTheSamePort()
+        {
+            // With SO_REUSEPORT (what .NET's ReuseAddress sets on Linux) the second bind would succeed and the kernel
+            // would split connections between two hosts (MISC request).
+            using var first = new TestHttpServer(Echo);
+            var second = new HttpServer(System.Net.IPAddress.Loopback, first.Port, Echo, null);
+            Assert.ThrowsAny<System.Net.Sockets.SocketException>(() => second.Start());
+            Assert.False(second.IsRunning);
+        }
+
+        [Fact]
+        public void ARestartBindsAgainWhileOldConnectionsAreInTimeWait()
+        {
+            var server = new TestHttpServer(Echo);
+            int port = server.Port;
+            for (int i = 0; i < 3; i++)
+            {
+                // "Connection: close": the server closes first, so its side of each connection enters TIME_WAIT.
+                using var client = server.Connect();
+                client.Send("GET /x HTTP/1.1\r\nHost: h\r\nConnection: close\r\n\r\n");
+                Assert.Equal(200, client.ReadResponse().Status);
+            }
+            server.Dispose();
+
+            var again = new HttpServer(System.Net.IPAddress.Loopback, port, Echo, null);
+            again.Start();
+            try
+            {
+                Assert.Equal(port, again.Port);
+            }
+            finally
+            {
+                again.Stop();
+            }
+        }
+
+        [Fact]
         public void PostFormBodyWithContentLength()
         {
             using var server = new TestHttpServer(Echo);
