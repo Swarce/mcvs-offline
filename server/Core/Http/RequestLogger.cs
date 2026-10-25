@@ -18,7 +18,7 @@ namespace McvsOffline.Server.Core.Http
     /// <item>every handler exception: an ERROR with the full request.</item>
     /// </list>
     /// </summary>
-    public sealed class RequestLogger
+    public sealed class RequestLogger : IDisposable
     {
         /// <summary>Upper bound for bodies in unknown-endpoint entries (they are rare and important).</summary>
         public const int UnknownBodyLimit = 1024 * 1024;
@@ -27,7 +27,7 @@ namespace McvsOffline.Server.Core.Http
         public const int SummaryValueLimit = 512;
 
         private readonly Log log;
-        private readonly RotatingFile unknownFile;
+        private readonly SafeLogFile unknownFile;
         private readonly Func<int> bodyLimit;
 
         /// <param name="logger">Root logger.</param>
@@ -36,8 +36,20 @@ namespace McvsOffline.Server.Core.Http
         public RequestLogger(Logger logger, string unknownLogPath, Func<int> bodyLimit)
         {
             log = logger != null ? logger.For("http") : Log.Null;
-            unknownFile = unknownLogPath == null ? null : new RotatingFile(unknownLogPath, 10L * 1024 * 1024, 3);
+            // Synchronous: unknown endpoints are rare, and the file is read while the server runs (the list of what is missing).
+            unknownFile = unknownLogPath == null ? null
+                : new SafeLogFile(unknownLogPath, new SafeLogFileOptions { MaxBytes = 10L * 1024 * 1024, MaxFiles = 3, Synchronous = true });
             this.bodyLimit = bodyLimit ?? (() => 64 * 1024);
+        }
+
+        public string DescribeUnknownFile()
+        {
+            return unknownFile == null ? null : unknownFile.Describe();
+        }
+
+        public void Dispose()
+        {
+            if (unknownFile != null) unknownFile.Dispose();
         }
 
         public void LogRequest(HttpRequest request, HttpResponse response, double elapsedMs)

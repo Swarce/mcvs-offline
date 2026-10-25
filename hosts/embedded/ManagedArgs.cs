@@ -16,6 +16,8 @@ namespace McvsOffline.Embedded
     /// -SuperCredential game:mcvsoffline                 LocalAnubis super session; exactly one ':' (verify-C2 §2)
     /// -SuperPassword mcvsoffline
     /// -DeviceId mcvs...                                 skips the native GDID wait (10 s, verify-C2 §1.2)
+    /// -DataCenter mcvs                                  every Federation (client, LocalAnubis, and through cmd_args the
+    ///                                                   TS/GS Worlds) skips eve's datacenter list (device test 1)
     /// -LocalAnubisHost 0.0.0.0                          only with settings.lanMode (verify-C6 §5)
     /// </code>
     /// Enum values are case-sensitive (Enum.Parse without ignoreCase).
@@ -49,6 +51,7 @@ namespace McvsOffline.Embedded
                 new ArgEntry("SuperCredential", credential),
                 new ArgEntry("SuperPassword", password),
                 new ArgEntry("DeviceId", deviceId),
+                new ArgEntry("DataCenter", DataCenter(settings, log)),
             };
             if (settings.LanMode)
             {
@@ -56,6 +59,22 @@ namespace McvsOffline.Embedded
                 args.Add(new ArgEntry("LocalAnubisHost", "0.0.0.0"));
             }
             return args;
+        }
+
+        /// <summary>
+        /// settings.dataCenter (default "mcvs", the name eve answers). With it, <c>OnlinePlatformComponent.Datacenter</c> and
+        /// <c>LocalAnubisManager.Datacenter</c> come from Args, so no Federation asks eve for the datacenter list, and a first
+        /// run does not go through Federation_DatacenterChanged -> SetDatacenter -> a second InitFederation.
+        /// </summary>
+        public static string DataCenter(Settings settings, Log log)
+        {
+            string dc = settings.DataCenter;
+            if (!Settings.IsCmdArgSafe(dc) || ArgsFile.ValidateValue(dc) != null)
+            {
+                (log ?? Log.Null).Error("settings.dataCenter '" + dc + "' is empty or contains spaces or '-'; using " + Settings.DefaultDataCenter);
+                dc = Settings.DefaultDataCenter;
+            }
+            return dc;
         }
 
         /// <summary>The game always reaches its own embedded server over loopback, LAN host or not.</summary>

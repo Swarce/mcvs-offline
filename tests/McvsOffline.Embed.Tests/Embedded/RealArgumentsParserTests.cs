@@ -48,6 +48,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.Equal(Settings.DefaultSuperCredential, Field(parsed, "SuperCredential"));
             Assert.Equal(Settings.DefaultSuperPassword, Field(parsed, "SuperPassword"));
             Assert.Equal(deviceId, Field(parsed, "DeviceId"));
+            Assert.Equal("mcvs", Field(parsed, "DataCenter"));   // OnlinePlatformComponent and LocalAnubisManager read Args.DataCenter
             Assert.Equal("Online", Field(parsed, "LogCategoryFilter")); // the player's own line survives
             Assert.Equal(lanMode ? "0.0.0.0" : null, Field(parsed, "LocalAnubisHost"));
             Assert.Null(Field(parsed, "Credential")); // no -Credential: the anonymous credential comes from native

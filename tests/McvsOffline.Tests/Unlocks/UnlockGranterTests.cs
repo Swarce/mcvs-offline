@@ -122,7 +122,8 @@ namespace McvsOffline.Tests.Unlocks
             using var h = new Harness(unlockAll: true, batchSize: 4000);
             List<string> keys = h.Granter.AllKeys();
             Assert.True(keys.Count > 11000, "about 11.3k unlock keys expected, got " + keys.Count);
-            Assert.Equal("UnlockMerc_ALL_MAX", keys[0]);
+            Assert.DoesNotContain("KillSignature_Avatar_1513", keys); // the unreleased set is coupon-only (UNLOCKUNRELEASED)
+            Assert.Equal(McvsOffline.Tests.Content.AssetsTests.MercGroup, keys.Take(McvsOffline.Tests.Content.AssetsTests.MercGroup.Length));
             Assert.StartsWith("MercSkin_", keys[keys.Count - 1]);
 
             string account = h.SaveGameProfile("unlock1");
@@ -132,8 +133,8 @@ namespace McvsOffline.Tests.Unlocks
             Assert.Equal(keys, inventory.Keys.ToList()); // insertion order kept: the diff claims in JSON order
             Assert.All(inventory.Values, v => Assert.Equal(1L, v)); // JSON integers (the TS casts (int)(long))
 
-            // UnlockMerc_ALL_MAX alone first, then batches of 4000; one set_profile alert per batch, to the player.
-            int expectedAlerts = 1 + (keys.Count - 1 + 3999) / 4000;
+            // The merc unlocks alone first, then batches of 4000; one set_profile alert per batch, to the player.
+            int expectedAlerts = 1 + (keys.Count - McvsOffline.Tests.Content.AssetsTests.MercGroup.Length + 3999) / 4000;
             Assert.Equal(expectedAlerts, h.Alerts.Count);
             Assert.All(h.Alerts, a =>
             {
@@ -156,7 +157,7 @@ namespace McvsOffline.Tests.Unlocks
         /// A brand-new player's first TS load (ProfileManagerComponent.LoadPlayerProfile): R1 and R2 read {}, then
         /// LoadSections creates each absent section with an R3 Set of "{}" (OP/ProfileSection.cs:232-239, 326-333),
         /// inventory included, and only then does the TS save the game profile (R4). Nothing may be granted before R4:
-        /// an R3 inventory landing after a grant would erase UnlockMerc_ALL_MAX and every merc-dependent key claimed
+        /// an R3 inventory landing after a grant would erase the merc unlocks and every merc-dependent key claimed
         /// after it would become an alternate reward (verify-C5 (c)).
         /// </summary>
         [Fact]
@@ -181,7 +182,7 @@ namespace McvsOffline.Tests.Unlocks
             h.WaitForStatus(account, "done (");
             List<string> keys = h.Granter.AllKeys();
             var inventory = (Dictionary<string, object>)h.Profiles.Read(account, "inventory");
-            Assert.Equal("UnlockMerc_ALL_MAX", inventory.Keys.First());
+            Assert.Equal(McvsOffline.Tests.Content.AssetsTests.MercGroup, inventory.Keys.Take(McvsOffline.Tests.Content.AssetsTests.MercGroup.Length));
             Assert.Equal(keys, inventory.Keys.ToList());
 
             // The one-way backup holds the game profile the TS just saved, not an empty document.
@@ -192,7 +193,7 @@ namespace McvsOffline.Tests.Unlocks
 
         /// <summary>
         /// The ledger loses the merc unlock between two batches (a late R3 Set from another load, a hand edit): the
-        /// next batch puts UnlockMerc_ALL_MAX back first, alone, and the lost keys are written again.
+        /// next batch puts the merc unlocks back first, alone, and the lost keys are written again.
         /// </summary>
         [Fact]
         public void ALedgerResetBetweenBatchesPutsTheMercUnlockBackFirst()
@@ -215,11 +216,11 @@ namespace McvsOffline.Tests.Unlocks
 
             List<string> keys = h.Granter.AllKeys();
             var inventory = (Dictionary<string, object>)h.Profiles.Read(account, "inventory");
-            Assert.Equal("UnlockMerc_ALL_MAX", inventory.Keys.First());
+            Assert.Equal(McvsOffline.Tests.Content.AssetsTests.MercGroup, inventory.Keys.Take(McvsOffline.Tests.Content.AssetsTests.MercGroup.Length));
             Assert.Equal(new HashSet<string>(keys), new HashSet<string>(inventory.Keys));
 
             // Alerts: merc unlock, batch 1 (wiped after it), then the merc unlock again alone, then every batch again.
-            int batches = (keys.Count - 1 + 3999) / 4000;
+            int batches = (keys.Count - McvsOffline.Tests.Content.AssetsTests.MercGroup.Length + 3999) / 4000;
             Assert.Equal(2 + 1 + batches, h.Alerts.Count);
             Assert.Equal(0, h.Granter.Grant(account)); // complete
         }
@@ -246,7 +247,7 @@ namespace McvsOffline.Tests.Unlocks
                 {
                     h.WaitForStatus(account, "done (");
                     var inventory = (Dictionary<string, object>)h.Profiles.Read(account, "inventory");
-                    Assert.Equal("UnlockMerc_ALL_MAX", inventory.Keys.First());
+                    Assert.Equal(McvsOffline.Tests.Content.AssetsTests.MercGroup, inventory.Keys.Take(McvsOffline.Tests.Content.AssetsTests.MercGroup.Length));
                     Assert.Contains("set_profile", string.Join("\n", all.Take(1000, () => false)));
                 }
             }
@@ -266,19 +267,40 @@ namespace McvsOffline.Tests.Unlocks
             Assert.False(UnlockGranter.IsTriggerSelector(null));
         }
 
+        /// <summary>
+        /// A ledger granted by build 3 holds UnlockMerc_ALL_MAX (every merc and every mod, already claimed): the per-merc
+        /// keys that replaced it are not written, or the game would pay 40 random gear for every merc the player owns.
+        /// </summary>
+        [Fact]
+        public void ALegacyAllMercsKeyCoversTheMercGroup()
+        {
+            using var h = new Harness(unlockAll: false, batchSize: 20000);
+            string account = h.SaveGameProfile("legacy1");
+            h.Profiles.Merge(account, "inventory", new Dictionary<string, object> { [UnlockGranter.LegacyMercsKey] = 1L });
+            h.Server.Context.Settings.Override("unlockAll", true);
+            h.Granter.Grant(account);
+
+            var inventory = (Dictionary<string, object>)h.Profiles.Read(account, "inventory");
+            foreach (string key in McvsOffline.Tests.Content.AssetsTests.MercGroup) Assert.False(inventory.ContainsKey(key), key);
+            Assert.Equal(1L, inventory[UnlockGranter.LegacyMercsKey]);
+            Assert.Equal(1L, inventory["MercSkin_1_2"]);
+            Assert.Equal(h.Granter.AllKeys().Count - McvsOffline.Tests.Content.AssetsTests.MercGroup.Length + 1, inventory.Count);
+            Assert.Equal(0, h.Granter.Grant(account)); // complete
+        }
+
         [Fact]
         public void ExistingLedgerEntriesAreKeptAndOnlyMissingKeysAreWritten()
         {
             using var h = new Harness(unlockAll: true);
             string account = h.SaveGameProfile("unlock2");
             h.WaitForStatus(account, "done (");
-            h.Profiles.Merge(account, "inventory", new Dictionary<string, object> { ["UnlockMerc_ALL_MAX"] = 3L, ["VersusCoins"] = 500L });
+            h.Profiles.Merge(account, "inventory", new Dictionary<string, object> { ["UnlockMerc_2"] = 3L, ["VersusCoins"] = 500L });
             h.Profiles.Remove(account, "inventory.MercSkin_1_2");
 
             // A direct grant only fills the gap; other ledger keys (real IAP grants) are untouched.
             Assert.Equal(1, h.Granter.Grant(account));
             var inventory = (Dictionary<string, object>)h.Profiles.Read(account, "inventory");
-            Assert.Equal(3L, inventory["UnlockMerc_ALL_MAX"]);
+            Assert.Equal(3L, inventory["UnlockMerc_2"]);
             Assert.Equal(500L, inventory["VersusCoins"]);
             Assert.Equal(1L, inventory["MercSkin_1_2"]);
             Assert.Equal(0, h.Granter.Grant(account));

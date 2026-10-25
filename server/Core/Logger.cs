@@ -4,7 +4,6 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Threading;
-using McvsOffline.Server.Core.Storage;
 
 namespace McvsOffline.Server.Core
 {
@@ -82,6 +81,12 @@ namespace McvsOffline.Server.Core
 
         public abstract void Write(LogEntry entry);
 
+        /// <summary>Waits until everything written so far is stored (asynchronous sinks); false on timeout.</summary>
+        public virtual bool Flush(int timeoutMs) { return true; }
+
+        /// <summary>Crash path: stores what is queued on the calling thread, waiting at most <paramref name="budgetMs"/> for a lock.</summary>
+        public virtual bool FlushNow(int budgetMs) { return true; }
+
         public virtual void Dispose() { }
     }
 
@@ -102,22 +107,37 @@ namespace McvsOffline.Server.Core
         }
     }
 
-    /// <summary>Appends to a file and rotates it (name.log → name.log.1 ... name.log.N) when it grows too large.</summary>
-    public sealed class RotatingFileLogSink : LogSink
+    /// <summary>A <see cref="SafeLogFile"/> as a sink: enqueues formatted entries; the file is written by its own thread.</summary>
+    public sealed class FileLogSink : LogSink
     {
-        private readonly RotatingFile file;
+        private readonly SafeLogFile file;
 
-        public RotatingFileLogSink(string path, LogLevel minLevel, long maxBytes = 5L * 1024 * 1024, int maxFiles = 5)
+        public FileLogSink(string path, LogLevel minLevel, long maxBytes = 5L * 1024 * 1024, int maxFiles = 5, SafeLogFileOptions options = null)
             : base(minLevel)
         {
-            file = new RotatingFile(path, maxBytes, maxFiles);
+            options = options ?? new SafeLogFileOptions();
+            options.MaxBytes = maxBytes;
+            options.MaxFiles = maxFiles;
+            file = new SafeLogFile(path, options);
         }
+
+        public SafeLogFile File { get { return file; } }
 
         public string Path { get { return file.Path; } }
 
         public override void Write(LogEntry entry)
         {
             file.AppendLine(entry.Format());
+        }
+
+        public override bool Flush(int timeoutMs)
+        {
+            return file.Flush(timeoutMs);
+        }
+
+        public override bool FlushNow(int budgetMs)
+        {
+            return file.FlushNow(budgetMs);
         }
 
         public override void Dispose()
@@ -240,6 +260,26 @@ namespace McvsOffline.Server.Core
             }
         }
 
+        /// <summary>Flushes every sink (see <see cref="LogSink.Flush"/>); never throws.</summary>
+        public bool Flush(int timeoutMs)
+        {
+            bool all = true;
+            foreach (var sink in sinks)
+            {
+                try { all &= sink.Flush(timeoutMs); } catch (Exception) { all = false; }
+            }
+            return all;
+        }
+
+        /// <summary>Crash path (see <see cref="LogSink.FlushNow"/>); never throws.</summary>
+        public void FlushNow(int budgetMs)
+        {
+            foreach (var sink in sinks)
+            {
+                try { sink.FlushNow(budgetMs); } catch (Exception) { }
+            }
+        }
+
         public void Dispose()
         {
             LogSink[] current;
@@ -290,82 +330,5 @@ namespace McvsOffline.Server.Core
 
         /// <summary>A logger that discards everything.</summary>
         public static Log Null { get { return new Log(null, "null"); } }
-    }
-
-    /// <summary>
-    /// Thread-safe line appender with size-based rotation, shared by the file log and the unknown-endpoint log.
-    /// The file is opened with FileShare.ReadWrite so it can be tailed while the server runs.
-    /// </summary>
-    public sealed class RotatingFile : IDisposable
-    {
-        private readonly object gate = new object();
-        private readonly long maxBytes;
-        private readonly int maxFiles;
-        private FileStream stream;
-        private bool failed;
-
-        public RotatingFile(string path, long maxBytes, int maxFiles)
-        {
-            Path = System.IO.Path.GetFullPath(path);
-            this.maxBytes = Num.Max(4096L, maxBytes);
-            this.maxFiles = Num.Max(1, maxFiles);
-        }
-
-        public string Path { get; private set; }
-
-        public void AppendLine(string line)
-        {
-            byte[] bytes = Encoding.UTF8.GetBytes(line + "\n");
-            lock (gate)
-            {
-                if (failed) return;
-                try
-                {
-                    if (stream == null) Open();
-                    stream.Write(bytes, 0, bytes.Length);
-                    stream.Flush();
-                    if (stream.Length >= maxBytes) Rotate();
-                }
-                catch (Exception)
-                {
-                    // A broken log file must never break the server; give up on this file.
-                    failed = true;
-                    CloseStream();
-                }
-            }
-        }
-
-        public void Dispose()
-        {
-            lock (gate) CloseStream();
-        }
-
-        private void Open()
-        {
-            string dir = System.IO.Path.GetDirectoryName(Path);
-            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-            stream = new FileStream(Path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
-        }
-
-        private void Rotate()
-        {
-            CloseStream();
-            string oldest = Path + "." + maxFiles.ToString(CultureInfo.InvariantCulture);
-            if (File.Exists(oldest)) File.Delete(oldest);
-            for (int i = maxFiles - 1; i >= 1; i--)
-            {
-                string from = Path + "." + i.ToString(CultureInfo.InvariantCulture);
-                if (File.Exists(from)) FileSystem.Rename(from, Path + "." + (i + 1).ToString(CultureInfo.InvariantCulture));
-            }
-            FileSystem.Rename(Path, Path + ".1");
-            Open();
-        }
-
-        private void CloseStream()
-        {
-            if (stream == null) return;
-            try { stream.Dispose(); } catch (Exception) { }
-            stream = null;
-        }
     }
 }

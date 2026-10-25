@@ -248,16 +248,46 @@ namespace McvsOffline.Tests.Conformance
             dynamic rewards = GameClient.CallStatic(game.Type("Gameloft.Util", "Gameloft.Util.Json"), "LoadArray", Encoding.UTF8.GetString(coupon));
             Type rewardItem = game.Type("Game", "Game.RewardItem");
             object source = Activator.CreateInstance(rewardItem.GetNestedType("TrackingSource"));
-            int parsed = 0;
+            var parsedTypes = new List<string>();
             foreach (dynamic reward in (IEnumerable)rewards)
             {
                 object item = GameClient.CallStatic(game.Type("Game", "Game.RewardHelper"), "CreateRewardItem", (string)reward["type"], (int)reward["quantity"], source);
                 Assert.NotNull(item);
-                Assert.Equal("UnlockMercRewardItem", item.GetType().Name);
-                parsed++;
+                // Explicit merc ids only (the reward displays look every UnlockMerc up by its id; "ALL" crashed them).
+                string subtype = (string)rewardItem.GetProperty("Subtype").GetValue(item);
+                string subtype2 = (string)rewardItem.GetProperty("Subtype2").GetValue(item);
+                Assert.True(int.TryParse(subtype, out int mercId) && mercId > 0, (string)reward["type"]);
+                if (item.GetType().Name == "ModTierRewardItem") Assert.Equal("4", subtype2);
+                else Assert.Equal("UnlockMercRewardItem", item.GetType().Name);
+                parsedTypes.Add(item.GetType().Name + "_" + subtype);
             }
-            Assert.Equal(1, parsed);
-            host.Covered("assets coupons/{cid}/{code} -> AssetsService.RedeemCoupon, Json.LoadArray, RewardHelper.CreateRewardItem (UnlockMercRewardItem)");
+            Assert.Equal(McvsOffline.Tests.Content.AssetsTests.MercGroup.Length, parsedTypes.Count);
+            Assert.Equal(20, parsedTypes.Count(t => t.StartsWith("UnlockMercRewardItem_", StringComparison.Ordinal)));
+            host.Covered("assets coupons/{cid}/{code} -> AssetsService.RedeemCoupon, Json.LoadArray, RewardHelper.CreateRewardItem (UNLOCKMERCS: "
+                         + "20 UnlockMercRewardItem with numeric merc ids, 21 ModTierRewardItem tier 4)");
+            // The opt-in codes: every reward parses to its reward class with numeric ids (claim and display look them up).
+            var expectedClass = new Dictionary<string, string>
+            {
+                ["UnlockMerc"] = "UnlockMercRewardItem", ["WeaponCamo"] = "WeaponCamoRewardItem",
+                ["MercAccessory"] = "MercAccessoryRewardItem", ["KillSignature"] = "KillSignatureRewardItem",
+            };
+            foreach (string code in new[] { "UNLOCKPAID", "UNLOCKUNRELEASED" })
+            {
+                byte[] data = await GameClient.Await(game.Service(ts, "AssetsService").RedeemCoupon(code, ct));
+                int n = 0;
+                foreach (dynamic reward in (IEnumerable)GameClient.CallStatic(game.Type("Gameloft.Util", "Gameloft.Util.Json"), "LoadArray", Encoding.UTF8.GetString(data)))
+                {
+                    string type = (string)reward["type"];
+                    object item = GameClient.CallStatic(game.Type("Game", "Game.RewardHelper"), "CreateRewardItem", type, (int)reward["quantity"], source);
+                    Assert.NotNull(item);
+                    Assert.Equal(expectedClass[type.Split('_')[0]], item.GetType().Name);
+                    string last = (string)rewardItem.GetProperty(type.StartsWith("UnlockMerc_", StringComparison.Ordinal) ? "Subtype" : "Subtype2").GetValue(item);
+                    Assert.True(int.TryParse(last, out _), type);
+                    n++;
+                }
+                Assert.True(n > 0, code);
+                host.Covered("assets coupons/{cid}/" + code + " -> " + n + " rewards, each parsed by RewardHelper.CreateRewardItem to its class with numeric ids");
+            }
 
             // ---------------------------------------------------------------- 14. next app start: a new server instance on the same data, a new client
             host.Restart();
@@ -348,7 +378,8 @@ namespace McvsOffline.Tests.Conformance
             for (int i = 0; i < 200 && !(granter.Status().TryGetValue(account, out object s) && ((string)s).StartsWith("done", StringComparison.Ordinal)); i++)
                 await Task.Delay(50, ct);
 
-            int expectedAlerts = 1 + (expected - 1 + 3999) / 4000;
+            int mercs = McvsOffline.Tests.Content.AssetsTests.MercGroup.Length;
+            int expectedAlerts = 1 + (expected - mercs + 3999) / 4000;
             Assert.True(alerts.WaitFor(expectedAlerts, 10000), "set_profile alerts received by the real AlertListener: " + alerts.Count + "/" + expectedAlerts);
             Assert.All(alerts.Items, a => Assert.Equal("set_profile", ((dynamic)a).Type.ToString()));
 
@@ -373,10 +404,10 @@ namespace McvsOffline.Tests.Conformance
                 if (GameClient.CallStatic(rewardHelper, "CreateRewardItem", key, count, source) == null) unknown.Add(key);
             }
             Assert.Equal(expected, keys.Count);
-            Assert.Equal("UnlockMerc_ALL_MAX", keys[0]);
+            Assert.Equal(McvsOffline.Tests.Content.AssetsTests.MercGroup, keys.Take(mercs));
             Assert.StartsWith("MercSkin_", keys[keys.Count - 1]);
             Assert.True(unknown.Count == 0, "reward ids RewardItem.Parse does not know: " + string.Join(", ", unknown.Take(20)));
-            host.Covered("unlockAll: " + keys.Count + " ledger keys read by IapStoreComponent.InventorySection (LoadSections), all JValue integers, UnlockMerc_ALL_MAX first, MercSkin_* last; "
+            host.Covered("unlockAll: " + keys.Count + " ledger keys read by IapStoreComponent.InventorySection (LoadSections), all JValue integers, the merc unlocks (UnlockMerc_<id>, ModTier_<id>_4) first, MercSkin_* last; "
                          + alerts.Count + " set_profile alerts on the real AlertListener; every key parsed by RewardItem.Parse");
 
             await GameClient.Await(listener.StopListening(ct));

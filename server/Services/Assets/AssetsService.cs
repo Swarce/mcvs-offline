@@ -1,7 +1,7 @@
 // Module: Assets - owner group: CONTENT (Crm, Matchmaker, Assets + server/Content + tools/content-gen)
 // Iris assets and coupons (requests carry no token).
 // Protocol: report 02 §9; report 04 §10-11; report 10 §5; verify-C5 (b); docs/protocol/content.md
-//   GET  coupons/{clientId}/{code}   -> [{"type":"UnlockMerc_ALL_MAX","quantity":1}, ...]; 404 = "coupon does not exist"
+//   GET  coupons/{clientId}/{code}   -> [{"type":"UnlockMerc_2","quantity":1}, ...]; 404 = "coupon does not exist"
 //   GET  assets/{clientId}           -> [{name, hash, size}] of <data>/assets (usually [])
 //   GET  assets/{clientId}/{name}[/metadata[/{attr}]|/url]   local file (Range supported) or 404
 

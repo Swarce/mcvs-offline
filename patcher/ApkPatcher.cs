@@ -53,7 +53,8 @@ namespace McvsOffline.Patcher
     {
         public static readonly IlPatch[] AllPatches =
         {
-            new BootstrapHookPatch(), new GeoPatch(), new BotTilePatch(), new FinderPatch(), new LanPatch(),
+            new BootstrapHookPatch(), new HeadlessGamePatch(), new HeadlessEnginePatch(), new PhysicsPatch(), new NativeOnlinePatch(),
+            new WaitsPatch(), new GeoPatch(), new BotTilePatch(), new FinderPatch(), new LanPatch(), new StorePatch(),
         };
 
         public static PatchReport Run(PatcherOptions options, Action<string> log)
@@ -77,7 +78,7 @@ namespace McvsOffline.Patcher
             byte[] serverBytes = File.ReadAllBytes(options.ServerDll);
             if (!options.SkipServerReferenceCheck) CheckServerAssembly(serverBytes, options.ServerDll);
 
-            List<IlPatch> patches = SelectPatches(options.Patches);
+            List<IlPatch> patches = SelectPatches(options.Patches, !options.TestOnlyHookIsMandatory);
             var modifiedAssemblies = new Dictionary<string, byte[]>(StringComparer.Ordinal);
             string resolverDir = Path.Combine(Path.GetTempPath(), "mcvs-patcher-" + Guid.NewGuid().ToString("N"));
             try
@@ -115,11 +116,14 @@ namespace McvsOffline.Patcher
             ZipEntry manifestEntry = input.Find(ManifestPatch.EntryName) ?? throw new InvalidDataException(options.InputApk + " has no " + ManifestPatch.EntryName);
             byte[] manifest = ManifestPatch.Apply(manifestEntry.GetData(), report.Notes);
 
-            List<ZipEntry> output = ComposeEntries(input, modifiedAssemblies, manifest, serverBytes, options.StripAot, report);
+            byte[] rawArgs = RawArgsFor(input, options, report);
+
+            List<ZipEntry> output = ComposeEntries(input, modifiedAssemblies, manifest, rawArgs, serverBytes, options.StripAot, report);
             report.Warnings.AddRange(StaleAotNotes(input, output, modifiedAssemblies.Keys));
             byte[] unsigned = ZipArchiveWriter.Write(output);
             var modifiedEntries = modifiedAssemblies.Keys.Select(f => KnownBuild.AssembliesDir + f).ToList();
             if (manifest != null) modifiedEntries.Add(ManifestPatch.EntryName);
+            if (rawArgs != null) modifiedEntries.Add(KnownBuild.RawArgsEntry);
             VerifyUnchanged(input, ZipArchiveReader.Read(unsigned), modifiedEntries, report);
 
             if (options.DryRun)
@@ -172,15 +176,40 @@ namespace McvsOffline.Patcher
             }
         }
 
-        public static List<IlPatch> SelectPatches(ICollection<string> optional)
+        public static List<IlPatch> SelectPatches(ICollection<string> optional, bool headless = true)
         {
-            var ids = new HashSet<string>(optional ?? new string[0], StringComparer.Ordinal) { "hook" };
+            var ids = new HashSet<string>(optional ?? new string[0], StringComparer.Ordinal);
+            ids.UnionWith(headless ? PatcherOptions.MandatoryPatches : new[] { "hook" });
             if (ids.Contains("lan")) ids.Add("finder");
             return AllPatches.Where(p => ids.Contains(p.Id)).ToList();
         }
 
+        /// <summary>
+        /// --game-log all: the new content of res/raw/args.txt (a marker line without -LogCategoryFilter, so the game enables
+        /// every log level), or null to keep the entry. The entry keeps its name, so resources.arsc (which stores the path)
+        /// still resolves raw/args to it. Refuses an entry that is not the shipped one unless --force (then it is kept).
+        /// </summary>
+        internal static byte[] RawArgsFor(ZipArchiveReader.Archive input, PatcherOptions options, PatchReport report)
+        {
+            if (options.GameLog != GameLogMode.All) return null;
+            ZipEntry e = input.Find(KnownBuild.RawArgsEntry);
+            byte[] data = e == null ? null : e.GetData();
+            bool original = e != null && e.Crc32 == KnownBuild.RawArgsOriginalCrc &&
+                            Encoding.ASCII.GetString(data) == KnownBuild.RawArgsOriginal;
+            if (!original)
+            {
+                string what = e == null ? "is missing" : "is not the shipped '" + KnownBuild.RawArgsOriginal + "' (" + data.Length + " bytes)";
+                if (!options.Force) throw new InvalidDataException(KnownBuild.RawArgsEntry + " " + what + ": use --game-log fatal, or --force to keep it as it is");
+                report.Warnings.Add(KnownBuild.RawArgsEntry + " " + what + ": left unchanged, the game keeps its own log levels");
+                return null;
+            }
+            report.Notes.Add(KnownBuild.RawArgsEntry + ": \"" + KnownBuild.RawArgsOriginal + "\" -> \"" + KnownBuild.RawArgsAllLevels.TrimEnd('\n') +
+                             "\" (no -LogCategoryFilter: the game logs every level to logcat mono-stdout; --game-log fatal keeps the original)");
+            return Encoding.ASCII.GetBytes(KnownBuild.RawArgsAllLevels);
+        }
+
         private static List<ZipEntry> ComposeEntries(ZipArchiveReader.Archive input, Dictionary<string, byte[]> modified, byte[] manifest,
-                                                     byte[] serverBytes, AotStripMode stripAot, PatchReport report)
+                                                     byte[] rawArgs, byte[] serverBytes, AotStripMode stripAot, PatchReport report)
         {
             var removeAot = new HashSet<string>(modified.Keys.Select(f => "libaot-" + f + ".so"), StringComparer.Ordinal);
             var output = new List<ZipEntry>();
@@ -217,6 +246,12 @@ namespace McvsOffline.Patcher
                     }
                     lastAssembly = output.Count - 1;
                     assemblyTemplate = e;
+                    continue;
+                }
+                if (rawArgs != null && e.Name == KnownBuild.RawArgsEntry)
+                {
+                    output.Add(e.Method == ZipEntry.MethodStored ? ZipEntry.CreateStored(e.Name, rawArgs, e) : ZipEntry.CreateDeflated(e.Name, rawArgs, e));
+                    report.Modified.Add(e.Name);
                     continue;
                 }
                 if (manifest != null && e.Name == ManifestPatch.EntryName)

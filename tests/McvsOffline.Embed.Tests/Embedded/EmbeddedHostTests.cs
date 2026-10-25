@@ -10,6 +10,7 @@ using Xunit;
 
 namespace McvsOffline.Embed.Tests.Embedded
 {
+    [Collection("GameHooks")]
     public class EmbeddedHostTests
     {
         [Fact]
@@ -39,12 +40,28 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.Equal("QuickLaunch", game["AnubisCommand"]);
                 Assert.Equal("http://127.0.0.1:" + port + "/", game["EnvironmentSwitcherUrl"]);
                 Assert.Equal(host.DeviceId, game["DeviceId"]);
+                Assert.Equal("mcvs", game["DataCenter"]);   // no Federation asks eve for the datacenter list (device test 1)
                 Assert.False(game.ContainsKey("LocalAnubisHost"));
 
                 Assert.True(File.Exists(Path.Combine(root, "McvsOffline", "settings.json")));
                 Assert.True(File.Exists(Path.Combine(root, "McvsOffline", "device-id.txt")));
-                Assert.True(File.Exists(Path.Combine(root, "McvsOffline", "logs", "bootstrap.log")));
-                Assert.Contains("\"manageArgs\": true", File.ReadAllText(Path.Combine(root, "McvsOffline", "settings.json")));
+                Assert.True(host.FlushLogs(10000));
+                string bootstrap = File.ReadAllText(Path.Combine(root, "McvsOffline", "logs", "bootstrap.log"));
+                Assert.Contains("[boot] +", bootstrap);
+                Assert.Contains("MCVS Offline host started by the game", bootstrap);
+                Assert.Contains("offline server listening at http://127.0.0.1:" + port + "/", bootstrap);
+                Assert.Contains("args.txt updated", bootstrap);
+                string serverLog = File.ReadAllText(Path.Combine(root, "McvsOffline", "logs", "server.log"));
+                Assert.Contains("GET / -> 200", serverLog);
+                string settings = File.ReadAllText(Path.Combine(root, "McvsOffline", "settings.json"));
+                Assert.Contains("\"manageArgs\": true", settings);
+                Assert.Contains("\"nativeOnlineSdk\": false", settings);
+                Assert.Contains("\"levels\": \"error warning\"", settings);
+                Assert.Contains("\"watchdog\": true", settings);
+                Assert.False(McvsOffline.GameHooks.AllowNativeOnlineInit("mcvs"));
+                Assert.Contains("native online SDK init requested", string.Join("\n", host.Boot.Milestones()));
+                Assert.Contains("boot: ", host.DescribeState());
+                Assert.Contains("server.log: ", host.DescribeState());
             }
             finally
             {
@@ -167,6 +184,31 @@ namespace McvsOffline.Embed.Tests.Embedded
         }
 
         [Fact]
+        public void PlatformDiagnosticsAreUsedWhenThePlatformHasThem()
+        {
+            string root = TestEnvironment.NewTempDir("diag");
+            var platform = new DiagnosticPlatform(root);
+            EmbeddedHost host = EmbeddedHost.Start(platform, new EmbeddedHostOptions { Port = TestEnvironment.FreePort() });
+            try
+            {
+                Assert.True(host.WaitForServer(30000));
+                Assert.Equal("error warning", platform.Levels);
+                Assert.NotNull(platform.GameLog);
+                Assert.Equal(Path.Combine(root, "McvsOffline", "logs", "game.log"), platform.GameLog.Path);
+                Assert.Same(host, platform.Started);
+                platform.GameLog.AppendLine("12:00:00.000 Info [Online] {Federation.cs}.LoadConfig:304 | LoadConfig for c on mcvs");
+                Assert.True(host.FlushLogs(10000));
+                Assert.Contains("LoadConfig for c on mcvs", File.ReadAllText(platform.GameLog.Path));
+                Assert.True(host.FlushLogs(10000));
+                Assert.Contains("[gamelog] Gameloft.Logs levels: applied error warning", File.ReadAllText(Path.Combine(root, "McvsOffline", "logs", "bootstrap.log")));
+            }
+            finally
+            {
+                host.Server?.Dispose();
+            }
+        }
+
+        [Fact]
         public void PlatformFailureNeverThrows()
         {
             EmbeddedHost host = EmbeddedHost.Start(new FailingPlatform(), new EmbeddedHostOptions());
@@ -174,6 +216,46 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.NotNull(host);
             Assert.True(host.WaitForServer(1000));
             Assert.Null(host.Server);
+        }
+
+        private sealed class DiagnosticPlatform : IEmbeddedPlatform, IPlatformDiagnostics
+        {
+            private readonly string root;
+
+            public DiagnosticPlatform(string root)
+            {
+                this.root = root;
+            }
+
+            public string Levels;
+            public SafeLogFile GameLog;
+            public EmbeddedHost Started;
+
+            public string Name => "diagnostic";
+
+            public string ResolveGameRoot(Log log) => root;
+
+            public LogSink CreateSystemLogSink(LogLevel minLevel) => null;
+
+            public void InstallCrashHooks() { }
+
+            public string FallbackLogDirectory() => Path.Combine(root, "internal");
+
+            public string ApplyGameLog(Settings settings, SafeLogFile gameLog)
+            {
+                Levels = settings.GetString("gameLog.levels", "?");
+                GameLog = gameLog;
+                return "applied " + Levels;
+            }
+
+            public string JavaStacks(string gameThreadComm) => null;
+
+            public void StartBackground(EmbeddedHost host)
+            {
+                Started = host;
+            }
+
+            public string StatusExtras() => "extras ok";
         }
 
         private sealed class FailingPlatform : IEmbeddedPlatform

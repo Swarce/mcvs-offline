@@ -48,7 +48,7 @@ adb reverse --list          # should list tcp:51780 tcp:51780
 
 ## 4. Push args.txt
 
-The exact file (six lines, LF line endings, no BOM, no tabs; values are case-sensitive, so `Embedded`, not
+The exact file (seven lines, LF line endings, no BOM, no tabs; values are case-sensitive, so `Embedded`, not
 `embedded`):
 
 ```
@@ -58,8 +58,11 @@ The exact file (six lines, LF line endings, no BOM, no tabs; values are case-sen
 -SuperCredential game:mcvsoffline
 -SuperPassword mcvsoffline
 -DeviceId mcvs4f3a9c2e7b1d4e8f9a0b1c2d3e4f5a6b
+-DataCenter mcvs
 ```
 
+- `-DataCenter`: the datacenter name eve answers (`dataCenter` in the server's `settings.json`); with it no Federation asks
+  for the datacenter list.
 - `-DeviceId`: any stable value without spaces (keep it the same across sessions; it is sent with every login).
 - `-SuperCredential` / `-SuperPassword` must match `superCredential` / `superPassword` in the server's
   `settings.json` (these are the defaults). Neither may contain `-` or spaces: the same values are repeated in the
@@ -76,12 +79,13 @@ printf '%s\n' \
   '-EnvironmentSwitcherUrl http://127.0.0.1:51780/' \
   '-SuperCredential game:mcvsoffline' \
   '-SuperPassword mcvsoffline' \
-  '-DeviceId mcvs4f3a9c2e7b1d4e8f9a0b1c2d3e4f5a6b' > args.txt
+  '-DeviceId mcvs4f3a9c2e7b1d4e8f9a0b1c2d3e4f5a6b' \
+  '-DataCenter mcvs' > args.txt
 adb push args.txt /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/args.txt
 adb shell ls -l /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/   # args.txt next to Data/
 ```
 
-On Windows without a POSIX shell, save the six lines with an editor that writes UTF-8 **without BOM** and LF endings
+On Windows without a POSIX shell, save the seven lines with an editor that writes UTF-8 **without BOM** and LF endings
 (a BOM glues itself to `-ServerLocation` and that line is lost, verify-C1 §1.2).
 
 The file must sit next to `Data/`. On old phones with an extra `/storage/sdcard*` volume the game may keep its data

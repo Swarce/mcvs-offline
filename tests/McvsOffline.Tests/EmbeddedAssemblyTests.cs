@@ -17,7 +17,7 @@ namespace McvsOffline.Tests
     {
         private static readonly HashSet<string> AllowedReferences = new HashSet<string>(StringComparer.Ordinal)
         {
-            "mscorlib", "System", "System.Core", "Mono.Android", "Java.Interop",
+            "mscorlib", "System", "System.Core", "Mono.Android", "Java.Interop", "Gameloft.Logs",
         };
 
         private readonly ITestOutputHelper output;

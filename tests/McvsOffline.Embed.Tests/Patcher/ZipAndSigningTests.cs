@@ -154,6 +154,7 @@ namespace McvsOffline.Embed.Tests.Patcher
                 ZipEntry.CreateDeflated("lib/armeabi-v7a/libaot-NicePlaySDK.dll.so", new byte[3001], null),
                 ZipEntry.CreateDeflated("lib/arm64-v8a/libaot-Other.dll.so", new byte[3002], null),
                 ZipEntry.CreateStored("res/raw/odd.bin", new byte[] { 9, 9, 9 }, null),
+                ZipEntry.CreateStored("res/raw/args.txt", Encoding.ASCII.GetBytes(KnownBuild.RawArgsOriginal), null),
                 ZipEntry.CreateStored("resources.arsc", new byte[517], null),
             };
             return ZipArchiveWriter.Write(entries);
@@ -177,6 +178,7 @@ namespace McvsOffline.Embed.Tests.Patcher
                 Signer = signer,
                 Force = true,
                 SkipServerReferenceCheck = true,
+                TestOnlyHookIsMandatory = true,
             };
             return ApkPatcher.Run(options, s => output.WriteLine(s));
         }
@@ -215,6 +217,12 @@ namespace McvsOffline.Embed.Tests.Patcher
             foreach (ZipEntry e in result.Entries.Where(e => e.Method == ZipEntry.MethodStored))
                 Assert.Equal(0, ZipTests.DataOffset(bytes, e) % 4);
             Assert.NotEqual(input.Find("assemblies/NicePlaySDK.dll").RawData, result.Find("assemblies/NicePlaySDK.dll").RawData);
+            // --game-log all (the default): res/raw/args.txt keeps its name and STORED method, without -LogCategoryFilter.
+            Assert.Contains("res/raw/args.txt", report.Modified);
+            ZipEntry rawArgs = result.Find("res/raw/args.txt");
+            Assert.Equal(ZipEntry.MethodStored, rawArgs.Method);
+            Assert.Equal(KnownBuild.RawArgsAllLevels, Encoding.ASCII.GetString(rawArgs.GetData()));
+            Assert.Contains(report.Notes, n => n.StartsWith("res/raw/args.txt: ", StringComparison.Ordinal));
             Assert.Equal(ZipEntry.MethodStored, result.Find("assemblies/NicePlaySDK.dll").Method);
         }
 
@@ -309,7 +317,11 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Equal("secret", o.KeystorePassword);
             Assert.Equal(SignerChoice.BuiltIn, o.Signer);
             Assert.Equal(AotStripMode.All, o.StripAot);
-            Assert.Equal(new[] { "bottile", "finder", "geo" }, McvsOffline.Patcher.Program.Parse(new[] { "--apk", "a", "--server", "s", "--out", "o" }).Patches);
+            PatcherOptions defaults = McvsOffline.Patcher.Program.Parse(new[] { "--apk", "a", "--server", "s", "--out", "o" });
+            Assert.Equal(new[] { "bottile", "finder", "geo", "nativeonline", "store", "waits" }, defaults.Patches);
+            Assert.Equal(GameLogMode.All, defaults.GameLog);
+            Assert.Equal(GameLogMode.Fatal, McvsOffline.Patcher.Program.Parse(new[] { "--apk", "a", "--server", "s", "--out", "o", "--game-log", "fatal" }).GameLog);
+            Assert.Throws<ArgumentException>(() => McvsOffline.Patcher.Program.Parse(new[] { "--apk", "a", "--server", "s", "--out", "o", "--game-log", "debug" }));
             Assert.Null(McvsOffline.Patcher.Program.Parse(new[] { "--help" }));
             Assert.Throws<ArgumentException>(() => McvsOffline.Patcher.Program.Parse(new[] { "--apk", "a", "--server", "s" }));
             Assert.Throws<ArgumentException>(() => McvsOffline.Patcher.Program.Parse(new[] { "--apk", "a", "--server", "s", "--out", "o", "--port", "0" }));

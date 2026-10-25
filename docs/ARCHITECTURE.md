@@ -71,7 +71,11 @@ the exact format — space/CR/LF delimited, no tabs, no BOM, case-sensitive enum
 -SuperCredential game:mcvsoffline
 -SuperPassword mcvsoffline
 -DeviceId <stable per-device id>
+-DataCenter mcvs
 ```
+
+`-DataCenter` makes every Federation (client, LocalAnubis, and through `cmd_args` the TS/GS Worlds) skip eve's datacenter
+list (device test 1, STATUS.md).
 
 The in-process TS/GS Worlds are built while `GameApplication.Args` = the **`cmd_args` from our
 `matchmaker lobbyconfigs` response**, so those must repeat the eve URL and super credential:
@@ -95,11 +99,33 @@ later, at `JNIBridge.NativeInit`). Delete `libaot-NicePlaySDK.dll.so` for both A
 AOT mode falls back to JIT). Re-sign (zipalign + apksigner v1+v2). The native signature check has no
 local effect; neutralising it is optional.
 
+Mandatory IL patches for the in-process servers (device test 1, STATUS.md): `headless` (Game.dll) and `headless-engine`
+(Gameloft.Engine.dll) keep client-only components out of the headless TS/GS Worlds (`InputSettingsComponent`,
+`SoundGroupSnapshotComponent` get `[KeepInHeadlessMode(false)]`; null-safe HudGamepad and VfxAnimator calls; audio and
+input singletons left alone) and turn `Component.Events.GetSafeAction` into a try/catch that applies to headless Worlds
+only, reporting instead of ending the player's process. Mandatory `physics` (Gameloft.Engine.dll; addresses the leading,
+not yet confirmed hypothesis for the device-test-2 hang): every multithreaded Havok world in the process steps through one
+process-wide hkCpuThreadPool/hkJobQueue that serves one stepping thread at a time, and GameOptions_android.json makes every
+World multithreaded (client physics deferred to a loading-pool thread). Server Worlds therefore get single-threaded Havok,
+as on Gameloft's servers (`PhysicsComponent` constructor -> `McvsPhysics.UseMultithreading`), and every World's step runs
+inside a process-wide, time-bounded gate (`UpdateSimulationSteps`); settings `embedded.physics.*` revert each part for A/B
+runs.
+
 Recommended extra IL patches (all optional, patcher flags):
+- `waits` (default, hardening with no observed trigger): the pumping `TaskExtension.WaitAndWork` helpers wait in 100 ms
+  slices (`WaitAny(handles, 100)`). This bounds the two wake-up gaps in the shipped code: a context re-enabled by
+  `World.OnLoadedScene` raises no `WorkItemAdded`, and the `NativeTaskAdded` accessors install and remove the native
+  callback with an unlocked check-then-act. Not covered: contexts registered after the wait began, because `Currents`
+  is a snapshot. `DelayedPost` has no caller.
+- `nativeonline` (default): `OnlinePlatformComponent.Init_private` (the native "GaiaInit") runs only when
+  `settings.json` `embedded.nativeOnlineSdk` is true; with the internet on, the native online SDK froze the boot.
 - `geo`: point the hard-coded `http://ip.ecomapis.gameloft.org/location/` (TS handshake, 100 s timeout vs
   60 s handshake) at our server.
 - `bottile`: route the BOTMATCH tile to the full-progression GS flow (verify-C4: `NativeStartMatchWithBots`
   lambda `IL_0007 ldc.i4.2 -> ldc.i4.1`).
+- `store` (default, device test 3): `KillSignatureRewardItem.GetAvailableId` no longer dereferences its null list for
+  sounds (unowned sound -> its id, random/other -> null), and the `GameUnifiedStoreComponent.SelectItems` availability
+  filter runs in try/catch (an item that throws is skipped and reported through `GameHooks.StoreItemException`).
 - `lan`: P1 Finder prefix `"*"`, P2 cache a real `PublicHost` at `LocalAnubisManager.Start`, P3
   `ClientSettings.LocalAnubisFinderHost = Args.RemoteIp ?? PublicHost` (verify-C6).
 
@@ -133,7 +159,7 @@ over loopback — send `false` unless the player enabled it), `_OverrideTables` 
 **Economy / unlocks.** Everything purchasable for **VersusCoins** (the repeatable currency; HC is
 finite) via `offline_store` and the generic `#VersusCoins` hub category (which can sell any reward
 string, incl. weapons, camos, sounds, crates). Unlock-all, all opt-in through settings: dev cheat
-menu, a coupon code (`assets coupons/{cid}/{code}` → `[{type:"UnlockMerc_ALL_MAX",quantity:1}, ...]`),
+menu, a coupon code (`assets coupons/{cid}/{code}` → `[{type:"UnlockMerc_2",quantity:1}, ...]`),
 and the inventory ledger.
 
 **Everything else** (social events, Hermes messaging/inbox, Kairos alerts, Olympus leaderboards,
@@ -148,13 +174,5 @@ up; removed on uninstall), standalone `./data/`.
 
 ## 4. Roadmap
 
-| Stage | Deliverable |
-|---|---|
-| **M0** | Standalone server passes the conformance harness (real `Gameloft.OnlinePlatform.dll`); dev-loop guide (stock APK + `args.txt` + `adb reverse`). |
-| **M1** | Patcher + embedded build → offline APK boots to menu, saves, plays bot-filled PvP (device test). |
-| **M2** | Content: full VersusCoins catalogue, coupons, settings UI-free toggles, economy tuning. |
-| **M3** | LAN P2P: `lan` patches; host GS reaches guests' profiles by forwarding storage/verify to the guest's own embedded server (each device keeps its own progression); LAN discovery (reuse the UDP 50034 responder or our own). |
-| **M4** | Internet P2P: overlay VPN guide first; optional relay; host-leaves handling. |
-| **M5** | Preservation extras: missing maps from older CDN builds (Barrage, Bridge, Downtown, Gym), serving the data archive locally for fresh installs (`qaTestingConfigs.txt DATA_LINK`). |
-
-Open device-test risks are tracked in `docs/research/verify-*.md` ("remaining_risks").
+The roadmap, with finished items struck through, is in [ROADMAP.md](ROADMAP.md). Device-test history and open
+risks are tracked in [STATUS.md](STATUS.md) and `docs/research/verify-*.md` ("remaining_risks").

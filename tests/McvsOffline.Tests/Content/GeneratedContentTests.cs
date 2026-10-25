@@ -104,13 +104,14 @@ namespace McvsOffline.Tests.Content
                 }
             }
             Assert.True(skins >= 39, "skins " + skins);
-            Assert.Equal(1518, avatars);
+            Assert.Equal(1512, avatars); // 1513-1518 were never released: UNLOCKUNRELEASED only, not sold
             Assert.Equal(35, backgrounds);
             Assert.True(packs >= 40, "packs " + packs);
             foreach (string id in new[] { "MercWeapon_1_2", "WeaponCamo_1_Random", "MercAccessory_21_Random", "GearSlot_1_1",
                                           "ModTier_1_4", "KillSignature_Sound_2", "Crate_MOD_T3", "SubscriptionCard_30" })
                 Assert.True(byName.ContainsKey(id), id);
             Assert.False(byName.ContainsKey("KillSignature_Sound_1")); // starting inventory
+            for (int i = 1513; i <= 1518; i++) Assert.False(byName.ContainsKey("KillSignature_Avatar_" + i));
             output.WriteLine(items.Count + " offline_store entries, " + hub + " in the VersusCoins hub (" + packs + " packs)");
         }
 
@@ -135,7 +136,9 @@ namespace McvsOffline.Tests.Content
                 }
                 Assert.Equal(group["count"], expanded);
             }
-            Assert.Equal(new[] { "UnlockMerc_ALL_MAX" }, new List<string>(RewardPattern.Expand((string)JsonPath.Get(unlocks, "groups.0.items.0"))));
+            var mercGroup = new List<string>();
+            foreach (object p in (List<object>)JsonPath.Get(unlocks, "groups.0.items")) mercGroup.AddRange(RewardPattern.Expand((string)p));
+            Assert.Equal(AssetsTests.MercGroup, mercGroup);
 
             var coupons = Load("coupons.json");
             foreach (var code in (Dictionary<string, object>)coupons["codes"])
@@ -143,7 +146,10 @@ namespace McvsOffline.Tests.Content
                 Assert.Equal(code.Key, CouponCatalog.Normalize(code.Key));
                 foreach (object g in (List<object>)JsonPath.Get(code.Value, "groups")) Assert.Contains((string)g, groupIds);
             }
-            Assert.Equal(groupIds.Count, ((List<object>)JsonPath.Get(coupons, "codes.UNLOCKALL.groups")).Count);
+            // UNLOCKALL is exactly the full unlock ("order", what settings.unlockAll grants); the opt-in groups
+            // (mercUnlocks, paid*, unreleased) are only reachable through their own codes.
+            Assert.Equal(order, (List<object>)JsonPath.Get(coupons, "codes.UNLOCKALL.groups"));
+            Assert.DoesNotContain((object)"unreleased", order);
         }
 
         [Fact]

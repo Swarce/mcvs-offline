@@ -4,9 +4,11 @@ A preservation project for **Modern Combat Versus** (Gameloft, Android, APK 1.17
 `com.gameloft.android.ANMP.GloftMVHM`): the game fully offline, with full progression saved on the device,
 everything obtainable, bot matches, and later LAN and internet P2P.
 
-**Status: feature-complete on the server side, not yet run on a device.** Every piece builds and passes its tests,
-including a conformance harness that drives the game's own client libraries against the server. Nobody has booted the
-patched game on a phone yet; [docs/STATUS.md](docs/STATUS.md) lists what that first device session must check.
+**Status: feature-complete on the server side, first device test done.** Every piece builds and passes its tests,
+including a conformance harness that drives the game's own client libraries against the server. The first device test
+(October 2026) booted the patched game as far as the in-process game server loading its level; the two blockers it found
+are fixed and the build now carries detailed diagnostics. [docs/STATUS.md](docs/STATUS.md) has the findings and what the
+next device session must check.
 
 ## How it works
 
@@ -25,14 +27,14 @@ change to the game's logic. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (no
 
 | Goal | Status | Where |
 |---|---|---|
-| Fully offline boot to the menu | Server complete; conformance-tested with the real client libraries; **device test pending** | AUTH, STORAGE, CONTENT, MISC; [STATUS](docs/STATUS.md) |
+| Fully offline boot to the menu | Server complete; conformance-tested with the real client libraries; device test 1 reached the TS level load (fixes in, **device test 2 pending**) | AUTH, STORAGE, CONTENT, MISC; [STATUS](docs/STATUS.md) |
 | Full progression saved on the device | Storage complete: byte-exact profile dumps, no ETags, 401 never 403, atomic writes plus directory fsync, backups, corrupt-file recovery | [protocol/storage.md](docs/protocol/storage.md) |
 | Everything obtainable | VersusCoins economy (1,864 store entries), unlock coupons (`UNLOCKALL` and split codes), optional `unlockAll` through the inventory ledger, optional developer menu | [ECONOMY.md](docs/ECONOMY.md), [protocol/content.md](docs/protocol/content.md), [protocol/unlocks.md](docs/protocol/unlocks.md) |
 | Bot matches with full rewards | Instant bot-filled PvP through CRM (`MinPlayers 1`), `bottile` patch routes the BOTMATCH tile to the full-progression GS flow | [verify-C4](docs/research/verify-C4-bot-match-progression.md), patcher |
-| Player build (offline APK) | Patcher complete (hook, geo, bottile, finder; signing v1/v2/v3); checked offline with apksigner, zipalign and ILVerify | [PLAYER-SETUP.md](docs/PLAYER-SETUP.md) |
-| LAN P2P | Experimental: `lan` patch and LAN mode exist; guests must use the host's server for everything (topology A). Forwarding to each device's own server is not implemented | roadmap M3, [verify-C6](docs/research/verify-C6-lan-p2p.md) |
-| Internet P2P | Not started (planned: overlay VPN guide first) | roadmap M4 |
-| Preservation extras (missing maps, local data archive) | Not started | roadmap M5 |
+| Player build (offline APK) | Patcher complete (hook, geo, bottile, finder, store; signing v1/v2/v3); checked offline with apksigner, zipalign and ILVerify | [PLAYER-SETUP.md](docs/PLAYER-SETUP.md) |
+| LAN P2P | Experimental: `lan` patch and LAN mode exist; guests must use the host's server for everything (topology A). Forwarding to each device's own server is not implemented | [roadmap](docs/ROADMAP.md) M3, [verify-C6](docs/research/verify-C6-lan-p2p.md) |
+| Internet P2P | Not started (planned: overlay VPN guide first) | [roadmap](docs/ROADMAP.md) M4 |
+| Preservation extras (missing maps, local data archive) | Not started | [roadmap](docs/ROADMAP.md) M5 |
 
 ## Quickstart
 
@@ -106,7 +108,7 @@ docs/              architecture, module guide, protocol notes, status, guides, r
 ## Documentation
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the design (normative)
-- [docs/STATUS.md](docs/STATUS.md): what is implemented, what is untested on a device, the device-test checklist
+- [docs/STATUS.md](docs/STATUS.md): what is implemented, the device-test findings, the expected log sequence, the device-test checklist
 - [docs/DEV-LOOP.md](docs/DEV-LOOP.md): stock APK against the standalone server
 - [docs/PLAYER-SETUP.md](docs/PLAYER-SETUP.md): building and installing the offline APK
 - [docs/PROTOCOL.md](docs/PROTOCOL.md): index of the per-service protocol notes
