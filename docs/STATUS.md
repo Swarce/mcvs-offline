@@ -12,8 +12,8 @@ level. Then the game hung on "connecting", with the game thread asleep in a fute
 single-threaded physics, let only one World step at a time and added thread dumps to the watchdog: **in device test 3 the
 game booted to the menu and played matches**; it found two crashes (unlock-all, the shop), fixed in build 4. **Device test
 4: boot, bot matches, saves, the shop and the unlock codes work**; open were the installer stalling at 0 MB / 0 % on a
-copied `Data/` folder and the avatar editor freezing after unlock-all. Build 5 adds the offline data install, a 64-bit-only
-APK and live ops (weekly division seasons, daily missions, weekly events); device test 5 is next (checklist below).
+copied `Data/` folder and the avatar editor freezing after unlock-all. Build 5 adds the offline data install, an optional
+64-bit-only APK (`--abi arm64-v8a`; 32-bit is kept by default again) and live ops (weekly division seasons, daily missions, weekly events); device test 5 is next (checklist below).
 
 ## Build 5 (October 2026): offline data install, 64-bit only, live ops
 
@@ -32,8 +32,8 @@ APK and live ops (weekly division seasons, daily missions, weekly events); devic
   `Data/` that is exactly the complete 1.17.32 pack (15,747 files, size per texture format) gets a rebuilt, size-only
   index; `InsTime` is refreshed so the weekly CDN version check never runs; `[installer]` lines log the installer's
   states. No `classes.dex` change; the installer's own checks still run. Settings `install.*`.
-* **arm64-v8a only**: the patcher drops `lib/armeabi-v7a` (67 entries, their AOT images included; APK 57 MB -> 44 MB);
-  `--abi all` keeps both.
+* **ABIs**: the patcher keeps every ABI by default (32-bit `lib/armeabi-v7a` restored after build 5); `--abi arm64-v8a`
+  drops the 67 `lib/armeabi-v7a` entries (APK 57 MB -> 44 MB).
 * **Live ops** ([LIVEOPS.md](LIVEOPS.md)), computed from the clock and `settings.json` (`liveops.*`), nothing stored by
   the server: a division season every Monday 00:00 UTC (17 division events, a league group of 100 with rivals that grow
   during the week and freeze at the end; the TS itself promotes, demotes and puts the season reward in the inbox), a daily

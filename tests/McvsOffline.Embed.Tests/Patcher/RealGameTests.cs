@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using McvsOffline.Embed.Tests.Support;
@@ -37,6 +38,7 @@ namespace McvsOffline.Embed.Tests.Patcher
                 InputApk = apk,
                 ServerDll = server,
                 Patches = PatcherOptions.ParsePatchList("all"),
+                Abis = new SortedSet<string>(new[] { PatcherOptions.Arm64 }, StringComparer.Ordinal),   // --abi arm64-v8a
                 DryRun = true,
             };
             PatchReport report = ApkPatcher.Run(options, s => output.WriteLine(s));
@@ -70,7 +72,7 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Equal(4, aot.Count);
             foreach (string dll in new[] { "Game", "Gameloft.Engine", "Gameloft.Util", "NicePlaySDK" })
                 Assert.Contains("lib/arm64-v8a/libaot-" + dll + ".dll.so", aot);
-            // 64-bit only: every lib/armeabi-v7a entry goes (67 in 1.17.32), nothing of arm64-v8a but those four.
+            // --abi arm64-v8a: every lib/armeabi-v7a entry goes (67 in 1.17.32), nothing of arm64-v8a but those four.
             var input = ZipArchiveReader.Read(apk);
             var dropped = report.Removed.Where(r => r.Contains("(native library of an ABI not kept")).Select(r => r.Split(' ')[0]).ToList();
             Assert.Equal(input.Entries.Count(e => e.Name.StartsWith("lib/armeabi-v7a/", StringComparison.Ordinal)), dropped.Count);
@@ -103,8 +105,8 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.DoesNotContain("res/raw/args.txt", fatal.Modified);
             Assert.Equal(21, fatal.Notes.Count);
 
-            // --abi all keeps both ABIs (the old behaviour): both lose the AOT images of the modified assemblies.
-            PatchReport both = ApkPatcher.Run(new PatcherOptions { InputApk = apk, ServerDll = server, DryRun = true, Abis = null }, null);
+            // The default keeps both ABIs: both lose the AOT images of the modified assemblies.
+            PatchReport both = ApkPatcher.Run(new PatcherOptions { InputApk = apk, ServerDll = server, DryRun = true }, null);
             Assert.DoesNotContain(both.Removed, r => r.Contains("(native library of an ABI not kept"));
             Assert.Equal(8, both.Removed.Count(r => r.Contains("(AOT image")));
             Assert.Contains("native libraries: every ABI kept (arm64-v8a, armeabi-v7a)", both.Notes);

@@ -95,7 +95,7 @@ Embedded wiring (verify-C7): add `McvsOffline.Server.dll` to `assemblies/`; IL-p
 `NicePlaySDKDLL.OnInitialize` (reflectively invoked by `XamarinMainActivity.OnCreate` *before*
 `MainLoop.Start`, Java `GameInstaller` and native init) to call `McvsOffline.Bootstrap.Init()`.
 `Init()` starts the server thread and writes/merges the managed block of `args.txt` (native reads it
-later, at `JNIBridge.NativeInit`). Delete `libaot-NicePlaySDK.dll.so` for each ABI kept (default arm64-v8a only; the 32-bit `lib/armeabi-v7a` is dropped) (Mono "normal"
+later, at `JNIBridge.NativeInit`). Delete `libaot-NicePlaySDK.dll.so` for each ABI kept (default: every ABI; `--abi arm64-v8a` drops the 32-bit `lib/armeabi-v7a`) (Mono "normal"
 AOT mode falls back to JIT). Re-sign (zipalign + apksigner v1+v2). The native signature check has no
 local effect; neutralising it is optional.
 

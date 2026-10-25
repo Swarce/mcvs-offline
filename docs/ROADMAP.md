@@ -16,7 +16,7 @@ Done items are struck through. Device-test history and open risks are in [STATUS
 
 - **Live-ops** ([LIVEOPS.md](LIVEOPS.md)): weekly division seasons (promotion, demotion and season rewards by the game's own TS; rivals scaled to a one-week season), a weekly modifier rotation, daily missions and weekly events, all generated from the clock and working offline. Permanent achievements are switched off in 1.17.32 itself; the daily and weekly events are the time-limited achievement events instead.
 - **Install from copied data** ([INSTALL-OFFLINE.md](INSTALL-OFFLINE.md)): the installer's index is kept with a backup of `files/`, restored from it or from a mirror, or rebuilt for a complete `Data/` folder (the 0 MB / 0 % stall); fresh installs from a `tools/cdn-mirror` mirror need no CDN.
-- **arm64-only APK**: 32-bit native libraries dropped (57 MB -> 44 MB).
+- **ABIs**: 32-bit kept by default again; `--abi arm64-v8a` gives a 64-bit-only APK (57 MB -> 44 MB).
 - **Avatar editor hang** with ~1,500 owned avatars: investigated, not patched (no managed hot spot; the work is in the UI's Flash VM). Needs a thread dump of the freeze (see Next).
 
 ## Next

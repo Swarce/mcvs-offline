@@ -67,15 +67,15 @@ namespace McvsOffline.Patcher
 
         public AotStripMode StripAot { get; set; } = AotStripMode.Modified;
 
-        /// <summary>The 64-bit ARM ABI, the only one the offline build ships by default.</summary>
+        /// <summary>The 64-bit ARM ABI (--abi arm64-v8a gives a 64-bit-only APK).</summary>
         public const string Arm64 = "arm64-v8a";
 
         /// <summary>
-        /// Native-library ABIs kept in the output (lib/&lt;abi&gt;/**); every other lib/ folder is dropped. Default arm64-v8a only:
-        /// the offline build targets 64-bit phones, and the 32-bit copies (lib/armeabi-v7a, lib/armeabi, lib/x86) are about half
-        /// of lib/. Null keeps every ABI (--abi all).
+        /// Native-library ABIs kept in the output (lib/&lt;abi&gt;/**); every other lib/ folder is dropped. Null, the default,
+        /// keeps every ABI the APK ships (--abi all), so 32-bit phones keep working; --abi arm64-v8a drops the 32-bit copies
+        /// (lib/armeabi-v7a, about half of lib/).
         /// </summary>
-        public SortedSet<string> Abis { get; set; } = new SortedSet<string>(new[] { Arm64 }, StringComparer.Ordinal);
+        public SortedSet<string> Abis { get; set; }
 
         /// <summary>
         /// What the game itself logs (Gameloft.Logs to logcat "mono-stdout"). The default is All while the offline build is

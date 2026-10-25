@@ -39,8 +39,8 @@ namespace McvsOffline.Patcher
     /// <item>add McvsOffline.Server.dll to assemblies/ (STORED, 4-byte aligned, like every assembly there);</item>
     /// <item>delete lib/&lt;abi&gt;/libaot-X.dll.so of every modified assembly X so Mono JITs the patched IL (AOT
     /// mode "normal" falls back to JIT, verify-C7 §3);</item>
-    /// <item>keep only the native libraries of the selected ABIs (default arm64-v8a: lib/armeabi-v7a/** and any other
-    /// lib/&lt;abi&gt;/ folder are dropped; nothing else in the APK refers to them, Android picks the ABI from lib/);</item>
+    /// <item>keep the native libraries of the selected ABIs (default: every ABI the APK ships; with --abi arm64-v8a the
+    /// other lib/&lt;abi&gt;/ folders are dropped, nothing else in the APK refers to them, Android picks the ABI from lib/);</item>
     /// <item>never touch the six typemap-pinned assemblies (their MVIDs are baked into libxamarin-app.so);</item>
     /// <item>rename the manifest's vendor-wide signature permission into the package's namespace, so the re-signed APK
     /// installs next to other Gameloft games (<see cref="ManifestPatch"/>);</item>

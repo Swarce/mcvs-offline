@@ -208,7 +208,7 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Null(PatcherOptions.ParseAbiList("all"));
             Assert.Throws<ArgumentException>(() => PatcherOptions.ParseAbiList("arm65"));
             Assert.Throws<ArgumentException>(() => PatcherOptions.ParseAbiList(""));
-            Assert.Equal(new[] { "arm64-v8a" }, new PatcherOptions().Abis);
+            Assert.Null(new PatcherOptions().Abis);
             Assert.Equal("armeabi-v7a", ApkPatcher.AbiOf("lib/armeabi-v7a/libmonodroid.so"));
             Assert.Null(ApkPatcher.AbiOf("assemblies/Game.dll"));
             Assert.Null(ApkPatcher.AbiOf("lib/odd"));

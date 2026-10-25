@@ -12,7 +12,7 @@ project or redistributed: the patcher works on your APK, and the server reads yo
 
 You need:
 
-- a 64-bit Android phone (arm64-v8a, every phone from about 2017 on): the offline build ships 64-bit ARM code only;
+- an Android phone: tested on 64-bit ARM (arm64-v8a); the build also keeps the 32-bit libraries (untested);
 - a PC (Linux, macOS or Windows) with the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0);
 - `adb` (Android platform-tools) and USB debugging enabled on the phone;
 - optional: Android **build-tools** (`apksigner`, `zipalign`) and Java. Without them the patcher signs with its own
@@ -83,7 +83,7 @@ The patcher prints every change it makes and finishes with a signature check. Us
 | `--keystore <file.p12>` | Your signing key. Without it a key is created once in `~/.config/McvsOffline/` (Windows: `%APPDATA%\McvsOffline\`) and reused. |
 | `--build-tools <dir>` | Folder with `apksigner` and `zipalign`; otherwise they are looked up on `PATH` and in `$ANDROID_HOME/build-tools`. |
 | `--signer builtin` | Do not use apksigner, even if it is installed. |
-| `--abi arm64-v8a` | Native libraries to keep. The default is **64-bit ARM only**: the 32-bit copies (`lib/armeabi-v7a`) are dropped (the APK gets about 14 MB smaller; a 64-bit phone never used them). `--abi all` keeps them (for a 32-bit phone; untested). |
+| `--abi arm64-v8a` | Native libraries to keep. The default keeps **every ABI** the APK ships (64-bit `arm64-v8a` and 32-bit `armeabi-v7a`). `--abi arm64-v8a` drops the 32-bit copies for a 64-bit-only APK (about 14 MB smaller; a 64-bit phone never uses them). |
 | `--dry-run` | Check that every patch site matches, write nothing. |
 
 What the patches do:

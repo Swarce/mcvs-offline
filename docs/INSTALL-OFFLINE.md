@@ -6,8 +6,8 @@ still answered in October 2026, but it will not stay up forever. This page expla
 that is already there (a backup, or a mirror you made), so the game starts **with no internet at all**, and what to do
 if something goes wrong.
 
-The offline build is **64-bit only** (arm64-v8a phones, which is every phone from about 2017 on, such as the Galaxy S22).
-The patcher drops the 32-bit libraries (`lib/armeabi-v7a`); `--abi all` keeps them for an old 32-bit phone (untested).
+The patcher keeps both the 64-bit (`arm64-v8a`) and 32-bit (`armeabi-v7a`) libraries by default; `--abi arm64-v8a` builds a
+smaller 64-bit-only APK (every phone from about 2017 on, such as the Galaxy S22, is 64-bit). 32-bit phones are untested.
 
 ## What you need on the phone
 
