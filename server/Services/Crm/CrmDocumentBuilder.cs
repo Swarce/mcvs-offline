@@ -54,6 +54,7 @@ namespace McvsOffline.Server.Services.Crm
             ApplyEvents(doc, options);
 
             if (options.Overlay != null) JsonPath.DeepMerge(doc, options.Overlay);
+            CrmDocumentValidator.Sanitize(doc, log);
 
             // The overlay may have replaced "game"; re-resolve before the final passes.
             game = ChildObject(doc, "game");

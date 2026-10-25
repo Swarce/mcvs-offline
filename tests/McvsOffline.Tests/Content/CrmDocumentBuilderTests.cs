@@ -238,12 +238,35 @@ namespace McvsOffline.Tests.Content
             Assert.Contains("needs exactly one '@'", all);
             Assert.Contains("billing_methods must be a non-empty array", all);
             Assert.Contains("offline_store.promotion", all);
-            Assert.Contains("iap.prices[0].hidden", all);
+            Assert.Contains("iap.prices[0]: hidden", all);
             Assert.Contains("limit must be an array", all);
             Assert.Contains("fatigue_groups", all);
 
             Assert.Contains("document is not an object", string.Join("", CrmDocumentValidator.Validate(null)));
             Assert.Contains("game must be an object", string.Join("", CrmDocumentValidator.Validate(new Dictionary<string, object>())));
+        }
+
+        [Fact]
+        public void OverridesThatWouldBreakTheClientParsersAreRepaired()
+        {
+            var o = new CrmOptions
+            {
+                Overlay = MiniJson.ParseObject(@"{""expiry"":12,
+                  ""fatigue_groups"":[{""name"":""ok"",""limit"":[]},{""name"":""no limit""}],
+                  ""iap"":{""prices"":[{""_id"":""good"",""hidden"":true},{""_id"":""bad""}]},
+                  ""groupware"":{""events"":{""participation"":[{""id"":""e1""},{""x"":1}]}}}"),
+            };
+            var doc = CrmDocumentBuilder.Build(null, Content(), o, Log.Null);
+            Assert.False(doc.ContainsKey("expiry"));
+            Assert.Single((List<object>)doc["fatigue_groups"]);
+            Assert.Equal("good", At(doc, "iap.prices.0._id"));
+            Assert.Single((List<object>)At(doc, "iap.prices"));
+            Assert.Single((List<object>)At(doc, "groupware.events.participation"));
+            Assert.Empty(CrmDocumentValidator.Validate(doc));
+
+            var broken = MiniJson.ParseObject(@"{""pointcut_actions"":{""not"":""a list""}}");
+            Assert.Equal(1, CrmDocumentValidator.Sanitize(broken, Log.Null));
+            Assert.Empty((List<object>)broken["pointcut_actions"]);
         }
 
         [Theory]

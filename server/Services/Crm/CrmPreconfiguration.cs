@@ -31,6 +31,13 @@ namespace McvsOffline.Server.Services.Crm
         /// <summary>Default minimum time between two attempts while the file is missing.</summary>
         public const int DefaultRetryIntervalMs = 10000;
 
+        private readonly object gate = new object();
+        private readonly object loadGate = new object();
+        private Dictionary<string, object> document;
+        private bool loaded;
+        private bool final;
+        private int lastAttemptTick;
+
         public CrmPreconfiguration()
         {
             RetryIntervalMs = DefaultRetryIntervalMs;
@@ -38,13 +45,6 @@ namespace McvsOffline.Server.Services.Crm
 
         /// <summary>Minimum time between two attempts while the file is missing (tests lower it).</summary>
         public int RetryIntervalMs { get; set; }
-
-        private readonly object gate = new object();
-        private readonly object loadGate = new object();
-        private Dictionary<string, object> document;
-        private bool loaded;
-        private bool final;
-        private int lastAttemptTick;
 
         /// <summary>Where the document came from (for logs and diagnostics), or why it is missing.</summary>
         public string Source { get; private set; }

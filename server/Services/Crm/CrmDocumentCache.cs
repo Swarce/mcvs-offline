@@ -92,6 +92,9 @@ namespace McvsOffline.Server.Services.Crm
         private string optionsKey;
         private CrmOptions options;
         private bool warmupStarted;
+        private bool retryRunning;
+        private bool retried;
+        private int lastRetryTick;
 
         public CrmDocumentCache(ServerContext context, CrmPreconfiguration preconfiguration, Log log)
         {
@@ -110,7 +113,8 @@ namespace McvsOffline.Server.Services.Crm
             {
                 try
                 {
-                    LoadPreconfiguration(CurrentOptions());
+                    string ignored;
+                    LoadPreconfiguration(CurrentOptions(out ignored));
                     firstAttemptDone.Set();
                     Get(0);
                 }
@@ -145,22 +149,29 @@ namespace McvsOffline.Server.Services.Crm
         /// </summary>
         public CrmDocument Get(int preconfigWaitMs)
         {
-            CrmOptions o = CurrentOptions();
+            string optionsFingerprint;
+            CrmOptions o = CurrentOptions(out optionsFingerprint);
             if (o.UsePreconfiguration)
             {
                 bool started;
                 lock (gate) started = warmupStarted;
-                if (!started) LoadPreconfiguration(o);   // no warm-up thread (tests, tools): load inline
-                else if (preconfigWaitMs > 0 && !preconfiguration.IsLoaded) firstAttemptDone.WaitOne(preconfigWaitMs);
-                // Retry a missing file (fresh install) only after the warm-up made its first attempt, so the slow first
-                // load never runs on a request thread while the warm-up is doing it.
-                if (preconfiguration.IsLoaded && !preconfiguration.IsFinal) LoadPreconfiguration(o);
+                if (!started)
+                {
+                    LoadPreconfiguration(o);   // no warm-up thread (tests, tools): load inline
+                }
+                else
+                {
+                    if (preconfigWaitMs > 0 && !preconfiguration.IsLoaded) firstAttemptDone.WaitOne(preconfigWaitMs);
+                    // A missing file (fresh install) is retried on a background thread: parsing the 2 MB file on a
+                    // request thread could push the TS past its 1 s WaitForCRM. This request uses what we have.
+                    if (preconfiguration.IsLoaded && !preconfiguration.IsFinal) RetryInBackground(o);
+                }
             }
             bool withPre = o.UsePreconfiguration && preconfiguration.HasDocument;
 
             lock (gate)
             {
-                string key = optionsKey + "|" + (withPre ? "pre" : "nopre") + "|" + generation;
+                string key = optionsFingerprint + "|" + (withPre ? "pre" : "nopre") + "|" + generation;
                 if (cached != null && cachedKey == key) return cached;
 
                 var content = CrmContent.Load(context.Content, log);
@@ -179,6 +190,36 @@ namespace McvsOffline.Server.Services.Crm
             }
         }
 
+        private void RetryInBackground(CrmOptions o)
+        {
+            lock (gate)
+            {
+                // TickCount wraps (negative after ~25 days of uptime): compare differences, and only once one exists.
+                if (retryRunning || (retried && unchecked(Environment.TickCount - lastRetryTick) < preconfiguration.RetryIntervalMs)) return;
+                retryRunning = true;
+                retried = true;
+                lastRetryTick = Environment.TickCount;
+            }
+            var thread = new Thread(() =>
+            {
+                try
+                {
+                    LoadPreconfiguration(o);
+                }
+                catch (Exception ex)
+                {
+                    log.Error("CRM preconfiguration retry failed", ex);
+                }
+                finally
+                {
+                    lock (gate) retryRunning = false;
+                }
+            });
+            thread.IsBackground = true;
+            thread.Name = "mcvs-crm-retry";
+            thread.Start();
+        }
+
         private void LoadPreconfiguration(CrmOptions o)
         {
             preconfiguration.Load(context.Content, context.DataDir, o.DataPackDir, log, KeepIapLanguages(o));
@@ -190,7 +231,8 @@ namespace McvsOffline.Server.Services.Crm
             return o.Iap == IapMode.Preconfig ? new[] { o.IapLanguage ?? "en", "en" } : new string[0];
         }
 
-        private CrmOptions CurrentOptions()
+        /// <summary>The options for the current settings (parsed again only when the settings changed).</summary>
+        private CrmOptions CurrentOptions(out string fingerprint)
         {
             string key = MiniJson.Serialize(context.Settings.Snapshot());
             lock (gate)
@@ -200,6 +242,7 @@ namespace McvsOffline.Server.Services.Crm
                     options = CrmOptions.FromSettings(context.Settings, log);
                     optionsKey = key;
                 }
+                fingerprint = key;
                 return options;
             }
         }

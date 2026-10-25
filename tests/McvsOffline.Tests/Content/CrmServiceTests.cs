@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -129,9 +130,17 @@ namespace McvsOffline.Tests.Content
 
             ContentTestSupport.CreateFakeDataPack(dir.Combine("Data"), ContentTestSupport.SamplePreconfiguration());
             cache.Preconfiguration.RetryIntervalMs = 0;
-            var second = cache.Get(5000);
+            // The retry runs in the background; the request that triggers it is answered with what is there.
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            CrmDocument second = cache.Get(5000);
+            while (!second.HasPreconfiguration && DateTime.UtcNow < deadline)
+            {
+                System.Threading.Thread.Sleep(20);
+                second = cache.Get(5000);
+            }
             Assert.True(second.HasPreconfiguration);
             Assert.True(cache.Preconfiguration.IsFinal);
+            Assert.Equal("keep_me", JsonPath.Get(second.Root, "pointcut_actions.0.id"));
         }
 
         [Fact]

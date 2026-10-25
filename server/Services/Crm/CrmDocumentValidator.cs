@@ -104,9 +104,7 @@ namespace McvsOffline.Server.Services.Crm
                 {
                     foreach (object g in list)
                     {
-                        var go = g as Dictionary<string, object>;
-                        if (go == null || !(JsonValue.Get(go, "name") is string) || !(JsonValue.Get(go, "limit") is List<object>))
-                            problems.Add("fatigue_groups entries need a name and a limit array");
+                        if (CheckFatigueGroup(g) != null) problems.Add("fatigue_groups entries need a name and a limit array");
                     }
                 }
             }
@@ -199,23 +197,108 @@ namespace McvsOffline.Server.Services.Crm
             if (list == null) { problems.Add("iap.prices must be an array"); return; }
             for (int i = 0; i < list.Count; i++)
             {
-                var item = list[i] as Dictionary<string, object>;
-                if (item == null) { problems.Add("iap.prices[" + i + "] must be an object"); continue; }
-                // IapStoreItem.Parse: (bool)Json["hidden"] and (int)Json["quantity"] are hard casts.
-                if (!(JsonValue.Get(item, "hidden") is bool)) problems.Add("iap.prices[" + i + "].hidden must be a JSON boolean");
-                object q = JsonValue.Get(item, "quantity");
-                if (q != null && !JsonValue.AsLong(q).HasValue) problems.Add("iap.prices[" + i + "].quantity must be an integer");
-                foreach (object b in JsonValue.GetArray(item, "bundle") ?? new List<object>())
+                string p = CheckIapItem(list[i]);
+                if (p != null) problems.Add("iap.prices[" + i + "]: " + p);
+            }
+        }
+
+        /// <summary>Why OP/IapStoreItem.Parse would throw on this iap entry, or null when it is fine.</summary>
+        public static string CheckIapItem(object entry)
+        {
+            var item = entry as Dictionary<string, object>;
+            if (item == null) return "must be an object";
+            // IapStoreItem.Parse: (bool)Json["hidden"], (int)Json["quantity"], (float)Json["price"] are hard casts.
+            if (!(JsonValue.Get(item, "hidden") is bool)) return "hidden must be a JSON boolean";
+            object q = JsonValue.Get(item, "quantity");
+            if (q != null && !JsonValue.AsLong(q).HasValue) return "quantity must be an integer";
+            foreach (object b in JsonValue.GetArray(item, "bundle") ?? new List<object>())
+            {
+                if (!JsonValue.AsLong(JsonValue.Get(JsonValue.AsObject(b), "quantity")).HasValue) return "bundle entries need an integer quantity";
+            }
+            foreach (object bm in JsonValue.GetArray(item, "billing_methods") ?? new List<object>())
+            {
+                if (!JsonValue.AsDouble(JsonValue.Get(JsonValue.AsObject(bm), "price")).HasValue) return "billing_methods entries need a numeric price";
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Repairs what can be repaired without guessing: drops pointcut actions, fatigue groups, iap items and event
+        /// ids the client parsers would throw on (a single one fails the whole CRM refresh on the TS, which then has no
+        /// fallback), and a malformed expiry. Returns the number of removals; each is logged.
+        /// </summary>
+        public static int Sanitize(Dictionary<string, object> doc, Log log)
+        {
+            log = log ?? Log.Null;
+            int removed = 0;
+            object value;
+            if (doc.TryGetValue("expiry", out value) && value != null && !(value is string))
+            {
+                JsonPath.RemoveKey(doc, "expiry");
+                log.Warn("CRM: removed a non-string expiry");
+                removed++;
+            }
+            if (doc.TryGetValue("pointcut_actions", out value))
+            {
+                var list = value as List<object>;
+                if (list == null)
                 {
-                    if (!JsonValue.AsLong(JsonValue.Get(JsonValue.AsObject(b), "quantity")).HasValue)
-                        problems.Add("iap.prices[" + i + "].bundle entries need an integer quantity");
+                    doc["pointcut_actions"] = new List<object>();
+                    log.Warn("CRM: pointcut_actions was not an array; replaced with []");
+                    removed++;
                 }
-                foreach (object bm in JsonValue.GetArray(item, "billing_methods") ?? new List<object>())
+                else removed += RemoveInvalid(list, CheckPointcutAction, "pointcut action", "id", log);
+            }
+            if (doc.TryGetValue("fatigue_groups", out value) && value != null)
+            {
+                var list = value as List<object>;
+                if (list == null)
                 {
-                    if (!JsonValue.AsDouble(JsonValue.Get(JsonValue.AsObject(bm), "price")).HasValue)
-                        problems.Add("iap.prices[" + i + "].billing_methods entries need a numeric price");
+                    JsonPath.RemoveKey(doc, "fatigue_groups");
+                    log.Warn("CRM: fatigue_groups was not an array; removed");
+                    removed++;
+                }
+                else removed += RemoveInvalid(list, CheckFatigueGroup, "fatigue group", "name", log);
+            }
+            var iapPrices = JsonValue.AsArray(JsonPath.Get(doc, "iap.prices"));
+            if (iapPrices != null) removed += RemoveInvalid(iapPrices, CheckIapItem, "iap item", "_id", log);
+            var events = JsonValue.AsObject(JsonPath.Get(doc, "groupware.events"));
+            if (events != null)
+            {
+                foreach (string key in new[] { "participation", "advertisement" })
+                {
+                    var list = JsonValue.GetArray(events, key);
+                    if (list != null) removed += RemoveInvalid(list, CheckEventReference, "event reference", "id", log);
                 }
             }
+            return removed;
+        }
+
+        private static string CheckFatigueGroup(object entry)
+        {
+            var g = entry as Dictionary<string, object>;
+            if (g == null || !(JsonValue.Get(g, "name") is string) || !(JsonValue.Get(g, "limit") is List<object>))
+                return "needs a name and a limit array";
+            return null;
+        }
+
+        private static string CheckEventReference(object entry)
+        {
+            return string.IsNullOrEmpty(JsonValue.GetString(JsonValue.AsObject(entry), "id")) ? "needs an id" : null;
+        }
+
+        private static int RemoveInvalid(List<object> list, Func<object, string> check, string what, string idKey, Log log)
+        {
+            int removed = 0;
+            for (int i = list.Count - 1; i >= 0; i--)
+            {
+                string problem = check(list[i]);
+                if (problem == null) continue;
+                log.Warn("CRM: " + what + " '" + (JsonValue.GetString(JsonValue.AsObject(list[i]), idKey) ?? "?") + "' removed: " + problem);
+                list.RemoveAt(i);
+                removed++;
+            }
+            return removed;
         }
 
         /// <summary>Why the client would fail on this offline_store entry, or null when it is fine.</summary>

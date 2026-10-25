@@ -40,7 +40,8 @@ Built by `CrmDocumentBuilder`, layers in order (last wins):
 3. **`offline_store`** = the generated catalogue (`crm.offlineStore`: `generated` | `merge` | `preconfig`), prices ×
    `economy.priceMultiplier`. Entries the client could not parse are dropped and logged; `promotion: null` is removed.
 4. **`iap`** = `{"prices":[]}` (`crm.iap=empty`, default) or the preconfiguration catalogue of `crm.iapLanguage`
-   (`crm.iap=preconfig`). It must exist: the client IapStoreComponent only registers after the native lib called
+   (`crm.iap=preconfig`; the other languages are dropped when the preconfiguration is loaded, so switching this
+   setting needs a restart). It must exist: the client IapStoreComponent only registers after the native lib called
    back for the CRM `iap`, and `CrmConfig.IapStore.Items` is read without null checks.
 5. **Settings**: `game._ServerConfig.default.IsDevelopment = devMenu` (JSON bool, explicitly false by default:
    loopback clients are always in the developer edge list, verify-C5 (a)); `AdditionalDeveloperIpRange` =
