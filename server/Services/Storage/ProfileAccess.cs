@@ -30,6 +30,13 @@ namespace McvsOffline.Server.Services.Storage
         /// <summary>Deep-merges an object at a path ("" = root), like operation=merge.</summary>
         void Merge(string accountId, string path, Dictionary<string, object> patch);
 
+        /// <summary>
+        /// Same, and when <paramref name="backupReason"/> is set the stored profile is backed up first (a one-way
+        /// change such as the unlock-all ledger, verify-C5 "Recommended design"). The reason becomes part of the
+        /// backup id: lower-case letters and digits only.
+        /// </summary>
+        void Merge(string accountId, string path, Dictionary<string, object> patch, string backupReason);
+
         /// <summary>Removes a (non-root) path. Returns false when it was absent.</summary>
         bool Remove(string accountId, string path);
 
@@ -93,12 +100,22 @@ namespace McvsOffline.Server.Services.Storage
 
         public void Merge(string accountId, string path, Dictionary<string, object> patch)
         {
+            Merge(accountId, path, patch, null);
+        }
+
+        public void Merge(string accountId, string path, Dictionary<string, object> patch, string backupReason)
+        {
             if (patch == null) throw new ArgumentNullException("patch");
             var write = new StorageWrite();
             write.Selector = path ?? "";
             write.Operation = SeshatOperations.Merge;
             write.ObjectText = MiniJson.Serialize(ProfileJson.ToPlain(patch));
-            WriteOutcome outcome = store.Commit(accountId, "api.merge", path, "api", doc => SeshatOperations.Apply(doc, write));
+            WriteOutcome outcome = store.Commit(accountId, "api.merge", path, "api", doc =>
+            {
+                WriteOutcome applied = SeshatOperations.Apply(doc, write);
+                if (applied != null && backupReason != null && applied.BackupReason == null) applied.BackupReason = backupReason;
+                return applied;
+            });
             if (outcome.Error != null) throw new ArgumentException(outcome.Error, "path");
         }
 

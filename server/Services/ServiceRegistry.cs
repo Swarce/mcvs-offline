@@ -45,6 +45,10 @@ namespace McvsOffline.Server.Services
             Register("bantool", BanTool.BanToolService.Register, router, context);
             Register("geo", Geo.GeoService.Register, router, context);
             Register("misc", Misc.MiscService.Register, router, context);
+
+            // Cross-module glue (core): settings.unlockAll through the inventory ledger. Uses STORAGE's IProfileAccess,
+            // CONTENT's unlocks.json groups and MISC's alerts.push topic, so it registers after all of them.
+            Register("unlocks", Unlocks.UnlocksService.Register, router, context);
         }
 
         private static void Register(string module, Action<Router, ServerContext> register, Router router, ServerContext context)
