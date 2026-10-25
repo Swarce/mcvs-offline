@@ -16,7 +16,7 @@ python3 -I tools/content-gen/test_content_gen.py
 ```
 
 `--decoded` defaults to `$MCVS_DATAPACK_DECODED` or `/home/user/mcvs-work/datapack-decoded`; `--pricing` to
-`tools/content-gen/pricing.json`; `--out` to `server/Content`.
+`tools/content-gen/pricing.json`; `--liveops` to `tools/content-gen/liveops_tuning.json`; `--out` to `server/Content`.
 
 ## Inputs
 
@@ -28,6 +28,8 @@ python3 -I tools/content-gen/test_content_gen.py
 | `<decoded>/Config/game_object.json` (optional) | the live ecomm ids (ids only): an item without one and without a shipped source is "unreleased" |
 | `<decoded>/names.json` (optional) | the data pack's file list: an unreleased item is only offered when its asset is on disk (without it, none is) |
 | `pricing.json` | **our** tuning: every price, pack sizes, which crates the hub sells, hub order |
+| `liveops_tuning.json` | **our** live-ops tuning: quest/event objectives, goals, rewards, weekly modifiers, rival targets (docs/LIVEOPS.md) |
+| `<decoded>/Localization/*_en.json` (optional) | the localization ids (ids only) the live-ops titles refer to |
 
 ## Outputs (`server/Content/`)
 
@@ -38,6 +40,7 @@ python3 -I tools/content-gen/test_content_gen.py
 | `coupons.json` | built-in coupon codes (UNLOCKALL and the split codes, UNLOCKPAID*, UNLOCKUNRELEASED) referring to unlock groups |
 | `economy.json` | `_OverrideTables` targets for the settings.json economy multipliers, and a cost summary |
 | `crm_overlay.json` | the static CRM game parameters we always send |
+| `liveops.json` | the live-ops catalogue: `liveops_tuning.json` with every crate, table field, image and loc id checked against the player's data and the id lists expanded (divisions, levels, event crates, season-reward ranks) |
 | `manifest.json` | what was generated from what |
 
 Only generated item ids, prices and our own tuning are written: no Gameloft text and no table values. The

@@ -5,6 +5,7 @@ using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Json;
 using McvsOffline.Server.Core.Storage;
 using McvsOffline.Server.Services.Misc;
+using McvsOffline.Server.Services.Social.LiveOps;
 
 namespace McvsOffline.Server.Services.Leaderboards
 {
@@ -178,7 +179,7 @@ namespace McvsOffline.Server.Services.Leaderboards
             int groupSize = GroupSize(doc);
             if (sort == "desc" && UsesVirtualPlayers(name) && list.Count < groupSize)
             {
-                foreach (var v in VirtualPlayers.Generate(BoardKey(sort, name), groupSize - list.Count, TopScore()))
+                foreach (var v in Rivals(sort, name, list, groupSize, now))
                 {
                     list.Add(new RankedEntry
                     {
@@ -203,6 +204,22 @@ namespace McvsOffline.Server.Services.Leaderboards
             });
             for (int i = 0; i < list.Count; i++) list[i].Rank = i + 1;
             return list;
+        }
+
+        /// <summary>
+        /// The rivals completing a board: a division season board gets <see cref="SeasonRivals"/> (calibrated to the
+        /// division and the player's level, growing over the season, frozen after it), any other board the static
+        /// <see cref="VirtualPlayers"/>.
+        /// </summary>
+        private List<Dictionary<string, object>> Rivals(string sort, string name, List<RankedEntry> real, int groupSize, DateTime now)
+        {
+            SeasonBoardInfo season;
+            if (LiveOpsService.For(context).TryGetSeasonBoard(name, out season))
+            {
+                int level = SeasonRivals.PlayerLevel(real, season.DefaultLevel);
+                return SeasonRivals.Generate(BoardKey(sort, name), season, groupSize - real.Count, groupSize, level, now);
+            }
+            return VirtualPlayers.Generate(BoardKey(sort, name), groupSize - real.Count, TopScore());
         }
 
         /// <summary>Whether simulated rivals complete this board (settings leaderboards.virtualPlayers / virtualExclude).</summary>

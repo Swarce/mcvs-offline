@@ -72,6 +72,13 @@ namespace McvsOffline.Server.Services.Leaderboards
             return result;
         }
 
+        /// <summary>A rival display name ("Viper_42") drawn from <paramref name="state"/>.</summary>
+        public static string Callsign(ref ulong state)
+        {
+            return Callsigns[(int)(NextRaw(ref state) % (ulong)Callsigns.Length)]
+                   + "_" + (10 + (int)(NextRaw(ref state) % 90)).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
         private static ulong Seed(string text)
         {
             // FNV-1a 64: stable across runtimes (unlike string.GetHashCode or System.Random's seeding).

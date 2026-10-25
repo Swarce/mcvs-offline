@@ -2,7 +2,7 @@
 """MCVS Offline content generator (owner: CONTENT).
 
 Reads the player's own decoded data pack (``datapack-decoded/_catalog.json`` and ``_tables.json``, optionally
-``Design/*.xlsx`` for index columns) plus our tuning in ``pricing.json`` and writes the generated content that
+``Design/*.xlsx`` for index columns) plus our tuning in ``pricing.json`` and ``liveops_tuning.json`` and writes the generated content that
 the server compiles into ``McvsOffline.Server.dll`` (``server/Content/``):
 
   offline_store.json  CRM ``offline_store`` priced in VersusCoins (merc/skin/kill-signature screens and the
@@ -12,6 +12,8 @@ the server compiles into ``McvsOffline.Server.dll`` (``server/Content/``):
   coupons.json        built-in coupon codes (UNLOCKALL first claims every merc and its mods, verify-C5 (b))
   economy.json        ``_OverrideTables`` targets for the settings.json economy multipliers + a cost summary
   crm_overlay.json    static CRM overlay (game parameters we always send)
+  liveops.json        live-ops catalogue (weekly division seasons, daily quests, weekly achievement events, weekly
+                      modifiers) from ``liveops_tuning.json``, validated against the catalogue (docs/LIVEOPS.md)
   manifest.json       what was generated from what
 
 Only generated item ids, prices and our own tuning are written: no Gameloft text, no table values.
@@ -703,6 +705,190 @@ def build_economy(cat, store_summary, unlock_counts):
     return {"format": FORMAT, "multipliers": multipliers, "summary": summary}
 
 
+# ----------------------------------------------------------------------------------------------- live ops
+
+# MainTracker values (GM/CompletionSpecs.cs) the generated quests/events may use: each is counted by
+# BaseAchievementsComponent on the server Worlds for any PvP match (OnMatchResult: Wins, PlayedMatches, MVP; the
+# match-stats handlers: Kills, Eliminations, Assists; OnCrateClaimed: CratesOpened). Mode- or merc-specific
+# trackers are left out on purpose (a quest the player cannot do in a quick match would block the daily bonus).
+LIVEOPS_TRACKERS = {"PlayedMatches", "Wins", "Kills", "Eliminations", "Assists", "MVP", "CratesOpened"}
+# Plain currency rewards (GM/<Type>RewardItem.cs); crates are checked against the catalogue.
+LIVEOPS_CURRENCIES = {"VersusCoins", "Credits", "UpgradeTokens", "HardCurrency"}
+
+
+def _loc_tables(decoded_dir):
+    """{table: set(ids)} of Localization/<table>_en.json (ids only), or None when the folder is absent."""
+    loc_dir = os.path.join(decoded_dir, "Localization")
+    if not os.path.isdir(loc_dir):
+        return None
+    tables = {}
+    for name in os.listdir(loc_dir):
+        if not name.endswith("_en.json"):
+            continue
+        try:
+            rows = load_json(os.path.join(loc_dir, name))
+        except (ValueError, OSError):
+            continue
+        if isinstance(rows, list):
+            tables[name[:-len("_en.json")]] = set(r.get("Id") for r in rows if isinstance(r, dict))
+    return tables
+
+
+def build_liveops(cat, tuning, loc_tables):
+    """liveops.json: our live-ops tuning with every id validated and every id list expanded."""
+
+    def loc(locid, where):
+        if not isinstance(locid, str) or "." not in locid:
+            raise ContentError("liveops: %s: '%s' is not a <table>.<id> localization id" % (where, locid))
+        table, key = locid.split(".", 1)
+        if loc_tables is not None and key not in loc_tables.get(table, ()):
+            raise ContentError("liveops: %s: localization id %s does not exist" % (where, locid))
+        return locid
+
+    def rewards(items, where):
+        out = []
+        for r in items:
+            item, qty = r.get("item"), r.get("quantity")
+            if not isinstance(qty, int) or qty <= 0:
+                raise ContentError("liveops: %s: quantity of %s must be a positive integer" % (where, item))
+            if item not in LIVEOPS_CURRENCIES and item not in cat.crates:
+                raise ContentError("liveops: %s: unknown reward %s" % (where, item))
+            out.append({"item": item, "quantity": qty})
+        if not out:
+            raise ContentError("liveops: %s: no rewards" % where)
+        return out
+
+    def image(path, where):
+        if cat.asset_files is not None and not cat.asset_exists(path):
+            raise ContentError("liveops: %s: image %s is not in the data pack" % (where, path))
+        return path
+
+    def goals(values, where):
+        if not values or any(not isinstance(g, int) or g <= 0 for g in values) or sorted(values) != values:
+            raise ContentError("liveops: %s: goals must be ascending positive integers" % where)
+        return list(values)
+
+    images = {k: image(v, "images." + k) for k, v in sorted(tuning["images"].items())}
+
+    seasons = dict(tuning["seasons"])
+    seasons.pop("_promotionMatchesPerDay", None)
+    if len(seasons["promotionMatchesPerDay"]) != len(cat.divisions):
+        raise ContentError("liveops: seasons.promotionMatchesPerDay has %d values for %d divisions"
+                           % (len(seasons["promotionMatchesPerDay"]), len(cat.divisions)))
+    loc(seasons["title"], "seasons.title")
+    loc(seasons["description"], "seasons.description")
+    seasons["divisions"] = list(cat.divisions)
+
+    objectives = []
+    ids = set()
+    for o in tuning["objectives"]:
+        oid = o["id"]
+        if oid in ids:
+            raise ContentError("liveops: duplicate objective %s" % oid)
+        ids.add(oid)
+        if o["tracker"] not in LIVEOPS_TRACKERS:
+            raise ContentError("liveops: objective %s: tracker %s is not supported" % (oid, o["tracker"]))
+        out = {"id": oid, "tracker": o["tracker"], "title": loc(o["title"], oid + ".title"),
+               "titlePlural": loc(o["titlePlural"], oid + ".titlePlural")}
+        if "theme" in o:
+            out["theme"] = {"title": loc(o["theme"]["title"], oid + ".theme.title"),
+                            "description": loc(o["theme"]["description"], oid + ".theme.description")}
+        if "daily" in o:
+            out["daily"] = {"goals": goals(o["daily"]["goals"], oid + ".daily"),
+                            "rewards": rewards(o["daily"]["rewards"], oid + ".daily")}
+        if "weekly" in o:
+            out["weekly"] = {"goals": goals(o["weekly"]["goals"], oid + ".weekly")}
+        objectives.append(out)
+
+    dq = tuning["dailyQuests"]
+    daily_pool = [o for o in objectives if "daily" in o]
+    if not 1 <= dq["count"] <= len(daily_pool):
+        raise ContentError("liveops: dailyQuests.count must be 1..%d" % len(daily_pool))
+    daily = {"title": loc(dq["title"], "dailyQuests.title"), "description": loc(dq["description"], "dailyQuests.description"),
+             "advertisement": loc(dq["advertisement"], "dailyQuests.advertisement"), "count": dq["count"],
+             "bonus": {"title": loc(dq["bonus"]["title"], "dailyQuests.bonus.title"),
+                       "rewards": rewards(dq["bonus"]["rewards"], "dailyQuests.bonus")}}
+    # The TS tells daily quests from other achievement events by this substring of the title
+    # (GM/TimeLimitedAchievementsComponent.cs OnTimeLimitedEventsReceived: Title.Contains("DailyQuestTitle")).
+    if "DailyQuestTitle" not in daily["title"]:
+        raise ContentError("liveops: dailyQuests.title must contain DailyQuestTitle (the TS keys daily quests on it)")
+
+    we = tuning["weeklyEvents"]
+    weekly_pool = [o for o in objectives if "weekly" in o]
+    by_id = {o["id"]: o for o in objectives}
+    if not 1 <= we["count"] <= len(weekly_pool):
+        raise ContentError("liveops: weeklyEvents.count must be 1..%d" % len(weekly_pool))
+    for t in we["themes"]:
+        if t not in by_id or "theme" not in by_id[t] or "weekly" not in by_id[t]:
+            raise ContentError("liveops: weekly theme %s needs an objective with theme and weekly goals" % t)
+    milestone_rewards = [rewards(r, "weeklyEvents.milestoneRewards[%d]" % i) for i, r in enumerate(we["milestoneRewards"])]
+    for o in weekly_pool:
+        if len(o["weekly"]["goals"]) != len(milestone_rewards):
+            raise ContentError("liveops: objective %s has %d weekly goals for %d milestone reward tiers"
+                               % (o["id"], len(o["weekly"]["goals"]), len(milestone_rewards)))
+    prefix = we["eventCratePrefix"]
+    event_crates = sorted([c for c in cat.crates if c.startswith(prefix) and c[len(prefix):].isdigit()], key=natural_key)
+    if we["final"].get("eventCrate") and not event_crates:
+        raise ContentError("liveops: no %s* crates in the catalogue" % prefix)
+    weekly = {"advertisement": loc(we["advertisement"], "weeklyEvents.advertisement"),
+              "boostedTag": loc(we["boostedTag"], "weeklyEvents.boostedTag"),
+              "count": we["count"], "themes": list(we["themes"]), "milestoneRewards": milestone_rewards,
+              "eventCrates": event_crates,
+              "final": {"title": loc(we["final"]["title"], "weeklyEvents.final.title"),
+                        "rewards": rewards(we["final"]["rewards"], "weeklyEvents.final"),
+                        "eventCrate": bool(we["final"].get("eventCrate"))}}
+
+    id_lists = {"divisions": list(cat.divisions), "levels": list(cat.player_levels)}
+    definitions = []
+    names = set()
+    for m in tuning["modifiers"]["definitions"]:
+        cells = []
+        for c in m["cells"]:
+            have = cat.table_fields("MCVS_Meta", c["table"])
+            if have is None:
+                raise ContentError("liveops: modifier %s: no MCVS_Meta table %s" % (m["id"], c["table"]))
+            for f in [c["index"]] + c["fields"]:
+                if f not in have:
+                    raise ContentError("liveops: modifier %s: MCVS_Meta.%s has no field %s" % (m["id"], c["table"], f))
+            factor = c["factor"]
+            if not isinstance(factor, (int, float)) or factor <= 0:
+                raise ContentError("liveops: modifier %s: factor must be positive" % m["id"])
+            cells.append({"database": "MCVS_Meta", "table": c["table"], "index": c["index"], "ids": id_lists[c["ids"]],
+                          "fields": list(c["fields"]), "factor": factor})
+        d = {"id": m["id"], "cells": cells}
+        if "rivalFactor" in m:
+            d["rivalFactor"] = m["rivalFactor"]
+        definitions.append(d)
+        names.add(m["id"])
+    rotation = list(tuning["modifiers"]["rotation"])
+    if not rotation or any(r not in names for r in rotation):
+        raise ContentError("liveops: modifiers.rotation names an undefined modifier")
+
+    sr = tuning["seasonRewards"]
+    have = cat.table_fields("MCVS_Meta", sr["table"])
+    if have is None:
+        raise ContentError("liveops: no MCVS_Meta table %s" % sr["table"])
+    reward_fields = ["%s%02d" % (sr["fieldPrefix"], d) for d in cat.divisions]
+    for f in [sr["index"]] + reward_fields:
+        if f not in have:
+            raise ContentError("liveops: MCVS_Meta.%s has no field %s" % (sr["table"], f))
+    rows = (cat.tables.get("Design/MCVS_Meta.xlsx", {}).get(sr["table"]) or {}).get("rows", 0)
+    ranks = cat.index_values("MCVS_Meta", sr["table"], sr["index"], list(range(1, rows + 1)))
+
+    return {
+        "format": FORMAT,
+        "revision": int(tuning["revision"]),
+        "images": images,
+        "seasons": seasons,
+        "objectives": objectives,
+        "dailyQuests": daily,
+        "weeklyEvents": weekly,
+        "modifiers": {"rotation": rotation, "definitions": definitions},
+        "seasonRewards": {"database": "MCVS_Meta", "table": sr["table"], "index": sr["index"], "ids": ranks,
+                          "fields": reward_fields},
+    }
+
+
 def build_crm_overlay():
     """Game parameters we always send (settings-driven values are applied by CrmDocumentBuilder on top)."""
     return {
@@ -767,7 +953,7 @@ def _big(items):
     return len(items) > 1 and len(json.dumps(items)) > 100
 
 
-def generate(decoded_dir, pricing_path):
+def generate(decoded_dir, pricing_path, liveops_path=None):
     catalog = load_json(os.path.join(decoded_dir, "_catalog.json"))
     tables = load_json(os.path.join(decoded_dir, "_tables.json"))
     design = {}
@@ -777,7 +963,13 @@ def generate(decoded_dir, pricing_path):
         if os.path.exists(path):
             design[db] = load_json(path)
     pricing = load_json(pricing_path)
+    if liveops_path is None:
+        liveops_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "liveops_tuning.json")
+    liveops_tuning = load_json(liveops_path)
+    loc_tables = _loc_tables(decoded_dir)
     inputs = ["_catalog.json", "_tables.json"]
+    if loc_tables is not None:
+        inputs.append("Localization/*_en.json (ids only)")
     ecomm_ids = None
     go_path = os.path.join(decoded_dir, "Config", "game_object.json")
     if os.path.exists(go_path):
@@ -796,6 +988,7 @@ def generate(decoded_dir, pricing_path):
     coupons = build_coupons(set(g["id"] for g in unlocks["groups"]))
     economy = build_economy(cat, store_summary, unlock_counts)
     overlay = build_crm_overlay()
+    liveops = build_liveops(cat, liveops_tuning, loc_tables)
 
     files = {
         "offline_store.json": store,
@@ -803,13 +996,14 @@ def generate(decoded_dir, pricing_path):
         "coupons.json": coupons,
         "economy.json": economy,
         "crm_overlay.json": overlay,
+        "liveops.json": liveops,
     }
     manifest = {
         "schema": FORMAT,
         "generator": GENERATOR,
         "source": {"game": "Modern Combat Versus", "version": cat.game_version,
                    "inputs": inputs + (["Design/MCVS_Meta.xlsx (index columns only)"] if design else []),
-                   "pricing": "tools/content-gen/pricing.json"},
+                   "pricing": "tools/content-gen/pricing.json", "liveops": "tools/content-gen/liveops_tuning.json"},
         "files": [{"name": name, "entries": _entries(name, data)} for name, data in sorted(files.items())],
     }
     files["manifest.json"] = manifest
@@ -823,6 +1017,8 @@ def _entries(name, data):
         return sum(g["count"] for g in data["groups"])
     if name == "coupons.json":
         return len(data["codes"])
+    if name == "liveops.json":
+        return len(data["objectives"])
     return None
 
 
@@ -833,12 +1029,13 @@ def main(argv=None):
     parser.add_argument("--decoded", default=os.environ.get("MCVS_DATAPACK_DECODED", "/home/user/mcvs-work/datapack-decoded"),
                         help="decoded data pack (with _catalog.json and _tables.json)")
     parser.add_argument("--pricing", default=os.path.join(here, "pricing.json"))
+    parser.add_argument("--liveops", default=os.path.join(here, "liveops_tuning.json"))
     parser.add_argument("--out", default=os.path.join(repo, "server", "Content"))
     parser.add_argument("--check", action="store_true", help="only verify that --out is up to date")
     args = parser.parse_args(argv)
 
     try:
-        outputs = generate(args.decoded, args.pricing)
+        outputs = generate(args.decoded, args.pricing, args.liveops)
     except (ContentError, KeyError, ValueError, OSError) as e:
         print("content-gen: error: %s" % e, file=sys.stderr)
         return 2

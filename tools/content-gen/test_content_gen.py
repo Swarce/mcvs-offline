@@ -90,7 +90,8 @@ def sample_catalog():
             "mods": [{"item_id": "Mod_1_HealthTier1-1"}, {"item_id": "Mod_1_HealthTier4-1"}, {"item_id": "Mod_Random"}],
             "gear_slot_unlocks": [{"item_id": "GearSlot_1_1"}, {"item_id": "GearSlot_1_2"}, {"item_id": "GearSlot_2_1"},
                                   {"item_id": "GearSlot_3_1"}],
-            "crates": [{"id": "Crate_MOD_T1"}],
+            "crates": [{"id": "Crate_MOD_T1"}, {"id": "Crate_Contracts"}, {"id": "Crate_Event_10"}, {"id": "Crate_Event_2"},
+                       {"id": "Crate_Event_1"}, {"id": "Crate_Event_Special"}],
             "subscriptions_vip": [{"item_id": "SubscriptionCard_30"}],
             "divisions": [{"id": 1}, {"id": 2}],
             "player_levels": [{"level": 1}, {"level": 2}],
@@ -103,9 +104,44 @@ def sample_tables():
     return {"databases": {"Design/MCVS_Meta.xlsx": {
         "CreditsCurrencyMatchRewards": {"rows": 2, "fields": fields},
         "VersusCoinsMatchRewards": {"rows": 2, "fields": fields},
-        "PlayerLevelXP": {"rows": 2, "fields": ["Level", "XPRequired"]},
+        "PlayerLevelXP": {"rows": 2, "fields": ["Level", "XPRequired", "DivisionTrophiesBonus"]},
         "AgentsMasteryXP": {"rows": 3, "fields": ["Level", "XPCost"]},
+        "PVPDivisionRewards": {"rows": 3, "fields": ["Rank", "Division01", "Division02"]},
     }}}
+
+
+def sample_liveops():
+    reward = [{"item": "VersusCoins", "quantity": 100}]
+    return {
+        "revision": 3,
+        "images": {"weeklyBanner": "Menus/x/banner.png", "weeklyMenu": "Menus/x/banner.png",
+                   "dailyBanner": "Menus/x/banner.png", "dailyMenu": "Menus/x/banner.png"},
+        "seasons": {"title": "menu.DivisionTitle", "description": "menu.Desc", "promotionMatchesPerDay": [2, 3],
+                    "topFactor": 2, "safeFraction": 0.1, "masterTopRank": 10, "defaultLevel": 10,
+                    "fallbackZones": {"promotion": 20, "demotion": 10}},
+        "objectives": [
+            {"id": "wins", "tracker": "Wins", "title": "menu.Win", "titlePlural": "menu.Wins",
+             "theme": {"title": "menu.WinTheme", "description": "menu.WinThemeDesc"},
+             "daily": {"goals": [2, 3], "rewards": reward}, "weekly": {"goals": [5, 10, 20]}},
+            {"id": "kills", "tracker": "Kills", "title": "menu.Kill", "titlePlural": "menu.Kills",
+             "daily": {"goals": [10], "rewards": reward}, "weekly": {"goals": [50, 100, 200]}},
+            {"id": "crates", "tracker": "CratesOpened", "title": "menu.Crate", "titlePlural": "menu.Crates",
+             "weekly": {"goals": [1, 2, 3]}},
+        ],
+        "dailyQuests": {"title": "crm.DailyQuestTitle", "description": "crm.DailyQuestText", "advertisement": "menu.DailyQuest",
+                        "count": 2, "bonus": {"title": "menu.All", "rewards": [{"item": "Crate_Contracts", "quantity": 1}]}},
+        "weeklyEvents": {"advertisement": "menu.Ad", "boostedTag": "menu.Boost", "count": 2, "themes": ["wins"],
+                         "milestoneRewards": [reward, reward, [{"item": "UpgradeTokens", "quantity": 5}]],
+                         "eventCratePrefix": "Crate_Event_",
+                         "final": {"title": "menu.All", "rewards": [{"item": "HardCurrency", "quantity": 5}], "eventCrate": True}},
+        "modifiers": {"rotation": ["standard", "coinRush", "trophyFever"], "definitions": [
+            {"id": "standard", "cells": []},
+            {"id": "coinRush", "cells": [{"table": "VersusCoinsMatchRewards", "index": "Division", "ids": "divisions",
+                                          "fields": ["VictoryAmount", "DailyCap"], "factor": 1.5}]},
+            {"id": "trophyFever", "rivalFactor": 1.2, "cells": [{"table": "PlayerLevelXP", "index": "Level", "ids": "levels",
+                                                                  "fields": ["DivisionTrophiesBonus"], "factor": 2}]}]},
+        "seasonRewards": {"table": "PVPDivisionRewards", "index": "Rank", "fieldPrefix": "Division"},
+    }
 
 
 def sample_pricing():
@@ -131,15 +167,24 @@ class GeneratorTests(unittest.TestCase):
         self.pricing_path = os.path.join(self.tmp, "pricing.json")
         with open(self.pricing_path, "w") as f:
             json.dump(sample_pricing(), f)
-        h = "%x" % zlib.crc32(b"Menus/x/emblem3.png")
+        files = {}
+        for asset in (b"Menus/x/emblem3.png", b"Menus/x/banner.png"):
+            h = "%x" % zlib.crc32(asset)
+            files[h[0] + "/" + h[1:] + ".f"] = {}
         with open(os.path.join(self.tmp, "names.json"), "w") as f:
-            json.dump({"files": {h[0] + "/" + h[1:] + ".f": {}}}, f)
+            json.dump({"files": files}, f)
+        self.liveops_path = os.path.join(self.tmp, "liveops_tuning.json")
+        self.write_liveops(sample_liveops())
+
+    def write_liveops(self, tuning):
+        with open(self.liveops_path, "w") as f:
+            json.dump(tuning, f)
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def outputs(self):
-        return {k: json.loads(v) for k, v in cg.generate(self.tmp, self.pricing_path).items()}
+        return {k: json.loads(v) for k, v in cg.generate(self.tmp, self.pricing_path, self.liveops_path).items()}
 
     def test_offline_store_covers_every_category(self):
         store = self.outputs()["offline_store.json"]["prices"]
@@ -251,8 +296,8 @@ class GeneratorTests(unittest.TestCase):
         self.assertTrue(mastery["inverse"])
 
     def test_output_is_deterministic(self):
-        a = cg.generate(self.tmp, self.pricing_path)
-        b = cg.generate(self.tmp, self.pricing_path)
+        a = cg.generate(self.tmp, self.pricing_path, self.liveops_path)
+        b = cg.generate(self.tmp, self.pricing_path, self.liveops_path)
         self.assertEqual(a, b)
         for text in a.values():
             self.assertTrue(text.endswith("\n"))
@@ -264,12 +309,66 @@ class GeneratorTests(unittest.TestCase):
         with open(self.pricing_path, "w") as f:
             json.dump(pricing, f)
         with self.assertRaises(cg.ContentError):
-            cg.generate(self.tmp, self.pricing_path)
+            cg.generate(self.tmp, self.pricing_path, self.liveops_path)
+
+    def test_liveops_ids_are_expanded_and_validated(self):
+        live = self.outputs()["liveops.json"]
+        self.assertEqual(live["revision"], 3)
+        self.assertEqual(live["seasons"]["divisions"], [1, 2])
+        self.assertNotIn("_promotionMatchesPerDay", live["seasons"])
+        # Event crates: every Crate_Event_<n> of the catalogue, in natural order (not Crate_Event_Special).
+        self.assertEqual(live["weeklyEvents"]["eventCrates"], ["Crate_Event_1", "Crate_Event_2", "Crate_Event_10"])
+        cells = {m["id"]: m for m in live["modifiers"]["definitions"]}
+        self.assertEqual(cells["coinRush"]["cells"][0]["ids"], [1, 2])
+        self.assertEqual(cells["coinRush"]["cells"][0]["database"], "MCVS_Meta")
+        self.assertEqual(cells["trophyFever"]["cells"][0]["ids"], [1, 2])
+        self.assertEqual(cells["trophyFever"]["rivalFactor"], 1.2)
+        self.assertEqual(live["seasonRewards"]["fields"], ["Division01", "Division02"])
+        self.assertEqual(live["seasonRewards"]["ids"], [1, 2, 3])  # no Design file: 1..rows
+        self.assertEqual([o["id"] for o in live["objectives"]], ["wins", "kills", "crates"])
+        self.assertNotIn("daily", live["objectives"][2])
+
+    def test_liveops_rejects_what_the_client_could_not_use(self):
+        def broken(mutate):
+            tuning = sample_liveops()
+            mutate(tuning)
+            self.write_liveops(tuning)
+            with self.assertRaises(cg.ContentError):
+                cg.generate(self.tmp, self.pricing_path, self.liveops_path)
+
+        broken(lambda t: t["objectives"][0]["daily"].update(rewards=[{"item": "Crate_Nope", "quantity": 1}]))
+        broken(lambda t: t["objectives"][0]["daily"].update(rewards=[{"item": "VersusCoins", "quantity": 0}]))
+        broken(lambda t: t["objectives"][1].update(tracker="KillsOf"))
+        broken(lambda t: t["objectives"][1]["weekly"].update(goals=[3, 2, 1]))
+        broken(lambda t: t["objectives"][1]["weekly"].update(goals=[1, 2]))  # 3 reward tiers
+        broken(lambda t: t["dailyQuests"].update(title="menu.Daily"))         # the TS keys daily quests on DailyQuestTitle
+        broken(lambda t: t["dailyQuests"].update(count=3))                   # only 2 daily objectives
+        broken(lambda t: t["images"].update(dailyBanner="Menus/x/missing.png"))
+        broken(lambda t: t["seasons"].update(promotionMatchesPerDay=[1, 2, 3]))
+        broken(lambda t: t["modifiers"]["definitions"][1]["cells"][0].update(fields=["Nope"]))
+        broken(lambda t: t["modifiers"].update(rotation=["standard", "nope"]))
+        broken(lambda t: t["weeklyEvents"].update(themes=["crates"]))         # no theme titles
+        broken(lambda t: t["objectives"][0].update(title="NoTable"))
+
+    def test_liveops_localization_ids_must_exist(self):
+        loc = os.path.join(self.tmp, "Localization")
+        os.makedirs(loc)
+        ids = ["DivisionTitle", "Desc", "Win", "Wins", "WinTheme", "WinThemeDesc", "Kill", "Kills", "Crate", "Crates",
+               "DailyQuest", "All", "Ad", "Boost"]
+        with open(os.path.join(loc, "menu_en.json"), "w") as f:
+            json.dump([{"Id": i, "Text": "x"} for i in ids], f)
+        with open(os.path.join(loc, "crm_en.json"), "w") as f:
+            json.dump([{"Id": "DailyQuestTitle"}, {"Id": "DailyQuestText"}], f)
+        self.outputs()
+        with open(os.path.join(loc, "menu_en.json"), "w") as f:
+            json.dump([{"Id": i} for i in ids if i != "Boost"], f)
+        with self.assertRaises(cg.ContentError):
+            self.outputs()
 
     def test_check_mode_reports_stale_files(self):
         out_dir = os.path.join(self.tmp, "out")
         os.makedirs(out_dir)
-        args = ["--decoded", self.tmp, "--pricing", self.pricing_path, "--out", out_dir]
+        args = ["--decoded", self.tmp, "--pricing", self.pricing_path, "--liveops", self.liveops_path, "--out", out_dir]
         self.assertEqual(cg.main(args + ["--check"]), 1)
         self.assertEqual(cg.main(args), 0)
         self.assertEqual(cg.main(args + ["--check"]), 0)

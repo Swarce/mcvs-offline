@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Json;
+using McvsOffline.Server.Services.Social.LiveOps;
 
 namespace McvsOffline.Server.Services.Crm
 {
@@ -169,13 +170,25 @@ namespace McvsOffline.Server.Services.Crm
             }
             bool withPre = o.UsePreconfiguration && preconfiguration.HasDocument;
 
+            // Live ops: the event ids, expiry and weekly modifier change with the clock; the key changes with them,
+            // so the document is rebuilt once per schedule step (a day or a season), not per request.
+            LiveOpsSnapshot liveOps = null;
+            try
+            {
+                liveOps = LiveOpsService.For(context).Snapshot(context.Clock.UtcNow);
+            }
+            catch (Exception ex)
+            {
+                log.Error("CRM: live ops unavailable for this document", ex);
+            }
+
             lock (gate)
             {
-                string key = optionsFingerprint + "|" + (withPre ? "pre" : "nopre") + "|" + generation;
+                string key = optionsFingerprint + "|" + (withPre ? "pre" : "nopre") + "|" + generation + "|" + (liveOps == null ? "-" : liveOps.Key);
                 if (cached != null && cachedKey == key) return cached;
 
                 var content = CrmContent.Load(context.Content, log);
-                var root = CrmDocumentBuilder.Build(withPre ? preconfiguration.GetCopy() : null, content, o, log);
+                var root = CrmDocumentBuilder.Build(withPre ? preconfiguration.GetCopy() : null, content, o, log, liveOps);
                 var problems = CrmDocumentValidator.Validate(root);
                 foreach (string p in problems) log.Warn("CRM document: " + p);
                 cached = new CrmDocument(root, withPre, problems, context.Clock.UtcNow);
@@ -185,6 +198,10 @@ namespace McvsOffline.Server.Services.Crm
                          + (withPre ? "from " + preconfiguration.Source : "not used (" + (preconfiguration.Source ?? "disabled") + ")")
                          + ", IsDevelopment=" + (o.DevMenu ? "true" : "false")
                          + ", instant bots " + (o.InstantBots ? "on" : "off")
+                         + (liveOps != null && liveOps.Expiry.HasValue
+                                ? ", live ops: " + liveOps.EventIds.Count + " event ids, modifier " + (liveOps.Modifier == null ? "none" : liveOps.Modifier.Id)
+                                  + ", expires " + TimeFormat.Iso8601(liveOps.Expiry.Value)
+                                : "")
                          + ", " + cached.Json.Length + " chars" + (problems.Count > 0 ? ", " + problems.Count + " problem(s)" : ""));
                 return cached;
             }
