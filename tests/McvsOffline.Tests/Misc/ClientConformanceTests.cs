@@ -13,6 +13,7 @@ using McvsOffline.Server.Core.Accounts;
 using McvsOffline.Server.Core.Http;
 using McvsOffline.Server.Core.Routing;
 using McvsOffline.Server.Services;
+using McvsOffline.Server.Services.Social;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -198,6 +199,41 @@ namespace McvsOffline.Tests.Misc
             server.Stop();
         }
 
+        /// <summary>
+        /// Differential check of <see cref="TleTemplateValidator"/> against the game's own template parser
+        /// (<c>Gameloft.Engine.TimeLimitedEventsComponent.ParseTemplate</c>): every template the validator drops must make
+        /// the real parser throw, and every template it keeps must parse.
+        /// </summary>
+        [Fact]
+        public void TemplateValidatorAgreesWithTheRealTemplateParser()
+        {
+            GameClient client = GameClient.TryLoad();
+            Type tle = client == null ? null : client.TypeIn("Gameloft.Engine", "Gameloft.Engine.TimeLimitedEventsComponent");
+            if (tle == null)
+            {
+                output.WriteLine("Gameloft.Engine.dll not found (set MCVS_REFS to the APK's assemblies folder): skipped");
+                return;
+            }
+            object component = System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(tle);
+            MethodInfo parse = tle.GetMethod("ParseTemplate");
+            foreach (string template in TleTemplateValidatorTests.Accepted.Concat(TleTemplateValidatorTests.Rejected))
+            {
+                string thrown = null;
+                try
+                {
+                    parse.Invoke(component, new object[] { template, "en" });
+                }
+                catch (TargetInvocationException ex)
+                {
+                    thrown = ex.InnerException.GetType().Name + ": " + ex.InnerException.Message;
+                }
+                string problem = TleTemplateValidator.Problem(new Dictionary<string, object> { ["_template"] = template });
+                output.WriteLine((thrown == null ? "parses " : "throws ") + template + (thrown == null ? "" : "  <- " + thrown));
+                Assert.True((thrown != null) == (problem != null),
+                            template + ": real parser " + (thrown ?? "parsed it") + "; validator " + (problem ?? "kept it"));
+            }
+        }
+
         /// <summary>Eve/pandora/authorize/users-me just good enough to open client sessions (AUTH owns the real ones).</summary>
         private static void FakeAuth(Router router, ServerContext context)
         {
@@ -266,11 +302,22 @@ namespace McvsOffline.Tests.Misc
         /// </summary>
         private sealed class GameClient
         {
+            private readonly AssemblyLoadContext context;
+            private readonly string directory;
             private readonly Assembly onlinePlatform;
 
-            private GameClient(Assembly onlinePlatform)
+            private GameClient(AssemblyLoadContext context, string directory, Assembly onlinePlatform)
             {
+                this.context = context;
+                this.directory = directory;
                 this.onlinePlatform = onlinePlatform;
+            }
+
+            /// <summary>A type from another game assembly (e.g. Gameloft.Engine), or null when that assembly is absent.</summary>
+            public Type TypeIn(string assembly, string typeName)
+            {
+                string path = Path.Combine(directory, assembly + ".dll");
+                return File.Exists(path) ? context.LoadFromAssemblyPath(path).GetType(typeName, true) : null;
             }
 
             public static GameClient TryLoad()
@@ -282,12 +329,12 @@ namespace McvsOffline.Tests.Misc
                 var context = new AssemblyLoadContext("mcvs-game-client");
                 context.Resolving += (ctx, name) =>
                 {
-                    // Only the game's own libraries: the BCL comes from the runtime.
-                    if (!name.Name.StartsWith("Gameloft.", StringComparison.Ordinal) && name.Name != "Newtonsoft.Json") return null;
+                    // The game's own libraries only: the BCL (mscorlib, System, System.*) comes from the runtime.
+                    if (name.Name == "mscorlib" || name.Name == "System" || name.Name.StartsWith("System.", StringComparison.Ordinal)) return null;
                     string candidate = Path.Combine(dir, name.Name + ".dll");
                     return File.Exists(candidate) ? ctx.LoadFromAssemblyPath(candidate) : null;
                 };
-                return new GameClient(context.LoadFromAssemblyPath(path));
+                return new GameClient(context, dir, context.LoadFromAssemblyPath(path));
             }
 
             public Type Type(string name)

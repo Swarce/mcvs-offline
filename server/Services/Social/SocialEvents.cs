@@ -33,7 +33,8 @@ namespace McvsOffline.Server.Services.Social
     /// <item><c>_template</c> is required and must be a JSON <b>string</b> (<c>item.Fields["_template"].Value&lt;string&gt;()</c>):
     /// an object is serialized, an event without one is dropped;</item>
     /// <item><c>_version</c> must be an integer (<c>Convert.ToInt32</c>), otherwise it is removed;</item>
-    /// <item>top-level nulls become "" (image fields go through <c>DownloadableAsset(string).Trim()</c>, report 04 §9.1).</item>
+    /// <item>top-level nulls become "" (image fields go through <c>DownloadableAsset(string).Trim()</c>, report 04 §9.1);</item>
+    /// <item>the template must survive the TS's SEM parser (<see cref="TleTemplateValidator"/>), otherwise the event is dropped.</item>
     /// </list>
     /// </para>
     /// </summary>
@@ -130,6 +131,19 @@ namespace McvsOffline.Server.Services.Social
             foreach (string key in keys)
             {
                 if (e[key] == null) e[key] = "";
+            }
+
+            string problem = TleTemplateValidator.Problem(e);
+            if (problem != null)
+            {
+                if (log != null) log.Warn("event '" + id + "' dropped: the TS could not parse it (" + problem + ")");
+                return null;
+            }
+            foreach (string dateKey in new[] { "start_date", "end_date" })
+            {
+                DateTime parsed;
+                if (log != null && !TimeFormat.TryParse(JsonValue.GetString(e, dateKey), out parsed))
+                    log.Warn("event '" + id + "': " + dateKey + " missing or not ISO 8601; the TS reads it as DateTime.MinValue");
             }
             return e;
         }

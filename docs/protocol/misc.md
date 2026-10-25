@@ -224,8 +224,13 @@ All catch-all routes use `Router.CatchAllOrder`, so any module's specific route 
    `{"events":[…]}`, or `{"<id>":{…}}`; built in from `server/Content/`, overridable in `<data>/content/`). An event
    the TS cannot parse would abort `TimeLimitedEventsComponent.RetrieveEventsAsync` with a non-online exception and
    the menu would wait forever for its events, so every event is normalized: `_template` must be a JSON *string*
-   (objects are serialized; events without one are dropped), `_version` must be an integer (else removed), and
-   top-level nulls become `""` (image fields go through `DownloadableAsset(string).Trim()`).
+   (objects are serialized; events without one are dropped), `_version` must be an integer (else removed),
+   top-level nulls become `""` (image fields go through `DownloadableAsset(string).Trim()`), and the template must
+   survive the TS's SEM parser (`TleTemplateValidator`: unknown or non-string `type`, a non-object `sub`, scalar
+   time/date values, non-integer `duration`/consumable `value`, non-boolean `consumable`, … and a
+   `DivisionSeasonEvent` `_participation` without an integer division), otherwise the event is dropped with a
+   warning. The validator is checked against the game's own `ParseTemplate` (`ClientConformanceTests`). Missing or
+   non-ISO dates are logged (the TS reads them as `DateTime.MinValue`).
 9. **Clans are a real local store** rather than "always not in a clan": the game writes the clan id into the profile
    itself after `POST groups` / a successful join (`EN/ClanComponent.cs SetClanInProfile`), so a player can create
    and run a solo clan offline. Joining is immediate (200) whatever the membership mode, since nobody can approve a
@@ -298,7 +303,9 @@ All catch-all routes use `Router.CatchAllOrder`, so any module's specific route 
   `SocialProfileService`, `ProfanityService.FilterMessage`, `ClanService.CreateClan` / `GetClan` /
   `IncrementClanField`, `Clan.SendNotification` / `GetLastAlerts` (wall), `ChatRoom.SendMessage` →
   `ChatMessageReceived`, and `game_stats_by_time`. (It runs the client on .NET 8, not Mono: the parsing code is the
-  same, the HTTP stack is the same SocketsHttpHandler design.)
+  same, the HTTP stack is the same SocketsHttpHandler design.) It also runs every template of
+  `TleTemplateValidatorTests` through the game's own `TimeLimitedEventsComponent.ParseTemplate` and requires the
+  validator to drop exactly the ones that throw.
 
 ## Open questions / device-test checklist
 
