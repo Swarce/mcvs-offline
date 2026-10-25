@@ -83,7 +83,7 @@ The patcher prints every change it makes and finishes with a signature check. Us
 | `--keystore <file.p12>` | Your signing key. Without it a key is created once in `~/.config/McvsOffline/` (Windows: `%APPDATA%\McvsOffline\`) and reused. |
 | `--build-tools <dir>` | Folder with `apksigner` and `zipalign`; otherwise they are looked up on `PATH` and in `$ANDROID_HOME/build-tools`. |
 | `--signer builtin` | Do not use apksigner, even if it is installed. |
-| `--abi arm64-v8a` | Native libraries to keep. The default is **64-bit ARM only**: the 32-bit copies (`lib/armeabi-v7a`) are dropped (about 16 MB of the APK; a 64-bit phone never used them). `--abi all` keeps them (for a 32-bit phone; untested). |
+| `--abi arm64-v8a` | Native libraries to keep. The default is **64-bit ARM only**: the 32-bit copies (`lib/armeabi-v7a`) are dropped (the APK gets about 14 MB smaller; a 64-bit phone never used them). `--abi all` keeps them (for a 32-bit phone; untested). |
 | `--dry-run` | Check that every patch site matches, write nothing. |
 
 What the patches do:
