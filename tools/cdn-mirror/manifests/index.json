@@ -1,0 +1,34 @@
+[
+ {
+  "version": "1.17.32",
+  "texture": "ASTC",
+  "x_gl_version": "1.17.32",
+  "url": "http://droid06.gameloft.com/marketplace/3484/3484/6912994/136808/google_lowres_v162074_Nexus_9_ATC.amz?fix=get",
+  "size": 1586923464,
+  "etag": "538f7382e577cd61bd79f757df3956a2",
+  "last_modified": "Wed, 17 Mar 2021 15:50:25 GMT",
+  "x_gl_release": "136808",
+  "header_len": 822138,
+  "entries": 16212,
+  "files": 15747,
+  "uncompressed": 2042882427,
+  "captured": "2026-10-24",
+  "redirector": "https://dl.gameloft.com/partners/androidmarket/d.cdn.php?model=Pixel&device=sailfish&product=2620&version=1.17.32&compression=ASTC&portal=google_market"
+ },
+ {
+  "version": "1.17.32",
+  "texture": "ETC",
+  "x_gl_version": "1.17.32",
+  "url": "http://droid06.gameloft.com/marketplace/3484/3484/6913000/136814/google_lowres_v162074_Nexus_9_ETC.amz?fix=get",
+  "size": 1519733632,
+  "etag": "80e63f5ce0eb81d9fc6a735fad421758",
+  "last_modified": "Wed, 17 Mar 2021 16:09:14 GMT",
+  "x_gl_release": "136814",
+  "header_len": 822750,
+  "entries": 16218,
+  "files": 15747,
+  "uncompressed": 2036819797,
+  "captured": "2026-10-24",
+  "redirector": "https://dl.gameloft.com/partners/androidmarket/d.cdn.php?model=Pixel&device=sailfish&product=2620&version=1.17.32&compression=ETC&portal=google_market"
+ }
+]

@@ -4,6 +4,7 @@ using System.Globalization;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Json;
 using McvsOffline.Server.Services.Misc;
+using McvsOffline.Server.Services.Social.LiveOps;
 
 namespace McvsOffline.Server.Services.Social
 {
@@ -142,8 +143,17 @@ namespace McvsOffline.Server.Services.Social
             foreach (string dateKey in new[] { "start_date", "end_date" })
             {
                 DateTime parsed;
-                if (log != null && !TimeFormat.TryParse(JsonValue.GetString(e, dateKey), out parsed))
+                if (TimeFormat.TryParse(JsonValue.GetString(e, dateKey), out parsed))
+                {
+                    // Sent without the ISO 'T' (docs/LIVEOPS.md): Newtonsoft turns "yyyy-MM-ddTHH:mm:ssZ" into a
+                    // DateTime token that SocialEvent reads back in the phone's culture, which swaps day and month
+                    // on a day-first locale. The 'T'-less form stays a string and parses the same everywhere.
+                    e[dateKey] = LiveOpsSchedule.WireDate(parsed);
+                }
+                else if (log != null)
+                {
                     log.Warn("event '" + id + "': " + dateKey + " missing or not ISO 8601; the TS reads it as DateTime.MinValue");
+                }
             }
             return e;
         }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using McvsOffline.Embed.Tests.Support;
@@ -37,6 +38,7 @@ namespace McvsOffline.Embed.Tests.Patcher
                 InputApk = apk,
                 ServerDll = server,
                 Patches = PatcherOptions.ParsePatchList("all"),
+                Abis = new SortedSet<string>(new[] { PatcherOptions.Arm64 }, StringComparer.Ordinal),   // --abi arm64-v8a
                 DryRun = true,
             };
             PatchReport report = ApkPatcher.Run(options, s => output.WriteLine(s));
@@ -47,8 +49,9 @@ namespace McvsOffline.Embed.Tests.Patcher
                          report.Modified.OrderBy(m => m, StringComparer.Ordinal));
             Assert.Equal(new[] { "assemblies/McvsOffline.Server.dll" }, report.Added);
             // 22 IL patch notes (hook 1, headless 5, headless-engine 3, physics 2, nativeonline 1, waits 2, geo 1, bottile 1,
-            // finder 1, lan 3, store 2), the manifest permission rename and the res/raw/args.txt rewrite.
-            Assert.Equal(24, report.Notes.Count);
+            // finder 1, lan 3, store 2), the manifest permission rename, the res/raw/args.txt rewrite and the ABI selection.
+            Assert.Equal(25, report.Notes.Count);
+            Assert.Contains("native libraries: kept arm64-v8a; dropped armeabi-v7a (the offline build is 64-bit ARM only)", report.Notes);
             Assert.Contains(report.Notes, n => n.Contains("KillSignatureRewardItem::GetAvailableId") && n.Contains("\"Sound\""));
             Assert.Contains(report.Notes, n => n.Contains("<SelectItems>b__8") && n.Contains("McvsStoreSafety.Report"));
             Assert.Contains(report.Notes, n => n.StartsWith("Game.InputSettingsComponent: + [KeepInHeadlessMode(false)]"));
@@ -64,14 +67,18 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Contains(report.Notes, n => n.StartsWith("manifest: vendor-wide signature permission glshare.permission.ACCESS_SHARED_DATA renamed"));
             Assert.Contains(report.Notes, n => n.Contains("<NativeStartMatchWithBots>b__354_0") && n.Contains("IL_0007"));
             Assert.Contains(report.Notes, n => n.Contains("http://127.0.0.1:51780/location/?ip="));
-            // Both ABIs lose the AOT images of exactly the four modified assemblies; v1 signature files go.
-            var aot = report.Removed.Where(r => r.Contains("libaot-")).Select(r => r.Split(' ')[0]).OrderBy(r => r).ToList();
-            Assert.Equal(8, aot.Count);
-            foreach (string abi in new[] { "arm64-v8a", "armeabi-v7a" })
-            {
-                foreach (string dll in new[] { "Game", "Gameloft.Engine", "Gameloft.Util", "NicePlaySDK" })
-                    Assert.Contains("lib/" + abi + "/libaot-" + dll + ".dll.so", aot);
-            }
+            // arm64-v8a loses the AOT images of exactly the four modified assemblies; v1 signature files go.
+            var aot = report.Removed.Where(r => r.Contains("(AOT image")).Select(r => r.Split(' ')[0]).OrderBy(r => r).ToList();
+            Assert.Equal(4, aot.Count);
+            foreach (string dll in new[] { "Game", "Gameloft.Engine", "Gameloft.Util", "NicePlaySDK" })
+                Assert.Contains("lib/arm64-v8a/libaot-" + dll + ".dll.so", aot);
+            // --abi arm64-v8a: every lib/armeabi-v7a entry goes (67 in 1.17.32), nothing of arm64-v8a but those four.
+            var input = ZipArchiveReader.Read(apk);
+            var dropped = report.Removed.Where(r => r.Contains("(native library of an ABI not kept")).Select(r => r.Split(' ')[0]).ToList();
+            Assert.Equal(input.Entries.Count(e => e.Name.StartsWith("lib/armeabi-v7a/", StringComparison.Ordinal)), dropped.Count);
+            Assert.Equal(67, dropped.Count);
+            Assert.All(dropped, d => Assert.StartsWith("lib/armeabi-v7a/", d));
+            Assert.DoesNotContain(report.Removed, r => r.StartsWith("lib/arm64-v8a/", StringComparison.Ordinal) && !r.Contains("(AOT image"));
             Assert.Contains(report.Warnings, w => w.StartsWith("AOT image of XaLaunchANMP.dll"));
             int entries = ZipArchiveReader.Read(apk).Entries.Count;
             Assert.Equal(entries - report.Removed.Count - report.Modified.Count, report.UnchangedEntries);
@@ -89,14 +96,20 @@ namespace McvsOffline.Embed.Tests.Patcher
             }
             PatchReport report = ApkPatcher.Run(new PatcherOptions { InputApk = apk, ServerDll = server, DryRun = true }, null);
             // 19 IL patch notes (hook, headless 5 + 3, physics 2, nativeonline, waits 2, geo, bottile, finder, store 2), the
-            // manifest rename, res/raw/args.txt.
-            Assert.Equal(21, report.Notes.Count);
+            // manifest rename, res/raw/args.txt, the ABI selection.
+            Assert.Equal(22, report.Notes.Count);
             Assert.DoesNotContain(report.Notes, n => n.Contains("LocalAnubisManager"));
 
             // --game-log fatal leaves res/raw/args.txt byte for byte (VerifyUnchanged checks the bytes).
             PatchReport fatal = ApkPatcher.Run(new PatcherOptions { InputApk = apk, ServerDll = server, DryRun = true, GameLog = GameLogMode.Fatal }, null);
             Assert.DoesNotContain("res/raw/args.txt", fatal.Modified);
-            Assert.Equal(20, fatal.Notes.Count);
+            Assert.Equal(21, fatal.Notes.Count);
+
+            // The default keeps both ABIs: both lose the AOT images of the modified assemblies.
+            PatchReport both = ApkPatcher.Run(new PatcherOptions { InputApk = apk, ServerDll = server, DryRun = true }, null);
+            Assert.DoesNotContain(both.Removed, r => r.Contains("(native library of an ABI not kept"));
+            Assert.Equal(8, both.Removed.Count(r => r.Contains("(AOT image")));
+            Assert.Contains("native libraries: every ABI kept (arm64-v8a, armeabi-v7a)", both.Notes);
         }
     }
 }

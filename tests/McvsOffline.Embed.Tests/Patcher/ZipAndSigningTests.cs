@@ -160,7 +160,7 @@ namespace McvsOffline.Embed.Tests.Patcher
             return ZipArchiveWriter.Write(entries);
         }
 
-        private PatchReport RunSynthetic(string dir, SignerChoice signer, out string outApk)
+        private PatchReport RunSynthetic(string dir, SignerChoice signer, out string outApk, SortedSet<string> abis = null, bool allAbis = false)
         {
             string apk = Path.Combine(dir, "in.apk");
             File.WriteAllBytes(apk, SyntheticApk());
@@ -176,11 +176,42 @@ namespace McvsOffline.Embed.Tests.Patcher
                 Keystore = Path.Combine(dir, "key.p12"),
                 BuildToolsDir = Tools().ApkSigner != null ? Path.GetDirectoryName(Tools().ApkSigner) : null,
                 Signer = signer,
+                Abis = allAbis ? null : abis ?? new SortedSet<string>(new[] { PatcherOptions.Arm64 }, StringComparer.Ordinal),
                 Force = true,
                 SkipServerReferenceCheck = true,
                 TestOnlyHookIsMandatory = true,
             };
             return ApkPatcher.Run(options, s => output.WriteLine(s));
+        }
+
+        [Fact]
+        public void AbiSelectionKeepsAllOnRequestAndRefusesAnAbiTheApkLacks()
+        {
+            string dir = TestEnvironment.NewTempDir("abis");
+            PatchReport all = RunSynthetic(dir, SignerChoice.BuiltIn, out string outApk, allAbis: true);
+            var names = ZipArchiveReader.Read(File.ReadAllBytes(outApk)).Entries.Select(e => e.Name).ToList();
+            Assert.DoesNotContain("lib/armeabi-v7a/libaot-NicePlaySDK.dll.so", names);   // still an AOT image of a patched assembly
+            Assert.DoesNotContain(all.Removed, r => r.Contains("ABI not kept"));
+            Assert.Contains("native libraries: every ABI kept (arm64-v8a, armeabi-v7a)", all.Notes);
+
+            // No lib/x86/libmonodroid.so in the APK: keeping only x86 would give an APK that cannot start.
+            var ex = Assert.Throws<InvalidDataException>(() => RunSynthetic(TestEnvironment.NewTempDir("abis-x86"), SignerChoice.BuiltIn, out _,
+                                                                            new SortedSet<string>(new[] { "x86" }, StringComparer.Ordinal)));
+            Assert.Contains("lib/x86/libmonodroid.so", ex.Message);
+        }
+
+        [Fact]
+        public void AbiListParsing()
+        {
+            Assert.Equal(new[] { "arm64-v8a" }, PatcherOptions.ParseAbiList("arm64-v8a"));
+            Assert.Equal(new[] { "arm64-v8a", "armeabi-v7a" }, PatcherOptions.ParseAbiList(" armeabi-v7a, ARM64-V8A "));
+            Assert.Null(PatcherOptions.ParseAbiList("all"));
+            Assert.Throws<ArgumentException>(() => PatcherOptions.ParseAbiList("arm65"));
+            Assert.Throws<ArgumentException>(() => PatcherOptions.ParseAbiList(""));
+            Assert.Null(new PatcherOptions().Abis);
+            Assert.Equal("armeabi-v7a", ApkPatcher.AbiOf("lib/armeabi-v7a/libmonodroid.so"));
+            Assert.Null(ApkPatcher.AbiOf("assemblies/Game.dll"));
+            Assert.Null(ApkPatcher.AbiOf("lib/odd"));
         }
 
         [Fact]
@@ -200,6 +231,10 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Equal(names.IndexOf("assemblies/NicePlaySDK.dll") + 1, names.IndexOf("assemblies/McvsOffline.Server.dll"));
             Assert.DoesNotContain("lib/arm64-v8a/libaot-NicePlaySDK.dll.so", names);
             Assert.DoesNotContain("lib/armeabi-v7a/libaot-NicePlaySDK.dll.so", names);
+            // 64-bit only by default: nothing of lib/armeabi-v7a survives, and it is reported as dropped by ABI.
+            Assert.DoesNotContain(names, n => n.StartsWith("lib/armeabi-v7a/", StringComparison.Ordinal));
+            Assert.Contains("lib/armeabi-v7a/libaot-NicePlaySDK.dll.so (native library of an ABI not kept, --abi)", report.Removed);
+            Assert.Contains(report.Notes, n => n.StartsWith("native libraries: kept arm64-v8a; dropped armeabi-v7a", StringComparison.Ordinal));
             Assert.DoesNotContain("META-INF/GAMELOFT.SF", names);
             Assert.Contains("META-INF/CERT.SF", names);
             // The manifest's vendor-wide permission was renamed (ManifestPatchTests); it stays DEFLATED.

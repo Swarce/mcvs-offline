@@ -1,0 +1,1938 @@
+{
+ "generated": "2026-10-24T23:42:56Z",
+ "probed": 738,
+ "textures": [
+  "ASTC",
+  "ETC"
+ ],
+ "found": [
+  {
+   "version": "1.0.6",
+   "texture": "ASTC",
+   "x_gl_version": "1.0.6",
+   "x_gl_release": "117510",
+   "x_gl_size": 10,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.0.6",
+   "texture": "ETC",
+   "x_gl_version": "1.0.6",
+   "x_gl_release": "117504",
+   "x_gl_size": 10,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.4.17",
+   "texture": "ASTC",
+   "x_gl_version": "1.4.17",
+   "x_gl_release": "119979",
+   "x_gl_size": 1613901145,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.4.17",
+   "texture": "ETC",
+   "x_gl_version": "1.4.17",
+   "x_gl_release": "119981",
+   "x_gl_size": 1575389491,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.4.18",
+   "texture": "ASTC",
+   "x_gl_version": "1.4.18",
+   "x_gl_release": "120007",
+   "x_gl_size": 1620878714,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.4.18",
+   "texture": "ETC",
+   "x_gl_version": "1.4.18",
+   "x_gl_release": "120005",
+   "x_gl_size": 1575392659,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.4.20",
+   "texture": "ASTC",
+   "x_gl_version": "1.4.20",
+   "x_gl_release": "120097",
+   "x_gl_size": 1620905778,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.4.20",
+   "texture": "ETC",
+   "x_gl_version": "1.4.20",
+   "x_gl_release": "120095",
+   "x_gl_size": 1575413366,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.4.21",
+   "texture": "ASTC",
+   "x_gl_version": "1.4.21",
+   "x_gl_release": "120127",
+   "x_gl_size": 1620905803,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.4.21",
+   "texture": "ETC",
+   "x_gl_version": "1.4.21",
+   "x_gl_release": "120129",
+   "x_gl_size": 1575413393,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.4.22",
+   "texture": "ASTC",
+   "x_gl_version": "1.4.22",
+   "x_gl_release": "120137",
+   "x_gl_size": 1620912813,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.4.22",
+   "texture": "ETC",
+   "x_gl_version": "1.4.22",
+   "x_gl_release": "120139",
+   "x_gl_size": 1575420398,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.4.23",
+   "texture": "ASTC",
+   "x_gl_version": "1.4.23",
+   "x_gl_release": "120425",
+   "x_gl_size": 1624472200,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.4.23",
+   "texture": "ETC",
+   "x_gl_version": "1.4.23",
+   "x_gl_release": "120427",
+   "x_gl_size": 1578794310,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.5.3",
+   "texture": "ASTC",
+   "x_gl_version": "1.5.3",
+   "x_gl_release": "120275",
+   "x_gl_size": 1650741841,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.5.3",
+   "texture": "ETC",
+   "x_gl_version": "1.5.3",
+   "x_gl_release": "120277",
+   "x_gl_size": 1603264255,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.5.4",
+   "texture": "ASTC",
+   "x_gl_version": "1.5.4",
+   "x_gl_release": "120327",
+   "x_gl_size": 1650528772,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.5.4",
+   "texture": "ETC",
+   "x_gl_version": "1.5.4",
+   "x_gl_release": "120329",
+   "x_gl_size": 1602376595,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.5.5",
+   "texture": "ASTC",
+   "x_gl_version": "1.5.5",
+   "x_gl_release": "120393",
+   "x_gl_size": 1623918017,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.5.5",
+   "texture": "ETC",
+   "x_gl_version": "1.5.5",
+   "x_gl_release": "120361",
+   "x_gl_size": 1572571714,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.5.6",
+   "texture": "ASTC",
+   "x_gl_version": "1.5.6",
+   "x_gl_release": "120437",
+   "x_gl_size": 1109774242,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.5.6",
+   "texture": "ETC",
+   "x_gl_version": "1.5.6",
+   "x_gl_release": "120435",
+   "x_gl_size": 1058970665,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.5.7",
+   "texture": "ASTC",
+   "x_gl_version": "1.5.7",
+   "x_gl_release": "120509",
+   "x_gl_size": 1180536892,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.5.7",
+   "texture": "ETC",
+   "x_gl_version": "1.5.7",
+   "x_gl_release": "120507",
+   "x_gl_size": 1130858480,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.5.9",
+   "texture": "ETC",
+   "x_gl_version": "1.5.9",
+   "x_gl_release": "120583",
+   "x_gl_size": 1125842649,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.5.10",
+   "texture": "ASTC",
+   "x_gl_version": "1.5.10",
+   "x_gl_release": "120635",
+   "x_gl_size": 1183568999,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.5.10",
+   "texture": "ETC",
+   "x_gl_version": "1.5.10",
+   "x_gl_release": "120637",
+   "x_gl_size": 1133896784,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.5.11",
+   "texture": "ASTC",
+   "x_gl_version": "1.5.11",
+   "x_gl_release": "120735",
+   "x_gl_size": 1184944235,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.5.11",
+   "texture": "ETC",
+   "x_gl_version": "1.5.11",
+   "x_gl_release": "120701",
+   "x_gl_size": 1135428399,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.5.12",
+   "texture": "ASTC",
+   "x_gl_version": "1.5.12",
+   "x_gl_release": "120761",
+   "x_gl_size": 1177455325,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.5.12",
+   "texture": "ETC",
+   "x_gl_version": "1.5.12",
+   "x_gl_release": "120763",
+   "x_gl_size": 1127810584,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.5.15",
+   "texture": "ASTC",
+   "x_gl_version": "1.5.15",
+   "x_gl_release": "120815",
+   "x_gl_size": 1182866865,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.5.15",
+   "texture": "ETC",
+   "x_gl_version": "1.5.15",
+   "x_gl_release": "120817",
+   "x_gl_size": 1133573369,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.5.16",
+   "texture": "ASTC",
+   "x_gl_version": "1.5.16",
+   "x_gl_release": "120873",
+   "x_gl_size": 1194614749,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.5.16",
+   "texture": "ETC",
+   "x_gl_version": "1.5.16",
+   "x_gl_release": "120875",
+   "x_gl_size": 1145333113,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.5.17",
+   "texture": "ASTC",
+   "x_gl_version": "1.5.17",
+   "x_gl_release": "120977",
+   "x_gl_size": 1195839957,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.5.17",
+   "texture": "ETC",
+   "x_gl_version": "1.5.17",
+   "x_gl_release": "120979",
+   "x_gl_size": 1146515895,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.5.19",
+   "texture": "ASTC",
+   "x_gl_version": "1.5.20",
+   "x_gl_release": "121203",
+   "x_gl_size": 1195716192,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.5.19",
+   "texture": "ETC",
+   "x_gl_version": "1.5.20",
+   "x_gl_release": "121201",
+   "x_gl_size": 1146413862,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.6.0",
+   "texture": "ASTC",
+   "x_gl_version": "1.6.0",
+   "x_gl_release": "121247",
+   "x_gl_size": 1199804108,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.6.0",
+   "texture": "ETC",
+   "x_gl_version": "1.6.0",
+   "x_gl_release": "121245",
+   "x_gl_size": 1147742432,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.6.2",
+   "texture": "ASTC",
+   "x_gl_version": "1.6.2",
+   "x_gl_release": "121251",
+   "x_gl_size": 1220694941,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.6.2",
+   "texture": "ETC",
+   "x_gl_version": "1.6.2",
+   "x_gl_release": "121249",
+   "x_gl_size": 1168386493,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.6.4",
+   "texture": "ASTC",
+   "x_gl_version": "1.6.4",
+   "x_gl_release": "121305",
+   "x_gl_size": 1201504354,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.6.4",
+   "texture": "ETC",
+   "x_gl_version": "1.6.4",
+   "x_gl_release": "121303",
+   "x_gl_size": 1149581060,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.6.5",
+   "texture": "ASTC",
+   "x_gl_version": "1.6.5",
+   "x_gl_release": "121343",
+   "x_gl_size": 1201504742,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.6.5",
+   "texture": "ETC",
+   "x_gl_version": "1.6.5",
+   "x_gl_release": "121345",
+   "x_gl_size": 1149581442,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.6.6",
+   "texture": "ASTC",
+   "x_gl_version": "1.6.6",
+   "x_gl_release": "121377",
+   "x_gl_size": 1201504739,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.6.6",
+   "texture": "ETC",
+   "x_gl_version": "1.6.6",
+   "x_gl_release": "121375",
+   "x_gl_size": 1149581438,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.6.7",
+   "texture": "ASTC",
+   "x_gl_version": "1.6.8",
+   "x_gl_release": "121609",
+   "x_gl_size": 1201377419,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.6.7",
+   "texture": "ETC",
+   "x_gl_version": "1.6.8",
+   "x_gl_release": "121593",
+   "x_gl_size": 1149474408,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.7.0",
+   "texture": "ASTC",
+   "x_gl_version": "1.7.0",
+   "x_gl_release": "121569",
+   "x_gl_size": 1205637521,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.7.0",
+   "texture": "ETC",
+   "x_gl_version": "1.7.0",
+   "x_gl_release": "121567",
+   "x_gl_size": 1153342024,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.7.1",
+   "texture": "ASTC",
+   "x_gl_version": "1.7.1",
+   "x_gl_release": "121669",
+   "x_gl_size": 1205638444,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.7.1",
+   "texture": "ETC",
+   "x_gl_version": "1.7.1",
+   "x_gl_release": "121671",
+   "x_gl_size": 1158287622,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.7.2",
+   "texture": "ASTC",
+   "x_gl_version": "1.7.2",
+   "x_gl_release": "121777",
+   "x_gl_size": 1215600115,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.7.2",
+   "texture": "ETC",
+   "x_gl_version": "1.7.2",
+   "x_gl_release": "121773",
+   "x_gl_size": 1163212782,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.7.4",
+   "texture": "ASTC",
+   "x_gl_version": "1.7.4",
+   "x_gl_release": "121839",
+   "x_gl_size": 1220078342,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.7.4",
+   "texture": "ETC",
+   "x_gl_version": "1.7.4",
+   "x_gl_release": "121837",
+   "x_gl_size": 1166974772,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.7.5",
+   "texture": "ASTC",
+   "x_gl_version": "1.7.5",
+   "x_gl_release": "121895",
+   "x_gl_size": 1220630387,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.7.5",
+   "texture": "ETC",
+   "x_gl_version": "1.7.5",
+   "x_gl_release": "121893",
+   "x_gl_size": 1167646989,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.7.6",
+   "texture": "ASTC",
+   "x_gl_version": "1.7.6",
+   "x_gl_release": "121915",
+   "x_gl_size": 1298979157,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.7.6",
+   "texture": "ETC",
+   "x_gl_version": "1.7.6",
+   "x_gl_release": "121913",
+   "x_gl_size": 1170047085,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.7.7",
+   "texture": "ASTC",
+   "x_gl_version": "1.7.7",
+   "x_gl_release": "121979",
+   "x_gl_size": 1228361340,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.7.7",
+   "texture": "ETC",
+   "x_gl_version": "1.7.7",
+   "x_gl_release": "121977",
+   "x_gl_size": 1175615119,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.7.8",
+   "texture": "ASTC",
+   "x_gl_version": "1.7.8",
+   "x_gl_release": "122019",
+   "x_gl_size": 1228313158,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.7.8",
+   "texture": "ETC",
+   "x_gl_version": "1.7.8",
+   "x_gl_release": "122021",
+   "x_gl_size": 1175563788,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.7.9",
+   "texture": "ASTC",
+   "x_gl_version": "1.7.9",
+   "x_gl_release": "122313",
+   "x_gl_size": 1230438773,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.7.9",
+   "texture": "ETC",
+   "x_gl_version": "1.7.9",
+   "x_gl_release": "122315",
+   "x_gl_size": 1177689287,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.8.1",
+   "texture": "ASTC",
+   "x_gl_version": "1.8.1",
+   "x_gl_release": "122173",
+   "x_gl_size": 1272651407,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.8.1",
+   "texture": "ETC",
+   "x_gl_version": "1.8.1",
+   "x_gl_release": "122175",
+   "x_gl_size": 1219063821,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.8.2",
+   "texture": "ASTC",
+   "x_gl_version": "1.8.2",
+   "x_gl_release": "122263",
+   "x_gl_size": 1280490498,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.8.2",
+   "texture": "ETC",
+   "x_gl_version": "1.8.2",
+   "x_gl_release": "122381",
+   "x_gl_size": 1240014945,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.8.4",
+   "texture": "ASTC",
+   "x_gl_version": "1.8.4",
+   "x_gl_release": "122385",
+   "x_gl_size": 1293057333,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.8.4",
+   "texture": "ETC",
+   "x_gl_version": "1.8.4",
+   "x_gl_release": "122387",
+   "x_gl_size": 1240014945,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.9.0",
+   "texture": "ASTC",
+   "x_gl_version": "1.9.0",
+   "x_gl_release": "122687",
+   "x_gl_size": 1293306476,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.9.0",
+   "texture": "ETC",
+   "x_gl_version": "1.9.0",
+   "x_gl_release": "122689",
+   "x_gl_size": 1240690716,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.9.1",
+   "texture": "ASTC",
+   "x_gl_version": "1.9.1",
+   "x_gl_release": "122735",
+   "x_gl_size": 1309431637,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.9.1",
+   "texture": "ETC",
+   "x_gl_version": "1.9.1",
+   "x_gl_release": "122737",
+   "x_gl_size": 1256980729,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.9.2",
+   "texture": "ASTC",
+   "x_gl_version": "1.9.2",
+   "x_gl_release": "122775",
+   "x_gl_size": 1308435390,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.9.2",
+   "texture": "ETC",
+   "x_gl_version": "1.9.2",
+   "x_gl_release": "122777",
+   "x_gl_size": 1255927729,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.9.3",
+   "texture": "ASTC",
+   "x_gl_version": "1.9.3",
+   "x_gl_release": "122954",
+   "x_gl_size": 1291398911,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.9.3",
+   "texture": "ETC",
+   "x_gl_version": "1.9.3",
+   "x_gl_release": "122956",
+   "x_gl_size": 1238346751,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.9.4",
+   "texture": "ASTC",
+   "x_gl_version": "1.9.4",
+   "x_gl_release": "123098",
+   "x_gl_size": 1298438711,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.9.4",
+   "texture": "ETC",
+   "x_gl_version": "1.9.4",
+   "x_gl_release": "123100",
+   "x_gl_size": 1245235990,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.9.5",
+   "texture": "ASTC",
+   "x_gl_version": "1.9.5",
+   "x_gl_release": "123175",
+   "x_gl_size": 1300798440,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.9.5",
+   "texture": "ETC",
+   "x_gl_version": "1.9.5",
+   "x_gl_release": "123177",
+   "x_gl_size": 1247703993,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.9.6",
+   "texture": "ASTC",
+   "x_gl_version": "1.9.6",
+   "x_gl_release": "123331",
+   "x_gl_size": 1300797422,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.9.6",
+   "texture": "ETC",
+   "x_gl_version": "1.9.6",
+   "x_gl_release": "123333",
+   "x_gl_size": 1247702755,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.9.7",
+   "texture": "ASTC",
+   "x_gl_version": "1.9.7",
+   "x_gl_release": "123455",
+   "x_gl_size": 1300829140,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.9.7",
+   "texture": "ETC",
+   "x_gl_version": "1.9.7",
+   "x_gl_release": "123457",
+   "x_gl_size": 1247739594,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.9.8",
+   "texture": "ASTC",
+   "x_gl_version": "1.9.8",
+   "x_gl_release": "123467",
+   "x_gl_size": 1300855128,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.9.8",
+   "texture": "ETC",
+   "x_gl_version": "1.9.8",
+   "x_gl_release": "123465",
+   "x_gl_size": 1247765388,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.1",
+   "texture": "ASTC",
+   "x_gl_version": "1.10.1",
+   "x_gl_release": "123603",
+   "x_gl_size": 1406654069,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.1",
+   "texture": "ETC",
+   "x_gl_version": "1.10.1",
+   "x_gl_release": "123605",
+   "x_gl_size": 1342901265,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.2",
+   "texture": "ASTC",
+   "x_gl_version": "1.10.2",
+   "x_gl_release": "123721",
+   "x_gl_size": 1394556120,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.2",
+   "texture": "ETC",
+   "x_gl_version": "1.10.2",
+   "x_gl_release": "123723",
+   "x_gl_size": 1337376770,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.3",
+   "texture": "ASTC",
+   "x_gl_version": "1.10.3",
+   "x_gl_release": "123965",
+   "x_gl_size": 1412487286,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.3",
+   "texture": "ETC",
+   "x_gl_version": "1.10.3",
+   "x_gl_release": "123967",
+   "x_gl_size": 1355817453,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.4",
+   "texture": "ASTC",
+   "x_gl_version": "1.10.4",
+   "x_gl_release": "124121",
+   "x_gl_size": 1415378111,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.4",
+   "texture": "ETC",
+   "x_gl_version": "1.10.4",
+   "x_gl_release": "124123",
+   "x_gl_size": 1358717484,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.6",
+   "texture": "ASTC",
+   "x_gl_version": "1.10.6",
+   "x_gl_release": "124155",
+   "x_gl_size": 1388228782,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.6",
+   "texture": "ETC",
+   "x_gl_version": "1.10.6",
+   "x_gl_release": "124163",
+   "x_gl_size": 1334246511,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.7",
+   "texture": "ASTC",
+   "x_gl_version": "1.10.7",
+   "x_gl_release": "124255",
+   "x_gl_size": 1388544404,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.7",
+   "texture": "ETC",
+   "x_gl_version": "1.10.7",
+   "x_gl_release": "124257",
+   "x_gl_size": 1334485231,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.8",
+   "texture": "ASTC",
+   "x_gl_version": "1.10.8",
+   "x_gl_release": "124309",
+   "x_gl_size": 1358706825,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.8",
+   "texture": "ETC",
+   "x_gl_version": "1.10.8",
+   "x_gl_release": "124311",
+   "x_gl_size": 1308737353,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.9",
+   "texture": "ASTC",
+   "x_gl_version": "1.10.9",
+   "x_gl_release": "124329",
+   "x_gl_size": 1358798841,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.9",
+   "texture": "ETC",
+   "x_gl_version": "1.10.9",
+   "x_gl_release": "124331",
+   "x_gl_size": 1308758932,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.10",
+   "texture": "ASTC",
+   "x_gl_version": "1.10.10",
+   "x_gl_release": "124401",
+   "x_gl_size": 1359449150,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.10",
+   "texture": "ETC",
+   "x_gl_version": "1.10.10",
+   "x_gl_release": "124403",
+   "x_gl_size": 1308951152,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.11",
+   "texture": "ASTC",
+   "x_gl_version": "1.10.11",
+   "x_gl_release": "124429",
+   "x_gl_size": 1361291843,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.11",
+   "texture": "ETC",
+   "x_gl_version": "1.10.11",
+   "x_gl_release": "124435",
+   "x_gl_size": 1310955707,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.12",
+   "texture": "ASTC",
+   "x_gl_version": "1.10.12",
+   "x_gl_release": "124491",
+   "x_gl_size": 1362553564,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.12",
+   "texture": "ETC",
+   "x_gl_version": "1.10.12",
+   "x_gl_release": "124493",
+   "x_gl_size": 1312053193,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.14",
+   "texture": "ASTC",
+   "x_gl_version": "1.10.14",
+   "x_gl_release": "124525",
+   "x_gl_size": 1390802429,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.14",
+   "texture": "ETC",
+   "x_gl_version": "1.10.14",
+   "x_gl_release": "124527",
+   "x_gl_size": 1340067894,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.15",
+   "texture": "ASTC",
+   "x_gl_version": "1.10.15",
+   "x_gl_release": "124535",
+   "x_gl_size": 1392019187,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.15",
+   "texture": "ETC",
+   "x_gl_version": "1.10.15",
+   "x_gl_release": "124537",
+   "x_gl_size": 1340915701,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.16",
+   "texture": "ASTC",
+   "x_gl_version": "1.10.16",
+   "x_gl_release": "124569",
+   "x_gl_size": 1392043838,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.16",
+   "texture": "ETC",
+   "x_gl_version": "1.10.16",
+   "x_gl_release": "124571",
+   "x_gl_size": 1340940208,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.17",
+   "texture": "ASTC",
+   "x_gl_version": "1.10.17",
+   "x_gl_release": "124593",
+   "x_gl_size": 1392043951,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.17",
+   "texture": "ETC",
+   "x_gl_version": "1.10.17",
+   "x_gl_release": "124595",
+   "x_gl_size": 1340940239,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.18",
+   "texture": "ASTC",
+   "x_gl_version": "1.10.18",
+   "x_gl_release": "124641",
+   "x_gl_size": 1392064563,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.18",
+   "texture": "ETC",
+   "x_gl_version": "1.10.18",
+   "x_gl_release": "124643",
+   "x_gl_size": 1340951685,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.20",
+   "texture": "ASTC",
+   "x_gl_version": "1.10.20",
+   "x_gl_release": "124712",
+   "x_gl_size": 1392069806,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.20",
+   "texture": "ETC",
+   "x_gl_version": "1.10.20",
+   "x_gl_release": "124714",
+   "x_gl_size": 1340958929,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.21",
+   "texture": "ASTC",
+   "x_gl_version": "1.10.21",
+   "x_gl_release": "124814",
+   "x_gl_size": 1392764111,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.21",
+   "texture": "ETC",
+   "x_gl_version": "1.10.21",
+   "x_gl_release": "124816",
+   "x_gl_size": 1341592190,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.22",
+   "texture": "ASTC",
+   "x_gl_version": "1.10.22",
+   "x_gl_release": "124876",
+   "x_gl_size": 1389456265,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.22",
+   "texture": "ETC",
+   "x_gl_version": "1.10.22",
+   "x_gl_release": "124878",
+   "x_gl_size": 1338039575,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.24",
+   "texture": "ASTC",
+   "x_gl_version": "1.10.24",
+   "x_gl_release": "124940",
+   "x_gl_size": 1389490035,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.24",
+   "texture": "ETC",
+   "x_gl_version": "1.10.24",
+   "x_gl_release": "124942",
+   "x_gl_size": 1338073346,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.25",
+   "texture": "ASTC",
+   "x_gl_version": "1.10.25",
+   "x_gl_release": "125138",
+   "x_gl_size": 1389625698,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.10.25",
+   "texture": "ETC",
+   "x_gl_version": "1.10.25",
+   "x_gl_release": "125140",
+   "x_gl_size": 1338128339,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.11.0",
+   "texture": "ASTC",
+   "x_gl_version": "1.11.0",
+   "x_gl_release": "125588",
+   "x_gl_size": 1394838156,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.11.0",
+   "texture": "ETC",
+   "x_gl_version": "1.11.0",
+   "x_gl_release": "125590",
+   "x_gl_size": 1342522214,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.11.1",
+   "texture": "ASTC",
+   "x_gl_version": "1.11.1",
+   "x_gl_release": "125630",
+   "x_gl_size": 1395805173,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.11.1",
+   "texture": "ETC",
+   "x_gl_version": "1.11.1",
+   "x_gl_release": "125632",
+   "x_gl_size": 1343728707,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.12.0",
+   "texture": "ASTC",
+   "x_gl_version": "1.12.0",
+   "x_gl_release": "125820",
+   "x_gl_size": 1396024803,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.12.0",
+   "texture": "ETC",
+   "x_gl_version": "1.12.0",
+   "x_gl_release": "125818",
+   "x_gl_size": 1344152826,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.12.1",
+   "texture": "ASTC",
+   "x_gl_version": "1.12.1",
+   "x_gl_release": "125904",
+   "x_gl_size": 1396024754,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.12.1",
+   "texture": "ETC",
+   "x_gl_version": "1.12.1",
+   "x_gl_release": "125898",
+   "x_gl_size": 1344137130,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.12.2",
+   "texture": "ASTC",
+   "x_gl_version": "1.12.2",
+   "x_gl_release": "126130",
+   "x_gl_size": 1396024907,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.12.2",
+   "texture": "ETC",
+   "x_gl_version": "1.12.2",
+   "x_gl_release": "126128",
+   "x_gl_size": 1344137284,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.12.3",
+   "texture": "ASTC",
+   "x_gl_version": "1.12.3",
+   "x_gl_release": "126330",
+   "x_gl_size": 1396024911,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.12.3",
+   "texture": "ETC",
+   "x_gl_version": "1.12.3",
+   "x_gl_release": "126332",
+   "x_gl_size": 1344137292,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.13.0",
+   "texture": "ASTC",
+   "x_gl_version": "1.13.0",
+   "x_gl_release": "127523",
+   "x_gl_size": 1450457282,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.13.0",
+   "texture": "ETC",
+   "x_gl_version": "1.13.0",
+   "x_gl_release": "127525",
+   "x_gl_size": 1394703622,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.13.1",
+   "texture": "ASTC",
+   "x_gl_version": "1.13.1",
+   "x_gl_release": "127721",
+   "x_gl_size": 1454240546,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.13.1",
+   "texture": "ETC",
+   "x_gl_version": "1.13.1",
+   "x_gl_release": "127723",
+   "x_gl_size": 1397646302,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.13.2",
+   "texture": "ASTC",
+   "x_gl_version": "1.13.2",
+   "x_gl_release": "127809",
+   "x_gl_size": 1456998886,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.13.2",
+   "texture": "ETC",
+   "x_gl_version": "1.13.2",
+   "x_gl_release": "127811",
+   "x_gl_size": 1400404577,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.13.3",
+   "texture": "ASTC",
+   "x_gl_version": "1.13.3",
+   "x_gl_release": "127865",
+   "x_gl_size": 1456765538,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.13.3",
+   "texture": "ETC",
+   "x_gl_version": "1.13.3",
+   "x_gl_release": "127867",
+   "x_gl_size": 1400171228,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.13.4",
+   "texture": "ASTC",
+   "x_gl_version": "1.13.4",
+   "x_gl_release": "127927",
+   "x_gl_size": 1456826747,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.13.4",
+   "texture": "ETC",
+   "x_gl_version": "1.13.4",
+   "x_gl_release": "127925",
+   "x_gl_size": 1400232670,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.13.5",
+   "texture": "ASTC",
+   "x_gl_version": "1.13.5",
+   "x_gl_release": "128287",
+   "x_gl_size": 1457365748,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.13.5",
+   "texture": "ETC",
+   "x_gl_version": "1.13.5",
+   "x_gl_release": "128289",
+   "x_gl_size": 1400732970,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.13.6",
+   "texture": "ASTC",
+   "x_gl_version": "1.13.6",
+   "x_gl_release": "128335",
+   "x_gl_size": 1457365809,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.13.6",
+   "texture": "ETC",
+   "x_gl_version": "1.13.6",
+   "x_gl_release": "128337",
+   "x_gl_size": 1400733025,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.14.0",
+   "texture": "ASTC",
+   "x_gl_version": "1.14.0",
+   "x_gl_release": "129717",
+   "x_gl_size": 1460123410,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.14.0",
+   "texture": "ETC",
+   "x_gl_version": "1.14.0",
+   "x_gl_release": "129719",
+   "x_gl_size": 1403367882,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.14.1",
+   "texture": "ASTC",
+   "x_gl_version": "1.14.1",
+   "x_gl_release": "129743",
+   "x_gl_size": 1460123427,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.14.1",
+   "texture": "ETC",
+   "x_gl_version": "1.14.1",
+   "x_gl_release": "129745",
+   "x_gl_size": 1403367898,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.14.4",
+   "texture": "ASTC",
+   "x_gl_version": "1.14.4",
+   "x_gl_release": "130075",
+   "x_gl_size": 1462200522,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.14.4",
+   "texture": "ETC",
+   "x_gl_version": "1.14.4",
+   "x_gl_release": "130077",
+   "x_gl_size": 1405403314,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.15.0",
+   "texture": "ASTC",
+   "x_gl_version": "1.15.0",
+   "x_gl_release": "130527",
+   "x_gl_size": 1466820059,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.15.0",
+   "texture": "ETC",
+   "x_gl_version": "1.15.0",
+   "x_gl_release": "130529",
+   "x_gl_size": 1409359857,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.15.1",
+   "texture": "ASTC",
+   "x_gl_version": "1.15.1",
+   "x_gl_release": "130555",
+   "x_gl_size": 1466815725,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.15.1",
+   "texture": "ETC",
+   "x_gl_version": "1.15.1",
+   "x_gl_release": "130557",
+   "x_gl_size": 1409346139,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.15.5",
+   "texture": "ASTC",
+   "x_gl_version": "1.15.5",
+   "x_gl_release": "130854",
+   "x_gl_size": 1471427823,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.15.5",
+   "texture": "ETC",
+   "x_gl_version": "1.15.5",
+   "x_gl_release": "130856",
+   "x_gl_size": 1413571617,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.15.6",
+   "texture": "ASTC",
+   "x_gl_version": "1.15.6",
+   "x_gl_release": "130868",
+   "x_gl_size": 1471444900,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.15.6",
+   "texture": "ETC",
+   "x_gl_version": "1.15.6",
+   "x_gl_release": "130870",
+   "x_gl_size": 1413588700,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.15.7",
+   "texture": "ASTC",
+   "x_gl_version": "1.15.7",
+   "x_gl_release": "130896",
+   "x_gl_size": 1471442440,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.15.7",
+   "texture": "ETC",
+   "x_gl_version": "1.15.7",
+   "x_gl_release": "130900",
+   "x_gl_size": 1413586237,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.15.8",
+   "texture": "ASTC",
+   "x_gl_version": "1.15.8",
+   "x_gl_release": "130902",
+   "x_gl_size": 1471442501,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.15.8",
+   "texture": "ETC",
+   "x_gl_version": "1.15.8",
+   "x_gl_release": "130904",
+   "x_gl_size": 1413586296,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.15.10",
+   "texture": "ASTC",
+   "x_gl_version": "1.15.10",
+   "x_gl_release": "131165",
+   "x_gl_size": 1474349173,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.15.10",
+   "texture": "ETC",
+   "x_gl_version": "1.15.10",
+   "x_gl_release": "131163",
+   "x_gl_size": 1416292748,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.15.11",
+   "texture": "ASTC",
+   "x_gl_version": "1.15.11",
+   "x_gl_release": "131207",
+   "x_gl_size": 1474371173,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.15.11",
+   "texture": "ETC",
+   "x_gl_version": "1.15.11",
+   "x_gl_release": "131209",
+   "x_gl_size": 1416316386,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.15.20",
+   "texture": "ASTC",
+   "x_gl_version": "1.15.20",
+   "x_gl_release": "131657",
+   "x_gl_size": 1491073121,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.15.20",
+   "texture": "ETC",
+   "x_gl_version": "1.15.20",
+   "x_gl_release": "131655",
+   "x_gl_size": 1432174604,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.15.21",
+   "texture": "ASTC",
+   "x_gl_version": "1.15.21",
+   "x_gl_release": "132019",
+   "x_gl_size": 1511178147,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.15.21",
+   "texture": "ETC",
+   "x_gl_version": "1.15.21",
+   "x_gl_release": "132017",
+   "x_gl_size": 1450534764,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.15.22",
+   "texture": "ASTC",
+   "x_gl_version": "1.15.22",
+   "x_gl_release": "132059",
+   "x_gl_size": 1510960857,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.15.22",
+   "texture": "ETC",
+   "x_gl_version": "1.15.22",
+   "x_gl_release": "132061",
+   "x_gl_size": 1450231334,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.16.4",
+   "texture": "ASTC",
+   "x_gl_version": "1.16.4",
+   "x_gl_release": "132299",
+   "x_gl_size": 1511855550,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.16.4",
+   "texture": "ETC",
+   "x_gl_version": "1.16.4",
+   "x_gl_release": "132301",
+   "x_gl_size": 1451131962,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.16.6",
+   "texture": "ASTC",
+   "x_gl_version": "1.16.6",
+   "x_gl_release": "132401",
+   "x_gl_size": 1511888104,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.16.6",
+   "texture": "ETC",
+   "x_gl_version": "1.16.6",
+   "x_gl_release": "132403",
+   "x_gl_size": 1451163784,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.16.7",
+   "texture": "ASTC",
+   "x_gl_version": "1.16.7",
+   "x_gl_release": "132415",
+   "x_gl_size": 1511939200,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.16.7",
+   "texture": "ETC",
+   "x_gl_version": "1.16.7",
+   "x_gl_release": "132417",
+   "x_gl_size": 1451215352,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.16.10",
+   "texture": "ASTC",
+   "x_gl_version": "1.16.10",
+   "x_gl_release": "132555",
+   "x_gl_size": 1511817678,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.16.10",
+   "texture": "ETC",
+   "x_gl_version": "1.16.10",
+   "x_gl_release": "132557",
+   "x_gl_size": 1451094524,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.16.20",
+   "texture": "ASTC",
+   "x_gl_version": "1.16.20",
+   "x_gl_release": "133029",
+   "x_gl_size": 1538440398,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.16.20",
+   "texture": "ETC",
+   "x_gl_version": "1.16.20",
+   "x_gl_release": "133037",
+   "x_gl_size": 1475557697,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.16.21",
+   "texture": "ASTC",
+   "x_gl_version": "1.16.21",
+   "x_gl_release": "133085",
+   "x_gl_size": 1538440395,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.16.21",
+   "texture": "ETC",
+   "x_gl_version": "1.16.21",
+   "x_gl_release": "133087",
+   "x_gl_size": 1475557694,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.16.22",
+   "texture": "ASTC",
+   "x_gl_version": "1.16.22",
+   "x_gl_release": "133121",
+   "x_gl_size": 1538440394,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.16.22",
+   "texture": "ETC",
+   "x_gl_version": "1.16.22",
+   "x_gl_release": "133123",
+   "x_gl_size": 1475557696,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.16.30",
+   "texture": "ASTC",
+   "x_gl_version": "1.16.30",
+   "x_gl_release": "133645",
+   "x_gl_size": 1557497638,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.16.30",
+   "texture": "ETC",
+   "x_gl_version": "1.16.30",
+   "x_gl_release": "133643",
+   "x_gl_size": 1493280264,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.16.31",
+   "texture": "ASTC",
+   "x_gl_version": "1.16.31",
+   "x_gl_release": "133731",
+   "x_gl_size": 1557497641,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.16.31",
+   "texture": "ETC",
+   "x_gl_version": "1.16.31",
+   "x_gl_release": "133725",
+   "x_gl_size": 1493280264,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.16.32",
+   "texture": "ASTC",
+   "x_gl_version": "1.16.32",
+   "x_gl_release": "133799",
+   "x_gl_size": 1557497645,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.16.32",
+   "texture": "ETC",
+   "x_gl_version": "1.16.32",
+   "x_gl_release": "133801",
+   "x_gl_size": 1493280273,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.2",
+   "texture": "ASTC",
+   "x_gl_version": "1.17.2",
+   "x_gl_release": "134093",
+   "x_gl_size": 1560193411,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.2",
+   "texture": "ETC",
+   "x_gl_version": "1.17.2",
+   "x_gl_release": "134095",
+   "x_gl_size": 1495415041,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.3",
+   "texture": "ASTC",
+   "x_gl_version": "1.17.3",
+   "x_gl_release": "134157",
+   "x_gl_size": 1560737165,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.3",
+   "texture": "ETC",
+   "x_gl_version": "1.17.3",
+   "x_gl_release": "134159",
+   "x_gl_size": 1495286421,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.4",
+   "texture": "ASTC",
+   "x_gl_version": "1.17.4",
+   "x_gl_release": "134167",
+   "x_gl_size": 1560610107,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.4",
+   "texture": "ETC",
+   "x_gl_version": "1.17.4",
+   "x_gl_release": "134165",
+   "x_gl_size": 1495621210,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.5",
+   "texture": "ASTC",
+   "x_gl_version": "1.17.5",
+   "x_gl_release": "135679",
+   "x_gl_size": 1560610108,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.5",
+   "texture": "ETC",
+   "x_gl_version": "1.17.5",
+   "x_gl_release": "135681",
+   "x_gl_size": 1495621211,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.6",
+   "texture": "ASTC",
+   "x_gl_version": "1.17.6",
+   "x_gl_release": "135695",
+   "x_gl_size": 1560610104,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.6",
+   "texture": "ETC",
+   "x_gl_version": "1.17.6",
+   "x_gl_release": "135697",
+   "x_gl_size": 1495621208,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.7",
+   "texture": "ASTC",
+   "x_gl_version": "1.17.7",
+   "x_gl_release": "135715",
+   "x_gl_size": 1560610102,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.7",
+   "texture": "ETC",
+   "x_gl_version": "1.17.7",
+   "x_gl_release": "135717",
+   "x_gl_size": 1495621206,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.8",
+   "texture": "ASTC",
+   "x_gl_version": "1.17.8",
+   "x_gl_release": "135741",
+   "x_gl_size": 1560610102,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.8",
+   "texture": "ETC",
+   "x_gl_version": "1.17.8",
+   "x_gl_release": "135743",
+   "x_gl_size": 1495621208,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.10",
+   "texture": "ASTC",
+   "x_gl_version": "1.17.10",
+   "x_gl_release": "135773",
+   "x_gl_size": 1583225459,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.10",
+   "texture": "ETC",
+   "x_gl_version": "1.17.10",
+   "x_gl_release": "135775",
+   "x_gl_size": 1516208054,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.11",
+   "texture": "ASTC",
+   "x_gl_version": "1.17.11",
+   "x_gl_release": "135803",
+   "x_gl_size": 1583225460,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.11",
+   "texture": "ETC",
+   "x_gl_version": "1.17.11",
+   "x_gl_release": "135805",
+   "x_gl_size": 1516208055,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.12",
+   "texture": "ASTC",
+   "x_gl_version": "1.17.12",
+   "x_gl_release": "135823",
+   "x_gl_size": 1583225460,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.12",
+   "texture": "ETC",
+   "x_gl_version": "1.17.12",
+   "x_gl_release": "135825",
+   "x_gl_size": 1516208055,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.15",
+   "texture": "ASTC",
+   "x_gl_version": "1.17.15",
+   "x_gl_release": "135843",
+   "x_gl_size": 1583225459,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.15",
+   "texture": "ETC",
+   "x_gl_version": "1.17.15",
+   "x_gl_release": "135845",
+   "x_gl_size": 1516208054,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.20",
+   "texture": "ASTC",
+   "x_gl_version": "1.17.20",
+   "x_gl_release": "136159",
+   "x_gl_size": 1586525886,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.20",
+   "texture": "ETC",
+   "x_gl_version": "1.17.20",
+   "x_gl_release": "136161",
+   "x_gl_size": 1519498753,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.21",
+   "texture": "ASTC",
+   "x_gl_version": "1.17.21",
+   "x_gl_release": "136203",
+   "x_gl_size": 1586527280,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.21",
+   "texture": "ETC",
+   "x_gl_version": "1.17.21",
+   "x_gl_release": "136205",
+   "x_gl_size": 1519500191,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.30",
+   "texture": "ASTC",
+   "x_gl_version": "1.17.30",
+   "x_gl_release": "136716",
+   "x_gl_size": 1586923464,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.30",
+   "texture": "ETC",
+   "x_gl_version": "1.17.30",
+   "x_gl_release": "136718",
+   "x_gl_size": 1519733632,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.31",
+   "texture": "ASTC",
+   "x_gl_version": "1.17.31",
+   "x_gl_release": "136798",
+   "x_gl_size": 1586923464,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.31",
+   "texture": "ETC",
+   "x_gl_version": "1.17.31",
+   "x_gl_release": "136800",
+   "x_gl_size": 1519733632,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.32",
+   "texture": "ASTC",
+   "x_gl_version": "1.17.32",
+   "x_gl_release": "136808",
+   "x_gl_size": 1586923464,
+   "x_gl_generic": "yes"
+  },
+  {
+   "version": "1.17.32",
+   "texture": "ETC",
+   "x_gl_version": "1.17.32",
+   "x_gl_release": "136814",
+   "x_gl_size": 1519733632,
+   "x_gl_generic": "yes"
+  }
+ ]
+}

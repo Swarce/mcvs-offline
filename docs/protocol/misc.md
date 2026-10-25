@@ -3,7 +3,7 @@
 Owner group: **MISC** (Social, Messaging, Alerts, Leaderboards, GameStats, Profanity, Chat, Clans, Wall, BanTool, Geo, Misc).
 Scope: every Federation service not owned by AUTH, STORAGE or CONTENT, the hard-coded geolocation host, and the
 catch-all module.
-Evidence: report 02 §1.4-1.6, §4, §6, §9; report 04 §9-10; verify-C2 §1.5, §1.8, §3; verify-C5 (b). Paths in the
+Evidence: report 02 §1.4-1.6, §4, §6, §9; report 04 §9-10; verify-C2 §1.5, §1.8, §3; verify-C5 (b); live ops: [LIVEOPS.md](../LIVEOPS.md). Paths in the
 code comments (`OP/`, `EN/`, `GM/`, `UT/`) are relative to the decompiled assemblies, as in report 02.
 
 All services are served at the host root (ARCHITECTURE §2.2). Tokens are resolved with the core `TokenService`;
@@ -32,6 +32,7 @@ player. Code: `server/Services/<Module>/`; shared helpers in `server/Services/Mi
 | POST | `events/{id}/participants/{credential}` | `social.event.participate` | `{}` | S4 (no caller in the game) |
 | POST | `events/{id}/participants/{credential}/award` | `social.event.award` | `{}` | S3 (no caller) |
 | DELETE | `events/{id}/participants/{credential}` | `social.event.leave` | `{}` | S5 (no caller) |
+| GET | `_mcvs/liveops` | `social.liveops.debug` | the live-ops schedule now (season, day, modifier, CRM expiry, listed ids, objectives); no player data | ours, [LIVEOPS.md](../LIVEOPS.md) |
 | GET | `accounts/me/connections/{type}` | `social.connections.list` | `[]` | S7 |
 | POST | `accounts/me/connections/{type}` | `social.connections.add` | `{}` (parsed as an empty SocialRequestObject) | S6 |
 | GET | `accounts/me/connections/{type}/count` | `social.connections.count` | `{"count":0}` | S8 |
@@ -214,13 +215,19 @@ All catch-all routes use `Router.CatchAllOrder`, so any module's specific route 
    Division boards are named by the season event's `tournament.leaderboard.name`; because the TS sees a loopback
    player as a developer/QA (127.0.0.0/8 is always in the edge list, verify-C2 §1.5), `DivisionData.LeaderboardId`
    turns "Leaderboard" into "Leaderboard_QA" in that name for both posting and reading. Any name works here.
+   **Season boards** (`mcvs_division_<season>_d<nn>_Leaderboard[_QA]`, the names live ops gives its season events)
+   get `SeasonRivals` instead: calibrated so that promotion needs a set number of matches a day for that division
+   at the player's own `_level`, growing over the season and frozen after its end, which is what the TS reads at
+   the next season start (docs/LIVEOPS.md §5).
 7. **An empty `my_entry` is `{}`**: `Leaderboard.LeaderboardData` reads `Value<JObject>("my_entry") ?? new JObject()`,
    and an entry without a valid credential makes `LeaderboardsComponent` post the player's score and ask again
    (`PostUserIfNotFound`). `limit=0` (SelfData/SelfEntry) returns the caller's entry in `data` too.
 8. **Social events are served from a provider, then from content; the shapes are made parser-safe.** The ids come
-   from CRM (CONTENT); without TLE ids in CRM the TS never asks (verify-C2 §1.8). Definitions come from an
-   `ISocialEventProvider` registered in `context.Features` (for rolling events such as weekly division seasons:
-   CONTENT owns both the CRM ids and the bodies) or from the content file `social/events.json` (an array, or
+   from CRM; without TLE ids in CRM the TS never asks (verify-C2 §1.8). Definitions come from an
+   `ISocialEventProvider` registered in `context.Features` — by default **`LiveOpsService`**
+   (`server/Services/Social/LiveOps/`, docs/LIVEOPS.md): weekly division seasons, daily missions and weekly
+   achievement events generated from the clock, whose ids, expiry and weekly modifier it also hands to the CRM
+   builder — or from the content file `social/events.json` (an array, or
    `{"events":[…]}`, or `{"<id>":{…}}`; built in from `server/Content/`, overridable in `<data>/content/`). An event
    the TS cannot parse would abort `TimeLimitedEventsComponent.RetrieveEventsAsync` with a non-online exception and
    the menu would wait forever for its events, so every event is normalized: `_template` must be a JSON *string*
@@ -230,7 +237,12 @@ All catch-all routes use `Router.CatchAllOrder`, so any module's specific route 
    time/date values, non-integer `duration`/consumable `value`, non-boolean `consumable`, … and a
    `DivisionSeasonEvent` `_participation` without an integer division), otherwise the event is dropped with a
    warning. The validator is checked against the game's own `ParseTemplate` (`ClientConformanceTests`). Missing or
-   non-ISO dates are logged (the TS reads them as `DateTime.MinValue`).
+   non-ISO dates are logged (the TS reads them as `DateTime.MinValue`). **Event dates should not use the ISO `T`**:
+   SocialEvent reads them through `JValue.ToString()`, i.e. in the phone's culture once Newtonsoft has turned a
+   `yyyy-MM-ddT…` string into a DateTime, and a day-first locale swaps day and month (`2026-10-05T00:00:00Z` → 10 May);
+   live ops send `"2026-10-05 00:00:00Z"`, which stays a string (`LiveOpsConformanceTests`). Any parseable
+   `start_date`/`end_date` (from a provider or `social/events.json`) is rewritten to that form when served, so a
+   content file written with ISO dates is safe too.
 9. **Clans are a real local store** rather than "always not in a clan": the game writes the clan id into the profile
    itself after `POST groups` / a successful join (`EN/ClanComponent.cs SetClanInProfile`), so a player can create
    and run a solo clan offline. Joining is immediate (200) whatever the membership mode, since nobody can approve a
@@ -279,6 +291,7 @@ All catch-all routes use `Router.CatchAllOrder`, so any module's specific route 
 | `wall.maxPostsPerWall` | 100 | Newest posts kept per wall. |
 | `profanity.blacklist` | `[]` | Words masked by the filter (all languages). |
 | `geo.country` | `"US"` | ISO 3166-1 alpha-2 country the geolocation reports. |
+| `liveops.*` | see [LIVEOPS.md](../LIVEOPS.md) §3 | `enabled`, `seasonStart`, `seasonDays`, `dailyResetHour`, `divisionSeasons`, `dailyQuests`, `weeklyEvents`, `modifiers`, `difficulty`, `seasonRewardMultiplier`. |
 | `tracking.disable` | false | Answer tracking with 993 so the TS stops sending it. |
 
 ## Cross-module seams
@@ -287,7 +300,8 @@ All catch-all routes use `Router.CatchAllOrder`, so any module's specific route 
 |---|---|---|
 | EventHub topic `alerts.push` (subscribed by Alerts) | `{"to": "fed_id:<id>" \| "<account id>" \| "group:<id>", "alert": {"type": …}}` | e.g. STORAGE/CONTENT sending `{"type":"set_profile"}` so the TS re-runs the IAP inventory diff (`EN/IapStoreComponent.cs:957-970`, verify-C5 (c)). `connection` alerts are dropped. |
 | EventHub topic `messaging.post` (subscribed by Messaging) | `{"to", "transport": "secured", "body", "type"?, "alert": true, "label"?, "replaceMatchingLabel"?, "from"?, "fields": {…}?}` | Deliver a Hermes message (e.g. a gift) without referencing Messaging's files. |
-| `context.Features` `ISocialEventProvider` (defined in `server/Services/Social/SocialEvents.cs`) | `FindEvent(id, language, utcNow)` → Osiris event object or null | Rolling TLEs (division seasons, crate shops) owned by CONTENT. |
+| `context.Features` `ISocialEventProvider` (defined in `server/Services/Social/SocialEvents.cs`) | `FindEvent(id, language, utcNow)` → Osiris event object or null | Rolling TLEs; `LiveOpsService` registers itself unless another provider is set. |
+| `context.Features` `LiveOps.LiveOpsService` (`LiveOpsService.For(context)`) | `Snapshot(utc)` (CRM ids, expiry, MUL cells, cache key), `TryGetSeasonBoard(name)` (rival tuning), `Describe(utc)` | Read by Crm (`CrmDocumentCache`) and Leaderboards (`LeaderboardStore`). |
 | `context.Features` `AlertHub`, `Mailboxes`, `ClanStore`, `SocialProfiles`, `ChatHub` | the shared instances (`X.For(context)`) | In-process use by any module. |
 
 ## Verification
@@ -306,6 +320,11 @@ All catch-all routes use `Router.CatchAllOrder`, so any module's specific route 
   same, the HTTP stack is the same SocketsHttpHandler design.) It also runs every template of
   `TleTemplateValidatorTests` through the game's own `TimeLimitedEventsComponent.ParseTemplate` and requires the
   validator to drop exactly the ones that throw.
+- `LiveOpsTests`: the schedule grid, ids, the CRM layer (ids, expiry ahead of the clock, modifier cells combined with
+  the economy multipliers, the off switches), deterministic events, the season boards (exact promotion/demotion lines,
+  growth and freeze, level scaling) and the division tables cut out of the design file (also the real one).
+  `LiveOpsConformanceTests`: 16 days of generated CRM documents and events through the real client, down to each
+  event type's `Initialize` (see LIVEOPS.md §9).
 
 ## Open questions / device-test checklist
 
@@ -315,8 +334,9 @@ All catch-all routes use `Router.CatchAllOrder`, so any module's specific route 
 - [ ] Live tournaments / CRM pointcut gifts: a gift posted to `secured` appears in the in-game inbox and is deleted
       from the mailbox (`DELETE messages/secured/me msgids=…`) after the TS processed it.
 - [ ] After a forced kill, the next login's `multipleConnectionDetected` notice does not kick the player.
-- [ ] Division season end (needs CONTENT's season TLEs): `SelfData` gives rank/total from a 100-entry board and
-      promotion/demotion and rewards follow; the division leaderboard UI shows the rivals and the player's row.
+- [ ] Division season end (live ops, LIVEOPS.md §11): `SelfData` on the old `mcvs_division_…_Leaderboard_QA` board gives
+      rank/total from a 100-entry board and promotion/demotion and the inbox reward follow; the division
+      leaderboard UI shows the rivals and the player's row.
 - [ ] Setting the player name passes through `chat/words/{lang}/filter`; `POST accounts/me` stores the name.
 - [ ] Creating, renaming and leaving a solo clan; the clan wall shows the join notice; clan chat connects and
       messages round-trip.

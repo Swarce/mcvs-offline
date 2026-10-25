@@ -67,6 +67,16 @@ namespace McvsOffline.Patcher
 
         public AotStripMode StripAot { get; set; } = AotStripMode.Modified;
 
+        /// <summary>The 64-bit ARM ABI (--abi arm64-v8a gives a 64-bit-only APK).</summary>
+        public const string Arm64 = "arm64-v8a";
+
+        /// <summary>
+        /// Native-library ABIs kept in the output (lib/&lt;abi&gt;/**); every other lib/ folder is dropped. Null, the default,
+        /// keeps every ABI the APK ships (--abi all), so 32-bit phones keep working; --abi arm64-v8a drops the 32-bit copies
+        /// (lib/armeabi-v7a, about half of lib/).
+        /// </summary>
+        public SortedSet<string> Abis { get; set; }
+
         /// <summary>
         /// What the game itself logs (Gameloft.Logs to logcat "mono-stdout"). The default is All while the offline build is
         /// being brought up on devices; <see cref="GameLogMode.Fatal"/> keeps the shipped res/raw/args.txt.
@@ -101,6 +111,24 @@ namespace McvsOffline.Patcher
                 else throw new ArgumentException("unknown patch '" + raw + "' (known: " + string.Join(", ", OptionalPatches) + ", none, all, default)");
             }
             if (result.Contains("lan")) result.Add("finder");
+            return result;
+        }
+
+        /// <summary>Android ABIs a lib/ folder can be named after.</summary>
+        public static readonly string[] KnownAbis = { "arm64-v8a", "armeabi-v7a", "armeabi", "x86", "x86_64", "mips", "mips64" };
+
+        /// <summary>Parses an --abi value: comma-separated ABIs, or "all" (keep every lib/ folder; returns null).</summary>
+        public static SortedSet<string> ParseAbiList(string value)
+        {
+            var result = new SortedSet<string>(StringComparer.Ordinal);
+            foreach (string raw in (value ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                string abi = raw.ToLowerInvariant();
+                if (abi == "all") return null;
+                if (!KnownAbis.Contains(abi)) throw new ArgumentException("unknown ABI '" + raw + "' (known: " + string.Join(", ", KnownAbis) + ", all)");
+                result.Add(abi);
+            }
+            if (result.Count == 0) throw new ArgumentException("--abi needs at least one ABI, or all");
             return result;
         }
 

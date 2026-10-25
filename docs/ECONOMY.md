@@ -148,7 +148,24 @@ How the sets are decided, and their caveats:
   UNLOCKPAID after UNLOCKALL) pays the game's duplicate compensation for each owned merc (40 random gear,
   `AlternateRewards` `UnlockMerc_<rarity>`), as a duplicate merc from a crate does.
 
-## 4. Open points (device test)
+## 4. Live ops income (docs/LIVEOPS.md)
+
+Weekly division seasons, daily missions and weekly events add a second, play-driven income on top of the match rewards
+(our tuning, `tools/content-gen/liveops_tuning.json`):
+
+| Source | Per | VersusCoins | Other |
+|---|---|---:|---|
+| Daily missions (3 of 6) | day | 450–600 | 30–35 Credits, the *Daily mission loot crate* (`Crate_Contracts`: mercs, tokens, gear, Credits) for all 3 |
+| Weekly event (4 objectives × 3 milestones) | week | 7,600 | 80 Credits, 600 upgrade tokens; final: 20 HardCurrency + one cosmetic event crate (`Crate_Event_<n>`, 65 in rotation) |
+| End-of-season reward (the game's `PVPDivisionRewards`) | week | – | tier crate for ranks 1–30, 120 Credits for 31–60; `liveops.seasonRewardMultiplier` scales it |
+
+For a player at the daily match cap (7,000–21,000 VC a week by division) that is about +35–60 % VC, the first
+renewable diamonds (20 a week, ≈1,000 a year) and a steady source of the event-crate cosmetics (camos and jerseys
+that the store sells only as mystery packs). Weekly modifiers (Coin rush ×1.5 VC, Credit rush ×1.5 Credits, MVP
+bounty ×3 MVP, Rival surge ×1.25 both, Trophy fever ×1.5 division trophies) multiply into the same `_OverrideTables`
+cells as the `economy.*` multipliers (one MUL cell holding the product), so both settings compose.
+
+## 5. Open points (device test)
 
 * The VersusCoins hub renders weapons, gear slots, mod tiers, crates, packs and VIP (verify-C5 marks the SWF side
   unverified); names of our packs show the raw `crm.<name>` key unless the SWF uses the content's names.

@@ -27,14 +27,15 @@ change to the game's logic. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (no
 
 | Goal | Status | Where |
 |---|---|---|
-| Fully offline boot to the menu | Server complete; conformance-tested with the real client libraries; device test 1 reached the TS level load (fixes in, **device test 2 pending**) | AUTH, STORAGE, CONTENT, MISC; [STATUS](docs/STATUS.md) |
+| Fully offline boot to the menu | Works on a Samsung S22 (Android 16) since device test 3; conformance-tested with the real client libraries. Data already on the phone (backup, `Data/` copy or mirror) installs without Gameloft's CDN (build 5, device test pending) | AUTH, STORAGE, CONTENT, MISC; [STATUS](docs/STATUS.md), [INSTALL-OFFLINE](docs/INSTALL-OFFLINE.md) |
 | Full progression saved on the device | Storage complete: byte-exact profile dumps, no ETags, 401 never 403, atomic writes plus directory fsync, backups, corrupt-file recovery | [protocol/storage.md](docs/protocol/storage.md) |
 | Everything obtainable | VersusCoins economy (1,864 store entries), unlock coupons (`UNLOCKALL` and split codes), optional `unlockAll` through the inventory ledger, optional developer menu | [ECONOMY.md](docs/ECONOMY.md), [protocol/content.md](docs/protocol/content.md), [protocol/unlocks.md](docs/protocol/unlocks.md) |
 | Bot matches with full rewards | Instant bot-filled PvP through CRM (`MinPlayers 1`), `bottile` patch routes the BOTMATCH tile to the full-progression GS flow | [verify-C4](docs/research/verify-C4-bot-match-progression.md), patcher |
-| Player build (offline APK) | Patcher complete (hook, geo, bottile, finder, store; signing v1/v2/v3); checked offline with apksigner, zipalign and ILVerify | [PLAYER-SETUP.md](docs/PLAYER-SETUP.md) |
+| Player build (offline APK) | Patcher complete (hook, geo, bottile, finder, store; signing v1/v2/v3; every ABI by default, `--abi arm64-v8a` for 64-bit only); checked offline with apksigner, zipalign and ILVerify | [PLAYER-SETUP.md](docs/PLAYER-SETUP.md) |
 | LAN P2P | Experimental: `lan` patch and LAN mode exist; guests must use the host's server for everything (topology A). Forwarding to each device's own server is not implemented | [roadmap](docs/ROADMAP.md) M3, [verify-C6](docs/research/verify-C6-lan-p2p.md) |
 | Internet P2P | Not started (planned: overlay VPN guide first) | [roadmap](docs/ROADMAP.md) M4 |
-| Preservation extras (missing maps, local data archive) | Not started | [roadmap](docs/ROADMAP.md) M5 |
+| Live ops (division seasons, daily missions, weekly events) | Generated from the clock, offline; conformance-tested with the real client (build 5, device test pending) | [LIVEOPS.md](docs/LIVEOPS.md) |
+| Preservation extras (missing maps, local data archive) | Partly: CDN mirror and backup verifier (`tools/cdn-mirror`); missing maps not started | [roadmap](docs/ROADMAP.md) M5 |
 
 ## Quickstart
 

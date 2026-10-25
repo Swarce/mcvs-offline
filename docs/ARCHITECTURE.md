@@ -16,7 +16,7 @@ All claims below are backed by `docs/research/` (reports `01`–`11`, plus the a
 | Authoritative game logic: Transaction Server (TS: menus, meta, rewards, profile) and Game Server (GS: matches) | **Ships in the APK** | The same C# `GameServerComponent`, run as headless Worlds. |
 | `ServerLocation.Embedded` dev mode (`Gameloft.Engine.LocalAnubis`) | **Ships, works in-process** | Lobby/Controller (TCP) + Finder (HTTP `localhost:51750`); `connect game` spawns TS/GS Worlds in the same process. |
 | Netcode | **Ships** | TCP control frames + ENet UDP, 20 Hz, bots fill GS matches. |
-| Game data | **CDN still alive** | Archiving tool planned (`tools/cdn-mirror`, report 10); decoder in `server/Core/Content` (GCBF/LZ4, crc32 names; report 11). |
+| Game data | **CDN still alive** | Archived and verified with `tools/cdn-mirror` (report 10); the embedded host restores the installer's index from data already on the phone ([INSTALL-OFFLINE.md](INSTALL-OFFLINE.md)); decoder in `server/Core/Content` (GCBF/LZ4, crc32 names; report 11). |
 | Gameloft "Federation" backend (eve, pandora, auth, Seshat storage, CRM, matchmaker `lobbyconfigs`, social/events, messaging, alerts, leaderboards, assets/coupons) | **Dead** (eve returns 404 for our client id) | **This is the only thing we reimplement.** |
 
 The game saves **no** progression on the device. The TS/GS Worlds load and save the profile through
@@ -37,7 +37,7 @@ hosts/
 patcher/       McvsOffline.Patcher (net8 + Mono.Cecil): turns the player's own APK into the offline APK
 tests/         unit tests, protocol tests, and a conformance harness that drives the REAL
                Gameloft.OnlinePlatform.dll (taken from the player's APK, never committed) against the server
-tools/         content-gen (tables -> Content/); planned: cdn-mirror (archive the CDN), datapack (decode GCBF/LZ4 + names)
+tools/         content-gen (tables -> Content/), cdn-mirror (archive and verify the CDN data, offline install); planned: datapack (decode GCBF/LZ4 + names)
 docs/          this file, protocol spec, setup guides, research/
 ```
 
@@ -95,7 +95,7 @@ Embedded wiring (verify-C7): add `McvsOffline.Server.dll` to `assemblies/`; IL-p
 `NicePlaySDKDLL.OnInitialize` (reflectively invoked by `XamarinMainActivity.OnCreate` *before*
 `MainLoop.Start`, Java `GameInstaller` and native init) to call `McvsOffline.Bootstrap.Init()`.
 `Init()` starts the server thread and writes/merges the managed block of `args.txt` (native reads it
-later, at `JNIBridge.NativeInit`). Delete `libaot-NicePlaySDK.dll.so` for both ABIs (Mono "normal"
+later, at `JNIBridge.NativeInit`). Delete `libaot-NicePlaySDK.dll.so` for each ABI kept (default: every ABI; `--abi arm64-v8a` drops the 32-bit `lib/armeabi-v7a`) (Mono "normal"
 AOT mode falls back to JIT). Re-sign (zipalign + apksigner v1+v2). The native signature check has no
 local effect; neutralising it is optional.
 
@@ -169,7 +169,8 @@ responses that never block; leaderboards return a sane `my_entry`/`total_entries
 testing reveals what is missing.
 
 **Settings** (`settings.json`, next to the data): port, `unlockAll`, `devMenu`, economy multipliers,
-instant-bots, LAN mode. Data dir: embedded `<GlfRootPath>/McvsOffline/` (user-visible, easy to back
+instant-bots, LAN mode, live ops (`liveops.*`, [LIVEOPS.md](LIVEOPS.md)), installer-data restore (`install.*`, embedded only,
+[INSTALL-OFFLINE.md](INSTALL-OFFLINE.md)). Data dir: embedded `<GlfRootPath>/McvsOffline/` (user-visible, easy to back
 up; removed on uninstall), standalone `./data/`.
 
 ## 4. Roadmap

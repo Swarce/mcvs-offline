@@ -1,0 +1,74 @@
+{
+  "format": 1,
+  "revision": 1,
+  "images": {
+    "dailyBanner": "Menus/assets/png/tournament/modeBg.png",
+    "dailyMenu": "Menus/assets/png/tournament/mode_random.png",
+    "weeklyBanner": "Menus/assets/png/tournament/mode_all.png",
+    "weeklyMenu": "Menus/assets/png/tournament/tournamentLogo.png"
+  },
+  "seasons": {
+    "title": "menu.DivisionTitle",
+    "description": "menu.DivisionsDescriptionText",
+    "promotionMatchesPerDay": [2,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8,8.5,9,10,11,12],
+    "topFactor": 2.2,
+    "safeFraction": 0.15,
+    "masterTopRank": 10,
+    "defaultLevel": 10,
+    "fallbackZones": {
+      "promotion": 20,
+      "demotion": 10
+    },
+    "divisions": [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17]
+  },
+  "objectives": [
+    {"id":"matches","tracker":"PlayedMatches","title":"Achiev.AchievementPVPBattleObjective","titlePlural":"Achiev.AchievementPVPBattleObjective","daily":{"goals":[3,4,5],"rewards":[{"item":"VersusCoins","quantity":150},{"item":"Credits","quantity":10}]},"weekly":{"goals":[10,25,50]}},
+    {"id":"wins","tracker":"Wins","title":"menu.NumberWinsSingle","titlePlural":"menu.NumberWins","theme":{"title":"menu.Tle02Name","description":"menu.TleWinDescription"},"daily":{"goals":[2,3],"rewards":[{"item":"VersusCoins","quantity":200},{"item":"Credits","quantity":10}]},"weekly":{"goals":[5,15,30]}},
+    {"id":"kills","tracker":"Kills","title":"menu.NumberTakedownsSingle","titlePlural":"menu.NumberTakedowns","theme":{"title":"menu.TleTitle","description":"menu.TleKillsDescription"},"daily":{"goals":[15,20,25],"rewards":[{"item":"VersusCoins","quantity":150},{"item":"Credits","quantity":10}]},"weekly":{"goals":[50,150,300]}},
+    {"id":"eliminations","tracker":"Eliminations","title":"menu.NumberEliminatedSingle","titlePlural":"menu.NumberEliminated","theme":{"title":"menu.Tle01Name","description":"menu.Tle01Description"},"daily":{"goals":[20,30,40],"rewards":[{"item":"VersusCoins","quantity":150},{"item":"Credits","quantity":10}]},"weekly":{"goals":[75,200,400]}},
+    {"id":"assists","tracker":"Assists","title":"Achiev.AchievementAssitsDescription","titlePlural":"Achiev.AchievementAssitsDescription","theme":{"title":"menu.Tle05Name","description":"menu.AssistsDescription"},"daily":{"goals":[8,12,15],"rewards":[{"item":"VersusCoins","quantity":150},{"item":"Credits","quantity":10}]},"weekly":{"goals":[30,80,160]}},
+    {"id":"mvp","tracker":"MVP","title":"Achiev.MVPObjective","titlePlural":"Achiev.MVPObjective","daily":{"goals":[1],"rewards":[{"item":"VersusCoins","quantity":250},{"item":"Credits","quantity":15}]},"weekly":{"goals":[2,5,10]}},
+    {"id":"crates","tracker":"CratesOpened","title":"Achiev.AchievementCratesDescription","titlePlural":"Achiev.AchievementCratesDescription","weekly":{"goals":[2,5,10]}}
+  ],
+  "dailyQuests": {
+    "title": "crm.DailyQuestTitle",
+    "description": "crm.DailyQuestText",
+    "advertisement": "menu.DailyQuest",
+    "count": 3,
+    "bonus": {
+      "title": "menu.ContractsWords",
+      "rewards": [{"item":"Crate_Contracts","quantity":1}]
+    }
+  },
+  "weeklyEvents": {
+    "advertisement": "menu.LimitedTimeEvent",
+    "boostedTag": "menu.rewardsBoostedTitle",
+    "count": 4,
+    "themes": ["kills","wins","eliminations","assists"],
+    "milestoneRewards": [[{"item":"VersusCoins","quantity":300},{"item":"Credits","quantity":20}],[{"item":"VersusCoins","quantity":600},{"item":"UpgradeTokens","quantity":50}],[{"item":"VersusCoins","quantity":1000},{"item":"UpgradeTokens","quantity":100}]],
+    "eventCrates": ["Crate_Event_1","Crate_Event_2","Crate_Event_3","Crate_Event_4","Crate_Event_5","Crate_Event_6","Crate_Event_7","Crate_Event_8","Crate_Event_9","Crate_Event_10","Crate_Event_11","Crate_Event_12","Crate_Event_13","Crate_Event_14","Crate_Event_15","Crate_Event_16","Crate_Event_17","Crate_Event_18","Crate_Event_19","Crate_Event_20","Crate_Event_21","Crate_Event_22","Crate_Event_23","Crate_Event_24","Crate_Event_25","Crate_Event_26","Crate_Event_27","Crate_Event_28","Crate_Event_29","Crate_Event_30","Crate_Event_31","Crate_Event_32","Crate_Event_33","Crate_Event_34","Crate_Event_35","Crate_Event_36","Crate_Event_37","Crate_Event_38","Crate_Event_39","Crate_Event_40","Crate_Event_41","Crate_Event_42","Crate_Event_43","Crate_Event_44","Crate_Event_45","Crate_Event_46","Crate_Event_47","Crate_Event_48","Crate_Event_49","Crate_Event_50","Crate_Event_51","Crate_Event_52","Crate_Event_53","Crate_Event_54","Crate_Event_55","Crate_Event_56","Crate_Event_57","Crate_Event_58","Crate_Event_59","Crate_Event_60","Crate_Event_61","Crate_Event_62","Crate_Event_63","Crate_Event_64","Crate_Event_65"],
+    "final": {
+      "title": "menu.LimitedTimeEvent",
+      "rewards": [{"item":"HardCurrency","quantity":20}],
+      "eventCrate": true
+    }
+  },
+  "modifiers": {
+    "rotation": ["standard","coinRush","trophyFever","creditRush","mvpBounty","rivalSurge"],
+    "definitions": [
+      {"id":"standard","cells":[]},
+      {"id":"coinRush","cells":[{"database":"MCVS_Meta","table":"VersusCoinsMatchRewards","index":"Division","ids":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17],"fields":["VictoryAmount","DefeatAmount","MVPAmount","DailyCap"],"factor":1.5}]},
+      {"id":"creditRush","cells":[{"database":"MCVS_Meta","table":"CreditsCurrencyMatchRewards","index":"Division","ids":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17],"fields":["VictoryAmount","DefeatAmount","MVPAmount","DailyCap"],"factor":1.5}]},
+      {"id":"trophyFever","cells":[{"database":"MCVS_Meta","table":"PlayerLevelXP","index":"Level","ids":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50],"fields":["DivisionTrophiesBonus"],"factor":1.5}]},
+      {"id":"mvpBounty","cells":[{"database":"MCVS_Meta","table":"VersusCoinsMatchRewards","index":"Division","ids":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17],"fields":["MVPAmount"],"factor":3},{"database":"MCVS_Meta","table":"CreditsCurrencyMatchRewards","index":"Division","ids":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17],"fields":["MVPAmount"],"factor":3}]},
+      {"id":"rivalSurge","cells":[{"database":"MCVS_Meta","table":"VersusCoinsMatchRewards","index":"Division","ids":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17],"fields":["VictoryAmount","DefeatAmount","MVPAmount","DailyCap"],"factor":1.25},{"database":"MCVS_Meta","table":"CreditsCurrencyMatchRewards","index":"Division","ids":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17],"fields":["VictoryAmount","DefeatAmount","MVPAmount","DailyCap"],"factor":1.25}],"rivalFactor":1.2}
+    ]
+  },
+  "seasonRewards": {
+    "database": "MCVS_Meta",
+    "table": "PVPDivisionRewards",
+    "index": "Rank",
+    "ids": [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60],
+    "fields": ["Division01","Division02","Division03","Division04","Division05","Division06","Division07","Division08","Division09","Division10","Division11","Division12","Division13","Division14","Division15","Division16","Division17"]
+  }
+}

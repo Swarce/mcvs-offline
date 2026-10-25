@@ -276,6 +276,9 @@ namespace McvsOffline.Embedded
             GameHooks.Configure(Settings.GetBool("embedded.nativeOnlineSdk", false), Logger.For("game"), Boot);
             ConfigurePhysics();
             ApplyGameLog();
+            // Before the Java GameInstaller (it starts after OnCreate returns): data already on the device must be accepted
+            // without Gameloft's CDN (docs/INSTALL-OFFLINE.md).
+            PrepareInstallerData(platform);
 
             int port = options.Port ?? Settings.Port;
             if (port <= 0 || port > 65535)
@@ -308,6 +311,102 @@ namespace McvsOffline.Embedded
             thread.Start();
 
             StartDiagnostics(options);
+        }
+
+        /// <summary>settings.json "install.*": the Java installer's state (InstallerData) and its progress in the log.</summary>
+        private void PrepareInstallerData(IEmbeddedPlatform platform)
+        {
+            var installer = platform as IInstallerPlatform;
+            if (installer == null) return;
+            Log log = Logger.For("install");
+            try
+            {
+                if (Settings.GetBool("install.monitorInstaller", true)) installer.MonitorInstaller(log, Boot);
+                string internalDir = installer.InternalFilesDir();
+                if (string.IsNullOrEmpty(internalDir))
+                {
+                    log.Warn("installer data: internal storage (getFilesDir) unknown; the installer's state is left alone");
+                    return;
+                }
+                var options = new McvsOffline.Embedded.Install.InstallerDataOptions
+                {
+                    Manage = Settings.GetBool("install.manageInstaller", true),
+                    SuppressUpdateCheck = Settings.GetBool("install.suppressUpdateCheck", true),
+                    RebuildIndex = Settings.GetBool("install.rebuildIndex", true),
+                    VerifyRestoredData = Settings.GetBool("install.verifyRestoredData", true),
+                };
+                var locations = new McvsOffline.Embedded.Install.InstallerDataLocations(internalDir, Paths.GameRoot);
+                long now = (long)(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds;
+                McvsOffline.Embedded.Install.InstallerDataResult result =
+                    McvsOffline.Embedded.Install.InstallerData.Prepare(locations, installer.InstallerPrefs(), options, log, now);
+                Boot.Mark(result.Summary);
+                if (result.IndexToVerify != null) StartDataVerify(installer, locations, result, log);
+            }
+            catch (Exception ex)
+            {
+                log.Warn("installer data: preparation failed; the game's installer runs as usual", ex);
+            }
+        }
+
+        /// <summary>The background CRC check waits this long for the installer to hand over to the game, polling every second.</summary>
+        private const int DataVerifyHandOverTimeoutMs = 2 * 60 * 60 * 1000;
+
+        /// <summary>After the hand-over, the game loads first.</summary>
+        private const int DataVerifyAfterHandOverMs = 60000;
+
+        /// <summary>When the installer's state cannot be read and it had nothing to download: a fixed wait from the start.</summary>
+        private const int DataVerifyFallbackDelayMs = 90000;
+
+        /// <summary>
+        /// The CRC32 check of data whose Gameloft index was given back to the installer (only sizes were checked before it ran):
+        /// a background thread that waits until the installer has handed over to the game (until then it may still be writing
+        /// files it downloads, which would look damaged) and the game has loaded, then reads the whole pack with a 2 ms pause per
+        /// MiB. A check that does not get through resumes at the next start (InstallerData.VerifyContent, verify-pending).
+        /// </summary>
+        private void StartDataVerify(IInstallerPlatform installer, McvsOffline.Embedded.Install.InstallerDataLocations locations,
+                                     McvsOffline.Embedded.Install.InstallerDataResult result, Log log)
+        {
+            McvsOffline.Embedded.Install.PackIndex index = result.IndexToVerify;
+            bool mustWait = result.WaitForInstaller;
+            var thread = new Thread(() =>
+            {
+                try
+                {
+                    int handedOver = 0;
+                    int started = Environment.TickCount;
+                    while (Environment.TickCount - started < DataVerifyHandOverTimeoutMs)
+                    {
+                        handedOver = installer.InstallerHandedOver();
+                        if (handedOver != 0) break;
+                        Thread.Sleep(1000);
+                    }
+                    if (handedOver > 0)
+                    {
+                        Thread.Sleep(DataVerifyAfterHandOverMs);
+                    }
+                    else if (handedOver < 0 && !mustWait)
+                    {
+                        // Every file passed the installer's size test, so it downloads nothing: nothing changes under the check.
+                        Thread.Sleep(Math.Max(0, DataVerifyFallbackDelayMs - (Environment.TickCount - started)));
+                    }
+                    else
+                    {
+                        log.Info("installer data: the background CRC check is left for a later start (" +
+                                 (handedOver < 0 ? "the installer's state cannot be read and it still has files to fetch"
+                                                 : "the installer has not handed over to the game after " + (DataVerifyHandOverTimeoutMs / 60000) + " minutes") + ")");
+                        return;
+                    }
+                    log.Info("installer data: checking the CRC32 of every file in the background (" + index.LogicalFiles + " files)");
+                    McvsOffline.Embedded.Install.InstallerData.VerifyContent(locations, index, log, null, 2);
+                }
+                catch (Exception ex)
+                {
+                    log.Warn("installer data: background data check failed", ex);
+                }
+            });
+            thread.IsBackground = true;   // (Thread.Priority is trimmed from the game's BCL; the pauses keep it light)
+            thread.Name = "mcvs-data-check";
+            thread.Start();
         }
 
         /// <summary>
@@ -471,6 +570,11 @@ namespace McvsOffline.Embedded
             changed |= AddDefault("embedded.physics.clientMultithreaded", true);
             changed |= AddDefault("embedded.physics.stepGate", true);
             changed |= AddDefault("embedded.physics.stepGateTimeoutMs", GameHooks.DefaultStepGateTimeoutMs);
+            changed |= AddDefault("install.manageInstaller", true);
+            changed |= AddDefault("install.suppressUpdateCheck", true);
+            changed |= AddDefault("install.rebuildIndex", true);
+            changed |= AddDefault("install.verifyRestoredData", true);
+            changed |= AddDefault("install.monitorInstaller", true);
             if (!changed) return;
             if (Settings.IsFallback)
             {

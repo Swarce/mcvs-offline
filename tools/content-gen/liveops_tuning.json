@@ -1,0 +1,97 @@
+{
+  "_comment": [
+    "MCVS Offline live-ops tuning (our own numbers, not Gameloft's). tools/content-gen/content_gen.py validates this",
+    "against the player's decoded catalogue (crates, design-table fields, loc tables, image assets) and writes",
+    "server/Content/liveops.json. Design and settings: docs/LIVEOPS.md. Text is never copied: titles are the game's",
+    "own localization ids (<table>.<id>, e.g. menu.Tle01Name from Localization/menu_<lang>.json).",
+    "Bump 'revision' when a change must replace events players already hold (it is part of every event's _version)."
+  ],
+  "revision": 1,
+  "images": {
+    "weeklyBanner": "Menus/assets/png/tournament/mode_all.png",
+    "weeklyMenu": "Menus/assets/png/tournament/tournamentLogo.png",
+    "dailyBanner": "Menus/assets/png/tournament/modeBg.png",
+    "dailyMenu": "Menus/assets/png/tournament/mode_random.png"
+  },
+  "seasons": {
+    "title": "menu.DivisionTitle",
+    "description": "menu.DivisionsDescriptionText",
+    "_promotionMatchesPerDay": "per division (1..17): matches per season day, at a 50% win rate, that the rival at the promotion line plays (Master: the 10th rival)",
+    "promotionMatchesPerDay": [2, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 10, 11, 12],
+    "topFactor": 2.2,
+    "safeFraction": 0.15,
+    "masterTopRank": 10,
+    "defaultLevel": 10,
+    "fallbackZones": {"promotion": 20, "demotion": 10}
+  },
+  "objectives": [
+    {"id": "matches", "tracker": "PlayedMatches", "title": "Achiev.AchievementPVPBattleObjective",
+     "titlePlural": "Achiev.AchievementPVPBattleObjective",
+     "daily": {"goals": [3, 4, 5], "rewards": [{"item": "VersusCoins", "quantity": 150}, {"item": "Credits", "quantity": 10}]},
+     "weekly": {"goals": [10, 25, 50]}},
+    {"id": "wins", "tracker": "Wins", "title": "menu.NumberWinsSingle", "titlePlural": "menu.NumberWins",
+     "theme": {"title": "menu.Tle02Name", "description": "menu.TleWinDescription"},
+     "daily": {"goals": [2, 3], "rewards": [{"item": "VersusCoins", "quantity": 200}, {"item": "Credits", "quantity": 10}]},
+     "weekly": {"goals": [5, 15, 30]}},
+    {"id": "kills", "tracker": "Kills", "title": "menu.NumberTakedownsSingle", "titlePlural": "menu.NumberTakedowns",
+     "theme": {"title": "menu.TleTitle", "description": "menu.TleKillsDescription"},
+     "daily": {"goals": [15, 20, 25], "rewards": [{"item": "VersusCoins", "quantity": 150}, {"item": "Credits", "quantity": 10}]},
+     "weekly": {"goals": [50, 150, 300]}},
+    {"id": "eliminations", "tracker": "Eliminations", "title": "menu.NumberEliminatedSingle", "titlePlural": "menu.NumberEliminated",
+     "theme": {"title": "menu.Tle01Name", "description": "menu.Tle01Description"},
+     "daily": {"goals": [20, 30, 40], "rewards": [{"item": "VersusCoins", "quantity": 150}, {"item": "Credits", "quantity": 10}]},
+     "weekly": {"goals": [75, 200, 400]}},
+    {"id": "assists", "tracker": "Assists", "title": "Achiev.AchievementAssitsDescription", "titlePlural": "Achiev.AchievementAssitsDescription",
+     "theme": {"title": "menu.Tle05Name", "description": "menu.AssistsDescription"},
+     "daily": {"goals": [8, 12, 15], "rewards": [{"item": "VersusCoins", "quantity": 150}, {"item": "Credits", "quantity": 10}]},
+     "weekly": {"goals": [30, 80, 160]}},
+    {"id": "mvp", "tracker": "MVP", "title": "Achiev.MVPObjective", "titlePlural": "Achiev.MVPObjective",
+     "daily": {"goals": [1], "rewards": [{"item": "VersusCoins", "quantity": 250}, {"item": "Credits", "quantity": 15}]},
+     "weekly": {"goals": [2, 5, 10]}},
+    {"id": "crates", "tracker": "CratesOpened", "title": "Achiev.AchievementCratesDescription", "titlePlural": "Achiev.AchievementCratesDescription",
+     "weekly": {"goals": [2, 5, 10]}}
+  ],
+  "dailyQuests": {
+    "title": "crm.DailyQuestTitle",
+    "description": "crm.DailyQuestText",
+    "advertisement": "menu.DailyQuest",
+    "count": 3,
+    "bonus": {"title": "menu.ContractsWords", "rewards": [{"item": "Crate_Contracts", "quantity": 1}]}
+  },
+  "weeklyEvents": {
+    "advertisement": "menu.LimitedTimeEvent",
+    "boostedTag": "menu.rewardsBoostedTitle",
+    "count": 4,
+    "themes": ["kills", "wins", "eliminations", "assists"],
+    "milestoneRewards": [
+      [{"item": "VersusCoins", "quantity": 300}, {"item": "Credits", "quantity": 20}],
+      [{"item": "VersusCoins", "quantity": 600}, {"item": "UpgradeTokens", "quantity": 50}],
+      [{"item": "VersusCoins", "quantity": 1000}, {"item": "UpgradeTokens", "quantity": 100}]
+    ],
+    "eventCratePrefix": "Crate_Event_",
+    "final": {"title": "menu.LimitedTimeEvent", "rewards": [{"item": "HardCurrency", "quantity": 20}], "eventCrate": true}
+  },
+  "modifiers": {
+    "rotation": ["standard", "coinRush", "trophyFever", "creditRush", "mvpBounty", "rivalSurge"],
+    "definitions": [
+      {"id": "standard", "cells": []},
+      {"id": "coinRush", "cells": [
+        {"table": "VersusCoinsMatchRewards", "index": "Division", "ids": "divisions",
+         "fields": ["VictoryAmount", "DefeatAmount", "MVPAmount", "DailyCap"], "factor": 1.5}]},
+      {"id": "creditRush", "cells": [
+        {"table": "CreditsCurrencyMatchRewards", "index": "Division", "ids": "divisions",
+         "fields": ["VictoryAmount", "DefeatAmount", "MVPAmount", "DailyCap"], "factor": 1.5}]},
+      {"id": "trophyFever", "cells": [
+        {"table": "PlayerLevelXP", "index": "Level", "ids": "levels", "fields": ["DivisionTrophiesBonus"], "factor": 1.5}]},
+      {"id": "mvpBounty", "cells": [
+        {"table": "VersusCoinsMatchRewards", "index": "Division", "ids": "divisions", "fields": ["MVPAmount"], "factor": 3},
+        {"table": "CreditsCurrencyMatchRewards", "index": "Division", "ids": "divisions", "fields": ["MVPAmount"], "factor": 3}]},
+      {"id": "rivalSurge", "rivalFactor": 1.2, "cells": [
+        {"table": "VersusCoinsMatchRewards", "index": "Division", "ids": "divisions",
+         "fields": ["VictoryAmount", "DefeatAmount", "MVPAmount", "DailyCap"], "factor": 1.25},
+        {"table": "CreditsCurrencyMatchRewards", "index": "Division", "ids": "divisions",
+         "fields": ["VictoryAmount", "DefeatAmount", "MVPAmount", "DailyCap"], "factor": 1.25}]}
+    ]
+  },
+  "seasonRewards": {"table": "PVPDivisionRewards", "index": "Rank", "fieldPrefix": "Division"}
+}

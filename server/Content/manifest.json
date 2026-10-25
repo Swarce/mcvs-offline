@@ -4,13 +4,15 @@
   "source": {
     "game": "Modern Combat Versus",
     "version": "1.17.32 (data pack revision 162074)",
-    "inputs": ["_catalog.json","_tables.json","Config/game_object.json (ids only)","names.json (file list only)","Design/MCVS_Meta.xlsx (index columns only)"],
-    "pricing": "tools/content-gen/pricing.json"
+    "inputs": ["_catalog.json","_tables.json","Localization/*_en.json (ids only)","Config/game_object.json (ids only)","names.json (file list only)","Design/MCVS_Meta.xlsx (index columns only)"],
+    "pricing": "tools/content-gen/pricing.json",
+    "liveops": "tools/content-gen/liveops_tuning.json"
   },
   "files": [
     {"name":"coupons.json","entries":12},
     {"name":"crm_overlay.json","entries":null},
     {"name":"economy.json","entries":null},
+    {"name":"liveops.json","entries":7},
     {"name":"offline_store.json","entries":1858},
     {"name":"unlocks.json","entries":17018}
   ]
