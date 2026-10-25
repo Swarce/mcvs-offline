@@ -11,13 +11,9 @@ Done items are struck through. Device-test history and open risks are in [STATUS
 - ~~**Shop**: VersusCoins catalogue for every item category; sound-signature crash fixed; store items that throw are skipped and logged.~~ ✅
 - ~~**Unlock codes**: `UNLOCKALL` and split codes (display crash fixed), `UNLOCKPAID`, opt-in `UNLOCKUNRELEASED`; dev cheat menu toggle.~~ ✅
 - ~~**Preservation tools**: CDN mirror + backup verifier (`tools/cdn-mirror`), data-pack decoder (`tools/datapack`, still in the work area, not in this repository).~~ ✅
-
-## Built, waiting for device test 5 (build 5)
-
-- **Live-ops** ([LIVEOPS.md](LIVEOPS.md)): weekly division seasons (promotion, demotion and season rewards by the game's own TS; rivals scaled to a one-week season), a weekly modifier rotation, daily missions and weekly events, all generated from the clock and working offline. Permanent achievements are switched off in 1.17.32 itself; the daily and weekly events are the time-limited achievement events instead.
-- **Install from copied data** ([INSTALL-OFFLINE.md](INSTALL-OFFLINE.md)): the installer's index is kept with a backup of `files/`, restored from it or from a mirror, or rebuilt for a complete `Data/` folder (the 0 MB / 0 % stall); fresh installs from a `tools/cdn-mirror` mirror need no CDN.
-- **ABIs**: 32-bit kept by default again; `--abi arm64-v8a` gives a 64-bit-only APK (57 MB -> 44 MB).
-- **Avatar editor hang** with ~1,500 owned avatars: investigated, not patched (no managed hot spot; the work is in the UI's Flash VM). Needs a thread dump of the freeze (see Next).
+- ~~**Live-ops** ([LIVEOPS.md](LIVEOPS.md)): weekly division seasons, weekly modifier rotation, daily missions and weekly events, generated from the clock, working offline (confirmed in device test 5).~~ ✅
+- ~~**Install from copied data** ([INSTALL-OFFLINE.md](INSTALL-OFFLINE.md)): a copied `Data/` folder or a `files/` backup is accepted without Gameloft's CDN (confirmed in device test 5).~~ ✅
+- ~~**ABIs**: 32-bit kept by default; `--abi arm64-v8a` gives a 64-bit-only APK.~~ ✅
 
 ## Next
 
@@ -25,7 +21,7 @@ Done items are struck through. Device-test history and open risks are in [STATUS
 |---|---|
 | Medium | **Firing-range exit lag**: leaving the firing range sits on "please wait, connecting to the server" with extreme lag and takes a long time to return to the menu (normal matches only stutter briefly on the results screen). Tackle after the next device test, using its logcat and server logs. Fix only if safe. |
 | Low | **Server write speed**: faster profile saves and storage writes (currently usable). |
-| Low | **Avatar editor hang**: send a thread dump of the freeze (Downloads > MCVS-Offline copy of the bootstrap log); then decide on a fix. |
+| Low | **Avatar editor hang** with ~1,500 owned avatars: investigated in build 5, not patched (the work is in the UI's Flash VM, no managed hot spot); needs a thread dump of the freeze to decide on a fix. |
 | Low | Level jump to ~46 and save lag while unlock-all grants every mod (known game behaviour: each new mod gives XP). |
 
 ## Later
