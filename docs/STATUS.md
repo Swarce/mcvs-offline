@@ -3,7 +3,7 @@
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
 Last updated after device test 3 (October 2026: Samsung Galaxy S22, Android 16; see "Device test 3" below).
 
-**Summary:** the Federation server is complete for the offline single-player goals and passes 608 tests, including a
+**Summary:** the Federation server is complete for the offline single-player goals and passes 609 tests, including a
 conformance harness that runs the game's own client libraries against it. Device test 1 put the player build (patcher +
 embedded host) on a phone for the first time and found two blockers (a stall with the internet on, a crash of the headless
 TS World). Build 2 fixed both: in device test 2 the whole boot chain up to the TS handshake ran, and the TS World loaded its
@@ -41,6 +41,9 @@ works. Every server request was fast (the slowest a few tens of ms).
   (`ModTierRewardItem.IsAvailable` needs an unlocked merc; the diff keeps the ledger's key order, only `MercSkin_*` moves last).
   41 rewards instead of 1; UNLOCKALL then had 11374 (11368 once the 6 unreleased avatars left it, below). The conformance test parses the UNLOCKMERCS coupon with the real
   `RewardHelper.CreateRewardItem` and checks every id is a numeric merc.
+* An inventory ledger granted by build 3 still holds `UnlockMerc_ALL_MAX` (already claimed). `UnlockGranter` counts the
+  whole "mercs" group as present then (`LegacyMercsKey`), so the per-merc keys are not written over it: each would pay
+  the game's duplicate compensation (40 random gear) for a merc the player already has.
 * Also fixed by build 4's 'store' patch (bug 2): every `KillSignature_Sound_*` of the signatures group made
   `RewardItem.GetRewardInfo` (which calls `IsAvailable`) throw in the reward popups and the lottery.
 * **The level jump is a known one-time behaviour, not changed.** Levels come from the mods: `PlayerProfileComponent.UnlockModForMerc`

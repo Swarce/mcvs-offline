@@ -267,6 +267,27 @@ namespace McvsOffline.Tests.Unlocks
             Assert.False(UnlockGranter.IsTriggerSelector(null));
         }
 
+        /// <summary>
+        /// A ledger granted by build 3 holds UnlockMerc_ALL_MAX (every merc and every mod, already claimed): the per-merc
+        /// keys that replaced it are not written, or the game would pay 40 random gear for every merc the player owns.
+        /// </summary>
+        [Fact]
+        public void ALegacyAllMercsKeyCoversTheMercGroup()
+        {
+            using var h = new Harness(unlockAll: false, batchSize: 20000);
+            string account = h.SaveGameProfile("legacy1");
+            h.Profiles.Merge(account, "inventory", new Dictionary<string, object> { [UnlockGranter.LegacyMercsKey] = 1L });
+            h.Server.Context.Settings.Override("unlockAll", true);
+            h.Granter.Grant(account);
+
+            var inventory = (Dictionary<string, object>)h.Profiles.Read(account, "inventory");
+            foreach (string key in McvsOffline.Tests.Content.AssetsTests.MercGroup) Assert.False(inventory.ContainsKey(key), key);
+            Assert.Equal(1L, inventory[UnlockGranter.LegacyMercsKey]);
+            Assert.Equal(1L, inventory["MercSkin_1_2"]);
+            Assert.Equal(h.Granter.AllKeys().Count - McvsOffline.Tests.Content.AssetsTests.MercGroup.Length + 1, inventory.Count);
+            Assert.Equal(0, h.Granter.Grant(account)); // complete
+        }
+
         [Fact]
         public void ExistingLedgerEntriesAreKeptAndOnlyMissingKeysAreWritten()
         {

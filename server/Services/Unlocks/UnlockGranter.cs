@@ -46,6 +46,14 @@ namespace McvsOffline.Server.Services.Unlocks
     {
         public const string MercsGroup = "mercs";
 
+        /// <summary>
+        /// The single reward the "mercs" group was before device test 3 (every merc and every mod at once). A ledger that
+        /// holds it already had the whole group claimed: writing the per-merc keys as well would only pay the game's duplicate
+        /// compensation (40 random gear per owned merc, AlternateRewards <c>UnlockMerc_&lt;rarity&gt;</c>), so they count as
+        /// present. It is never written again (its reward display crashed: "Could not find merc data for mercId 'ALL'").
+        /// </summary>
+        public const string LegacyMercsKey = "UnlockMerc_ALL_MAX";
+
         private readonly object gate = new object();
         private readonly ServerContext context;
         private readonly Log log;
@@ -185,7 +193,7 @@ namespace McvsOffline.Server.Services.Unlocks
             var mercSet = new HashSet<string>(CouponCatalog.Load(context.Content, context.Settings, log).Group(MercsGroup), StringComparer.Ordinal);
             List<string> mercs = all.FindAll(mercSet.Contains); // UnlockMerc_<id>..., ModTier_<id>_4..., in grant order
             Dictionary<string, object> ledger;
-            List<string> missing = Missing(profiles, accountId, all, out ledger);
+            List<string> missing = Missing(profiles, accountId, all, mercSet, out ledger);
             if (missing.Count == 0)
             {
                 SetStatus(accountId, "done (nothing missing)");
@@ -205,7 +213,7 @@ namespace McvsOffline.Server.Services.Unlocks
                 if (batchNo > 0)
                 {
                     if (Wait(BatchDelayMs)) return written; // server stopping: the next save picks up the rest
-                    missing = Missing(profiles, accountId, all, out ledger);
+                    missing = Missing(profiles, accountId, all, mercSet, out ledger);
                     if (missing.Count == 0) break;
                 }
                 if (batchNo >= maxBatches)
@@ -226,7 +234,8 @@ namespace McvsOffline.Server.Services.Unlocks
                 // the section is replaced between our read and this write, the merc unlock is still recreated ahead of
                 // the batch, so the TS never sees a merc-dependent key without it.
                 var patch = new Dictionary<string, object>(StringComparer.Ordinal);
-                foreach (string key in mercs) patch[key] = Num.Max(Count(ledger, key), 1);
+                if (Count(ledger, LegacyMercsKey) < 1)
+                    foreach (string key in mercs) patch[key] = Num.Max(Count(ledger, key), 1);
                 foreach (string key in batch) patch[key] = 1L;
                 profiles.Merge(accountId, "inventory", patch, written == 0 ? "unlockall" : null);
                 written += batch.Count;
@@ -259,15 +268,18 @@ namespace McvsOffline.Server.Services.Unlocks
         }
 
         /// <summary>
-        /// The keys of <paramref name="all"/> (in order) that the ledger does not hold with a count of at least 1;
+        /// The keys of <paramref name="all"/> (in order) that the ledger does not hold with a count of at least 1 (the
+        /// merc group's keys count as held when the ledger holds <see cref="LegacyMercsKey"/>);
         /// <paramref name="ledger"/> is the ledger as read (null when absent).
         /// </summary>
-        private static List<string> Missing(IProfileAccess profiles, string accountId, List<string> all, out Dictionary<string, object> ledger)
+        private static List<string> Missing(IProfileAccess profiles, string accountId, List<string> all, HashSet<string> mercSet,
+                                            out Dictionary<string, object> ledger)
         {
             ledger = profiles.Read(accountId, "inventory") as Dictionary<string, object>;
+            bool legacy = Count(ledger, LegacyMercsKey) >= 1;
             var missing = new List<string>();
             foreach (string key in all)
-                if (Count(ledger, key) < 1) missing.Add(key);
+                if (Count(ledger, key) < 1 && !(legacy && mercSet.Contains(key))) missing.Add(key);
             return missing;
         }
 
