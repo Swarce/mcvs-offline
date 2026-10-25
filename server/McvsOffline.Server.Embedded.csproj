@@ -1,0 +1,64 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    McvsOffline.Server.dll for the game process (Xamarin.Android 10.3 / Mono).
+
+    Compiles server/Core/** + server/Services/** + hosts/embedded/** against the trimmed BCL shipped in the
+    player's APK (never committed). Point MCVS_REFS at the APK's assemblies/ folder:
+
+      dotnet build server/McvsOffline.Server.Embedded.csproj -c Release -p:MCVS_REFS=/path/to/assemblies
+
+    The output (artifacts/bin/McvsOffline.Server.Embedded/<config>/McvsOffline.Server.dll) is one DLL with an
+    embedded PDB whose AssemblyRef table names only mscorlib, System, System.Core (and Mono.Android /
+    Java.Interop if Android-only code uses them). TargetFramework net48 is only a vehicle for the SDK:
+    NoStdLib + FrameworkPathOverride make the compiler see nothing but MCVS_REFS.
+
+    This project is intentionally not part of McvsOffline.sln, because it needs the player's game files.
+    scripts/build.sh builds it.
+  -->
+  <Import Project="build/McvsOffline.Server.Shared.props" />
+
+  <PropertyGroup>
+    <MCVS_REFS Condition="'$(MCVS_REFS)' == ''">/home/user/mcvs-work/extracted/assemblies</MCVS_REFS>
+    <McvsRefsDir>$([MSBuild]::EnsureTrailingSlash('$(MCVS_REFS)'))</McvsRefsDir>
+
+    <TargetFramework>net48</TargetFramework>
+    <OutputType>Library</OutputType>
+    <DefineConstants>$(DefineConstants);MCVS_EMBEDDED</DefineConstants>
+
+    <NoStdLib>true</NoStdLib>
+    <NoCompilerStandardLib>true</NoCompilerStandardLib>
+    <DisableImplicitFrameworkReferences>true</DisableImplicitFrameworkReferences>
+    <AutomaticallyUseReferenceAssemblyPackages>false</AutomaticallyUseReferenceAssemblyPackages>
+    <AddAdditionalExplicitAssemblyReferences>false</AddAdditionalExplicitAssemblyReferences>
+    <FrameworkPathOverride>$(McvsRefsDir)</FrameworkPathOverride>
+
+    <!-- The trimmed mscorlib has no AssemblyVersionAttribute & co., and TargetFrameworkAttribute lacks
+         FrameworkDisplayName: do not generate them. The version lives in McvsVersion.cs instead. -->
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+
+    <!-- A single self-contained DLL: no deps.json, no reference assembly, PDB embedded for device stack traces. -->
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+    <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
+    <DebugType>embedded</DebugType>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../hosts/embedded/**/*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="mscorlib" HintPath="$(McvsRefsDir)mscorlib.dll" Private="false" />
+    <Reference Include="System" HintPath="$(McvsRefsDir)System.dll" Private="false" />
+    <Reference Include="System.Core" HintPath="$(McvsRefsDir)System.Core.dll" Private="false" />
+    <!-- Only for Android-only code under #if MCVS_EMBEDDED; the compiler emits no AssemblyRef while unused. -->
+    <Reference Include="Mono.Android" HintPath="$(McvsRefsDir)Mono.Android.dll" Private="false" />
+    <Reference Include="Java.Interop" HintPath="$(McvsRefsDir)Java.Interop.dll" Private="false" />
+  </ItemGroup>
+
+  <Target Name="McvsCheckRefs" BeforeTargets="ResolveAssemblyReferences;McvsGenerateContent">
+    <Error Condition="!Exists('$(McvsRefsDir)mscorlib.dll')"
+           Text="MCVS_REFS='$(MCVS_REFS)' does not contain mscorlib.dll. Set MCVS_REFS to the assemblies/ folder extracted from your own MCVS 1.17.32 APK." />
+  </Target>
+</Project>

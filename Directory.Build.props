@@ -1,0 +1,21 @@
+<Project>
+  <!--
+    Repository-wide build settings. All build outputs go to ./artifacts (bin/ and obj/ per project), which
+    also lets the two server projects (net8 and embedded) live in the same folder without sharing obj/.
+  -->
+  <PropertyGroup>
+    <McvsRepoRoot>$(MSBuildThisFileDirectory)</McvsRepoRoot>
+    <UseArtifactsOutput>true</UseArtifactsOutput>
+    <ArtifactsPath>$(MSBuildThisFileDirectory)artifacts</ArtifactsPath>
+
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Deterministic>true</Deterministic>
+    <Features>strict</Features>
+
+    <Version>0.1.0</Version>
+    <Product>MCVS Offline</Product>
+    <Company>MCVS Offline contributors</Company>
+    <Copyright>MCVS Offline contributors</Copyright>
+  </PropertyGroup>
+</Project>

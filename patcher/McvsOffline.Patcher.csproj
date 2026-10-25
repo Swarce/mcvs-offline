@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    McvsOffline.Patcher (owner: EMBED): turns the player's own APK into the offline APK
+    (ARCHITECTURE §2.3, verify-C7 §7). Never ships or downloads Gameloft binaries.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>McvsOffline.Patcher</AssemblyName>
+    <RootNamespace>McvsOffline.Patcher</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Mono.Cecil" Version="0.11.5" />
+  </ItemGroup>
+</Project>

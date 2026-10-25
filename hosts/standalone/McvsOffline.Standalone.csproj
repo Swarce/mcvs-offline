@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Standalone Federation host (net8 console): dev loop against a stock APK, LAN/community host, conformance target. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>McvsOffline.Standalone</AssemblyName>
+    <RootNamespace>McvsOffline.Standalone</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../server/McvsOffline.Server.csproj" />
+  </ItemGroup>
+</Project>
