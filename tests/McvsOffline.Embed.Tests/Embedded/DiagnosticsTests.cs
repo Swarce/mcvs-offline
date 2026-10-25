@@ -160,8 +160,12 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.Equal(new[] { watchdog.GameTid }, dumps.ToArray());
                 Assert.Equal(1, FakeGameApplication.Instance.Context.Pending);   // at most one heartbeat outstanding
 
-                FakeGameApplication.Instance.Context.Drain();
-                SpinWait.SpinUntil(() => reports.Any(r => r.Contains("runs again")), 5000);
+                // A recovered game thread keeps draining its queue; a single drain can race the watchdog's loop.
+                SpinWait.SpinUntil(() =>
+                {
+                    FakeGameApplication.Instance.Context.Drain();
+                    return reports.Any(r => r.Contains("runs again"));
+                }, 5000);
                 Assert.Contains(reports, r => r.Contains("runs again"));
 
                 // In the background the game does not update: not a stall.
