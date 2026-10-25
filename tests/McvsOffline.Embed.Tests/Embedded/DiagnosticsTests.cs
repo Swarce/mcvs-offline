@@ -146,7 +146,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.NotEqual(0, watchdog.GameTid);   // gettid() through libc on Linux
 
                 // The game thread stops draining its queue: snapshots at 400 and 800 ms, Java stacks in the second.
-                Thread.Sleep(1600);
+                SpinWait.SpinUntil(() => reports.Count(r => r.Contains("STALL")) >= 2, 5000);
                 List<string> stalls = reports.Where(r => r.Contains("STALL")).ToList();
                 Assert.Equal(2, stalls.Count);
                 Assert.Contains("server: last request #5", stalls[0]);
@@ -157,7 +157,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.Equal(1, FakeGameApplication.Instance.Context.Pending);   // at most one heartbeat outstanding
 
                 FakeGameApplication.Instance.Context.Drain();
-                Thread.Sleep(200);
+                SpinWait.SpinUntil(() => reports.Any(r => r.Contains("runs again")), 5000);
                 Assert.Contains(reports, r => r.Contains("runs again"));
 
                 // In the background the game does not update: not a stall.
