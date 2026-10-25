@@ -62,8 +62,18 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.Equal(new[]
             {
                 "-ServerLocation Embedded", "-AnubisCommand QuickLaunch", "-EnvironmentSwitcherUrl http://127.0.0.1:51780/",
-                "-SuperCredential game:mcvsoffline", "-SuperPassword mcvsoffline", "-DeviceId mcvsid",
+                "-SuperCredential game:mcvsoffline", "-SuperPassword mcvsoffline", "-DeviceId mcvsid", "-DataCenter mcvs",
             }, args.Select(a => a.ToString()));
+        }
+
+        [Fact]
+        public void AnUnsafeDataCenterFallsBackToTheDefault()
+        {
+            var settings = new Settings();
+            settings.Set("dataCenter", "my dc");
+            Assert.Contains(ManagedArgs.Build(settings, "mcvsid", 51780, null), a => a.ToString() == "-DataCenter mcvs");
+            settings.Set("dataCenter", "eu1");
+            Assert.Contains(ManagedArgs.Build(settings, "mcvsid", 51780, null), a => a.ToString() == "-DataCenter eu1");
         }
 
         [Fact]

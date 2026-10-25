@@ -55,6 +55,8 @@
     <!-- Only for Android-only code under #if MCVS_EMBEDDED; the compiler emits no AssemblyRef while unused. -->
     <Reference Include="Mono.Android" HintPath="$(McvsRefsDir)Mono.Android.dll" Private="false" />
     <Reference Include="Java.Interop" HintPath="$(McvsRefsDir)Java.Interop.dll" Private="false" />
+    <!-- The game's own logger (hosts/embedded/Android/GameLogBridge.cs): levels, mutes and the logs/game.log copy. -->
+    <Reference Include="Gameloft.Logs" HintPath="$(McvsRefsDir)Gameloft.Logs.dll" Private="false" />
   </ItemGroup>
 
   <Target Name="McvsCheckRefs" BeforeTargets="ResolveAssemblyReferences;McvsGenerateContent">

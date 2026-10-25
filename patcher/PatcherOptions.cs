@@ -13,6 +13,15 @@ namespace McvsOffline.Patcher
         BuiltIn,
     }
 
+    public enum GameLogMode
+    {
+        /// <summary>res/raw/args.txt unchanged ("-LogCategoryFilter Fatal"): the game logs Fatal entries only.</summary>
+        Fatal,
+
+        /// <summary>res/raw/args.txt without a -LogCategoryFilter line: the game enables every log level (diagnostic builds).</summary>
+        All,
+    }
+
     public enum AotStripMode
     {
         /// <summary>Delete libaot-X.dll.so (all ABIs) for every modified assembly X (default).</summary>
@@ -25,9 +34,12 @@ namespace McvsOffline.Patcher
     public sealed class PatcherOptions
     {
         /// <summary>Optional patches applied when --patch is not given.</summary>
-        public static readonly string[] DefaultPatches = { "geo", "bottile", "finder" };
+        public static readonly string[] DefaultPatches = { "nativeonline", "geo", "bottile", "finder" };
 
-        public static readonly string[] OptionalPatches = { "geo", "bottile", "finder", "lan" };
+        public static readonly string[] OptionalPatches = { "nativeonline", "geo", "bottile", "finder", "lan" };
+
+        /// <summary>Patches applied whatever --patch says: the server hook and the headless-World fixes the in-process TS/GS need.</summary>
+        public static readonly string[] MandatoryPatches = { "hook", "headless", "headless-engine" };
 
         public string InputApk { get; set; }
 
@@ -52,6 +64,12 @@ namespace McvsOffline.Patcher
 
         public AotStripMode StripAot { get; set; } = AotStripMode.Modified;
 
+        /// <summary>
+        /// What the game itself logs (Gameloft.Logs to logcat "mono-stdout"). The default is All while the offline build is
+        /// being brought up on devices; <see cref="GameLogMode.Fatal"/> keeps the shipped res/raw/args.txt.
+        /// </summary>
+        public GameLogMode GameLog { get; set; } = GameLogMode.All;
+
         /// <summary>Patch even when the APK is not the verified 1.17.32 build (locators still verify every site).</summary>
         public bool Force { get; set; }
 
@@ -59,6 +77,9 @@ namespace McvsOffline.Patcher
         public bool DryRun { get; set; }
 
         public bool Verbose { get; set; }
+
+        /// <summary>Tests only: apply only the hook as mandatory patch (synthetic APKs have no Game.dll or Gameloft.Engine.dll).</summary>
+        internal bool TestOnlyHookIsMandatory { get; set; }
 
         /// <summary>Tests only: accept a server assembly built for net8 (look-alike fixtures cannot reference the game BCL).</summary>
         internal bool SkipServerReferenceCheck { get; set; }

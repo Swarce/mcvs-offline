@@ -1,7 +1,9 @@
 # Player setup: building your offline Modern Combat Versus
 
 **Status: in development.** The patcher and the embedded server are built and checked offline (signature,
-alignment, patched code), but nobody has run the result on a device yet. Expect rough edges, and keep your backups.
+alignment, patched code). The first device test (October 2026) got as far as the in-process game server loading its
+level; the problems it found are fixed in the current build, which also writes detailed logs you can read on the phone
+(section 6). Expect rough edges, and keep your backups.
 
 This guide turns **your own** copy of Modern Combat Versus for Android (APK **1.17.32**, package
 `com.gameloft.android.ANMP.GloftMVHM`) into an offline build. The game keeps its own match servers; MCVS Offline adds
@@ -74,14 +76,23 @@ The patcher prints every change it makes and finishes with a signature check. Us
 
 | Option | Meaning |
 |---|---|
-| `--patch geo,bottile,finder` | The optional patches (this is the default set). `none` keeps only the server hook, `all` adds `lan`. |
+| `--patch nativeonline,geo,bottile,finder` | The optional patches (this is the default set). `none` keeps only the mandatory patches (the server hook and the headless-server fixes), `all` adds `lan`. |
+| `--game-log all` | The game's own log at every level in logcat (`mono-stdout`), for bug reports; this is the default while the offline build is being tested. `--game-log fatal` keeps the game's original setting (fatal errors only). |
 | `--keystore <file.p12>` | Your signing key. Without it a key is created once in `~/.config/McvsOffline/` (Windows: `%APPDATA%\McvsOffline\`) and reused. |
 | `--build-tools <dir>` | Folder with `apksigner` and `zipalign`; otherwise they are looked up on `PATH` and in `$ANDROID_HOME/build-tools`. |
 | `--signer builtin` | Do not use apksigner, even if it is installed. |
 | `--dry-run` | Check that every patch site matches, write nothing. |
 
-What the optional patches do:
+What the patches do:
 
+- **headless** (always applied): the game's own match and menu servers run inside your game as "headless" worlds. A few
+  of the game's components were never meant to run there (the controls settings, the gamepad bindings, two weapon
+  effects, the sound manager); in the original build any error in such a server world closes the whole game. The patch
+  keeps those components out of the server worlds and turns any other error there into a log line
+  (`[McvsOffline] headless world: ...`) instead of a crash.
+- **nativeonline**: the game's native online library (Gaia: Gameloft's native service clients, tracking, ads,
+  cross-promotion) is not started. With the internet on, it tried to reach Gameloft's servers and froze the loading screen. Offline play
+  does not use it; set `"nativeOnlineSdk": true` under `embedded` in `settings.json` to start it anyway.
 - **geo**: the game looks up your country at a hard-coded Gameloft address while it connects to its own server. Offline
   that lookup can hang longer than the connection timeout; the patch sends it to the embedded server.
 - **bottile**: the BOTMATCH tile in the menu normally starts a "free" bot match that pays almost nothing. With the
@@ -139,15 +150,40 @@ If you see that error anyway, the APK was patched by an older version of the pat
   gone anyway). The game's own signature self-check is left as it is: its result is only recorded, nothing on the
   phone acts on it.
 
-Logs, if something goes wrong:
+### Logs, if something goes wrong
+
+**On the phone, without a PC** (Android 11 and later): open the **Files** app (or Samsung **My Files**) > **Downloads** >
+**MCVS-Offline**. Every game start writes its own copies there, named after the start time:
+`<date>-<time>-bootstrap.log.txt`, `-server.log.txt`, `-game.log.txt`, plus `crash-*.txt` when the game crashed. The
+copies are refreshed every 30 seconds while the game runs, and the last five starts are kept. Send the files of the
+newest start with your bug report. (If the folder is missing, the start-up log says why: look for `[mirror]`.)
+
+**The full system log with LogFox** (no PC; LogFox needs the `READ_LOGS` permission, granted once with adb or Shizuku,
+see its own instructions):
+
+1. Developer options > **Logger buffer sizes** > **16M** (otherwise the start of a session is gone after a few minutes).
+2. In LogFox, start recording, filter on the game (the app or its UID), then launch the game.
+3. If the game hangs on a loading screen, **wait at least 60 seconds** before closing it: the watchdog writes what the
+   game is waiting for after 5, 15 and 60 seconds.
+4. Export the log and send it with the files from Downloads > MCVS-Offline.
+
+Useful tags: `McvsOffline` (our lines: `[boot]` milestones, `[http]` requests, `[watchdog]`, `[status]`, `[crash]`) and
+`mono-stdout` (the game's own log; with `--game-log all` at every level).
+
+**With a PC:**
 
 ```sh
-adb logcat -s McvsOffline                     # live, while the game runs
+adb logcat -s McvsOffline mono-stdout        # live, while the game runs
 adb pull /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/logs
+adb shell ls -l /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/logs
 ```
 
-`bootstrap.log` covers the start-up (game folder, args.txt, port), `server.log` every request, and
-`unknown-endpoints.jsonl` the requests the server does not handle yet. Please attach them to bug reports.
+In `McvsOffline/logs/`: `bootstrap.log` covers the start-up, the boot milestones, the watchdog and the status lines;
+`server.log` every request; `game.log` a copy of the game's own log; `unknown-endpoints.jsonl` the requests the server
+does not handle yet; `crash-*.txt` one file per crash; `exit-*` the system's record of a previous crash or freeze. If a log
+file cannot be written, logcat says so (`[logfile] cannot write ... at stage ...`) and the file continues in the game's
+internal storage. Copying the folder over USB with a file manager on the PC can show stale sizes while the game runs;
+the copies in Downloads do not have that problem.
 
 ## 7. Saves, settings and backups
 
@@ -184,6 +220,12 @@ in-game host:
 | `lanMode` | `false` | Experimental LAN host mode (see below). |
 | `embedded.manageArgs` | `true` | `false` stops MCVS Offline from touching `args.txt`. |
 | `embedded.lanAdvertiseHost` | `""` | LAN host mode: the IP address to announce to other devices (empty = detect). |
+| `embedded.nativeOnlineSdk` | `false` | `true` starts the game's native online library again (see the `nativeonline` patch). |
+| `gameLog.levels` | `"error warning"` | Levels of the game's own log (`error warning info debug`). A build patched with `--game-log all` logs every level anyway. |
+| `gameLog.mute` | `"profile:debug"` | `category:level` pairs to silence, e.g. `online:debug`; `category:all` silences a category. |
+| `gameLog.file` | `true` | Copy the game's log to `logs/game.log`. |
+| `diagnostics.watchdog` | `true` | Report what the game waits for when it stops responding. |
+| `diagnostics.publicLogCopy` | `true` | Copies of the logs in Downloads > MCVS-Offline (Android 11+). |
 
 ### args.txt
 
@@ -220,8 +262,12 @@ For reviewers (details and evidence: `docs/research/verify-C7-integrity-patching
 - `assemblies/NicePlaySDK.dll`: `NicePlaySDKDLL.OnInitialize`, which the game calls very early, first runs
   `try { McvsOffline.Bootstrap.Init(); } catch { }`, then its original body.
 - `assemblies/McvsOffline.Server.dll` is added (uncompressed and aligned like every other assembly).
-- Optional: `Gameloft.Util.dll` (geo), `Game.dll` (bottile), `Gameloft.Engine.dll` (finder, lan). Each site is checked
-  against the exact code of 1.17.32 first; if anything differs, the patcher stops without writing.
+- Always: `Game.dll` and `Gameloft.Engine.dll` (headless, headless-engine: client-only components kept out of the
+  in-process server worlds, null-safe gamepad and weapon-effect calls, and a try/catch that applies to server worlds
+  only). Optional: `Gameloft.Engine.dll` (nativeonline, finder, lan), `Gameloft.Util.dll` (geo), `Game.dll` (bottile).
+  Each site is checked against the exact code of 1.17.32 first; if anything differs, the patcher stops without writing.
+- `res/raw/args.txt` (with `--game-log all`, the default): `-LogCategoryFilter Fatal` is replaced by a line the game
+  ignores, so the game logs every level. The patcher refuses if the file is not the shipped one.
 - The precompiled AOT images (`lib/<abi>/libaot-<name>.dll.so`, both ABIs) of every modified assembly are removed, so
   the runtime compiles the patched code instead. Other AOT images that depend on a modified assembly are rejected by
   the runtime and fall back the same way.

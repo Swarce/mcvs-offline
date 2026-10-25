@@ -3,7 +3,10 @@
 #if MCVS_EMBEDDED
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
+using System.Threading;
 using Android.Runtime;
+using McvsOffline.Embedded.Diagnostics;
 using McvsOffline.Server.Core;
 
 namespace McvsOffline.Embedded.Android
@@ -27,7 +30,7 @@ namespace McvsOffline.Embedded.Android
     /// it is the same folder the installer would pick.
     /// </para>
     /// </summary>
-    internal sealed class AndroidPlatform : IEmbeddedPlatform
+    internal sealed class AndroidPlatform : IEmbeddedPlatform, IPlatformDiagnostics
     {
         public const string PackageName = "com.gameloft.android.ANMP.GloftMVHM";
         private const string PreferencesName = "MainActivityPrefs";   // GameInstaller.mPreferencesName
@@ -87,6 +90,109 @@ namespace McvsOffline.Embedded.Android
         public LogSink CreateSystemLogSink(LogLevel minLevel)
         {
             return new LogcatSink(minLevel);
+        }
+
+        // ------------------------------------------------------------------ IPlatformDiagnostics
+
+        public void InstallCrashHooks()
+        {
+            // Installed by Bootstrap.InstallDiagnostics (before the host exists); nothing more here.
+        }
+
+        public string FallbackLogDirectory()
+        {
+            return AndroidDiagnostics.FilesDir();
+        }
+
+        public string ApplyGameLog(Settings settings, SafeLogFile gameLog)
+        {
+            return GameLogBridge.Apply(settings.GetString("gameLog.levels", "error warning"), settings.GetString("gameLog.mute", "profile:debug"), gameLog,
+                                       (int)settings.GetLong("gameLog.maxMessageChars", 8192));
+        }
+
+        public string JavaStacks(string gameThreadComm)
+        {
+            try
+            {
+                return AndroidDiagnostics.JavaStacks(gameThreadComm);
+            }
+            catch (Exception ex)
+            {
+                return "    (Java stacks unavailable: " + ex.GetType().Name + ": " + ex.Message + ")\n";
+            }
+        }
+
+        private int iapState = -1;
+
+        /// <summary>
+        /// Whether the native IAP library reports initialized: IapStoreComponent waits for it (WaitLibInitialization, no
+        /// timeout) before it registers, and the unified shop (VersusCoins items included) waits for that registration.
+        /// Read through the same native export the game polls every frame (a byte of the IAP object MainLoop.Start creates),
+        /// only once GameApplication exists; logged as a milestone when it changes.
+        /// </summary>
+        public string StatusExtras()
+        {
+            try
+            {
+                Type app = Type.GetType("Gameloft.Engine.GameApplication, Gameloft.Engine", false);
+                object instance = app == null ? null : app.GetProperty("Instance").GetValue(null, null);
+                if (instance == null) return null;
+                bool initialized = NativeMethods.IapStoreComponent_IsInitialized_private();
+                int state = initialized ? 1 : 0;
+                if (state != iapState)
+                {
+                    iapState = state;
+                    EmbeddedHost host = EmbeddedHost.Current;
+                    if (host != null && host.Boot != null)
+                        host.Boot.Mark("native IAP library initialized: " + (initialized ? "yes" : "no") + " (the shop waits for yes)");
+                }
+                return "native IAP library initialized: " + (initialized ? "yes" : "no");
+            }
+            catch (Exception ex)
+            {
+                return "native IAP state unavailable: " + ex.GetType().Name;
+            }
+        }
+
+        private static class NativeMethods
+        {
+            [DllImport("nativeengine", CallingConvention = CallingConvention.Cdecl)]
+            [return: MarshalAs(UnmanagedType.U1)]
+            public static extern bool IapStoreComponent_IsInitialized_private();
+        }
+
+        public void StartBackground(EmbeddedHost host)
+        {
+            Log log = host.Logger.For("diag");
+            if (host.Settings.GetBool("diagnostics.publicLogCopy", true))
+            {
+                try
+                {
+                    var mirror = new PublicMirror(host.LogFiles, s => log.Info(s));
+                    mirror.Start();
+                    CrashReporter.Mirror = mirror.CopyCrashFile;
+                }
+                catch (Exception ex)
+                {
+                    log.Warn("[mirror] not started", ex);
+                }
+            }
+            var exits = new Thread(() =>
+            {
+                try
+                {
+                    Thread.Sleep(3000);   // out of the start-up path
+                    string text = ExitReasons.Describe(5, host.Paths.LogsDir);
+                    if (!string.IsNullOrEmpty(text)) log.Info(text);
+                }
+                catch (Exception ex)
+                {
+                    log.Info("[exit] previous exit reasons unavailable: " + ex.GetType().Name + ": " + ex.Message);
+                }
+            });
+            exits.IsBackground = true;
+            exits.Name = "mcvs-exit-reasons";
+            exits.Start();
         }
 
         /// <summary>/sdcard/Android/data/&lt;package&gt;/files (EXTERNAL_STORAGE is set for every Android process).</summary>

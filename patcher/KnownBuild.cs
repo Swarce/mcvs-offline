@@ -39,8 +39,24 @@ namespace McvsOffline.Patcher
         /// <summary>The only assemblies McvsOffline.Server.dll may reference: the game's own copies (verify-C7 §6).</summary>
         public static readonly IReadOnlyCollection<string> ServerAllowedReferences = new HashSet<string>(StringComparer.Ordinal)
         {
-            "mscorlib", "System", "System.Core", "Mono.Android", "Java.Interop",
+            "mscorlib", "System", "System.Core", "Mono.Android", "Java.Interop", "Gameloft.Logs",
         };
+
+        /// <summary>
+        /// res/raw/args.txt: the only thing the Java side reads from it is whether a line equals "-UseDlc" and every line
+        /// that contains "-LogCategoryFilter" (AndroidUtilsPlugin.getArguments). GameApplication's constructor enables every
+        /// log level when that filter is empty and keeps the Fatal-only default otherwise (the value itself is ignored: the
+        /// SetLogCategoryFilter call is compiled out of the release Gameloft.Engine).
+        /// </summary>
+        public const string RawArgsEntry = "res/raw/args.txt";
+
+        /// <summary>The shipped content of <see cref="RawArgsEntry"/> (24 bytes, STORED, CRC32 38799ea7, no newline).</summary>
+        public const string RawArgsOriginal = "-LogCategoryFilter Fatal";
+
+        public const uint RawArgsOriginalCrc = 0x38799ea7;
+
+        /// <summary>The replacement for --game-log all: no -LogCategoryFilter line and no -UseDlc line.</summary>
+        public const string RawArgsAllLevels = "-McvsOfflineGameLogAll\n";
 
         /// <summary>The Xamarin.Android (Mono) profile's mscorlib version; a net8 build would reference System.Runtime instead.</summary>
         public static readonly Version MonoProfileVersion = new Version(2, 0, 5, 0);

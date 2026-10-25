@@ -22,6 +22,32 @@ namespace McvsOffline.Embedded
         LogSink CreateSystemLogSink(LogLevel minLevel);
     }
 
+    /// <summary>
+    /// Optional platform diagnostics (Android: the AndroidEnvironment crash hook, internal storage for log fallback, the
+    /// game's own log levels, Java stacks, the phone-readable copy of the logs and the previous exit reasons). Every member
+    /// must catch everything.
+    /// </summary>
+    public interface IPlatformDiagnostics
+    {
+        /// <summary>Crash hooks beyond AppDomain (called once, right after <see cref="Diagnostics.CrashReporter.Install"/>).</summary>
+        void InstallCrashHooks();
+
+        /// <summary>A directory on storage that is always writable, for log files whose own directory fails; or null.</summary>
+        string FallbackLogDirectory();
+
+        /// <summary>Applies settings.json "gameLog" to the game's logger; copies its entries to <paramref name="gameLog"/>. A description, or null.</summary>
+        string ApplyGameLog(Settings settings, SafeLogFile gameLog);
+
+        /// <summary>Java stacks of the UI thread and the threads named like <paramref name="gameThreadComm"/>, or null.</summary>
+        string JavaStacks(string gameThreadComm);
+
+        /// <summary>Background extras once the host runs (the copy of the logs on the phone, the previous exit reasons).</summary>
+        void StartBackground(EmbeddedHost host);
+
+        /// <summary>Extra state for the status line (Android: whether the native IAP library reports initialized), or null.</summary>
+        string StatusExtras();
+    }
+
     /// <summary>A fixed directory as game root (tests, and running the embedded host on a PC).</summary>
     public sealed class DirectoryPlatform : IEmbeddedPlatform
     {

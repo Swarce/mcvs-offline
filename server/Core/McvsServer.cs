@@ -52,6 +52,12 @@ namespace McvsOffline.Server
         public Action<Router, ServerContext> RegisterServices { get; set; }
 
         public HttpServerLimits Limits { get; set; }
+
+        /// <summary>The boot trace to feed with requests (the embedded host shares its own); null: the server makes one.</summary>
+        public BootTrace BootTrace { get; set; }
+
+        /// <summary>Options of the server.log file (fallback directory, start-up size report); null: defaults.</summary>
+        public SafeLogFileOptions FileLogOptions { get; set; }
     }
 
     /// <summary>
@@ -66,14 +72,19 @@ namespace McvsOffline.Server
         private readonly HttpServerLimits limits;
         private HttpServer http;
         private bool disposed;
+        private FileLogSink fileSink;
 
-        private McvsServer(ServerContext context, Router router, RequestLogger requestLogger, HttpServerLimits limits)
+        private McvsServer(ServerContext context, Router router, RequestLogger requestLogger, HttpServerLimits limits, BootTrace boot)
         {
             Context = context;
             Router = router;
             this.requestLogger = requestLogger;
             this.limits = limits ?? new HttpServerLimits();
+            Boot = boot;
         }
+
+        /// <summary>Milestones of the game's boot chain, recognised from the requests (see <see cref="BootTrace"/>).</summary>
+        public BootTrace Boot { get; private set; }
 
         public ServerContext Context { get; private set; }
 
@@ -110,10 +121,11 @@ namespace McvsOffline.Server
                 console.MinLevel = options.ConsoleLevel ?? settings.ConsoleLogLevel;
                 logger.Recompute();
             }
+            FileLogSink fileSink = null;
             if (options.FileLog)
             {
-                logger.AddSink(new RotatingFileLogSink(Path.Combine(dataDir, "logs", "server.log"), settings.FileLogLevel,
-                                                       settings.LogFileMaxBytes, settings.LogFileCount));
+                logger.AddSink(fileSink = new FileLogSink(Path.Combine(dataDir, "logs", "server.log"), settings.FileLogLevel,
+                                               settings.LogFileMaxBytes, settings.LogFileCount, options.FileLogOptions));
             }
 
             Log log = logger.For("core");
@@ -136,13 +148,25 @@ namespace McvsOffline.Server
             var requestLogger = new RequestLogger(logger, Path.Combine(dataDir, "logs", "unknown-endpoints.jsonl"),
                                                   () => settings.LogBodyLimit);
             var router = new Router(requestLogger);
-            var server = new McvsServer(context, router, requestLogger, options.Limits);
+            BootTrace boot = options.BootTrace ?? new BootTrace(logger.For("boot"));
+            var server = new McvsServer(context, router, requestLogger, options.Limits, boot);
+            server.fileSink = fileSink;
 
             CoreRoutes.Register(router, context);
             var register = options.RegisterServices ?? ServiceRegistry.RegisterAll;
             register(router, context);
             log.Info(router.Routes.Length + " routes registered");
             return server;
+        }
+
+        /// <summary>One line per log file of the server (status lines, crash reports).</summary>
+        public List<string> DescribeLogFiles()
+        {
+            var lines = new List<string>();
+            if (fileSink != null) lines.Add(fileSink.File.Describe());
+            string unknown = requestLogger.DescribeUnknownFile();
+            if (unknown != null) lines.Add(unknown);
+            return lines;
         }
 
         /// <summary>Binds the configured address and port and starts serving.</summary>
@@ -180,6 +204,7 @@ namespace McvsOffline.Server
         public HttpResponse Handle(HttpRequest request)
         {
             int started = Environment.TickCount;
+            try { Boot.RequestStarted(request); } catch (Exception) { }
             HttpResponse response = Router.Dispatch(request);
             int elapsed = Environment.TickCount - started;
             try
@@ -189,6 +214,7 @@ namespace McvsOffline.Server
             catch (Exception)
             {
             }
+            try { Boot.RequestFinished(request, response); } catch (Exception) { }
             return response;
         }
 
@@ -200,6 +226,8 @@ namespace McvsOffline.Server
                 disposed = true;
             }
             Stop();
+            try { Boot.Dispose(); } catch (Exception) { }
+            try { requestLogger.Dispose(); } catch (Exception) { }
             Context.Logger.Dispose();
         }
 

@@ -71,7 +71,11 @@ the exact format — space/CR/LF delimited, no tabs, no BOM, case-sensitive enum
 -SuperCredential game:mcvsoffline
 -SuperPassword mcvsoffline
 -DeviceId <stable per-device id>
+-DataCenter mcvs
 ```
+
+`-DataCenter` makes every Federation (client, LocalAnubis, and through `cmd_args` the TS/GS Worlds) skip eve's datacenter
+list (device test 1, STATUS.md).
 
 The in-process TS/GS Worlds are built while `GameApplication.Args` = the **`cmd_args` from our
 `matchmaker lobbyconfigs` response**, so those must repeat the eve URL and super credential:
@@ -95,7 +99,15 @@ later, at `JNIBridge.NativeInit`). Delete `libaot-NicePlaySDK.dll.so` for both A
 AOT mode falls back to JIT). Re-sign (zipalign + apksigner v1+v2). The native signature check has no
 local effect; neutralising it is optional.
 
+Mandatory IL patches for the in-process servers (device test 1, STATUS.md): `headless` (Game.dll) and `headless-engine`
+(Gameloft.Engine.dll) keep client-only components out of the headless TS/GS Worlds (`InputSettingsComponent`,
+`SoundGroupSnapshotComponent` get `[KeepInHeadlessMode(false)]`; null-safe HudGamepad and VfxAnimator calls; audio and
+input singletons left alone) and turn `Component.Events.GetSafeAction` into a try/catch that applies to headless Worlds
+only, reporting instead of ending the player's process.
+
 Recommended extra IL patches (all optional, patcher flags):
+- `nativeonline` (default): `OnlinePlatformComponent.Init_private` (the native "GaiaInit") runs only when
+  `settings.json` `embedded.nativeOnlineSdk` is true; with the internet on, the native online SDK froze the boot.
 - `geo`: point the hard-coded `http://ip.ecomapis.gameloft.org/location/` (TS handshake, 100 s timeout vs
   60 s handshake) at our server.
 - `bottile`: route the BOTMATCH tile to the full-progression GS flow (verify-C4: `NativeStartMatchWithBots`

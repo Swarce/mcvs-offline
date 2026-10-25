@@ -5,6 +5,8 @@
 using System;
 using System.Threading;
 using McvsOffline.Embedded;
+using McvsOffline.Embedded.Diagnostics;
+using McvsOffline.Server.Core;
 
 namespace McvsOffline
 {
@@ -25,6 +27,16 @@ namespace McvsOffline
         public static void Init()
         {
             if (Interlocked.Exchange(ref initialized, 1) != 0) return;
+            BootClock.Touch();
+            try
+            {
+                // First, before anything can fail: where the logging machinery reports its own problems, and the crash
+                // reporter (ours runs before the game's own handler, which GameApplication subscribes later).
+                InstallDiagnostics();
+            }
+            catch (Exception)
+            {
+            }
             try
             {
                 // A separate method: if anything in it fails to JIT on this runtime, the exception surfaces here.
@@ -41,6 +53,17 @@ namespace McvsOffline
                 {
                 }
             }
+        }
+
+        private static void InstallDiagnostics()
+        {
+#if MCVS_EMBEDDED
+            SelfLog.SetWriter(McvsOffline.Embedded.Android.Logcat.Write);
+#endif
+            CrashReporter.Install();
+#if MCVS_EMBEDDED
+            McvsOffline.Embedded.Android.AndroidDiagnostics.InstallCrashHook();
+#endif
         }
 
         private static void InitCore()
