@@ -250,6 +250,11 @@ namespace McvsOffline.Tests.Auth
                 Assert.NotEqual("", response.BodyText);
                 MiniJson.Parse(response.BodyText);
             }
+
+            // The 401 log line says why, for device testers.
+            Assert.True(server.Logs.Contains("(no access_token)"));
+            Assert.True(server.Logs.Contains("token " + unknown + " is not known here"));
+            Assert.True(server.Logs.Contains("token " + foreign + " was issued by 'mcvs00000000', this server is '" + server.Context.InstanceId + "'"));
         }
 
         [Fact]

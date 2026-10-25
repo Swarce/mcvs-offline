@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Accounts;
 using McvsOffline.Server.Core.Json;
@@ -38,7 +39,7 @@ namespace McvsOffline.Server.Services.Auth
         /// <summary>Candidate number <paramref name="attempt"/> for an account: 9 digits from SHA-1.</summary>
         public static string Derive(string accountId, int attempt)
         {
-            string seed = "mcvs-offline/alias/v1|" + accountId + (attempt == 0 ? "" : "#" + attempt.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            string seed = "mcvs-offline/alias/v1|" + accountId + (attempt == 0 ? "" : "#" + attempt.ToString(CultureInfo.InvariantCulture));
             string hex = Ids.Sha1Hex(seed);
             long value = 0;
             // Reduce the hex digits modulo Range step by step (no 64-bit overflow, no culture-dependent parsing).
@@ -47,7 +48,7 @@ namespace McvsOffline.Server.Services.Auth
                 int digit = c <= '9' ? c - '0' : c - 'a' + 10;
                 value = (value * 16 + digit) % Range;
             }
-            return (value + Offset).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            return (value + Offset).ToString(CultureInfo.InvariantCulture);
         }
 
         public static bool IsWellFormed(string alias)

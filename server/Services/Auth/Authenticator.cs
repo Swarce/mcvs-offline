@@ -123,23 +123,9 @@ namespace McvsOffline.Server.Services.Auth
         {
             if (string.IsNullOrEmpty(token)) return null;
             TokenInfo info = context.Tokens.Resolve(token);
-            if (info == null)
-            {
-                if (!context.Tokens.IsLocal(token))
-                {
-                    // Self-describing tokens: a foreign issuer means another device's server issued it. Forwarding the
-                    // check to that server is roadmap M3 (ARCHITECTURE §3, verify-C6 §3); until then it is unknown.
-                    log.Debug("token from issuer '" + TokenService.GetIssuer(token) + "' is not ours (" + context.Tokens.Issuer + ")");
-                }
-                return null;
-            }
-            if (context.Accounts.FindById(info.AccountId) == null)
-            {
-                // accounts.json lost or edited: answer 401 so the client re-authorizes, which re-creates the account
-                // under the same derived id (AccountStore.DeriveAccountId).
-                log.Warn("token " + token + " refers to missing account " + info.AccountId);
-                return null;
-            }
+            // An account missing behind a known token (accounts.json lost or edited) is treated as an unknown token:
+            // the 401 makes the client re-authorize, which re-creates the account under the same derived id.
+            if (info == null || context.Accounts.FindById(info.AccountId) == null) return null;
             return new AuthIdentity(info, IsGameCredential(info.Credential) || info.IsOnBehalf);
         }
 
@@ -157,8 +143,26 @@ namespace McvsOffline.Server.Services.Auth
 
         public HttpResponse Unauthorized(HttpRequest request, string reason)
         {
-            log.Warn("401 for " + request.Method + " " + request.Path + ": " + reason);
+            log.Warn("401 for " + request.Method + " " + request.Path + ": " + reason + " (" + Diagnose(GetAccessToken(request)) + ")");
             return AuthResponses.Error(HttpStatus.Unauthorized, "unauthorized", reason);
+        }
+
+        /// <summary>Why a token does or does not resolve, for the 401 log line.</summary>
+        private string Diagnose(string token)
+        {
+            if (string.IsNullOrEmpty(token)) return "no access_token";
+            TokenInfo info = context.Tokens.Resolve(token);
+            if (info == null)
+            {
+                // Self-describing tokens: a foreign issuer means another device's server issued it. Forwarding the
+                // check to that server is roadmap M3 (ARCHITECTURE §3, verify-C6 §3); until then it is unknown here.
+                return context.Tokens.IsLocal(token)
+                    ? "token " + token + " is not known here (tokens.json lost or token evicted)"
+                    : "token " + token + " was issued by '" + TokenService.GetIssuer(token) + "', this server is '" + context.Tokens.Issuer + "'";
+            }
+            if (context.Accounts.FindById(info.AccountId) == null)
+                return "token " + token + " belongs to account " + info.AccountId + ", which no longer exists";
+            return "token " + token + " is valid for " + info.Credential;
         }
 
         /// <summary>True for "game:&lt;name&gt;" credentials, the game-server super credentials (report 02 §3.4).</summary>
