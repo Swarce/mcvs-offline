@@ -53,7 +53,7 @@ player. Code: `server/Services/<Module>/`; shared helpers in `server/Services/Mi
 | POST | `messages/{transport}/{credential}` | `messaging.post` | `{"id":…}` | M2 |
 | POST | `messages/{transport}/multicast` | `messaging.multicast` | `{"count":n,"ids":[…]}` (`credentials` = JSON array) | M3 |
 | DELETE | `messages/{transport}/{credential}` | `messaging.delete` | `{"deleted":n}`; `msgids=a,b` in the body, all messages when absent | M6 |
-| POST | `transports/{transport}/endpoints/{endpoint}` | `messaging.endpoint.register` | `{}` | M4 |
+| POST | `transports/{transport}/endpoints/{*endpoint}` | `messaging.endpoint.register` | `{}` (the raw push token, unescaped) | M4 |
 | POST | `transports/{transport}/endpoints/delete` | `messaging.endpoint.delete` | `{}` | M5 |
 
 A stored message is exactly what the client reads (`OP/Messaging.cs`): `id` (new 24-hex id), `from` (the custom
@@ -284,6 +284,21 @@ All catch-all routes use `Router.CatchAllOrder`, so any module's specific route 
 | EventHub topic `messaging.post` (subscribed by Messaging) | `{"to", "transport": "secured", "body", "type"?, "alert": true, "label"?, "replaceMatchingLabel"?, "from"?, "fields": {…}?}` | Deliver a Hermes message (e.g. a gift) without referencing Messaging's files. |
 | `context.Features` `ISocialEventProvider` (defined in `server/Services/Social/SocialEvents.cs`) | `FindEvent(id, language, utcNow)` → Osiris event object or null | Rolling TLEs (division seasons, crate shops) owned by CONTENT. |
 | `context.Features` `AlertHub`, `Mailboxes`, `ClanStore`, `SocialProfiles`, `ChatHub` | the shared instances (`X.For(context)`) | In-process use by any module. |
+
+## Verification
+
+- `tests/McvsOffline.Tests/Misc/*Tests.cs`: behaviour of every endpoint through the composed server (in-process and,
+  for the Kairos and chat streams, over real HTTP with chunked line-by-line reads), the hub semantics (type filters,
+  targets, replay, the `connection` ban), ranking maths, normalization rules, persistence across a restart, and a
+  guard that no MISC route takes another module's paths.
+- `ClientConformanceTests`: loads the player's own `Gameloft.OnlinePlatform.dll` and its `Newtonsoft.Json` from
+  `MCVS_REFS` at run time and drives the **real client classes** against the server: `Messaging.PostMessage` /
+  `RetrieveMessages` / `DeleteMessages` (`GiftData` parsing), `AlertListener` receiving a `MessageAlert`,
+  `Leaderboard.PostScore` / `SelfData` / `Top` / `AroundMe` / `Friends`, `SocialService.GetEvents` (`SocialEvent`),
+  `SocialProfileService`, `ProfanityService.FilterMessage`, `ClanService.CreateClan` / `GetClan` /
+  `IncrementClanField`, `Clan.SendNotification` / `GetLastAlerts` (wall), `ChatRoom.SendMessage` →
+  `ChatMessageReceived`, and `game_stats_by_time`. (It runs the client on .NET 8, not Mono: the parsing code is the
+  same, the HTTP stack is the same SocketsHttpHandler design.)
 
 ## Open questions / device-test checklist
 

@@ -137,6 +137,8 @@ namespace McvsOffline.Tests.Misc
             Assert.Equal(200, s.Post("/messages/gcm/me", p.Token, "body", "push").StatusCode);
             Assert.Empty(MiscServer.Arr(s.Get("/messages/gcm/me", p.Token)));
             Assert.Equal(200, s.Post("/transports/gcm/endpoints/abc", p.Token).StatusCode);
+            Assert.Equal(200, s.Post("/transports/gcm/endpoints/APA91b:x/y-z_", p.Token).StatusCode);
+            Assert.Equal(200, s.Post("/transports/gcm/endpoints/delete", p.Token).StatusCode);
             // Clan join-request push notifications (no body, localizations) go to transport "any".
             var pn = s.Post("/messages/any/multicast", p.Token, "credentials", "[\"" + p.FedId + "\"]", "localizations", "{}", "default_localization", "en");
             Assert.Equal(200, pn.StatusCode);

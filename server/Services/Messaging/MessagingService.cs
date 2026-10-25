@@ -41,7 +41,8 @@ namespace McvsOffline.Server.Services.Messaging
             router.Delete("messages/{transport}/{credential}", "messaging.delete", request => Delete(context, mailboxes, log, request));
             // Push-notification endpoint registration: there is no push service offline.
             router.Post("transports/{transport}/endpoints/delete", "messaging.endpoint.delete", request => HttpResponse.EmptyObject());
-            router.Post("transports/{transport}/endpoints/{endpoint}", "messaging.endpoint.register", request => HttpResponse.EmptyObject());
+            // The endpoint is the device's raw push token, not escaped by the client (OP/MessagingApi.cs): take the rest of the path.
+            router.Post("transports/{transport}/endpoints/{*endpoint}", "messaging.endpoint.register", request => HttpResponse.EmptyObject());
         }
 
         private static HttpResponse Retrieve(ServerContext context, Mailboxes mailboxes, Log log, HttpRequest request)
