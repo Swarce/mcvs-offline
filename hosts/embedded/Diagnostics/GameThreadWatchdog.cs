@@ -19,10 +19,14 @@ namespace McvsOffline.Embedded.Diagnostics
     /// item ran for 5, 15, 60 and 180 s it logs a snapshot: the lag, how long the frame clock has not moved, the server's last
     /// request, the game thread's kernel state, wchan and syscall (futex = a lock, ppoll/connect/recvfrom = network on the game
     /// thread, R = busy), the busiest threads since the previous snapshot, every thread in state D, and at 15 s the Java
-    /// stacks of the game thread and the UI thread (a JNI call stuck in Java shows up there).
+    /// stacks of the game thread and the UI thread (a JNI call stuck in Java shows up there). With the 15 s and the 180 s
+    /// snapshot it starts the optional thread dump (Android: <see cref="ThreadDump"/>, managed and native stacks) on a thread of
+    /// its own, so a dump that blocks never stops the watchdog.
     /// </para>
-    /// Reflection only (no reference to Gameloft.Engine); everything that runs on the game thread is one field write in a
-    /// try/catch. Off when GameApplication cannot be found (tests, other builds).
+    /// Reflection only (no reference to Gameloft.Engine); everything that runs on the game thread is a few field writes and one
+    /// gettid() in a try/catch (a heartbeat that ever runs on another thread is reported once: the "it would have run in a
+    /// pumping wait" reasoning of device test 2 relies on the beat running on the game thread). Off when GameApplication cannot
+    /// be found (tests, other builds).
     /// </summary>
     public sealed class GameThreadWatchdog
     {
@@ -31,11 +35,14 @@ namespace McvsOffline.Embedded.Diagnostics
         private readonly Func<string> serverState;
         private readonly Action<string> report;
         private readonly Func<string, string> javaStacks;
+        private readonly Action<int, string> threadDump;
         private readonly int intervalMs;
         private readonly int[] ReportAtMs;
         private int lastBeat = Environment.TickCount;
         private int beatOutstanding;
         private volatile int gameTid;
+        private volatile int otherBeatTid;
+        private bool otherBeatReported;
         private volatile string gameThreadName;
         private int stallReports;
         private int beats;
@@ -52,9 +59,12 @@ namespace McvsOffline.Embedded.Diagnostics
         /// <param name="javaStacks">Java stacks of the threads whose name matches (Android); may be null.</param>
         /// <param name="intervalMs">Heartbeat period (tests use a short one).</param>
         /// <param name="reportAtMs">Stall durations that produce a snapshot (default 5, 15, 60, 180 s; Java stacks at the second).</param>
+        /// <param name="threadDump">(game thread tid, its comm): dumps the stacks; called on a new thread after the second and
+        /// the fourth snapshot. May be null.</param>
         public GameThreadWatchdog(Func<string> serverState, Action<string> report, Func<string, string> javaStacks, int intervalMs = 1000,
-                                  int[] reportAtMs = null)
+                                  int[] reportAtMs = null, Action<int, string> threadDump = null)
         {
+            this.threadDump = threadDump;
             this.serverState = serverState;
             this.report = report ?? (s => { });
             this.javaStacks = javaStacks;
@@ -151,6 +161,12 @@ namespace McvsOffline.Embedded.Diagnostics
                         announced = true;
                         report("[watchdog] game thread is tid " + gameTid.ToString(CultureInfo.InvariantCulture) + " '" + gameThreadName + "'");
                     }
+                    if (!otherBeatReported && otherBeatTid != 0)
+                    {
+                        otherBeatReported = true;
+                        report("[watchdog] a heartbeat ran on tid " + otherBeatTid.ToString(CultureInfo.InvariantCulture) + ", not on the game thread " +
+                               gameTid.ToString(CultureInfo.InvariantCulture) + ": another thread drains GameApplication.Context too");
+                    }
 
                     double total = totalTimeField == null ? -2 : (double)totalTimeField.GetValue(app);
                     if (total != lastTotal)
@@ -174,6 +190,7 @@ namespace McvsOffline.Embedded.Diagnostics
                     if (stallReports >= ReportAtMs.Length || lag < ReportAtMs[stallReports]) continue;
                     stallReports++;
                     report(Snapshot(lag, Environment.TickCount - lastTotalChange, suspended, stallReports == 2));
+                    if (stallReports == 2 || stallReports == 4) StartThreadDump();
                 }
                 catch (Exception ex)
                 {
@@ -183,6 +200,29 @@ namespace McvsOffline.Embedded.Diagnostics
             }
         }
 
+        /// <summary>The thread dump runs on its own thread: it may block (a runtime lock held by the stalled thread).</summary>
+        private void StartThreadDump()
+        {
+            int tid = gameTid;
+            Action<int, string> dump = threadDump;
+            if (dump == null || tid == 0) return;
+            string comm = (NativeThreads.Read("/proc/self/task/" + tid.ToString(CultureInfo.InvariantCulture) + "/comm") ?? "").Trim();
+            var thread = new Thread(() =>
+            {
+                try
+                {
+                    dump(tid, comm);
+                }
+                catch (Exception ex)
+                {
+                    report("[watchdog] thread dump failed: " + ex.GetType().Name + ": " + ex.Message);
+                }
+            });
+            thread.IsBackground = true;
+            thread.Name = "mcvs-threaddump";
+            thread.Start();
+        }
+
         /// <summary>Runs ON the game thread inside GameSynchronizationContext.ExecuteItems: must never throw.</summary>
         private void Beat(object state)
         {
@@ -190,10 +230,15 @@ namespace McvsOffline.Embedded.Diagnostics
             {
                 lastBeat = Environment.TickCount;
                 beats++;
+                int tid = NativeThreads.CurrentTid();
                 if (gameTid == 0)
                 {
-                    gameTid = NativeThreads.CurrentTid();
+                    gameTid = tid;
                     gameThreadName = Thread.CurrentThread.Name;
+                }
+                else if (tid != 0 && tid != gameTid && otherBeatTid == 0)
+                {
+                    otherBeatTid = tid;
                 }
             }
             catch (Exception)
@@ -222,7 +267,10 @@ namespace McvsOffline.Embedded.Diagnostics
             string comm = null;
             if (tid != 0)
             {
-                sb.Append("  game thread ").Append(tid.ToString(CultureInfo.InvariantCulture)).Append(": ").Append(NativeThreads.Describe(tid, true)).Append('\n');
+                // /proc/<tid>/syscall is root-owned while the process is not dumpable ("syscall ?" in device test 2): read it with
+                // PR_SET_DUMPABLE raised when the thread dump is enabled (it does the same).
+                string state = threadDump != null ? ThreadDump.WithDumpable(() => NativeThreads.Describe(tid, true)) : NativeThreads.Describe(tid, true);
+                sb.Append("  game thread ").Append(tid.ToString(CultureInfo.InvariantCulture)).Append(": ").Append(state).Append('\n');
                 comm = (NativeThreads.Read("/proc/self/task/" + tid.ToString(CultureInfo.InvariantCulture) + "/comm") ?? "").Trim();
             }
             else

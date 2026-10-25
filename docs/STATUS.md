@@ -1,14 +1,170 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-Last updated after device test 1 (October 2026: Samsung Galaxy S22, Android 16; see "Device test 1" below).
+Last updated after device test 2 (October 2026: Samsung Galaxy S22, Android 16; see "Device test 2" below).
 
-**Summary:** the Federation server is complete for the offline single-player goals and passes 589 tests, including a
-conformance harness that runs the game's own client libraries against it. The player build (patcher + embedded host)
-ran on a device for the first time in device test 1: the embedded server, the hook and the args.txt block work on the
-phone, and the boot got as far as the in-process TS loading its level. Two blockers were found and are fixed in this
-build (a stall with the internet on, and a crash of the headless TS World); the next build also carries the diagnostics
-that make the next device run conclusive. Device test 2 is the next step (expected log sequence below).
+**Summary:** the Federation server is complete for the offline single-player goals and passes 601 tests, including a
+conformance harness that runs the game's own client libraries against it. Device test 1 put the player build (patcher +
+embedded host) on a phone for the first time and found two blockers (a stall with the internet on, a crash of the headless
+TS World). Build 2 fixed both: in device test 2 the whole boot chain up to the TS handshake ran, and the TS World loaded its
+level. Then the game hung on "connecting": the in-process TS World and the client stepped multithreaded Havok physics at the
+same time through the engine's single process-wide worker pool. Build 3 gives the server Worlds single-threaded physics (as on
+Gameloft's servers), lets only one World step at a time, bounds the engine's pumping waits, and adds a managed and native
+thread dump to the watchdog, so a remaining hang names its cause. Device test 3 is the next step (expected log sequence
+below).
+
+## Device test 2 (October 2026): "connecting" forever
+
+Same phone (Samsung Galaxy S22, Android 16), build 2 (`d9a433f`: hook, headless, headless-engine, nativeonline, geo, bottile,
+finder; `--game-log all`), **internet on**, installed over build 1 (same key). One run, logcat from LogFox.
+
+### What worked
+
+Everything up to the TS handshake, as predicted. Hook at +0.008 s, `args.txt is up to date` (with `-DataCenter mcvs`), server
+on 127.0.0.1:51780, CRM document built; the native online SDK was skipped twice (client World and TS World). Requests #1-#25
+in the predicted order with no `datacenters` request: client session, LocalAnubis super session, QuickLaunch,
+`lobbyconfigs ts`, Controller login, `connect game` (TS World created), the TS World's own Federation, CRM
+`configs/users/me/game` 596 ms after the TS session, TS lobby login. **The TS World loaded `Levels/Menus.level` with no
+`Fatal` and no `[McvsOffline] headless world:` line**: the device-test-1 headless fixes work. The native IAP library reports
+`initialized: yes` without GaiaInit (this answers the open question of device test 1).
+
+### The hang
+
+* `#26 POST /authorize` on behalf of the player (the TS handshake: `Connection.ProcessHandshake` ->
+  `OpenSessionForUser`), answered 200 in 0.0 ms. The game logged `[w2] {FedRequestHandler.cs}.SendAsync:48 | Request
+  .../authorize took 5 ms` on the game thread at 953.755 and then **nothing at all, on any thread**, for 60 s (logs/game.log
+  has exactly the logcat entries). For every earlier request a second line, `{RequestHandler.cs}.SendAsync:73 ... returned
+  completed with code : OK`, followed; for #26 it never came.
+* Watchdog: `STALL: no game-thread work item ran for 5940 ms; frame clock (totalTime) unchanged for 5004 ms`, then at 15 s
+  `game thread 26748: 'Thread-22' state S wchan futex_wait_queue_me syscall ?`: the game thread was **asleep in a futex**
+  (a lock or condition wait), not spinning, not in the network. Java stack: `"Thread-22" RUNNABLE` with no Java frames.
+* The heartbeat says where: the last beat ran at 952.916, the frame clock last moved by 953.85, and the beat posted at
+  about 953.86 (to `GameApplication.Context`, which raises `WorkItemAdded`) never ran. So the game thread blocked **in the
+  frame that ran the TS handshake continuation, after the TS World's work items** (`World.UpdateUnhandled`: `ExecuteItems`,
+  then `_Update`), in a wait that does not pump contexts. The #26 continuation had gone asynchronous and was queued on the
+  TS World's context, which only that thread drains: hence the missing second line.
+
+### Cause
+
+Verified in the decompiled engine, the IL and libnativeengine.so (`/home/user/mcvs-work/reports/device2-deadlock.md`):
+
+* `GameOptions_android.json` (profile `Specific`) turns on **multithreaded Havok physics** for the whole process
+  (`PhysicsComponent.PhysicsMultithreaded = true`, the only override that turns it off is never selected), and GPU defaults
+  turn on **deferred physics** (`DefaultDeferred = true`). The options are applied in `LoadGameDefinition`, before the client
+  World exists. Every World's `PhysicsComponent` constructor passes `PhysicsMultithreaded` to the native constructor.
+  `Deferred = !World.Headless && DefaultDeferred`: the client steps on a `LoadingThreadPool` thread
+  (`PhysicsComponent.UpdateSimulation` -> `World.RunTask`), a headless World steps on the calling thread (the game thread).
+* Native side: the `hkCpuThreadPool` and the `hkJobQueue` are **process globals**, created once (NE 0x37fab4, `[0x16ff440]`,
+  `[0x16ff448]`); every multithreaded hkpWorld registers with that one queue and `PhysicsComponent_UpdateStep_private`
+  calls `hkpWorld::stepMultithreaded(world, queue, pool, dt)`. The pool's `processJobQueue` and `waitForCompletion` take no
+  lock and share one "processing" flag, one worker callback slot and one completion semaphore: **one stepping thread at a
+  time**. The waits are `hkSemaphore::acquire` = `pthread_cond_wait`, i.e. `futex_wait_queue_me`.
+* A World steps physics only while it plays a level. The TS World started playing `Menus.level` just before the handshake
+  (about 53.7). From then on, every frame the client's step ran on a pool thread **while** the TS World's step ran on the
+  game thread inside `w2._Update`, through the same pool and queue, with nothing serializing them (`WaitDeferred` only orders a
+  World's step against its own previous one). Within a few frames a thread waits for a completion that never comes.
+* Gameloft never ran this mix: their dedicated servers ran one World per Linux process and skip GameOptions entirely
+  (`GameOptionPerformanceProfileComponent.OnCreate` returns on Linux), i.e. single-threaded, non-deferred Havok; the Android
+  client has one World.
+
+Which Havok wait the game thread sits in exactly cannot be settled statically (the build 3 thread dump will show it); that
+the two steps overlap with no synchronisation is verified. **Ruled out** (same report and
+`/home/user/mcvs-work/reports/device2-ourcode.md`): the context-pump mechanism (no game-thread wait in the frame loop pumps
+contexts; `Join`, `WaitLoading` and `Send` have no callers; `DelayedPost` has none either), the HTTP continuation chain (no
+blocking call), the loggers (`DeviceLogger_Log` is a bare `ret`; our bridge only enqueues), MenuComponent/SWF in the TS World
+(both `[KeepInHeadlessMode(false)]`), the render thread (no managed cycle in Full mode; its native queue lock is a spinlock),
+the network (futex, not poll/recv), and **our own code**: everything of ours on the game thread is bounded and was idle, our
+IAP P/Invoke first ran 33 s after the hang and takes no lock, and after the hang our threads still JIT-compiled, allocated and
+made JNI calls (no runtime-global lock held). The headless patches are not wrong; they let the TS reach code that had never
+run on Android.
+
+### Fix (build 3)
+
+* **`physics`, a new mandatory patch** (Gameloft.Engine.dll), each site checked against an IL fingerprint of the whole
+  verified method first:
+  * P2: the `PhysicsComponent` constructor passes `McvsPhysics.UseMultithreading(this)` to `ConstructNative` instead of
+    `PhysicsMultithreaded`. Headless (TS/GS) Worlds get a **single-threaded hkpWorld** (simulation type 2, `stepDeltaTime`,
+    never registered with the global queue: `tbz w19` at NE 0x37fa8c), as on Gameloft's servers; the client keeps
+    multithreaded, deferred physics. The final answer comes from `GameHooks.PhysicsMultithreading`, which also logs it
+    (`[boot] physics: ...`); without McvsOffline.Server.dll the IL alone picks "multithreaded only for client Worlds".
+  * P1: `PhysicsComponent.UpdateSimulationSteps` (the only caller of `UpdateStep_private`) runs inside
+    `McvsPhysics.EnterStep()`/`ExitStep()`, a **process-wide gate**: no two Worlds ever step Havok at the same time. The
+    wait is bounded (2 s, then the step goes ahead without the gate and a warning is logged), so the gate can never hang the
+    game itself; `WaitDeferred` is always called outside it, and nothing that runs inside a step waits for the game thread
+    (contact callbacks post to the World's context).
+  * Settings for A/B runs (defaults = the fix): `embedded.physics.serverMultithreaded` (false), `clientMultithreaded`
+    (true), `stepGate` (true), `stepGateTimeoutMs` (2000).
+* **`waits`, a new default patch** (Gameloft.Engine.dll): both `TaskExtension.WaitAndWork` overloads wait in 100 ms slices
+  (`WaitAny(handles)` -> `WaitAny(handles, 100)`). These are the engine's pumping waits (contexts and native tasks); with
+  every World's work on the same game thread, work queued without a wake-up event (`DelayedPost`, a context registered
+  after the wait began) can no longer leave the thread asleep for good: each slice drains and re-checks. The non-pumping
+  paths (`task.Wait()`, `signal.Wait()`) are unchanged, so no work runs where it did not run before. Not the cause of this
+  hang (no pumping wait was active), but it closes that class of same-thread multi-World deadlocks.
+* Our code: the IAP status read now waits for the first heartbeat and stops after the first "yes"; the watchdog reports a
+  heartbeat that ever runs on another thread than the game thread. No interference was found.
+
+### Diagnostics added for device test 3
+
+| What | Where to find it |
+|---|---|
+| **Thread dump** at the 15 s and 180 s STALL (`diagnostics.threadDump`, default true), on its own thread `mcvs-threaddump`, never waited for: (1) native view, no suspension: every thread's state, wchan and `/proc/self/task/<tid>/syscall` (futex address, mapping, words, timeout, pc), read with `PR_SET_DUMPABLE` raised and restored (the reason for "syscall ?"), plus a stack scan of the game thread and the threads that share its name and the Finalizer, through `/proc/self/mem` (a bad address is an error, never a crash), raw `lib+0x...` first, then named (`dladdr`, `mono_pmip` for managed code); (2) Mono's own managed dump of every thread (`mono_threads_request_thread_dump`, printed by the finalizer thread to fd 1, which points at a file for at most 10 s) | logcat `McvsOffline` lines `[threaddump] ...`, the header `Full thread dump:` on tag `mono` (priority E), `logs/bootstrap.log` (copied to Download/MCVS-Offline), `logs/threaddump-<time>.txt` |
+| The STALL snapshot's game-thread line now reads the syscall too (`syscall 98 0x... (futex: waiting for a lock or condition)`) | logcat `[watchdog] STALL` |
+| Physics decisions and the engine's threading choices, once per World | `[boot] physics: client World #1: Havok multithreaded ...; engine threading: PhysicsComponent.DefaultDeferred ..., GameApplication.RenderThreadEnabled ..., RenderThreadMode ...`, `[boot] physics: server (headless) World #2: Havok single-threaded ...` |
+| Step-gate counters (entries, waits, longest wait, timeouts) | the `[status]` line, `physics: ...` |
+
+### Expected log sequence in device test 3 (up to the main menu)
+
+`adb logcat -s McvsOffline mono mono-stdout` or LogFox filtered on the game. Lines 1-8 are as in device test 2 (request
+numbers included), plus the physics milestones.
+
+1. `[embedded] MCVS Offline 0.1.0-dev embedded host starting`, `[crash] hooks: ...`, `[boot] +0.0 s MCVS Offline host
+   started by the game`, `[logfile] ... exists, N bytes before this run` (bootstrap.log, game.log, server.log), `[gamelog]
+   Gameloft.Logs levels: ...`, `args.txt is up to date`, `[boot] offline server listening at http://127.0.0.1:51780/`,
+   `[diag] [mirror] ...`, `[crm] CRM document built: 1864 offline_store items ...`, `[diag] [exit] how the last 5 game
+   processes ended`.
+2. **New, before #1:** `[boot] physics: client World #1: Havok multithreaded (GameOptions multithreadedPhysics true,
+   settings embedded.physics.clientMultithreaded true; step gate on); engine threading: PhysicsComponent.DefaultDeferred True
+   (client physics on a loading-pool thread), GameApplication.RenderThreadEnabled True, RenderThreadMode Full` (the values are
+   whatever the phone's GameOptions profile says; device test 2 implied True/True/Full).
+3. `#1 .../datacenters/mcvs/urls` -> `[boot] client Federation: eve config (#1)`, `[watchdog] game thread is tid N ''`, `#2
+   locate/auth`, `[boot] native online SDK init requested (... call 1): skipped`, `#3 POST /authorize` -> `[boot] client
+   anonymous session`, `#4 users/me`.
+4. `#5 .../mcvs/urls` -> `[boot] second Federation: eve config (LocalAnubis)`, `#6`, `#7` -> `[boot] LocalAnubisManager.Start:
+   super session`, `#8`.
+5. `#9 verify`, `#10 locate/matchmaker`, `#11` -> `[boot] QuickLaunch: Finder session`, `#12` -> `[boot] QuickLaunch:
+   lobbyconfigs ts`, `#13 encrypt_token`, `#14` -> `[boot] Controller login of the client`, `#15` -> `[boot] Controller
+   'connect game': creating the TS World`.
+6. **New:** `[boot] physics: server (headless) World #2: Havok single-threaded (GameOptions multithreadedPhysics true,
+   settings embedded.physics.serverMultithreaded false; step gate on)`.
+7. `#16` -> `[boot] third Federation: eve config (TS World)`, `#17`, `native online SDK init requested (... call 2): skipped`,
+   `#18` -> `[boot] TS World: game-server session`, `#19`-`#22`, `#23 configs/users/me/game` -> `[boot] first CRM config ...
+   N ms after the TS session`, `#24 encrypt_token`, `#25 verify` -> `[boot] TS lobby login: the TS World now loads
+   Levels/Menus.level`. About 1.5 s of silence while the TS loads its level (normal).
+8. `#26 POST /authorize` on behalf of the player -> `[boot] TS handshake: session on behalf of the player (#26)`, and on
+   mono-stdout `[w2] ... FedRequestHandler.cs}.SendAsync:48 | Request .../authorize took N ms`. **This is where device test
+   2 stopped.**
+9. **The test:** `[w2] ... {RequestHandler.cs}.SendAsync:73 ... /authorize returned completed with code : OK`, then the rest
+   of the TS handshake, roughly in this order: `#27 users/me`, `alerts/me` -> `[boot] alert stream open (the TS handshake
+   reached the player's session)`, the first `profiles/...` read -> `[boot] TS handshake: first profile read (Seshat)` (a new
+   player: the root is `{}` and the sections are created), `users?device_id=` -> `[boot] TS handshake: accounts for this
+   device`, the section creations and the game-profile save -> `[boot] first profile write (Seshat)`, `location/?ip=` ->
+   `[boot] TS handshake: geolocation lookup answered locally`, `games/mygame/alias` -> `[boot] TS handshake:
+   games/mygame/alias`, `configs/users/me`. No `[watchdog] STALL` line, no `physics step gate: ... stepping without the gate`
+   warning.
+10. The client loads Menus.level (no requests), shows the language prompt and the age gate, then the main menu; `[boot] quiet:
+    no request for 10 s ...` once the menu is idle is normal. Within a minute: `[status] boot: ...; watchdog: ... N beats; ...
+    physics: 2 Havok worlds built (1 server Worlds made single-threaded), step gate on: N entries, M waited (max X ms), 0
+    timeouts; native IAP library initialized: yes`.
+
+**If it still hangs** at step 9: `[watchdog] STALL` at 5 s (now with the futex syscall), at 15 s the Java stacks and then the
+`[threaddump]` sections: `native view: dumpable 0 (raised to 1 for the reads), /proc/self/mem open, ...` with one line per
+thread, `native stack of <game tid> (raw)` / `(named)`, the same for the `Thread-22` siblings and the Finalizer, then `Mono
+managed thread dump via libmonosgen-2.0.so: complete after N ms` and one `[threaddump] "<thread name>"` block per thread. The
+game thread is the `"<unnamed thread>"` block whose frames contain `Gameloft.Engine.GameApplication:UpdateWorlds`. Its top
+frames name the wait (a `(wrapper managed-to-native) ..._private` engine call, `Monitor.Enter`, `ManualResetEventSlim.Wait`,
+...); see `/home/user/mcvs-work/reports/device2-threaddump.md` §5 for how to read it. Then one A/B run with
+`"embedded": {"physics": {"serverMultithreaded": true, "stepGate": false}}` in settings.json should reproduce the
+device-test-2 hang (and confirms the cause); a hang **with** the defaults is something else, which the dump names.
 
 ## Device test 1 (October 2026)
 
@@ -123,52 +279,9 @@ All of it uses only members of the game's trimmed assemblies (a Cecil test resol
 references and 8,256 body operands of the built DLL against `MCVS_REFS`, none missing, no linker stubs), never throws
 into the game, and does no I/O on the game or UI thread beyond what the host did before.
 
-### Expected log sequence in device test 2 (up to the main menu)
+### Expected log sequence in device test 2
 
-`adb logcat -s McvsOffline mono-stdout` or LogFox filtered on the game. Request numbers are for the internet-on and the
-airplane run alike; the `[boot]` lines follow the request they name.
-
-1. `[crash] hooks: AppDomain ok, unobserved-tasks ok, AndroidEnvironment ok`, `embedded host starting`, `[boot] +0.4 s MCVS
-   Offline host started by the game`, `[logfile] .../logs/bootstrap.log exists, N bytes before this run` (and for
-   game.log, server.log), `[gamelog] Gameloft.Logs levels: Fatal Error Warning, muted profile:debug, copy to .../game.log`.
-2. First start of this build: `args.txt updated (...): ... -DataCenter mcvs` and `[boot] args.txt updated`; later starts:
-   `args.txt is up to date`.
-3. `[boot] offline server listening at http://127.0.0.1:51780/`, `[crm] CRM document built`, `[diag] [mirror] copies of
-   the logs go to /storage/emulated/0/Download/MCVS-Offline`, `[diag] [exit] how the last N game processes ended`.
-4. `#1 GET /config/<cid>/datacenters/mcvs/urls` -> `[boot] client Federation: eve config (#1)`, then
-   `[boot] native online SDK init requested (... call 1): skipped, settings embedded.nativeOnlineSdk is false`,
-   `[watchdog] game thread is tid N 'Thread-N'`, and the game's own `mono-stdout` Info/Debug lines (`LoadConfig for ...
-   on mcvs`, `Send GET request ...`).
-5. `#2 locate/auth`, `#3 POST /authorize` (anonymous) -> `[boot] client anonymous session`, `#4 users/me`.
-6. **No `datacenters` request any more.** `#5 .../mcvs/urls` -> `[boot] second Federation: eve config (LocalAnubis)`.
-   **This is where RUN 1 stopped (internet on):** right after the LocalAnubis Federation's first request (then `#5
-   datacenters`, now `#5 .../mcvs/urls`). If `#6 locate/auth` never comes, the stall reproduced at the same step; if `#5`
-   itself never comes, it moved one step earlier. Then `#6 locate/auth`, `#7 authorize game:mcvsoffline [auth
-   auth_admin_ro]` -> `[boot] LocalAnubisManager.Start: super session`, `#8 users/me`.
-7. `#9 verify`, `#10 locate/matchmaker`, `#11 authorize [lobby_game_admin]` -> `[boot] QuickLaunch: Finder session`,
-   `#12 lobbyconfigs/<cid>/ts` -> `[boot] QuickLaunch: lobbyconfigs ts`, `#13 encrypt_token nonce=LocalAnubisNonce`,
-   `#14 verify credential=system:Anubis` -> `[boot] Controller login of the client`, `#15 lobbyconfigs ts` ->
-   `[boot] Controller 'connect game': creating the TS World`.
-8. TS World: `#16 urls` -> `[boot] third Federation: eve config (TS World)`, locate/auth, two `authorize` with
-   `device_id=default` -> `[boot] TS World: game-server session`, users/me x2, locate/config, `configs/users/me/game` ->
-   `[boot] first CRM config: /configs/users/me/game N ms after the TS session` (a WARN if over 1000 ms), a second
-   `native online SDK init requested (... call 2): skipped`, `encrypt_token`, `verify` -> `[boot] TS lobby login: the TS
-   World now loads Levels/Menus.level`. **This is where RUN 2 crashed.**
-9. About 2 s later, **no** `Fatal: {World.Loading.cs}.ExecuteLoadLevel:399` and ideally no `[McvsOffline] headless world:`
-   line. Then the TS handshake: `authorize` on behalf of the player -> `[boot] TS handshake: session on behalf of the
-   player`, `alerts/me` -> `[boot] alert stream open`, the first `profiles/...` read -> `[boot] TS handshake: first profile
-   read`, `users?device_id=` -> `[boot] TS handshake: accounts for this device`, section creations and the game-profile
-   save -> `[boot] first profile write`, `location/?ip=` -> `[boot] TS handshake: geolocation lookup answered locally`,
-   `games/mygame/alias` -> `[boot] TS handshake: games/mygame/alias`, `configs/users/me`.
-10. The client loads Menus.level (no requests), shows the language prompt and the age gate (unless `crm.skipAgeGate`), then
-    the main menu; `[boot] quiet: no request for 10 s ...` once the menu is idle is normal. Within a minute:
-    `[status] boot: ...; watchdog: ...; log bootstrap.log: ...; native IAP library initialized: yes|no` and the matching
-    `[boot] native IAP library initialized` milestone.
-
-If it stops anywhere: the last `[boot]` line names the step, `[boot] quiet: no request for 10 s since #N` follows, and if
-the game thread is stuck, `[watchdog] STALL` lines (5, 15, 60 s) give its kernel state (futex = a lock, ppoll/connect/
-recvfrom = network on the game thread, R = busy) and, at 15 s, its Java stack. A crash leaves `crash-*.txt` in
-`logs/` and in Download/MCVS-Offline, and `[exit] ... CRASH_NATIVE` at the next start.
+Superseded by the device-test-3 sequence above (steps 1-8 are what device test 2 showed).
 
 ## 1. Implemented
 
@@ -180,14 +293,14 @@ recvfrom = network on the game thread, R = busy) and, at 15 s, its Java stack. A
 | CONTENT | CRM over the player's own preconfiguration (validated against every client cast), matchmaker `lobbyconfigs`, unlock coupons, local Iris assets, generated VersusCoins economy (1,864 entries) | `server/Services/{Crm,Matchmaker,Assets}`, `server/Content`, `tools/content-gen` | [content.md](protocol/content.md), [ECONOMY.md](ECONOMY.md) |
 | MISC | Hermes mailboxes, Kairos alert stream, Olympus leaderboards with league groups, Osiris events/profiles, clans, wall, group chat, profanity, game_stats, BanTool, geolocation, tracking/marketing catch-alls | `server/Services/{Social,Messaging,Alerts,...,Misc}` | [misc.md](protocol/misc.md) |
 | Unlocks | `settings.unlockAll` through the inventory ledger (starts only once the game profile and the inventory section are stored, waits for the player's alert stream, backup, ordered batches with the merc unlock re-checked before each, `set_profile` alerts) | `server/Services/Unlocks` | [unlocks.md](protocol/unlocks.md) |
-| EMBED | In-game bootstrap (game root via the game's own Java helpers, `args.txt` managed block with `-DataCenter`, device id, logcat, server thread); diagnostics (crash reporter, self-reporting log files, boot trace, game-thread watchdog, game-log bridge, phone-readable copy, exit reasons); patcher (hook, headless, headless-engine, nativeonline, geo, bottile, finder, lan; `res/raw/args.txt` for `--game-log`; vendor-wide manifest permission renamed into the package namespace; AOT strip; raw zip rewrite; v1/v2/v3 signing) | `hosts/embedded`, `patcher` | [PLAYER-SETUP.md](PLAYER-SETUP.md) |
+| EMBED | In-game bootstrap (game root via the game's own Java helpers, `args.txt` managed block with `-DataCenter`, device id, logcat, server thread); diagnostics (crash reporter, self-reporting log files, boot trace, game-thread watchdog with managed and native thread dump, game-log bridge, phone-readable copy, exit reasons); patcher (hook, headless, headless-engine, physics, nativeonline, waits, geo, bottile, finder, lan; `res/raw/args.txt` for `--game-log`; vendor-wide manifest permission renamed into the package namespace; AOT strip; raw zip rewrite; v1/v2/v3 signing) | `hosts/embedded`, `patcher` | [PLAYER-SETUP.md](PLAYER-SETUP.md) |
 | Hosts | Standalone net8 console host; embedded DLL compiled against the game's trimmed Mono BCL (ILVerify-clean) | `hosts/standalone`, `server/McvsOffline.Server.Embedded.csproj` | [DEV-LOOP.md](DEV-LOOP.md) |
 
 ### How it was checked
 
 `MCVS_REFS=<apk assemblies> MCVS_REQUIRE_EMBEDDED=1 MCVS_REQUIRE_REAL_CLIENT=1 scripts/build.sh`: net8 solution, embedded
-build against the game's own BCL, then all tests. Result after the device-test-1 fixes: **McvsOffline.Tests 485/485,
-McvsOffline.Embed.Tests 105/105, 0 skipped**:
+build against the game's own BCL, then all tests. Result after the device-test-2 fixes: **McvsOffline.Tests 485/485,
+McvsOffline.Embed.Tests 116/116, 0 skipped**:
 
 | Tests | Count |
 |---|---|
@@ -198,8 +311,8 @@ McvsOffline.Embed.Tests 105/105, 0 skipped**:
 | MISC | 110 |
 | Unlocks | 8 |
 | End-to-end conformance (real client) | 2 |
-| Embedded host (including the crash reporter and its separate fatal/non-fatal budgets, the watchdog and a Cecil resolution of every reference of the built DLL against the game's assemblies) | 56 |
-| Patcher (including the binary manifest rewrite, `res/raw/args.txt`, and the device-1 patches applied to the real Game.dll and Gameloft.Engine.dll, then executed and JIT-compiled on net8) | 49 |
+| Embedded host (including the crash reporter and its separate fatal/non-fatal budgets, the watchdog, the thread dump, the physics hooks and step gate, and a Cecil resolution of every reference of the built DLL against the game's assemblies) | 62 |
+| Patcher (including the binary manifest rewrite, `res/raw/args.txt`, the device-1 and device-2 patches applied to the real Game.dll and Gameloft.Engine.dll, then executed and JIT-compiled on net8, and the IL fingerprints of the verified methods) | 54 |
 
 **Real-client conformance** (the player's Gameloft.OnlinePlatform, Gameloft.Engine, Game, Gameloft.Templates and
 Gameloft.Util loaded from `MCVS_REFS` into net8; mandatory in `build.sh` when the folder has them). Flows that ran
@@ -289,9 +402,10 @@ modules' open issues.
    127.0.0.1:51780, CRM built, args.txt block in place). Still to see: `[logfile] ... exists, N bytes` with N > 0 and the
    copies in Download/MCVS-Offline; a quick kill-and-restart binds 51780 again (no "SO_REUSEADDR not set" warning).
 3. **The TS World loads within the timeouts.** Device test 1 (RUN 2): the TS reached its level load 3 s after the first
-   request and failed 1.7 s later (the headless crash, fixed). Check the expected sequence above from step 8 on: no
-   `ExecuteLoadLevel:399`, no `[McvsOffline] headless world:` line, the TS handshake requests, the menu. With the internet
-   on (RUN 1 stalled after the LocalAnubis datacenter request), steps 6-7 must follow without a `[boot] quiet` line.
+   request and failed 1.7 s later (the headless crash, fixed). Device test 2: the level load works, no headless-world line;
+   the game thread then hung in the TS handshake frame (the physics race, fixed in build 3). Check the device-test-3
+   sequence above from step 8 on: `RequestHandler.SendAsync:73` after #26, the rest of the handshake, the menu, no
+   `[watchdog] STALL`. With the internet on, steps 3-7 must follow without a `[boot] quiet` line (true in device test 2).
 4. **The 1 s CRM window.** The TS's first `GET /configs/users/me/game` must be answered within 1 s of the TS starting,
    or `IsDevelopment=true` leaks into that session (verify-C5). The document is pre-built at startup; compare the
    request's timestamp with the server's "CRM document built" line on a slow phone. Device test 1: 229 ms after the TS
@@ -300,8 +414,8 @@ modules' open issues.
    the log shows which); the chunked `text/event-stream` read line by line (`GET /alerts/me` stays open); no HTTPS
    anywhere (all our URLs are `http://` with an explicit port) (verify-C3 §8, MISC notes).
 6. **Native IAP and online SDK.** The native online SDK (GaiaInit) is off by default now (`nativeonline`; turn it back on
-   with `embedded.nativeOnlineSdk: true` to compare). Watch `native IAP library initialized: yes|no` in the status line:
-   with "no", `IapStoreComponent` never registers and the unified shop (VersusCoins items included) cannot load: open the
+   with `embedded.nativeOnlineSdk: true` to compare). Device test 2: `native IAP library initialized: yes` without
+   GaiaInit. Still to see: the shop and the VersusCoins tab once the menu is reached. With "no", `IapStoreComponent` never registers and the unified shop (VersusCoins items included) cannot load: open the
    shop and the VersusCoins tab. If it hangs, the fallbacks are the report 04 §14.5 patch (raise LibInitialized and
    StoreRefreshed with an empty store) or `crm.iap=preconfig`. Also look for `service-prefixed path`, `locate of unknown
    service` and unknown endpoints such as `/users/me/approvals/` (verify-C2 §4.4-4.5, AUTH and CONTENT notes).

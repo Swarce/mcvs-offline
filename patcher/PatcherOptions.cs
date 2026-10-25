@@ -34,12 +34,15 @@ namespace McvsOffline.Patcher
     public sealed class PatcherOptions
     {
         /// <summary>Optional patches applied when --patch is not given.</summary>
-        public static readonly string[] DefaultPatches = { "nativeonline", "geo", "bottile", "finder" };
+        public static readonly string[] DefaultPatches = { "nativeonline", "waits", "geo", "bottile", "finder" };
 
-        public static readonly string[] OptionalPatches = { "nativeonline", "geo", "bottile", "finder", "lan" };
+        public static readonly string[] OptionalPatches = { "nativeonline", "waits", "geo", "bottile", "finder", "lan" };
 
-        /// <summary>Patches applied whatever --patch says: the server hook and the headless-World fixes the in-process TS/GS need.</summary>
-        public static readonly string[] MandatoryPatches = { "hook", "headless", "headless-engine" };
+        /// <summary>
+        /// Patches applied whatever --patch says: the server hook and the fixes the in-process TS/GS Worlds need (headless-World
+        /// components, device test 1; single-threaded server physics and one Havok step at a time, device test 2).
+        /// </summary>
+        public static readonly string[] MandatoryPatches = { "hook", "headless", "headless-engine", "physics" };
 
         public string InputApk { get; set; }
 

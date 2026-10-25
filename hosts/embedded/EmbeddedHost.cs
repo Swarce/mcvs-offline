@@ -2,6 +2,7 @@
 // Platform-independent: compiled into the embedded DLL and into the net8 tests.
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Net.Sockets;
 using System.Threading;
@@ -161,7 +162,8 @@ namespace McvsOffline.Embedded
                 }
                 if (gameLogFile != null) sb.Append("log ").Append(gameLogFile.Describe()).Append('\n');
                 sb.Append("native online SDK init calls: ").Append(GameHooks.NativeOnlineCalls)
-                  .Append(", headless-World exceptions: ").Append(GameHooks.HeadlessReports);
+                  .Append(", headless-World exceptions: ").Append(GameHooks.HeadlessReports).Append('\n');
+                sb.Append(GameHooks.DescribePhysics());
                 string extras = diagnostics == null ? null : diagnostics.StatusExtras();
                 if (!string.IsNullOrEmpty(extras)) sb.Append('\n').Append(extras);
             }
@@ -271,6 +273,7 @@ namespace McvsOffline.Embedded
             Settings = Settings.Load(Paths.SettingsFile, Logger.For("settings"));
             AddEmbeddedDefaults();
             GameHooks.Configure(Settings.GetBool("embedded.nativeOnlineSdk", false), Logger.For("game"), Boot);
+            ConfigurePhysics();
             ApplyGameLog();
 
             int port = options.Port ?? Settings.Port;
@@ -304,6 +307,25 @@ namespace McvsOffline.Embedded
             thread.Start();
 
             StartDiagnostics(options);
+        }
+
+        /// <summary>
+        /// settings.json "embedded.physics" (device test 2, patch 'physics'): the defaults are the fix (single-threaded Havok for
+        /// the in-process TS/GS Worlds, one World's physics step at a time); each key reverts one part for an A/B run.
+        /// </summary>
+        private void ConfigurePhysics()
+        {
+            bool server = Settings.GetBool("embedded.physics.serverMultithreaded", false);
+            bool client = Settings.GetBool("embedded.physics.clientMultithreaded", true);
+            bool gate = Settings.GetBool("embedded.physics.stepGate", true);
+            long timeout = Settings.GetLong("embedded.physics.stepGateTimeoutMs", GameHooks.DefaultStepGateTimeoutMs);
+            if (timeout < 1 || timeout > 60000) timeout = GameHooks.DefaultStepGateTimeoutMs;
+            GameHooks.ConfigurePhysics(server, client, gate, (int)timeout);
+            if (server || !client || !gate || timeout != GameHooks.DefaultStepGateTimeoutMs)
+            {
+                Log.Warn("settings embedded.physics differs from the defaults: serverMultithreaded " + server + ", clientMultithreaded " + client +
+                         ", stepGate " + gate + ", stepGateTimeoutMs " + timeout + " (A/B run; the defaults are the device-test-2 fix)");
+            }
         }
 
         private SafeLogFileOptions LogFileOptions()
@@ -342,9 +364,20 @@ namespace McvsOffline.Embedded
                     Log watchdogLog = Logger.For("watchdog");
                     Func<string, string> javaStacks = null;
                     if (diagnostics != null) javaStacks = diagnostics.JavaStacks;
+                    Action<int, string> threadDump = null;
+                    if (diagnostics != null && Settings.GetBool("diagnostics.threadDump", true))
+                    {
+                        // Device test 2: the game thread slept in a futex and nothing said where. Managed stacks of every thread
+                        // (Mono's own dump) and native stacks of the game thread, into logcat, bootstrap.log and logs/threaddump-*.txt.
+                        Log dumpLog = Logger.For("threaddump");
+                        string logsDir = Paths.LogsDir;
+                        threadDump = (tid, comm) => ThreadDump.Capture(tid, ThreadDump.Related(tid, comm),
+                            Path.Combine(logsDir, "threaddump-" + DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + ".txt"),
+                            10000, s => dumpLog.Warn(s.StartsWith("[threaddump] ", StringComparison.Ordinal) ? s.Substring(13) : s));
+                    }
                     Watchdog = new GameThreadWatchdog(() => Boot.Describe(),
                                                       s => watchdogLog.Warn(s.StartsWith("[watchdog] ", StringComparison.Ordinal) ? s.Substring(11) : s),
-                                                      javaStacks);
+                                                      javaStacks, 1000, null, threadDump);
                     Watchdog.Start();
                 }
             }
@@ -431,6 +464,12 @@ namespace McvsOffline.Embedded
                 Settings.Set("diagnostics.publicLogCopy", true);
                 changed = true;
             }
+            // Keys added after the first device builds: added one by one, so an existing settings.json gets them too.
+            changed |= AddDefault("diagnostics.threadDump", true);
+            changed |= AddDefault("embedded.physics.serverMultithreaded", false);
+            changed |= AddDefault("embedded.physics.clientMultithreaded", true);
+            changed |= AddDefault("embedded.physics.stepGate", true);
+            changed |= AddDefault("embedded.physics.stepGateTimeoutMs", GameHooks.DefaultStepGateTimeoutMs);
             if (!changed) return;
             if (Settings.IsFallback)
             {
@@ -447,6 +486,13 @@ namespace McvsOffline.Embedded
             {
                 Log.Warn("cannot save " + Paths.SettingsFile, ex);
             }
+        }
+
+        private bool AddDefault(string key, object value)
+        {
+            if (Settings.Get(key) != null) return false;
+            Settings.Set(key, value);
+            return true;
         }
 
         private void WriteArgs(int port)

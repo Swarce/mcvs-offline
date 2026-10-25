@@ -24,7 +24,7 @@ namespace McvsOffline.Embed.Tests.Patcher
     [Collection("GameHooks")]
     public class RealGamePatchTests
     {
-        private const string HookServerSource = @"
+        internal const string HookServerSource = @"
 namespace McvsOffline
 {
     public static class Bootstrap { public static void Init() { } }
@@ -45,6 +45,21 @@ namespace McvsOffline
         {
             HeadlessCalls++; LastComponent = component; LastEvent = eventName; LastException = exception;
         }
+
+        // patch 'physics'
+        public static int MtCalls;
+        public static bool LastHeadless;
+        public static bool LastRequested;
+        public static bool MtAnswer;
+        public static bool GateAnswer = true;
+        public static int EnterCalls;
+        public static int ExitCalls;
+
+        public static bool PhysicsMultithreading(bool headless, bool requested) { MtCalls++; LastHeadless = headless; LastRequested = requested; return MtAnswer; }
+
+        public static bool EnterPhysicsStep() { EnterCalls++; return GateAnswer; }
+
+        public static void ExitPhysicsStep() { ExitCalls++; }
     }
 }";
 
@@ -89,6 +104,12 @@ namespace McvsOffline
         }
 
         private static readonly IlPatch[] DeviceOnePatches = { new HeadlessGamePatch(), new HeadlessEnginePatch(), new NativeOnlinePatch() };
+
+        /// <summary>Every patch of Game.dll and Gameloft.Engine.dll this build applies by default, in the patcher's order.</summary>
+        internal static readonly IlPatch[] DefaultGamePatches =
+        {
+            new HeadlessGamePatch(), new HeadlessEnginePatch(), new PhysicsPatch(), new NativeOnlinePatch(), new WaitsPatch(), new BotTilePatch(), new FinderPatch(),
+        };
 
         [Fact]
         public void HeadlessSafetyNetCatchesOnlyInHeadlessWorlds()
@@ -267,7 +288,7 @@ namespace McvsOffline
             string refs = Refs();
             if (refs == null) return;
             byte[] server = FixtureCompiler.Compile("McvsOffline.Server", HookServerSource);
-            Dictionary<string, byte[]> patched = PatchReal(refs, server, null, DeviceOnePatches);
+            Dictionary<string, byte[]> patched = PatchReal(refs, server, null, DefaultGamePatches);
             using (var game = new GameContext(refs, patched, server))
             {
                 var sites = new[]
@@ -287,14 +308,24 @@ namespace McvsOffline
                     ("Gameloft.Engine", "Gameloft.Engine.McvsHeadlessSafeAction", "Forward"),
                     ("Gameloft.Engine", "Gameloft.Engine.OnlinePlatformComponent", "Init_private"),
                     ("Gameloft.Engine", "Gameloft.Engine.OnlinePlatformComponent", "McvsAllowNativeOnline"),
+                    ("Gameloft.Engine", "Gameloft.Engine.PhysicsComponent", ".ctor"),
+                    ("Gameloft.Engine", "Gameloft.Engine.PhysicsComponent", "UpdateSimulationSteps"),
+                    ("Gameloft.Engine", "Gameloft.Engine.McvsPhysics", "UseMultithreading"),
+                    ("Gameloft.Engine", "Gameloft.Engine.McvsPhysics", "EnterStep"),
+                    ("Gameloft.Engine", "Gameloft.Engine.McvsPhysics", "ExitStep"),
+                    ("Gameloft.Engine", "Gameloft.Engine.McvsPhysics", "ForwardMultithreading"),
+                    ("Gameloft.Engine", "Gameloft.Engine.McvsPhysics", "ForwardEnter"),
+                    ("Gameloft.Engine", "Gameloft.Engine.McvsPhysics", "ForwardExit"),
+                    ("Gameloft.Engine", "Gameloft.Engine.TaskExtension", "WaitAndWork"),
                 };
                 foreach (var (assembly, type, name) in sites)
                 {
                     Type t = game.Get(assembly).GetType(type, true);
-                    MethodInfo[] methods = t.GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)
-                                            .Where(m => m.Name == name).ToArray();
+                    const BindingFlags all = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
+                    MethodBase[] methods = name == ".ctor" ? t.GetConstructors(all).Cast<MethodBase>().ToArray()
+                                                           : t.GetMethods(all).Where(m => m.Name == name).Cast<MethodBase>().ToArray();
                     Assert.NotEmpty(methods);
-                    foreach (MethodInfo m in methods) RuntimeHelpers.PrepareMethod(m.MethodHandle);   // InvalidProgramException on bad IL
+                    foreach (MethodBase m in methods) RuntimeHelpers.PrepareMethod(m.MethodHandle);   // InvalidProgramException on bad IL
                     output.WriteLine("JIT ok: " + type + "." + name);
                 }
             }
@@ -306,13 +337,15 @@ namespace McvsOffline
             string refs = Refs();
             if (refs == null) return;
             byte[] server = FixtureCompiler.Compile("McvsOffline.Server", HookServerSource);
-            Dictionary<string, byte[]> once = PatchReal(refs, server, null, DeviceOnePatches);
+            Dictionary<string, byte[]> once = PatchReal(refs, server, null, DefaultGamePatches);
             string dir = TestEnvironment.NewTempDir("repatch");
             foreach (string f in Directory.GetFiles(refs, "*.dll")) File.Copy(f, Path.Combine(dir, Path.GetFileName(f)));
             foreach (var kv in once) File.WriteAllBytes(Path.Combine(dir, kv.Key), kv.Value);
             Assert.Throws<PatchException>(() => PatchReal(dir, server, null, new HeadlessGamePatch()));
             Assert.Throws<PatchException>(() => PatchReal(dir, server, null, new HeadlessEnginePatch()));
             Assert.Throws<PatchException>(() => PatchReal(dir, server, null, new NativeOnlinePatch()));
+            Assert.Throws<PatchException>(() => PatchReal(dir, server, null, new PhysicsPatch()));
+            Assert.Contains("IL fingerprint", Assert.Throws<PatchException>(() => PatchReal(dir, server, null, new WaitsPatch())).Message);
 
             // A different Init_private body (ldarg.2 -> ldarg.1) is refused, and so is a server without GameHooks.
             string changed = TestEnvironment.NewTempDir("changed");
@@ -326,6 +359,19 @@ namespace McvsOffline
                 module.Write(Path.Combine(changed, "Gameloft.Engine.dll"));
             }
             Assert.Contains("does not match", Assert.Throws<PatchException>(() => PatchReal(changed, server, null, new NativeOnlinePatch())).Message);
+
+            // One changed instruction anywhere in a fingerprinted body is refused (here: the step loop's ldarg.2 -> ldarg.1).
+            string changedSteps = TestEnvironment.NewTempDir("changed-steps");
+            foreach (string f in Directory.GetFiles(refs, "*.dll")) File.Copy(f, Path.Combine(changedSteps, Path.GetFileName(f)));
+            using (var resolver = new DefaultAssemblyResolver())
+            using (var module = ModuleDefinition.ReadModule(Path.Combine(refs, "Gameloft.Engine.dll"), new ReaderParameters { InMemory = true, AssemblyResolver = resolver }))
+            {
+                resolver.AddSearchDirectory(refs);
+                MethodDefinition steps = module.GetType("Gameloft.Engine.PhysicsComponent").Methods.Single(m => m.Name == "UpdateSimulationSteps");
+                steps.Body.Instructions.Single(i => i.OpCode == OpCodes.Ldarg_2).OpCode = OpCodes.Ldarg_1;
+                module.Write(Path.Combine(changedSteps, "Gameloft.Engine.dll"));
+            }
+            Assert.Contains("IL fingerprint", Assert.Throws<PatchException>(() => PatchReal(changedSteps, server, null, new PhysicsPatch())).Message);
             byte[] noHooks = FixtureCompiler.Compile("McvsOffline.Server", "namespace McvsOffline { public static class Bootstrap { public static void Init() { } } }");
             Assert.Contains("GameHooks", Assert.Throws<PatchException>(() => PatchReal(refs, noHooks, null, new NativeOnlinePatch())).Message);
         }
@@ -345,6 +391,13 @@ namespace McvsOffline
             Assert.True(McvsOffline.GameHooks.AllowNativeOnlineInit("mcvs"));
             McvsOffline.GameHooks.Configure(false, null, null);
             McvsOffline.GameHooks.HeadlessComponentException("X", "Start", new InvalidOperationException("probe"));   // never throws
+
+            MethodInfo mt = hooks.GetMethod(nameof(McvsOffline.GameHooks.PhysicsMultithreading), new[] { typeof(bool), typeof(bool) });
+            Assert.True(mt.IsStatic && mt.IsPublic && mt.ReturnType == typeof(bool));
+            MethodInfo enter = hooks.GetMethod(nameof(McvsOffline.GameHooks.EnterPhysicsStep), Type.EmptyTypes);
+            Assert.True(enter.IsStatic && enter.IsPublic && enter.ReturnType == typeof(bool));
+            MethodInfo exit = hooks.GetMethod(nameof(McvsOffline.GameHooks.ExitPhysicsStep), Type.EmptyTypes);
+            Assert.True(exit.IsStatic && exit.IsPublic && exit.ReturnType == typeof(void));
         }
 
         public sealed class Probe

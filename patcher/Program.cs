@@ -147,11 +147,13 @@ namespace McvsOffline.Patcher
                 "  --patch <list>        optional patches, comma-separated (default: " + string.Join(",", PatcherOptions.DefaultPatches) + ")\n" +
                 "                          nativeonline  native online SDK (GaiaInit) only when settings.json embedded.nativeOnlineSdk\n" +
                 "                                   is true (its network threads stalled boot with the internet on)\n" +
+                "                          waits    the engine's pumping waits (TaskExtension.WaitAndWork) re-check every 100 ms\n" +
                 "                          geo      IP geolocation URL -> the embedded server (no DNS wait in the handshake)\n" +
                 "                          bottile  BOTMATCH tile -> bot-filled PvP with full progression\n" +
                 "                          finder   LocalAnubis Finder on all interfaces (survives Wi-Fi changes)\n" +
                 "                          lan      LAN hosting helpers, implies finder (experimental)\n" +
-                "                        'none' = only the mandatory patches (server hook, headless TS/GS fixes), 'all' = everything\n" +
+                "                        'none' = only the mandatory patches (server hook, headless TS/GS fixes, server physics),\n" +
+                "                        'all' = everything\n" +
                 "  --game-log <m>        all (default): the game logs every level to logcat (mono-stdout); fatal: Fatal only,\n" +
                 "                        as shipped (res/raw/args.txt unchanged)\n" +
                 "  --port <n>            port of the embedded server baked into the geo URL (default 51780)\n" +

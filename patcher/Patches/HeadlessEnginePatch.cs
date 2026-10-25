@@ -281,24 +281,5 @@ namespace McvsOffline.Patcher.Patches
             context.Notes.Add(getSafe.FullName + ": 'ldarg.0; ret' -> new " + SafeActionType + "(action, eventType).Invoke " +
                               "(headless Worlds: exceptions reported and the event's remainder skipped; client Worlds unchanged)");
         }
-
-        /// <summary>A method of the game's own (trimmed) mscorlib, checked to exist there.</summary>
-        private static MethodReference CorlibMethod(ModuleDefinition module, TypeReference declaringType, string name, bool hasThis, TypeReference returnType,
-                                                    params TypeReference[] parameters)
-        {
-            var reference = new MethodReference(name, returnType, declaringType) { HasThis = hasThis };
-            foreach (TypeReference p in parameters) reference.Parameters.Add(new ParameterDefinition(p));
-            MethodDefinition resolved;
-            try
-            {
-                resolved = reference.Resolve();
-            }
-            catch (AssemblyResolutionException ex)
-            {
-                throw new PatchException("cannot resolve the game's mscorlib for " + reference.FullName + ": " + ex.Message);
-            }
-            if (resolved == null) throw new PatchException("the game's mscorlib has no " + reference.FullName + " (trimmed)");
-            return module.ImportReference(reference);
-        }
     }
 }

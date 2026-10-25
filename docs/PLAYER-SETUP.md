@@ -76,7 +76,7 @@ The patcher prints every change it makes and finishes with a signature check. Us
 
 | Option | Meaning |
 |---|---|
-| `--patch nativeonline,geo,bottile,finder` | The optional patches (this is the default set). `none` keeps only the mandatory patches (the server hook and the headless-server fixes), `all` adds `lan`. |
+| `--patch nativeonline,waits,geo,bottile,finder` | The optional patches (this is the default set). `none` keeps only the mandatory patches (the server hook, the headless-server fixes and the server physics), `all` adds `lan`. |
 | `--game-log all` | The game's own log at every level in logcat (`mono-stdout`), for bug reports; this is the default while the offline build is being tested. `--game-log fatal` keeps the game's original setting (fatal errors only). |
 | `--keystore <file.p12>` | Your signing key. Without it a key is created once in `~/.config/McvsOffline/` (Windows: `%APPDATA%\McvsOffline\`) and reused. |
 | `--build-tools <dir>` | Folder with `apksigner` and `zipalign`; otherwise they are looked up on `PATH` and in `$ANDROID_HOME/build-tools`. |
@@ -90,9 +90,17 @@ What the patches do:
   effects, the sound manager); in the original build any error in such a server world closes the whole game. The patch
   keeps those components out of the server worlds and turns any other error there into a log line
   (`[McvsOffline] headless world: ...`) instead of a crash.
+- **physics** (always applied): the game runs its physics engine (Havok) on several threads, and every physics world in
+  the process shares one set of worker threads that can serve only one world at a time. Gameloft's servers ran each
+  server world alone, with single-threaded physics; inside your game the menu server's physics and the game's own then
+  used those threads at the same moment, and the game froze on "connecting" (device test 2). The patch gives the server
+  worlds single-threaded physics, as on Gameloft's servers, and lets only one world step its physics at a time. The
+  `embedded.physics` settings can undo each part for testing.
 - **nativeonline**: the game's native online library (Gaia: Gameloft's native service clients, tracking, ads,
   cross-promotion) is not started. With the internet on, it tried to reach Gameloft's servers and froze the loading screen. Offline play
   does not use it; set `"nativeOnlineSdk": true` under `embedded` in `settings.json` to start it anyway.
+- **waits**: the engine's "wait and keep working" helper re-checks every 100 ms instead of sleeping until it is woken,
+  so work that arrives without a wake-up signal can never leave it waiting forever. It changes nothing else.
 - **geo**: the game looks up your country at a hard-coded Gameloft address while it connects to its own server. Offline
   that lookup can hang longer than the connection timeout; the patch sends it to the embedded server.
 - **bottile**: the BOTMATCH tile in the menu normally starts a "free" bot match that pays almost nothing. With the
@@ -226,7 +234,12 @@ in-game host:
 | `gameLog.levels` | `"error warning"` | Levels of the game's own log (`error warning info debug`). A build patched with `--game-log all` logs every level anyway. |
 | `gameLog.mute` | `"profile:debug"` | `category:level` pairs to silence, e.g. `online:debug`; `category:all` silences a category. |
 | `gameLog.file` | `true` | Copy the game's log to `logs/game.log`. |
+| `embedded.physics.serverMultithreaded` | `false` | `true` gives the in-process server worlds the game's multithreaded physics again (the device-test-2 freeze; for testing only). |
+| `embedded.physics.clientMultithreaded` | `true` | `false` makes the game's own physics single-threaded too. |
+| `embedded.physics.stepGate` | `true` | `false` lets several worlds step their physics at the same time again (for testing only). |
+| `embedded.physics.stepGateTimeoutMs` | `2000` | How long one world's physics waits for another's before it goes ahead anyway (logged). |
 | `diagnostics.watchdog` | `true` | Report what the game waits for when it stops responding. |
+| `diagnostics.threadDump` | `true` | When the game has not responded for 15 s (and again at 180 s), write where every thread is (managed and native stacks) to the log and `logs/threaddump-*.txt`. |
 | `diagnostics.publicLogCopy` | `true` | Copies of the logs in Downloads > MCVS-Offline (Android 11+). |
 
 ### args.txt
@@ -266,8 +279,12 @@ For reviewers (details and evidence: `docs/research/verify-C7-integrity-patching
 - `assemblies/McvsOffline.Server.dll` is added (uncompressed and aligned like every other assembly).
 - Always: `Game.dll` and `Gameloft.Engine.dll` (headless, headless-engine: client-only components kept out of the
   in-process server worlds, null-safe gamepad and weapon-effect calls, and a try/catch that applies to server worlds
-  only). Optional: `Gameloft.Engine.dll` (nativeonline, finder, lan), `Gameloft.Util.dll` (geo), `Game.dll` (bottile).
-  Each site is checked against the exact code of 1.17.32 first; if anything differs, the patcher stops without writing.
+  only; physics: `PhysicsComponent`'s constructor asks `McvsPhysics.UseMultithreading(this)` instead of reading the
+  game option, and `UpdateSimulationSteps` runs inside a process-wide, time-bounded gate). Optional: `Gameloft.Engine.dll`
+  (nativeonline, waits: `WaitHandle.WaitAny(handles)` -> `WaitAny(handles, 100)` in both `TaskExtension.WaitAndWork`
+  overloads, finder, lan), `Gameloft.Util.dll` (geo), `Game.dll` (bottile). Each site is checked against the exact code
+  of 1.17.32 first (the device-test-2 patches against an IL fingerprint of the whole method); if anything differs, the
+  patcher stops without writing.
 - `res/raw/args.txt` (with `--game-log all`, the default): `-LogCategoryFilter Fatal` is replaced by a line the game
   ignores, so the game logs every level. The patcher refuses if the file is not the shipped one.
 - The precompiled AOT images (`lib/<abi>/libaot-<name>.dll.so`, both ABIs) of every modified assembly are removed, so

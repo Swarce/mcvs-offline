@@ -318,7 +318,7 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Equal(SignerChoice.BuiltIn, o.Signer);
             Assert.Equal(AotStripMode.All, o.StripAot);
             PatcherOptions defaults = McvsOffline.Patcher.Program.Parse(new[] { "--apk", "a", "--server", "s", "--out", "o" });
-            Assert.Equal(new[] { "bottile", "finder", "geo", "nativeonline" }, defaults.Patches);
+            Assert.Equal(new[] { "bottile", "finder", "geo", "nativeonline", "waits" }, defaults.Patches);
             Assert.Equal(GameLogMode.All, defaults.GameLog);
             Assert.Equal(GameLogMode.Fatal, McvsOffline.Patcher.Program.Parse(new[] { "--apk", "a", "--server", "s", "--out", "o", "--game-log", "fatal" }).GameLog);
             Assert.Throws<ArgumentException>(() => McvsOffline.Patcher.Program.Parse(new[] { "--apk", "a", "--server", "s", "--out", "o", "--game-log", "debug" }));

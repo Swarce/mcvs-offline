@@ -88,7 +88,9 @@ namespace McvsOffline.Embed.Tests.Embedded
 
                     var imports = module.ModuleReferences.Select(m => m.Name).OrderBy(n => n, StringComparer.Ordinal).ToList();
                     output.WriteLine("P/Invoke modules: " + string.Join(", ", imports));
-                    Assert.Equal(new[] { "libc", "liblog.so", "nativeengine" }, imports);   // nativeengine: the IAP state in the status line
+                    // nativeengine: the IAP state in the status line; libmonosgen-2.0.so / __Internal, libdl.so / libdl.so.2: the
+                    // thread dump (Mono's runtime API, dladdr), each with its fallback name.
+                    Assert.Equal(new[] { "__Internal", "libc", "libdl.so", "libdl.so.2", "liblog.so", "libmonosgen-2.0.so", "nativeengine" }, imports);
                 }
             }
         }

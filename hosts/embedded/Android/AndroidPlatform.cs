@@ -128,15 +128,20 @@ namespace McvsOffline.Embedded.Android
         /// Whether the native IAP library reports initialized: IapStoreComponent waits for it (WaitLibInitialization, no
         /// timeout) before it registers, and the unified shop (VersusCoins items included) waits for that registration.
         /// Read through the same native export the game polls every frame (a byte of the IAP object MainLoop.Start creates),
-        /// only once GameApplication exists; logged as a milestone when it changes.
+        /// only once GameApplication exists and the game loop has run (the watchdog saw a heartbeat), and no more once it said
+        /// yes (the export is lock-free, but it reads a lazily created native singleton and an unsynchronised shared_ptr from
+        /// our thread: the fewer such reads the better); logged as a milestone when it changes.
         /// </summary>
         public string StatusExtras()
         {
             try
             {
+                if (iapState == 1) return "native IAP library initialized: yes";
                 Type app = Type.GetType("Gameloft.Engine.GameApplication, Gameloft.Engine", false);
                 object instance = app == null ? null : app.GetProperty("Instance").GetValue(null, null);
                 if (instance == null) return null;
+                EmbeddedHost current = EmbeddedHost.Current;
+                if (current != null && current.Watchdog != null && current.Watchdog.Beats == 0) return "native IAP state: not read yet (game loop not seen)";
                 bool initialized = NativeMethods.IapStoreComponent_IsInitialized_private();
                 int state = initialized ? 1 : 0;
                 if (state != iapState)

@@ -121,9 +121,11 @@ namespace McvsOffline.Embed.Tests.Embedded
         public void WatchdogReportsAStalledGameThreadAndItsRecovery()
         {
             var reports = new ConcurrentQueue<string>();
+            var dumps = new ConcurrentQueue<int>();
             FakeGameApplication.Instance = new FakeGameApplication();
             var watchdog = new GameThreadWatchdog(() => "last request #5 GET /config/c/datacenters", s => reports.Enqueue(s),
-                                                  comm => "    \"main\" RUNNABLE\n", 50, new[] { 400, 800 });
+                                                  comm => "    \"main\" RUNNABLE\n", 50, new[] { 400, 800 },
+                                                  (tid, comm) => dumps.Enqueue(tid));
             Assert.True(watchdog.Bind(typeof(FakeGameApplication)));
             watchdog.Start();
             try
@@ -154,6 +156,8 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.Contains(" syscall ", stalls[0]);
                 Assert.DoesNotContain("Java stacks", stalls[0]);
                 Assert.Contains("Java stacks:\n    \"main\" RUNNABLE", stalls[1]);
+                SpinWait.SpinUntil(() => dumps.Count > 0, 5000);   // the thread dump starts with the second snapshot
+                Assert.Equal(new[] { watchdog.GameTid }, dumps.ToArray());
                 Assert.Equal(1, FakeGameApplication.Instance.Context.Pending);   // at most one heartbeat outstanding
 
                 FakeGameApplication.Instance.Context.Drain();
@@ -184,6 +188,56 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.Equal("futex: waiting for a lock or condition", NativeThreads.SyscallName("98 0x7 0x80 0x0"));
             Assert.Equal("in user space", NativeThreads.SyscallName("running"));
             Assert.True(NativeThreads.CpuTicks(NativeThreads.StatFields(tid)) >= 0);
+        }
+
+        [Fact]
+        public void ThreadDumpShowsWhereABlockedThreadSleeps()
+        {
+            var gate = new object();
+            int blockedTid = 0;
+            var entered = new ManualResetEventSlim(false);
+            var sections = new List<string>();
+            string file = Path.Combine(Path.GetTempPath(), "mcvs-threaddump-test-" + Guid.NewGuid().ToString("N") + ".txt");
+            Thread blocked = null;
+            Monitor.Enter(gate);
+            try
+            {
+                blocked = new Thread(() =>
+                {
+                    blockedTid = NativeThreads.CurrentTid();
+                    entered.Set();
+                    lock (gate) { }   // sleeps in a futex until the test lets go
+                });
+                blocked.IsBackground = true;
+                blocked.Start();
+                entered.Wait(5000);
+                SpinWait.SpinUntil(() => (NativeThreads.Read("/proc/self/task/" + blockedTid + "/wchan") ?? "").Contains("futex"), 5000);
+
+                ThreadDump.Capture(blockedTid, ThreadDump.Related(blockedTid, "no-such-comm"), file, 1000, s => sections.Add(s));
+            }
+            finally
+            {
+                Monitor.Exit(gate);
+                blocked?.Join(5000);
+                try { File.Delete(file); } catch (Exception) { }
+            }
+            string all = string.Join("\n", sections);
+            Assert.StartsWith("[threaddump] native view: dumpable ", sections[0]);
+            string line = sections[0].Split('\n').Single(l => l.StartsWith("  " + blockedTid + " ", StringComparison.Ordinal));
+            Assert.Contains("futex(", line);   // syscall readable (dumpable raised and restored)
+            Assert.Contains("timeout none (untimed wait)", line);
+            Assert.Contains("[threaddump] native stack of " + blockedTid + " (raw):", all);
+            Assert.Contains("libc", sections.First(s => s.StartsWith("[threaddump] native stack of " + blockedTid + " (named)", StringComparison.Ordinal)));
+            Assert.Contains("[threaddump] managed dump unavailable", all);   // CoreCLR: no Mono runtime exports
+        }
+
+        [Fact]
+        public void ThreadDumpFindsTheDumpFlagOfTheShippedRuntime()
+        {
+            // libmonosgen-2.0.so (Mono 2020-02/165f4b03417, arm64) at 0x1da64c: mono_threads_request_thread_dump.
+            Assert.Equal(0x3735d0L, ThreadDump.DecodeDumpFlag(0xb0000cc8u, 0x320003e9u, 0x39174109u, 0x1400f9d5u, 0x1da64cL));
+            Assert.Equal(0L, ThreadDump.DecodeDumpFlag(0xb0000cc8u, 0x52800029u, 0x39174109u, 0x1400f9d5u, 0x1da64cL));   // other code
+            Assert.Equal(0L, ThreadDump.DecodeDumpFlag(0xd503201fu, 0x320003e9u, 0x39174109u, 0x1400f9d5u, 0x1da64cL));
         }
 
         /// <summary>The members the watchdog reads from Gameloft.Engine.GameApplication, by the same names.</summary>

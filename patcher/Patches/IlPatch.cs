@@ -105,6 +105,67 @@ namespace McvsOffline.Patcher.Patches
             return string.Join("\n", method.Body.Instructions.Select(i => "    " + i));
         }
 
+        /// <summary>
+        /// SHA-256 (hex) of a method body exactly as read: local types, every instruction with its offset and operand
+        /// ("IL_0019: call System.Boolean Gameloft.Engine.PhysicsComponent::get_PhysicsMultithreaded()"), every exception
+        /// handler. Two bodies with the same fingerprint are the same IL, so a patch that checks it changes only the code
+        /// that was verified by hand.
+        /// </summary>
+        public static string Fingerprint(MethodDefinition method)
+        {
+            var text = new System.Text.StringBuilder();
+            text.Append("locals:");
+            foreach (VariableDefinition v in method.Body.Variables) text.Append(' ').Append(v.VariableType.FullName);
+            text.Append('\n');
+            foreach (Instruction i in method.Body.Instructions) text.Append(i).Append('\n');
+            foreach (ExceptionHandler h in method.Body.ExceptionHandlers)
+            {
+                text.Append("eh ").Append(h.HandlerType).Append(' ').Append(Label(h.TryStart)).Append('-').Append(Label(h.TryEnd))
+                    .Append(" -> ").Append(Label(h.HandlerStart)).Append('-').Append(Label(h.HandlerEnd))
+                    .Append(' ').Append(h.CatchType == null ? "" : h.CatchType.FullName).Append('\n');
+            }
+            using (var sha = System.Security.Cryptography.SHA256.Create())
+            {
+                byte[] hash = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(text.ToString()));
+                return string.Concat(hash.Select(b => b.ToString("x2")));
+            }
+        }
+
+        private static string Label(Instruction i)
+        {
+            return i == null ? "end" : "IL_" + i.Offset.ToString("x4");
+        }
+
+        /// <summary>Throws unless <paramref name="method"/> is exactly the verified 1.17.32 body.</summary>
+        protected static void RequireFingerprint(MethodDefinition method, string expected, string what)
+        {
+            string actual = Fingerprint(method);
+            if (actual != expected)
+            {
+                throw new PatchException(method.FullName + " is not the verified 1.17.32 code (" + what + "; IL fingerprint " + actual +
+                                         ", expected " + expected + "):\n" + Dump(method));
+            }
+        }
+
+        /// <summary>A method of the game's own (trimmed) mscorlib, checked to exist there.</summary>
+        protected static MethodReference CorlibMethod(ModuleDefinition module, TypeReference declaringType, string name, bool hasThis,
+                                                      TypeReference returnType, params TypeReference[] parameters)
+        {
+            var reference = new MethodReference(name, returnType, declaringType) { HasThis = hasThis };
+            foreach (TypeReference p in parameters) reference.Parameters.Add(new ParameterDefinition(p));
+            MethodDefinition resolved;
+            try
+            {
+                resolved = reference.Resolve();
+            }
+            catch (AssemblyResolutionException ex)
+            {
+                throw new PatchException("cannot resolve the game's mscorlib for " + reference.FullName + ": " + ex.Message);
+            }
+            if (resolved == null) throw new PatchException("the game's mscorlib has no " + reference.FullName + " (trimmed)");
+            return module.ImportReference(reference);
+        }
+
         /// <summary>Wraps <paramref name="instructions"/> in try { ... } catch (object) { pop; [onCatch] } at the method start.</summary>
         protected static void PrependGuarded(MethodDefinition method, IList<Instruction> instructions, IList<Instruction> onCatch)
         {

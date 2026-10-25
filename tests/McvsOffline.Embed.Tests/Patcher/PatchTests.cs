@@ -275,15 +275,15 @@ namespace McvsOffline.Embed.Tests.Patcher
         [Fact]
         public void LanImpliesFinderAndHookIsAlwaysFirst()
         {
-            Assert.Equal(new[] { "hook", "headless", "headless-engine", "finder", "lan" }, ApkPatcher.SelectPatches(new[] { "lan" }).Select(p => p.Id));
-            Assert.Equal(new[] { "hook", "headless", "headless-engine" }, ApkPatcher.SelectPatches(new string[0]).Select(p => p.Id));
+            Assert.Equal(new[] { "hook", "headless", "headless-engine", "physics", "finder", "lan" }, ApkPatcher.SelectPatches(new[] { "lan" }).Select(p => p.Id));
+            Assert.Equal(new[] { "hook", "headless", "headless-engine", "physics" }, ApkPatcher.SelectPatches(new string[0]).Select(p => p.Id));
             Assert.Equal(new[] { "hook" }, ApkPatcher.SelectPatches(new string[0], headless: false).Select(p => p.Id));
-            Assert.Equal(new[] { "hook", "headless", "headless-engine", "nativeonline", "geo", "bottile", "finder" },
+            Assert.Equal(new[] { "hook", "headless", "headless-engine", "physics", "nativeonline", "waits", "geo", "bottile", "finder" },
                          ApkPatcher.SelectPatches(PatcherOptions.ParsePatchList("default")).Select(p => p.Id));
             Assert.Equal(new[] { "finder", "lan" }, PatcherOptions.ParsePatchList("lan"));
             Assert.Empty(PatcherOptions.ParsePatchList("none"));
-            Assert.Equal(new[] { "bottile", "finder", "geo", "lan", "nativeonline" }, PatcherOptions.ParsePatchList("all"));
-            Assert.Equal(new[] { "bottile", "finder", "geo", "nativeonline" }, PatcherOptions.ParsePatchList("default"));
+            Assert.Equal(new[] { "bottile", "finder", "geo", "lan", "nativeonline", "waits" }, PatcherOptions.ParsePatchList("all"));
+            Assert.Equal(new[] { "bottile", "finder", "geo", "nativeonline", "waits" }, PatcherOptions.ParsePatchList("default"));
             Assert.Throws<ArgumentException>(() => PatcherOptions.ParsePatchList("geo,unlockall"));
         }
 
