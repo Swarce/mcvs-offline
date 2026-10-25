@@ -163,6 +163,22 @@ If you see that error anyway, the APK was patched by an older version of the pat
   gone anyway). The game's own signature self-check is left as it is: its result is only recorded, nothing on the
   phone acts on it.
 
+### Unlock codes (optional)
+
+Settings › Account › Redeem code. Each code works once per profile; add a number to redeem again (`UNLOCKALL2`). The
+rewards arrive as one inbox message and are claimed in order.
+
+| Code | What you get |
+|---|---|
+| `UNLOCKALL` | everything that was released: every agent and all their mods, weapons, gear slots, kill signatures, camos, jerseys, skins (about 11,400 rewards). Unlocking every mod raises your level to about 46 at once; the game then saves once per level and lags for a while. Let it finish. |
+| `UNLOCKMERCS`, `UNLOCKWEAPONS`, `UNLOCKGEARSLOTS`, `UNLOCKSIGNATURES`, `UNLOCKCAMOS`, `UNLOCKACCESSORIES`, `UNLOCKSKINS` | the same in smaller parts (all but signatures unlock the agents first) |
+| `UNLOCKPAID` | only what the original game sold for real money and nothing else gave out: the VIP-only camos and jerseys (about 5,600 rewards, agents first). `UNLOCKPAIDCAMOS` / `UNLOCKPAIDACCESSORIES` split it. |
+| `UNLOCKUNRELEASED` | content that is in the game's data but was never released: 6 kill-signature emblems. Strictly optional; never part of UNLOCKALL, `unlockAll` or the shop. |
+
+Redeeming an agent code again when you already own the agents gives the game's usual duplicate compensation (random
+gear) for each one. `settings.json` `"unlockAll": true` grants the same as `UNLOCKALL` without a code. Details and the
+exact item lists: [ECONOMY.md](ECONOMY.md).
+
 ### Logs, if something goes wrong
 
 **On the phone, without a PC** (Android 11 and later): open the **Files** app (or Samsung **My Files**) > **Downloads** >

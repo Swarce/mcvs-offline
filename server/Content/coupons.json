@@ -40,6 +40,26 @@
       "groups": ["mercs","skins"],
       "description": "Every merc, then all skins",
       "allowNumericSuffix": true
+    },
+    "UNLOCKPAID": {
+      "groups": ["mercUnlocks","paidCamos","paidAccessories"],
+      "description": "Every item whose only source in the original game was real money (VIP pool camos and jerseys, IAP-only items)",
+      "allowNumericSuffix": true
+    },
+    "UNLOCKPAIDCAMOS": {
+      "groups": ["mercUnlocks","paidCamos"],
+      "description": "UNLOCKPAID, camos only",
+      "allowNumericSuffix": true
+    },
+    "UNLOCKPAIDACCESSORIES": {
+      "groups": ["mercUnlocks","paidAccessories"],
+      "description": "UNLOCKPAID, jerseys only",
+      "allowNumericSuffix": true
+    },
+    "UNLOCKUNRELEASED": {
+      "groups": ["unreleased"],
+      "description": "Items defined in the data but never released (opt-in; not in UNLOCKALL or the shop)",
+      "allowNumericSuffix": true
     }
   }
 }

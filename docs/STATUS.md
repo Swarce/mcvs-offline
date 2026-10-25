@@ -3,7 +3,7 @@
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
 Last updated after device test 3 (October 2026: Samsung Galaxy S22, Android 16; see "Device test 3" below).
 
-**Summary:** the Federation server is complete for the offline single-player goals and passes 607 tests, including a
+**Summary:** the Federation server is complete for the offline single-player goals and passes 608 tests, including a
 conformance harness that runs the game's own client libraries against it. Device test 1 put the player build (patcher +
 embedded host) on a phone for the first time and found two blockers (a stall with the internet on, a crash of the headless
 TS World). Build 2 fixed both: in device test 2 the whole boot chain up to the TS handshake ran, and the TS World loaded its
@@ -39,7 +39,7 @@ works. Every server request was fast (the slowest a few tens of ms).
   go up to Tier4). `UnlockMerc_<id>` takes the plain merc path of every display (`GetBuiltMerc(<id>)` exists for 1-21);
   `ModTier` is not printable, so the lottery skips it, and the inventory diff / inbox claim it after its merc
   (`ModTierRewardItem.IsAvailable` needs an unlocked merc; the diff keeps the ledger's key order, only `MercSkin_*` moves last).
-  41 rewards instead of 1; UNLOCKALL now has 11374. The conformance test parses the UNLOCKMERCS coupon with the real
+  41 rewards instead of 1; UNLOCKALL then had 11374 (11368 once the 6 unreleased avatars left it, below). The conformance test parses the UNLOCKMERCS coupon with the real
   `RewardHelper.CreateRewardItem` and checks every id is a numeric merc.
 * Also fixed by build 4's 'store' patch (bug 2): every `KillSignature_Sound_*` of the signatures group made
   `RewardItem.GetRewardInfo` (which calls `IsAvailable`) throw in the reward popups and the lottery.
@@ -74,6 +74,14 @@ works. Every server request was fast (the slowest a few tens of ms).
   (GearSlots always has 6 entries, slots are 1-6; crates check their contents, where a random sound now is simply unavailable).
   Not verified on a device: the serialisation of each hub entry (`SerializeObject` -> `GetObject`) is not covered by the safety
   net; a throw there would still stop the shop.
+
+### Also in build 4: opt-in codes for paid and unreleased content
+
+`UNLOCKPAID` (VIP-pool-only camos and jerseys, 5,644 rewards with the mercs first; split as `UNLOCKPAIDCAMOS` /
+`UNLOCKPAIDACCESSORIES`) and `UNLOCKUNRELEASED` (6 never-released kill-signature avatars, 1513-1518). The unreleased set
+is no longer sold or part of UNLOCKALL/`unlockAll` (UNLOCKALL: 11,368 rewards). How the sets are decided, the caveats
+("no shipped source" alone would wrongly catch Witch and Bli-P, which the live server sold) and every exclusion:
+docs/ECONOMY.md "Paid and unreleased content". Not tried on a device yet.
 
 ## Device test 2 (October 2026): "connecting" forever
 

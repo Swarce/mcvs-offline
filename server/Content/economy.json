@@ -19,8 +19,8 @@
         "versusCoins": 84000
       },
       "avatars": {
-        "items": 1518,
-        "versusCoins": 117400
+        "items": 1512,
+        "versusCoins": 117100
       },
       "backgrounds": {
         "items": 35,
@@ -63,17 +63,21 @@
       "mercs": 41,
       "weapons": 13,
       "gearSlots": 109,
-      "signatures": 1555,
+      "signatures": 1549,
       "camos": 4409,
       "accessories": 5208,
-      "skins": 39
+      "skins": 39,
+      "mercUnlocks": 20,
+      "paidCamos": 2684,
+      "paidAccessories": 2940,
+      "unreleased": 6
     },
     "catalogue": {
       "mercs": 21,
       "skins": 39,
       "lockedSkinsExcluded": 3,
       "weapons": 13,
-      "avatars": 1518,
+      "avatars": 1512,
       "backgrounds": 35,
       "sounds": 5,
       "gearSlots": 109,

@@ -95,6 +95,31 @@ namespace McvsOffline.Tests.Content
         }
 
         [Fact]
+        public void PaidAndUnreleasedCodesAreOptInAndDisjointFromUnlockAll()
+        {
+            using var h = new McvsServerHandle();
+            var all = new HashSet<string>(Types(Redeem(h, "UNLOCKALL")));
+            // Defined in the tables, never released (no shipped source, no live ecomm id, asset on disk): opt-in only.
+            var unreleased = Types(Redeem(h, "UNLOCKUNRELEASED"));
+            Assert.Equal(Enumerable.Range(1513, 6).Select(i => "KillSignature_Avatar_" + i), unreleased);
+            Assert.DoesNotContain(unreleased, all.Contains);
+            // Paid-only (VIP pool camos and jerseys): the mercs first, without the mods; all of it is also in UNLOCKALL.
+            var paid = Types(Redeem(h, "UNLOCKPAID"));
+            Assert.Equal(MercGroup.Take(20), paid.Take(20));
+            Assert.DoesNotContain(paid, t => t.StartsWith("ModTier_", StringComparison.Ordinal));
+            Assert.Equal(20 + 2684 + 2940, paid.Count);
+            Assert.Equal(paid.Count, new HashSet<string>(paid).Count);
+            Assert.All(paid, t => Assert.Contains(t, all));
+            var camos = Types(Redeem(h, "UNLOCKPAIDCAMOS"));
+            var jerseys = Types(Redeem(h, "UNLOCKPAIDACCESSORIES"));
+            Assert.Equal(20 + 2684, camos.Count);
+            Assert.All(camos.Skip(20), t => Assert.StartsWith("WeaponCamo_", t));
+            Assert.Equal(20 + 2940, jerseys.Count);
+            Assert.All(jerseys.Skip(20), t => Assert.StartsWith("MercAccessory_", t));
+            Assert.Equal(404, ContentTestSupport.Get(h.Server, CouponPath("UNLOCKUNRELEASEDX")).StatusCode);
+        }
+
+        [Fact]
         public void SettingsAddCodesAndCanDisableCoupons()
         {
             using var h = new McvsServerHandle();

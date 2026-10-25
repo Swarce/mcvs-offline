@@ -122,6 +122,7 @@ namespace McvsOffline.Tests.Unlocks
             using var h = new Harness(unlockAll: true, batchSize: 4000);
             List<string> keys = h.Granter.AllKeys();
             Assert.True(keys.Count > 11000, "about 11.3k unlock keys expected, got " + keys.Count);
+            Assert.DoesNotContain("KillSignature_Avatar_1513", keys); // the unreleased set is coupon-only (UNLOCKUNRELEASED)
             Assert.Equal(McvsOffline.Tests.Content.AssetsTests.MercGroup, keys.Take(McvsOffline.Tests.Content.AssetsTests.MercGroup.Length));
             Assert.StartsWith("MercSkin_", keys[keys.Count - 1]);
 

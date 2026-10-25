@@ -98,15 +98,18 @@ gs: -ServerType gs -EnvironmentSwitcherUrl http://127.0.0.1:51780/ -DataCenter m
 
 | Code | Payload (claimed in this order) |
 |---|---|
-| `UNLOCKALL` | `UnlockMerc_ALL_MAX` (every merc + every mod), weapons, gear slots, kill signatures, camos, accessories, skins (≈11.3k rewards) |
-| `UNLOCKMERCS` | `UnlockMerc_ALL_MAX` |
-| `UNLOCKWEAPONS`, `UNLOCKGEARSLOTS`, `UNLOCKCAMOS`, `UNLOCKACCESSORIES`, `UNLOCKSKINS` | `UnlockMerc_ALL_MAX`, then that group |
-| `UNLOCKSIGNATURES` | every avatar, background and sound |
+| `UNLOCKALL` | the "mercs" group (`UnlockMerc_{2-21}`, then `ModTier_{1-21}_4`: every merc + every mod), weapons, gear slots, kill signatures, camos, accessories, skins (11,368 rewards; the groups of unlocks.json "order") |
+| `UNLOCKMERCS` | the "mercs" group |
+| `UNLOCKWEAPONS`, `UNLOCKGEARSLOTS`, `UNLOCKCAMOS`, `UNLOCKACCESSORIES`, `UNLOCKSKINS` | the "mercs" group, then that group |
+| `UNLOCKSIGNATURES` | every released avatar, background and sound |
+| `UNLOCKPAID` (`UNLOCKPAIDCAMOS`, `UNLOCKPAIDACCESSORIES`) | "mercUnlocks" (`UnlockMerc_{2-21}`, no mods), then the paid-only camos and/or jerseys (docs/ECONOMY.md) |
+| `UNLOCKUNRELEASED` | the "unreleased" group (`KillSignature_Avatar_{1513-1518}`); never in UNLOCKALL, `unlockAll` or the shop |
 
 * The game marks a code claimed for the profile before it parses the body, so every built-in code also accepts a
   numeric suffix (`UNLOCKALL2`). Codes are case-insensitive.
 * Rewards go to one inbox message (7-day expiry) and are claimed sequentially; merc-dependent rewards of a locked merc
-  would turn into alternate rewards, hence `UnlockMerc_ALL_MAX` first (verify-C5 (b)).
+  would turn into alternate rewards, hence the merc unlocks first (verify-C5 (b)). They are explicit per-merc rewards:
+  `UnlockMerc_ALL_MAX` claimed fine but crashed every reward display, which looks the merc up by id (device test 3).
 * `assets.coupons` in settings.json adds or replaces codes (`{"groups":[...],"rewards":[{"type","quantity"}]}`);
   `assets.couponsEnabled=false` answers 404 to everything. Unknown reward types and `Reset*` are never sent; quantities
   are JSON integers.

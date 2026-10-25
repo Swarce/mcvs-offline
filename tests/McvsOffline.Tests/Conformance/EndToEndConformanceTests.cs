@@ -265,6 +265,29 @@ namespace McvsOffline.Tests.Conformance
             Assert.Equal(20, parsedTypes.Count(t => t.StartsWith("UnlockMercRewardItem_", StringComparison.Ordinal)));
             host.Covered("assets coupons/{cid}/{code} -> AssetsService.RedeemCoupon, Json.LoadArray, RewardHelper.CreateRewardItem (UNLOCKMERCS: "
                          + "20 UnlockMercRewardItem with numeric merc ids, 21 ModTierRewardItem tier 4)");
+            // The opt-in codes: every reward parses to its reward class with numeric ids (claim and display look them up).
+            var expectedClass = new Dictionary<string, string>
+            {
+                ["UnlockMerc"] = "UnlockMercRewardItem", ["WeaponCamo"] = "WeaponCamoRewardItem",
+                ["MercAccessory"] = "MercAccessoryRewardItem", ["KillSignature"] = "KillSignatureRewardItem",
+            };
+            foreach (string code in new[] { "UNLOCKPAID", "UNLOCKUNRELEASED" })
+            {
+                byte[] data = await GameClient.Await(game.Service(ts, "AssetsService").RedeemCoupon(code, ct));
+                int n = 0;
+                foreach (dynamic reward in (IEnumerable)GameClient.CallStatic(game.Type("Gameloft.Util", "Gameloft.Util.Json"), "LoadArray", Encoding.UTF8.GetString(data)))
+                {
+                    string type = (string)reward["type"];
+                    object item = GameClient.CallStatic(game.Type("Game", "Game.RewardHelper"), "CreateRewardItem", type, (int)reward["quantity"], source);
+                    Assert.NotNull(item);
+                    Assert.Equal(expectedClass[type.Split('_')[0]], item.GetType().Name);
+                    string last = (string)rewardItem.GetProperty(type.StartsWith("UnlockMerc_", StringComparison.Ordinal) ? "Subtype" : "Subtype2").GetValue(item);
+                    Assert.True(int.TryParse(last, out _), type);
+                    n++;
+                }
+                Assert.True(n > 0, code);
+                host.Covered("assets coupons/{cid}/" + code + " -> " + n + " rewards, each parsed by RewardHelper.CreateRewardItem to its class with numeric ids");
+            }
 
             // ---------------------------------------------------------------- 14. next app start: a new server instance on the same data, a new client
             host.Restart();
