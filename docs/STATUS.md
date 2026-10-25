@@ -1,19 +1,126 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-Last updated after device test 3 (October 2026: Samsung Galaxy S22, Android 16; see "Device test 3" below).
+Last updated for build 5 (October 2026), after device test 4 (Samsung Galaxy S22, Android 16; see "Build 5" and "Device
+test 4" below).
 
-**Summary:** the Federation server is complete for the offline single-player goals and passes 609 tests, including a
+**Summary:** the Federation server is complete for the offline single-player goals and passes 651 tests, including a
 conformance harness that runs the game's own client libraries against it. Device test 1 put the player build (patcher +
 embedded host) on a phone for the first time and found two blockers (a stall with the internet on, a crash of the headless
 TS World). Build 2 fixed both: in device test 2 the whole boot chain up to the TS handshake ran, and the TS World loaded its
-level. Then the game hung on "connecting", with the game thread asleep in a futex. The leading hypothesis (verified that it
-happens, inferred that it is the deadlock) is that the in-process TS World and the client stepped multithreaded Havok physics
-at the same time through the engine's single process-wide worker pool. Build 3 gives the server Worlds single-threaded
-physics (as on Gameloft's servers), lets only one World step at a time, bounds the engine's pumping waits (hardening), and
-adds a managed and native thread dump to the watchdog, so a remaining hang names its cause. Device test 3 is the next step
-(expected log sequence below); it confirms or refutes the hypothesis. **Device test 3: the game boots to the menu and plays
-matches**; it found two crashes (unlock-all, the shop), fixed in build 4 (below).
+level. Then the game hung on "connecting", with the game thread asleep in a futex. Build 3 gave the server Worlds
+single-threaded physics, let only one World step at a time and added thread dumps to the watchdog: **in device test 3 the
+game booted to the menu and played matches**; it found two crashes (unlock-all, the shop), fixed in build 4. **Device test
+4: boot, bot matches, saves, the shop and the unlock codes work**; open were the installer stalling at 0 MB / 0 % on a
+copied `Data/` folder and the avatar editor freezing after unlock-all. Build 5 adds the offline data install, a 64-bit-only
+APK and live ops (weekly division seasons, daily missions, weekly events); device test 5 is next (checklist below).
+
+## Build 5 (October 2026): offline data install, 64-bit only, live ops
+
+`main-dev` after merging `feat/install` and `feat/liveops`; APK `mcvs-offline-<commit>.apk`, same signing key as builds
+1-4, so it installs over build 4 as an update and keeps the data and the save.
+
+* **Data already on the phone is accepted without Gameloft's CDN** ([INSTALL-OFFLINE.md](INSTALL-OFFLINE.md)). Why a
+  copied `Data/` stalled: the Java installer starts offline only with its index `files/pack.info` in *internal* storage,
+  `prefs/gl_ver` = 1173200 and every 2 MiB piece listed in its download journal. A copied `Data/` has none of that, so
+  the installer went to the CDN for the index and every split file, and the CDN's rate limit (HTTP 429) most likely gave
+  the 0 MB / 0 % screen (not proven: no log of that run exists). Now, in Bootstrap before `GameInstaller` runs: the
+  installer's index is saved to `files/McvsOffline/install/pack.info` every start (a backup of `files/` carries it); a
+  missing or stub index is restored from that copy or a mirror's, with `gl_ver`, the journal and the installer's
+  preferences, then CRC-checked in the background (damaged files are deleted at the next start and downloaded again); a
+  `Data/` that is exactly the complete 1.17.32 pack (15,747 files, size per texture format) gets a rebuilt, size-only
+  index; `InsTime` is refreshed so the weekly CDN version check never runs; `[installer]` lines log the installer's
+  states. No `classes.dex` change; the installer's own checks still run. Settings `install.*`.
+* **arm64-v8a only**: the patcher drops `lib/armeabi-v7a` (67 entries, their AOT images included; APK 57 MB -> 44 MB);
+  `--abi all` keeps both.
+* **Live ops** ([LIVEOPS.md](LIVEOPS.md)), computed from the clock and `settings.json` (`liveops.*`), nothing stored by
+  the server: a division season every Monday 00:00 UTC (17 division events, a league group of 100 with rivals that grow
+  during the week and freeze at the end; the TS itself promotes, demotes and puts the season reward in the inbox), a daily
+  mission event (3 of 6 objectives, a loot crate for all three), a weekly event (theme objective + 3, cosmetic crate
+  rotating weekly) and a weekly modifier (standard, Coin rush, Trophy fever, Credit rush, MVP bounty, Rival surge) applied
+  as CRM table overrides. The CRM `expiry` makes the running game refetch at each day and season boundary. Event and
+  expiry dates are sent as `yyyy-MM-dd HH:mm:ssZ`: with the ISO `T` a day-first phone locale swaps day and month.
+  `GET http://127.0.0.1:51780/_mcvs/liveops` shows the schedule.
+* **Integration fixes**: event dates from `social/events.json` are now sent in the same `T`-less form; ILVerify against
+  the game's mscorlib found two `InitOnly` uses in the live-ops schedule (fixed, now clean); `HttpServer.Stop` answered a
+  connection accepted at the same moment with "503 server busy" instead of closing it (the cause of an intermittent
+  `HttpServerTests` failure).
+
+**How it was checked.** `scripts/build.sh` with `MCVS_REQUIRE_EMBEDDED=1 MCVS_REQUIRE_REAL_CLIENT=1`: McvsOffline.Tests
+508/508 and McvsOffline.Embed.Tests 143/143, among them 19 installer-data tests (real ETC pack, both live indexes), the
+real-APK patcher tests for arm64-only, and the live-ops conformance tests (16 days of CRM documents and events through
+the real client's parsers and every event type's `Initialize`, under a day-first culture). ILVerify of the embedded DLL
+against the game's BCL: no findings. A clock simulation of the composed server over loopback HTTP with the real ETC data
+pack (2026-10-19 to 2026-11-04 in 3-hour steps): 3 seasons, 16 days, 4,680 events parsed, the CRM expiry always ahead
+of the clock and never past the next boundary, the next season listed on the last day; three players posting division-5
+trophies finished at rank 28, 61 and 93 of 100 (promotion zone 1-30, demotion 91-100), i.e. promoted, kept and demoted, in
+both seasons, with the same rank on every later read (9 days) and the rival scores frozen. APK: `zipalign -c -p 4` OK,
+`apksigner` v1+v2+v3 with certificate SHA-256 `fc0db84e...7d16`, `lib/` only `arm64-v8a`; the patched game assemblies
+differ from build 4's only in their 16-byte module id (no new IL patch in this build).
+
+### What to check in device test 5
+
+1. **Update install** over build 4: the save is kept; `[install] installer data: ...` in the bootstrap log says the
+   installer's index was saved; the installer screen passes as before. Note the `[installer] ... finished after N s`
+   time (about 16 s in device test 4).
+2. **First season start.** The first CRM fetch lists the season events; the game starts its first season *without* a
+   season-end evaluation, and the game itself resets the division trophies collected before (`Data` was never set
+   because no events existed). From then on the Divisions screen shows a group of 100 and the season end on Monday
+   00:00 UTC in local time. This week's modifier (season 2026-10-19) is Trophy fever; the season from 2026-10-26 has
+   Credit rush. Check the dates read right on the phone's locale.
+3. **Season end** (Monday 00:00 UTC, or set `liveops.seasonDays`/`seasonStart` to see it sooner): the season-end screen,
+   promotion or demotion by one division, the "DIVISION REWARD" inbox message; restarting the game afterwards must not
+   give it again.
+4. **Daily missions and the weekly event** show their objectives, count matches and pay out; at the reset hour the day
+   rolls over while the game is open (CRM refetch, no `[watchdog] STALL`).
+5. **Copied `Data/` folder** (optional, the device-4 stall): with a backup of `files/` or only `Data/`
+   ([INSTALL-OFFLINE.md](INSTALL-OFFLINE.md)): uninstall, install build 5, copy, start in airplane mode; the
+   `[install]` line says `index restored ...` or `index rebuilt ...` and the game starts without the CDN. Measure the
+   first start (the size check of 15,747 files runs on the UI thread in `OnCreate`; with a rebuilt index on every start).
+6. **Avatar editor** after unlock-all: a thread dump of the freeze, sent from Downloads > MCVS-Offline (see "Device test 4").
+
+## Device test 4 (October 2026): shop and codes work; installer stall and avatar editor
+
+Same phone, build 4. Boot, bot-filled matches, saving, the shop and the unlock codes work. Two problems remained: after
+reinstalling and copying the `Data/` folder back, the installer screen stalled at 0 MB / 0 % (addressed in build 5,
+above), and the kill-signature avatar editor froze after unlock-all (below). Logcat `25_10-12-30-37` is a normal boot of
+this build: 56 requests, all fast; the main menu at about +60 s; the installer screen took about 16 s.
+
+### Open: the kill-signature avatar editor freezes after unlock-all (investigated, not patched)
+
+Logcat `25_10-12-30-37`, second watchdog STALL (`1792945929.086`): opening the avatar (emblem) editor with every avatar
+owned, the game thread (`Thread-22`, tid 31784) is in state R with `+2542 ticks` (25 s of CPU time since the watchdog's
+previous snapshot), and no server request is in flight. The managed thread dump of that stall (`logs/threaddump-20261025-163218.txt`)
+arrived empty (0 bytes), so the frames on the game thread are not known yet.
+
+What the code does (Game.dll, Gameloft.Engine.dll, `Menus/UI.swf`):
+
+- The editor is ActionScript (`MenuCustomization` in `Menus/UI.swf`), run by the engine's native Flash VM on the game
+  thread. It calls the native function `GetSignatureLibrary` once, which is
+  `PlayerProfileComponent.NativeGetSignatureLibrary`: three `GetAssetsObject` calls (avatars, backgrounds, sounds), each
+  `GetSignatureAssetsList` over the **whole** table (`KillsignatureAvatars` has 1,518 rows) with
+  `List<string>.Contains` on the owned and "new" lists, then `OrderBy(locked)`. With 1,518 owned avatars that is about
+  2.3 million string comparisons, far below a second; nothing in it is quadratic in a way that reaches 25 s.
+- The result reaches the VM as an array of 1,518 `ASManagedObject`s (`ASValue.SetArray`/`SetManagedObject`); the
+  ActionScript reads their fields through `ASManagedObject.GetMember`, whose reflection lookups are cached
+  (`MoreReflection` caches per type), so per access it is a dictionary lookup and a property get.
+- **The editor always receives all 1,518 rows, owned or not.** Unlock-all changes only the flags: every row becomes
+  unlocked, and every granted avatar is also "new" (`KillSignatureNewAvatars`). So the extra work is what the
+  ActionScript does for unlocked and new entries (an emblem image and a "new" badge per tile instead of a lock), which
+  happens in the native VM and its texture loading, not in managed code.
+
+Not patched: no managed hot spot was found to cache, and the managed-side levers (hiding or capping entries, clearing
+the "new" flags) change what the player sees and are not clearly safe without the stack. Next, on the phone: send
+`logs/threaddump-<time>.txt` of such a stall (a dump whose game-thread frames sit in `ASManagedObject.GetMember` or
+`GetSignatureAssetsList` would point back at managed code; frames in `(wrapper managed-to-native)` UI calls confirm the
+VM), and say whether the editor opens after waiting one to two minutes and whether a second opening is fast.
+
+The logs sent again with build 5's merge (`bootstrap.log`, `game.log`, `server.log`, `threaddump-20261025-163218.txt`)
+were again **0 bytes**, while the logcat of the same run shows every log file being written without an error. Those are
+the names under `Android/data/<package>/files/McvsOffline/logs/`, which other apps cannot read on Android 11 and later, so
+a file picker hands over empty files. Send the copies in **Files > Downloads > MCVS-Offline** instead
+(`<session>-bootstrap.log.txt` and so on); the watchdog writes the whole thread dump into `bootstrap.log` as well, so
+that copy carries it.
 
 ## Device test 3 (October 2026): boots and plays; two crashes
 
@@ -85,35 +192,6 @@ works. Every server request was fast (the slowest a few tens of ms).
 is no longer sold or part of UNLOCKALL/`unlockAll` (UNLOCKALL: 11,368 rewards). How the sets are decided, the caveats
 ("no shipped source" alone would wrongly catch Witch and Bli-P, which the live server sold) and every exclusion:
 docs/ECONOMY.md "Paid and unreleased content". Not tried on a device yet.
-
-### Open: the kill-signature avatar editor freezes after unlock-all (investigated, not patched)
-
-Logcat `25_10-12-30-37`, second watchdog STALL (`1792945929.086`): opening the avatar (emblem) editor with every avatar
-owned, the game thread (`Thread-22`, tid 31784) is in state R with `+2542 ticks` (25 s of CPU time since the watchdog's
-previous snapshot), and no server request is in flight. The managed thread dump of that stall (`logs/threaddump-20261025-163218.txt`)
-arrived empty (0 bytes), so the frames on the game thread are not known yet.
-
-What the code does (Game.dll, Gameloft.Engine.dll, `Menus/UI.swf`):
-
-- The editor is ActionScript (`MenuCustomization` in `Menus/UI.swf`), run by the engine's native Flash VM on the game
-  thread. It calls the native function `GetSignatureLibrary` once, which is
-  `PlayerProfileComponent.NativeGetSignatureLibrary`: three `GetAssetsObject` calls (avatars, backgrounds, sounds), each
-  `GetSignatureAssetsList` over the **whole** table (`KillsignatureAvatars` has 1,518 rows) with
-  `List<string>.Contains` on the owned and "new" lists, then `OrderBy(locked)`. With 1,518 owned avatars that is about
-  2.3 million string comparisons, far below a second; nothing in it is quadratic in a way that reaches 25 s.
-- The result reaches the VM as an array of 1,518 `ASManagedObject`s (`ASValue.SetArray`/`SetManagedObject`); the
-  ActionScript reads their fields through `ASManagedObject.GetMember`, whose reflection lookups are cached
-  (`MoreReflection` caches per type), so per access it is a dictionary lookup and a property get.
-- **The editor always receives all 1,518 rows, owned or not.** Unlock-all changes only the flags: every row becomes
-  unlocked, and every granted avatar is also "new" (`KillSignatureNewAvatars`). So the extra work is what the
-  ActionScript does for unlocked and new entries (an emblem image and a "new" badge per tile instead of a lock), which
-  happens in the native VM and its texture loading, not in managed code.
-
-Not patched: no managed hot spot was found to cache, and the managed-side levers (hiding or capping entries, clearing
-the "new" flags) change what the player sees and are not clearly safe without the stack. Next, on the phone: send
-`logs/threaddump-<time>.txt` of such a stall (a dump whose game-thread frames sit in `ASManagedObject.GetMember` or
-`GetSignatureAssetsList` would point back at managed code; frames in `(wrapper managed-to-native)` UI calls confirm the
-VM), and say whether the editor opens after waiting one to two minutes and whether a second opening is fast.
 
 ## Device test 2 (October 2026): "connecting" forever
 
@@ -411,8 +489,9 @@ Superseded by the device-test-3 sequence above (steps 1-8 are what device test 2
 | STORAGE | Seshat profiles with verbatim values, nested `include_fields`, deep merge, no ETag, 401-never-403, arrival-order lock, cache, backups, corrupt-file recovery (503, never "missing"), batch/backups/visibility/data endpoints, `IProfileAccess`, LAN seam | `server/Services/Storage` | [storage.md](protocol/storage.md) |
 | CONTENT | CRM over the player's own preconfiguration (validated against every client cast), matchmaker `lobbyconfigs`, unlock coupons, local Iris assets, generated VersusCoins economy (1,864 entries) | `server/Services/{Crm,Matchmaker,Assets}`, `server/Content`, `tools/content-gen` | [content.md](protocol/content.md), [ECONOMY.md](ECONOMY.md) |
 | MISC | Hermes mailboxes, Kairos alert stream, Olympus leaderboards with league groups, Osiris events/profiles, clans, wall, group chat, profanity, game_stats, BanTool, geolocation, tracking/marketing catch-alls | `server/Services/{Social,Messaging,Alerts,...,Misc}` | [misc.md](protocol/misc.md) |
+| LIVE OPS | Weekly division seasons (17 division events, 100-entry season boards with rivals that grow and freeze), daily missions, weekly events, weekly modifier as CRM table overrides, CRM `expiry` for the client's refresh, culture-safe dates | `server/Services/Social/LiveOps`, `server/Services/Leaderboards/SeasonRivals.cs`, `tools/content-gen/liveops_tuning.json` | [LIVEOPS.md](LIVEOPS.md), [misc.md](protocol/misc.md) |
 | Unlocks | `settings.unlockAll` through the inventory ledger (starts only once the game profile and the inventory section are stored, waits for the player's alert stream, backup, ordered batches with the merc unlock re-checked before each, `set_profile` alerts) | `server/Services/Unlocks` | [unlocks.md](protocol/unlocks.md) |
-| EMBED | In-game bootstrap (game root via the game's own Java helpers, `args.txt` managed block with `-DataCenter`, device id, logcat, server thread); diagnostics (crash reporter, self-reporting log files, boot trace, game-thread watchdog with managed and native thread dump, game-log bridge, phone-readable copy, exit reasons); patcher (hook, headless, headless-engine, physics, nativeonline, waits, geo, bottile, finder, lan; `res/raw/args.txt` for `--game-log`; vendor-wide manifest permission renamed into the package namespace; AOT strip; raw zip rewrite; v1/v2/v3 signing) | `hosts/embedded`, `patcher` | [PLAYER-SETUP.md](PLAYER-SETUP.md) |
+| EMBED | In-game bootstrap (game root via the game's own Java helpers, `args.txt` managed block with `-DataCenter`, device id, logcat, server thread); diagnostics (crash reporter, self-reporting log files, boot trace, game-thread watchdog with managed and native thread dump, game-log bridge, phone-readable copy, exit reasons); patcher (hook, headless, headless-engine, physics, nativeonline, waits, geo, bottile, finder, lan; `res/raw/args.txt` for `--game-log`; vendor-wide manifest permission renamed into the package namespace; AOT strip; ABI selection, arm64-v8a by default; raw zip rewrite; v1/v2/v3 signing); installer-data restore (saved CDN index, journal and preferences, size-only index for a complete `Data/`, background CRC pass, installer monitor) | `hosts/embedded`, `patcher` | [PLAYER-SETUP.md](PLAYER-SETUP.md), [INSTALL-OFFLINE.md](INSTALL-OFFLINE.md) |
 | Hosts | Standalone net8 console host; embedded DLL compiled against the game's trimmed Mono BCL (ILVerify-clean) | `hosts/standalone`, `server/McvsOffline.Server.Embedded.csproj` | [DEV-LOOP.md](DEV-LOOP.md) |
 
 ### How it was checked
@@ -492,8 +571,9 @@ the first part of the boot on a real phone (see above).
 - **LAN (M3)** is experimental: guests must use the host's server for everything (topology A). Tokens issued by a
   guest's own server are unknown to the host (401, the log names the issuer); storage, mailboxes and alerts are not
   forwarded between devices (`IProfileStoreLocator` is the seam).
-- **Division seasons** advance only when time-limited events are served: no `content/social/events.json` and no
-  `ISocialEventProvider` ship yet, so divisions work but seasons do not roll (MISC note).
+- **Live ops** use our own tuning: the original season length and rival strength are not in the client
+  ([LIVEOPS.md](LIVEOPS.md)); permanent achievements are switched off in 1.17.32 itself; Arena-mode events and shard
+  "mega events" are not generated. Changing the live-ops content while an event runs resets that event's progress.
 - The CRM `iap` catalogue is empty on purpose (it would start real Google Play purchases nothing can fulfil).
 - A brand-new account's root GET is `{}` without the server-maintained fields (`credential`, `datacenter`,
   `created`) until its first save; every game reader defaults them (checked in the conformance harness).
@@ -501,9 +581,11 @@ the first part of the boot on a real phone (see above).
   on behalf of players).
 - Native SDK calls (global device id, ads, ecommerce) have unknown formats: they reach the unknown-endpoint log.
 - The DLC download path (inactive, `UseDlc=false`) cannot work with our `http://` locate answers.
-- The CDN mirror and data-pack tools described in the research (`tools/cdn-mirror`, `tools/datapack`) are not in this
-  repository yet; the server's own data-pack reader is in `server/Core/Content`.
-- Internet P2P (M4) and the preservation extras (M5) are not started.
+- `tools/cdn-mirror` (mirror, verify, offline install) is in the repository; a separate data-pack decoder tool
+  (`tools/datapack`, research report 11) is not, the server's own data-pack reader is in `server/Core/Content`.
+- A rebuilt installer index (a `Data/` folder without Gameloft's index) checks sizes only; damaged content of the right
+  size is accepted (run `tools/cdn-mirror/verify.py` on such a backup, or add a mirror's `pack.info`).
+- Internet P2P (M4) is not started; of the preservation extras (M5) the CDN mirror and offline install exist.
 
 ## 3. Device-test checklist (priority order)
 
@@ -539,8 +621,9 @@ modules' open issues.
    StoreRefreshed with an empty store) or `crm.iap=preconfig`. Also look for `service-prefixed path`, `locate of unknown
    service` and unknown endpoints such as `/users/me/approvals/` (verify-C2 §4.4-4.5, AUTH and CONTENT notes).
 7. **First-boot gates.** Language prompt and age gate (`crm.skipAgeGate`); after the forced uninstall of the original
-   game, the Java installer's online data validation (`pack.info` is lost; offline escape hatch
-   `qaTestingConfigs.txt SKIP_VALIDATION=1`, report 10 §4.3, untested) (verify-C2 §4.6-4.7, EMBED notes).
+   game, the Java installer's data validation: build 5 restores or rebuilds its index from data on the phone
+   ([INSTALL-OFFLINE.md](INSTALL-OFFLINE.md)); `qaTestingConfigs.txt SKIP_VALIDATION=1` stays the untested last resort
+   (report 10 §4.3) (verify-C2 §4.6-4.7, EMBED notes).
 8. **No 4xx on the first-install load path**, in particular none on `profiles/...` (a 403/404 there resets the profile).
 
 ### P1: progression is kept
@@ -556,8 +639,9 @@ modules' open issues.
     failure there plays the match and grants nothing (verify-C4 §4.1). Fed ids must match on both paths (§4.3).
 13. **Matchmaking after a network change** (Wi-Fi or airplane mode toggled while the game runs), fixed by the default
     `finder` patch; drop it with `--patch nativeonline,geo,bottile` if it misbehaves (verify-C6 §2.2, EMBED notes).
-14. **Divisions and leaderboards.** `SelfData` gives a rank in a 100-entry league group; promotion and demotion work;
-    `leaderboards.virtualTopScore` is plausible against real trophy gains (MISC notes).
+14. **Divisions and leaderboards.** `SelfData` gives a rank in a 100-entry league group; the season end promotes or
+    demotes once and the reward reaches the inbox; the rivals' pace is plausible against real trophy gains (build 5:
+    "What to check in device test 5", [LIVEOPS.md](LIVEOPS.md)).
 
 ### P2: everything obtainable
 

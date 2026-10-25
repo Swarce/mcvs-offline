@@ -314,7 +314,7 @@ For reviewers (details and evidence: `docs/research/verify-C7-integrity-patching
   patcher stops without writing.
 - `res/raw/args.txt` (with `--game-log all`, the default): `-LogCategoryFilter Fatal` is replaced by a line the game
   ignores, so the game logs every level. The patcher refuses if the file is not the shipped one.
-- The precompiled AOT images (`lib/<abi>/libaot-<name>.dll.so`, both ABIs) of every modified assembly are removed, so
+- The precompiled AOT images (`lib/<abi>/libaot-<name>.dll.so`, every ABI kept) of every modified assembly are removed, so
   the runtime compiles the patched code instead. Other AOT images that depend on a modified assembly are rejected by
   the runtime and fall back the same way.
 - The six assemblies whose identity is baked into the game's native code (`XaLaunchANMP`, `Mono.Android`,
