@@ -193,7 +193,10 @@ namespace McvsOffline.Server.Services.Misc
             return Ids.RandomHex(12);
         }
 
-        /// <summary>A setting under the module's own key, e.g. Setting(context, "alerts.keepAliveSeconds", 20).</summary>
+        /// <summary>
+        /// An integer setting under the module's own key, clamped to [min, max], e.g.
+        /// LongSetting(context, "alerts.keepAliveSeconds", 20, 1, 300).
+        /// </summary>
         public static long LongSetting(ServerContext context, string path, long defaultValue, long min, long max)
         {
             return Num.Clamp(context.Settings.GetLong(path, defaultValue), min, max);

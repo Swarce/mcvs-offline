@@ -143,6 +143,57 @@ namespace McvsOffline.Tests.Misc
         }
 
         [Fact]
+        public void WallPopularitySortsByVotesThenNewest()
+        {
+            using var s = new MiscServer();
+            TestPlayer p = s.NewPlayer("jill");
+            for (int i = 0; i < 3; i++) s.Post("/events/e1/wall", p.Token, "text", "post" + i, "alert_kairos", "False");
+            var store = s.Context.OpenStore("walls");
+            store.Update("events/e1", doc =>
+            {
+                var posts = (List<object>)doc["posts"];
+                ((Dictionary<string, object>)posts[0])["votes"] = 5L; // the oldest post is the most popular
+            });
+            var popular = MiscServer.Arr(s.Get("/events/e1/wall?sort_type=popularity&limit=50", p.Token));
+            Assert.Equal("post0", ((Dictionary<string, object>)popular[0])["text"]);
+            Assert.Equal("post2", ((Dictionary<string, object>)popular[1])["text"]);
+            var recent = MiscServer.Arr(s.Get("/events/e1/wall?sort_type=chronological", p.Token));
+            Assert.Equal("post2", ((Dictionary<string, object>)recent[0])["text"]);
+        }
+
+        [Fact]
+        public void ChatHubPrivateMessagesAndKicks()
+        {
+            var hub = new McvsOffline.Server.Services.Chat.ChatHub(10);
+            hub.Join("rooms/r", "a", "A");
+            hub.Join("rooms/r", "b", "B");
+            hub.Join("rooms/r", "c", "C");
+            using (var la = hub.Listen("rooms/r", "a"))
+            using (var lb = hub.Listen("rooms/r", "b"))
+            using (var lc = hub.Listen("rooms/r", "c"))
+            {
+                var message = new Dictionary<string, object> { ["type"] = "message", ["msg"] = "psst" };
+                Assert.Equal(2, hub.Publish("rooms/r", message, new[] { "a", "b" }));
+                Assert.Single(la.Take(50, null));
+                Assert.Single(lb.Take(50, null));
+                Assert.Empty(lc.Take(50, null));
+
+                Assert.True(hub.Moderate("rooms/r", "c", "kick", 0));
+                Assert.True(lc.Kicked);
+                Assert.Equal("kick", hub.StatusOf("rooms/r", "c"));
+                Assert.True(hub.Moderate("rooms/r", "c", "unkick", 0));
+                Assert.Equal("", hub.StatusOf("rooms/r", "c"));
+                Assert.False(hub.Moderate("rooms/r", "nobody", "mute", 10));
+            }
+            // Private messages are not history; public ones are, for the next listener.
+            hub.Publish("rooms/r", new Dictionary<string, object> { ["type"] = "message", ["msg"] = "hi all" }, null);
+            using (var late = hub.Listen("rooms/r", "a"))
+            {
+                Assert.Single(late.Take(50, null));
+            }
+        }
+
+        [Fact]
         public void ChatSubscribeGivesUrlsThatRouteBackHereAndTheStreamCarriesMessages()
         {
             using var s = new MiscServer();

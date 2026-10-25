@@ -55,8 +55,8 @@ namespace McvsOffline.Server.Services.Messaging
     /// not pass through here: <c>PlayerProfileComponent.PushCouponDataToInbox</c> writes them straight into the
     /// profile's inbox (stored by the STORAGE module).
     /// </para>
-    /// Push transports (apns, gcm, mpns, wns) are notifications to a phone, never read back: they are accepted and
-    /// dropped.
+    /// Push transports (apns, gcm, mpns, wns, and "any") are notifications to a phone, never read back: they are
+    /// accepted and dropped.
     /// </summary>
     public sealed class Mailboxes
     {
@@ -70,7 +70,11 @@ namespace McvsOffline.Server.Services.Messaging
         public const string StoreName = "messages";
 
         private static readonly object ForGate = new object();
-        private static readonly string[] PushTransports = { "apns", "gcm", "mpns", "wns" };
+        /// <summary>
+        /// Push-notification transports; "any" = whichever push service the device has (clan join-request
+        /// notifications, <c>GM/GameClanComponent.cs PostMultiplePNMessages</c>).
+        /// </summary>
+        private static readonly string[] PushTransports = { "apns", "gcm", "mpns", "wns", "any" };
 
         private readonly ServerContext context;
         private readonly DocumentStore store;

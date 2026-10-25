@@ -62,6 +62,19 @@ namespace McvsOffline.Tests.Misc
         }
 
         [Fact]
+        public void TheGamesOwnDateFormatIsKeptAsSent()
+        {
+            using var s = new MiscServer();
+            TestPlayer p = s.NewPlayer("bea");
+            // DateTimeExtension.ToISO8601: "yyyy-MM-dd HH:mm:ssZ" (space, not 'T'); the client DateTime.Parses it back.
+            s.Post("/messages/secured/me", p.OnBehalfToken, "body", "x", "created", "2026-10-25 10:00:00Z");
+            s.Post("/messages/secured/me", p.OnBehalfToken, "body", "y", "created", "not a date");
+            var list = MiscServer.Arr(s.Get("/messages/secured/me", p.OnBehalfToken));
+            Assert.Equal("2026-10-25 10:00:00Z", ((Dictionary<string, object>)list[0])["created"]);
+            Assert.NotEqual("not a date", ((Dictionary<string, object>)list[1])["created"]);
+        }
+
+        [Fact]
         public void DeleteRemovesTheListedIdsAndDeleteDeleteReadsAndClears()
         {
             using var s = new MiscServer();
@@ -124,6 +137,10 @@ namespace McvsOffline.Tests.Misc
             Assert.Equal(200, s.Post("/messages/gcm/me", p.Token, "body", "push").StatusCode);
             Assert.Empty(MiscServer.Arr(s.Get("/messages/gcm/me", p.Token)));
             Assert.Equal(200, s.Post("/transports/gcm/endpoints/abc", p.Token).StatusCode);
+            // Clan join-request push notifications (no body, localizations) go to transport "any".
+            var pn = s.Post("/messages/any/multicast", p.Token, "credentials", "[\"" + p.FedId + "\"]", "localizations", "{}", "default_localization", "en");
+            Assert.Equal(200, pn.StatusCode);
+            Assert.Empty(MiscServer.Arr(s.Get("/messages/any/me", p.Token)));
         }
 
         [Fact]
