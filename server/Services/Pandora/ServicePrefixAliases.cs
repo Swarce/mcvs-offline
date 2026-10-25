@@ -48,12 +48,12 @@ namespace McvsOffline.Server.Services.Pandora
             HttpRequest current = request;
             while (current.Segments.Length >= 2 && prefixes.Contains(current.Segments[0]))
             {
-                current = WithoutFirstSegment(current);
+                current = current.WithTarget(WithoutFirstSegment(current));
                 Route target = FirstNonAliasMatch(router, current);
                 if (target != null && IsSpecific(target))
                 {
                     log.Info("#" + id + " service-prefixed path " + request.Path + " -> " + current.Path + " [" + target.Name + "]");
-                    return Run(log, id, target, current);
+                    return router.Invoke(target, current);
                 }
             }
 
@@ -64,44 +64,22 @@ namespace McvsOffline.Server.Services.Pandora
                 return fallback(request, "no route matches the path, with or without its service prefix");
             }
             log.Debug("#" + id + " service-prefixed path " + request.Path + " has no specific route without the prefix; passing it unchanged to [" + next.Name + "]");
-            return Run(log, id, next, CopyWithTarget(request, request.RawTarget));
-        }
-
-        /// <summary>
-        /// Runs <paramref name="route"/> for <paramref name="request"/>. Route values can only be bound by a Router, so
-        /// the route goes through a one-route router (which also turns exceptions into a 500, like the main one).
-        /// </summary>
-        private static HttpResponse Run(Log log, string id, Route route, HttpRequest request)
-        {
-            var single = new Router(null);
-            single.Map(route.Method, route.Template.Text, route.Name, req =>
-            {
-                try
-                {
-                    return route.Handler(req);
-                }
-                catch (Exception ex)
-                {
-                    log.Error("#" + id + " handler " + route.Name + " failed for " + req.Method + " " + req.RawTarget, ex);
-                    throw;
-                }
-            });
-            return single.Dispatch(request);
+            // The original request, re-routed: its log line then names the route that really answered it.
+            return router.Invoke(next, request);
         }
 
         /// <summary>The route the router would pick if alias routes did not exist (HEAD falls back to GET), or null.</summary>
         private static Route FirstNonAliasMatch(Router router, HttpRequest request)
         {
-            Route headFallback = null;
-            foreach (Route r in router.Routes)
-            {
-                if (r.Name.StartsWith(RouteNamePrefix, StringComparison.Ordinal)) continue;
-                RouteValues ignored;
-                if (!r.Template.TryMatch(request.Segments, request.RawSegments, out ignored)) continue;
-                if (r.Method == "*" || r.Method == request.Method) return r;
-                if (request.IsHead && r.Method == "GET" && headFallback == null) headFallback = r;
-            }
-            return headFallback;
+            Route route;
+            RouteValues ignored;
+            string reason;
+            return router.TryMatch(request, IsAlias, out route, out ignored, out reason) ? route : null;
+        }
+
+        private static bool IsAlias(Route route)
+        {
+            return route.Name.StartsWith(RouteNamePrefix, StringComparison.Ordinal);
         }
 
         /// <summary>True for module routes whose template starts with a literal segment (not a broad catch-all, not "/").</summary>
@@ -116,25 +94,14 @@ namespace McvsOffline.Server.Services.Pandora
             return false;
         }
 
-        private static HttpRequest WithoutFirstSegment(HttpRequest request)
+        /// <summary>The request-target without the first path segment (query kept).</summary>
+        private static string WithoutFirstSegment(HttpRequest request)
         {
             var sb = new StringBuilder();
             for (int i = 1; i < request.RawSegments.Length; i++) sb.Append('/').Append(request.RawSegments[i]);
             if (sb.Length == 0) sb.Append('/');
             if (request.RawQuery != null) sb.Append('?').Append(request.RawQuery);
-            return CopyWithTarget(request, sb.ToString());
-        }
-
-        private static HttpRequest CopyWithTarget(HttpRequest request, string target)
-        {
-            var copy = new HttpRequest(request.Method, target, request.Headers, request.Body);
-            copy.Id = request.Id;
-            copy.ProtocolVersion = request.ProtocolVersion;
-            copy.RemoteEndPoint = request.RemoteEndPoint;
-            copy.LocalEndPoint = request.LocalEndPoint;
-            copy.ReceivedUtc = request.ReceivedUtc;
-            copy.KeepAlive = request.KeepAlive;
-            return copy;
+            return sb.ToString();
         }
     }
 }

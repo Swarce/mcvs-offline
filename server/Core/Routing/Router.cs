@@ -138,6 +138,15 @@ namespace McvsOffline.Server.Core.Routing
         /// </summary>
         public bool TryMatch(HttpRequest request, out Route route, out RouteValues values, out string reason)
         {
+            return TryMatch(request, null, out route, out values, out reason);
+        }
+
+        /// <summary>
+        /// Like <see cref="TryMatch(HttpRequest, out Route, out RouteValues, out string)"/>, ignoring every route for which
+        /// <paramref name="skip"/> returns true (e.g. a forwarding route looking for what would answer without it).
+        /// </summary>
+        public bool TryMatch(HttpRequest request, Func<Route, bool> skip, out Route route, out RouteValues values, out string reason)
+        {
             route = null;
             values = null;
             reason = null;
@@ -149,6 +158,7 @@ namespace McvsOffline.Server.Core.Routing
             RouteValues headValues = null;
             foreach (Route r in current)
             {
+                if (skip != null && skip(r)) continue;
                 RouteValues v;
                 if (!r.Template.TryMatch(request.Segments, request.RawSegments, out v)) continue;
                 if (r.Method == "*" || r.Method == request.Method)
@@ -181,22 +191,19 @@ namespace McvsOffline.Server.Core.Routing
         /// <summary>Routes the request and runs the handler; never throws.</summary>
         public HttpResponse Dispatch(HttpRequest request)
         {
+            return Dispatch(request, null);
+        }
+
+        /// <summary>
+        /// Routes the request ignoring the routes <paramref name="skip"/> selects, and runs the handler (or the
+        /// fallback); never throws. Used to re-dispatch from inside a route, e.g. with <see cref="HttpRequest.WithTarget"/>.
+        /// </summary>
+        public HttpResponse Dispatch(HttpRequest request, Func<Route, bool> skip)
+        {
             Route route;
             RouteValues values;
             string reason;
-            if (TryMatch(request, out route, out values, out reason))
-            {
-                request.SetRoute(route.Name, values);
-                try
-                {
-                    return route.Handler(request) ?? HttpResponse.EmptyObject();
-                }
-                catch (Exception ex)
-                {
-                    if (requestLogger != null) requestLogger.LogHandlerError(request, ex);
-                    return HttpResponse.Error(HttpStatus.InternalServerError, "internal error in " + route.Name);
-                }
-            }
+            if (TryMatch(request, skip, out route, out values, out reason)) return Run(route, values, request);
 
             request.SetRoute("unknown", RouteValues.Empty);
             try
@@ -207,6 +214,34 @@ namespace McvsOffline.Server.Core.Routing
             {
                 if (requestLogger != null) requestLogger.LogHandlerError(request, ex);
                 return HttpResponse.Error(HttpStatus.InternalServerError, "internal error in fallback");
+            }
+        }
+
+        /// <summary>
+        /// Runs one specific route for a request whose path that route's template matches (route values are bound
+        /// from the request); a handler exception becomes a logged 500, as in <see cref="Dispatch(HttpRequest)"/>.
+        /// </summary>
+        public HttpResponse Invoke(Route route, HttpRequest request)
+        {
+            if (route == null) throw new ArgumentNullException("route");
+            if (request == null) throw new ArgumentNullException("request");
+            RouteValues values;
+            if (!route.Template.TryMatch(request.Segments, request.RawSegments, out values))
+                throw new ArgumentException("route " + route + " does not match " + request.Path, "request");
+            return Run(route, values, request);
+        }
+
+        private HttpResponse Run(Route route, RouteValues values, HttpRequest request)
+        {
+            request.SetRoute(route.Name, values);
+            try
+            {
+                return route.Handler(request) ?? HttpResponse.EmptyObject();
+            }
+            catch (Exception ex)
+            {
+                if (requestLogger != null) requestLogger.LogHandlerError(request, ex);
+                return HttpResponse.Error(HttpStatus.InternalServerError, "internal error in " + route.Name);
             }
         }
 

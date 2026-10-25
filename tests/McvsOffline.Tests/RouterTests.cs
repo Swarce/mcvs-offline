@@ -30,6 +30,35 @@ namespace McvsOffline.Tests
         }
 
         [Fact]
+        public void RedispatchSkipsRoutesAndRunsAChosenRoute()
+        {
+            var router = NewRouter(out var logs);
+            Route forward = router.Any("svc/{*rest}", "test.forward", r =>
+                router.Dispatch(r.WithTarget("/" + r.RouteValue("rest") + (r.RawQuery == null ? "" : "?" + r.RawQuery)),
+                                route => route.Name == "test.forward"));
+            router.Get("users/{id}", "test.user", r => HttpResponse.Text(r.RouteValue("id") + "|" + r.Param("q") + "|" + r.Id));
+            Route throwing = router.Get("boom", "test.boom", r => throw new InvalidOperationException("kaputt"));
+
+            var request = HttpRequest.Create("GET", "/svc/users/a%3Ab?q=1");
+            request.Id = 42;
+            Assert.Equal("a:b|1|42", router.Dispatch(request).BodyText);
+            Assert.Equal("test.forward", request.RouteName);
+
+            // TryMatch with a skip predicate reports what would answer without the skipped routes.
+            Assert.True(router.TryMatch(HttpRequest.Create("GET", "/svc/x"), r => false, out Route matched, out _, out _));
+            Assert.Same(forward, matched);
+            Assert.False(router.TryMatch(HttpRequest.Create("GET", "/svc/x"), r => r == forward, out _, out _, out string reason));
+            Assert.Equal("no route matches the path", reason);
+
+            // Invoke binds the route's values; a handler exception is a logged 500, a non-matching route is refused.
+            var direct = HttpRequest.Create("GET", "/boom");
+            Assert.Equal(500, router.Invoke(throwing, direct).StatusCode);
+            Assert.Equal("test.boom", direct.RouteName);
+            Assert.True(logs.Contains("kaputt"));
+            Assert.Throws<ArgumentException>(() => router.Invoke(throwing, HttpRequest.Create("GET", "/other")));
+        }
+
+        [Fact]
         public void ParametersAreDecodedAndRawIsAvailable()
         {
             var router = NewRouter(out _);

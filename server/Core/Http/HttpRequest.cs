@@ -68,6 +68,23 @@ namespace McvsOffline.Server.Core.Http
             return new HttpRequest(method, target, headers, bytes);
         }
 
+        /// <summary>
+        /// A copy of this request with another request-target (path and query), for re-dispatching it under a
+        /// different path (<see cref="Router.Dispatch(HttpRequest, System.Func{Route, bool})"/>). Method, headers,
+        /// body, endpoints, id and keep-alive are kept; the route and <see cref="Items"/> start empty.
+        /// </summary>
+        public HttpRequest WithTarget(string target)
+        {
+            var copy = new HttpRequest(Method, target, Headers, Body);
+            copy.Id = Id;
+            copy.ProtocolVersion = ProtocolVersion;
+            copy.RemoteEndPoint = RemoteEndPoint;
+            copy.LocalEndPoint = LocalEndPoint;
+            copy.ReceivedUtc = ReceivedUtc;
+            copy.KeepAlive = KeepAlive;
+            return copy;
+        }
+
         /// <summary>Sequential id assigned by the server (for correlating log lines).</summary>
         public long Id { get; set; }
 
