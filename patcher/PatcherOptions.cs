@@ -1,0 +1,91 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+
+namespace McvsOffline.Patcher
+{
+    public enum SignerChoice
+    {
+        /// <summary>apksigner when found, otherwise the built-in v1+v2 signer.</summary>
+        Auto,
+        ApkSigner,
+        BuiltIn,
+    }
+
+    public enum AotStripMode
+    {
+        /// <summary>Delete libaot-X.dll.so (all ABIs) for every modified assembly X (default).</summary>
+        Modified,
+
+        /// <summary>Delete every libaot-*.dll.so: pure JIT, slower cold start, no stale-image questions at all.</summary>
+        All,
+    }
+
+    public sealed class PatcherOptions
+    {
+        /// <summary>Optional patches applied when --patch is not given.</summary>
+        public static readonly string[] DefaultPatches = { "geo", "bottile", "finder" };
+
+        public static readonly string[] OptionalPatches = { "geo", "bottile", "finder", "lan" };
+
+        public string InputApk { get; set; }
+
+        public string ServerDll { get; set; }
+
+        public string OutputApk { get; set; }
+
+        /// <summary>Optional patch ids ("hook" is always applied). 'lan' implies 'finder'.</summary>
+        public SortedSet<string> Patches { get; set; } = new SortedSet<string>(DefaultPatches, StringComparer.Ordinal);
+
+        public int Port { get; set; } = 51780;
+
+        public string Keystore { get; set; }
+
+        public string KeystorePassword { get; set; }
+
+        public string KeyAlias { get; set; }
+
+        public string BuildToolsDir { get; set; }
+
+        public SignerChoice Signer { get; set; } = SignerChoice.Auto;
+
+        public AotStripMode StripAot { get; set; } = AotStripMode.Modified;
+
+        /// <summary>Patch even when the APK is not the verified 1.17.32 build (locators still verify every site).</summary>
+        public bool Force { get; set; }
+
+        /// <summary>Locate and verify every patch site, report, write nothing.</summary>
+        public bool DryRun { get; set; }
+
+        public bool Verbose { get; set; }
+
+        /// <summary>Tests only: accept a server assembly built for net8 (look-alike fixtures cannot reference the game BCL).</summary>
+        internal bool SkipServerReferenceCheck { get; set; }
+
+        /// <summary>Parses a --patch value: comma-separated ids, "none", "all" or "default".</summary>
+        public static SortedSet<string> ParsePatchList(string value)
+        {
+            var result = new SortedSet<string>(StringComparer.Ordinal);
+            foreach (string raw in (value ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                string id = raw.ToLowerInvariant();
+                if (id == "none") continue;
+                if (id == "all") result.UnionWith(OptionalPatches);
+                else if (id == "default") result.UnionWith(DefaultPatches);
+                else if (OptionalPatches.Contains(id)) result.Add(id);
+                else throw new ArgumentException("unknown patch '" + raw + "' (known: " + string.Join(", ", OptionalPatches) + ", none, all, default)");
+            }
+            if (result.Contains("lan")) result.Add("finder");
+            return result;
+        }
+
+        public static int ParsePort(string value)
+        {
+            int port;
+            if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out port) || port < 1 || port > 65535)
+                throw new ArgumentException("--port needs a number between 1 and 65535");
+            return port;
+        }
+    }
+}

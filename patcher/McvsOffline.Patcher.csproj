@@ -14,4 +14,8 @@
   <ItemGroup>
     <PackageReference Include="Mono.Cecil" Version="0.11.5" />
   </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="McvsOffline.Embed.Tests" />
+  </ItemGroup>
 </Project>
