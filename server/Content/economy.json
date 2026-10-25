@@ -1,0 +1,84 @@
+{
+  "format": 1,
+  "multipliers": {
+    "credits": [{"database":"MCVS_Meta","table":"CreditsCurrencyMatchRewards","index":"Division","ids":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17],"fields":["VictoryAmount","DefeatAmount","MVPAmount"],"capFields":["DailyCap"]}],
+    "versusCoins": [{"database":"MCVS_Meta","table":"VersusCoinsMatchRewards","index":"Division","ids":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17],"fields":["VictoryAmount","DefeatAmount","MVPAmount"],"capFields":["DailyCap"]}],
+    "xp": [
+      {"database":"MCVS_Meta","table":"PlayerLevelXP","index":"Level","ids":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50],"fields":["XPRequired"],"inverse":true},
+      {"database":"MCVS_Meta","table":"AgentsMasteryXP","index":"Level","ids":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23],"fields":["XPCost"],"inverse":true}
+    ]
+  },
+  "summary": {
+    "offlineStore": {
+      "mercs": {
+        "items": 21,
+        "versusCoins": 76400
+      },
+      "skins": {
+        "items": 39,
+        "versusCoins": 84000
+      },
+      "avatars": {
+        "items": 1518,
+        "versusCoins": 117400
+      },
+      "backgrounds": {
+        "items": 35,
+        "versusCoins": 9400
+      },
+      "hub.crates": {
+        "items": 19,
+        "versusCoins": 42900
+      },
+      "hub.weapons": {
+        "items": 13,
+        "versusCoins": 44000
+      },
+      "hub.camos": {
+        "items": 42,
+        "versusCoins": 10500
+      },
+      "hub.accessories": {
+        "items": 42,
+        "versusCoins": 10500
+      },
+      "hub.gearSlots": {
+        "items": 109,
+        "versusCoins": 87200
+      },
+      "hub.modTiers": {
+        "items": 21,
+        "versusCoins": 252000
+      },
+      "hub.sounds": {
+        "items": 4,
+        "versusCoins": 4000
+      },
+      "hub.vip": {
+        "items": 1,
+        "versusCoins": 15000
+      }
+    },
+    "unlockGroups": {
+      "mercs": 1,
+      "weapons": 13,
+      "gearSlots": 109,
+      "signatures": 1555,
+      "camos": 4409,
+      "accessories": 5208,
+      "skins": 39
+    },
+    "catalogue": {
+      "mercs": 21,
+      "skins": 39,
+      "lockedSkinsExcluded": 3,
+      "weapons": 13,
+      "avatars": 1518,
+      "backgrounds": 35,
+      "sounds": 5,
+      "gearSlots": 109,
+      "camoPairs": 4409,
+      "accessoryPairs": 5208
+    }
+  }
+}

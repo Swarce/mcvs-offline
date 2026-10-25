@@ -1,0 +1,95 @@
+{
+  "_comment": [
+    "MCVS Offline economy tuning (our own numbers, not Gameloft's). tools/content-gen/content_gen.py turns this",
+    "plus the player's decoded catalogue into server/Content/*.json. See docs/ECONOMY.md for the design and the",
+    "earn rates these prices are balanced against. Every price is in VersusCoins unless a key says otherwise;",
+    "settings.json economy.priceMultiplier scales all of them at runtime without regenerating."
+  ],
+  "currency": "VersusCoins",
+  "roundTo": 5,
+  "hardCurrencyAlternative": {
+    "categories": ["mercs", "skins"],
+    "versusCoinsPerHardCurrency": 10,
+    "roundTo": 5
+  },
+  "mercs": {
+    "byRarity": {
+      "Rarity01": 800,
+      "Rarity02": 1500,
+      "Rarity03": 2500,
+      "Rarity04": 3500,
+      "Rarity05": 5000,
+      "Rarity06": 7000
+    },
+    "fallback": 3500
+  },
+  "skins": {
+    "price": 2000,
+    "crateOnly": 3500,
+    "includeLocked": false
+  },
+  "weapons": {
+    "perFragment": 50,
+    "minimum": 2500
+  },
+  "avatars": {
+    "byRarity": {
+      "Rarity01": 50,
+      "Rarity02": 100,
+      "Rarity03": 200,
+      "Rarity04": 400,
+      "Rarity05": 600,
+      "Rarity06": 800
+    },
+    "fallback": 50
+  },
+  "backgrounds": {
+    "purchasable": 200,
+    "other": 400
+  },
+  "sounds": {
+    "price": 1000
+  },
+  "camos": {
+    "mystery": 50,
+    "packSize": 10,
+    "packDiscount": 0.1
+  },
+  "accessories": {
+    "mystery": 50,
+    "packSize": 10,
+    "packDiscount": 0.1
+  },
+  "gearSlots": {
+    "price": 800
+  },
+  "modTiers": {
+    "tier": 4,
+    "price": 12000
+  },
+  "crates": [
+    ["Crate_Base_Shop", 600],
+    ["Crate_MOD_T1", 400],
+    ["Crate_MOD_T2", 800],
+    ["Crate_MOD_T3", 1600],
+    ["Crate_MOD_Random", 1000],
+    ["Crate_Perk_Random", 2500],
+    ["Crate_UltimateAbility_Random", 2500],
+    ["Crate_UpgradeTokens_Random", 500],
+    ["Crate_GearsTier1_Random", 300],
+    ["Crate_GearsTier2_Random", 600],
+    ["Crate_GearsTier3_Random", 1000],
+    ["Crate_GearsTier4_Random", 1800],
+    ["Crate_GearsTier5_Random", 3000],
+    ["Crate_Gears_Random", 800],
+    ["Crate_Shop_Merc_Rare", 2000],
+    ["Crate_Shop_Merc_Epic", 3500],
+    ["Crate_Shop_Merc_Exotic", 5000],
+    ["Crate_Shop_Merc_Legendary", 7000],
+    ["Crate_Shop_Merc_Heroic", 8000]
+  ],
+  "vip": [
+    ["SubscriptionCard_30", 15000]
+  ],
+  "hubOrder": ["crates", "weapons", "camos", "accessories", "gearSlots", "modTiers", "sounds", "vip"]
+}

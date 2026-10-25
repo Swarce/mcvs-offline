@@ -24,3 +24,18 @@ Rules:
   game files are read at runtime from the player's own data pack via `context.Content.TryReadGameFile`.
 - `tools/content-gen` writes these files; keep them deterministic (sorted keys / stable order) so diffs stay
   reviewable.
+
+## Files
+
+All of them are written by `tools/content-gen` (see its README); do not edit them by hand, change
+`tools/content-gen/pricing.json` (or the generator) and regenerate. Testers can drop a modified copy into
+`<data>/content/` instead (then `POST /_mcvs/crm/reload` or restart).
+
+| File | Read by | Purpose |
+|---|---|---|
+| `offline_store.json` | Crm | the VersusCoins catalogue served as CRM `offline_store` (docs/ECONOMY.md) |
+| `crm_overlay.json` | Crm | static CRM game parameters merged over the player's preconfiguration |
+| `economy.json` | Crm | `_OverrideTables` rows for the economy multipliers; cost summary |
+| `unlocks.json` | Assets | ordered reward-id groups for the unlock coupons |
+| `coupons.json` | Assets | built-in coupon codes |
+| `manifest.json` | – | generator, source version and file list |
