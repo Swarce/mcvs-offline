@@ -45,8 +45,8 @@ On Android 11 and later, file managers on the phone cannot open `Android/data`; 
 shows the folder).
 
 Gameloft's download servers still worked when this was written (October 2026), so the game can also download the data
-again. They will not stay up forever: the project's CDN mirror tool (`tools/cdn-mirror`, report 10) can archive the
-data and check a backup against Gameloft's own CRC index.
+again. They will not stay up forever, so keep your backup: a CDN mirror tool that archives the data and checks a
+backup against Gameloft's own CRC index (report 10) is planned but not part of this repository yet.
 
 ## 3. Build the server for your game
 
@@ -184,6 +184,9 @@ in-game host:
 ignores). Add your own arguments **outside** that block; an argument you set there replaces the managed one. Rules
 the game imposes (verify-C1): separate words with spaces or new lines only (no tabs), save without a byte order mark,
 and keep the exact spelling of values such as `Embedded`.
+
+If you used the development loop before ([DEV-LOOP.md](DEV-LOOP.md)), delete its `args.txt` before the first start of
+the offline build: its lines sit outside the managed block, so they would keep overriding the managed values.
 
 ## 8. LAN play (experimental, not working end-to-end yet)
 
