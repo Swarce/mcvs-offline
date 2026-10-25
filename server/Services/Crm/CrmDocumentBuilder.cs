@@ -96,6 +96,9 @@ namespace McvsOffline.Server.Services.Crm
                     log.Warn("settings: crm.pointcutActions entry ignored: " + problem);
                     continue;
                 }
+                if (JsonValue.GetDouble(JsonValue.AsObject(action), "frequency", 0) <= 0)
+                    log.Warn("settings: crm.pointcutActions entry '" + JsonValue.GetString(JsonValue.AsObject(action), "id", "?")
+                             + "' has no positive frequency and never fires (OP/PointCutAction.cs defaults it to 0)");
                 result.Add(JsonValue.DeepClone(action));
             }
             if (dropped > 0) log.Debug("CRM: dropped " + dropped + " ad pointcut action(s) (crm.keepAdPointcuts=false)");
