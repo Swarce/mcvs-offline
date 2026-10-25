@@ -25,6 +25,17 @@ namespace McvsOffline.Tests
         }
 
         [Fact]
+        public void AtomicWritesAlsoSyncTheDirectoryOnUnix()
+        {
+            using var dir = new TempDir();
+            AtomicFile.WriteAllText(dir.Combine("a.json"), "{}");
+            FileSystem.FlushDirectory(dir.Path);
+            FileSystem.FlushDirectory(dir.Combine("does-not-exist")); // open() fails: ignored, still available
+            // libc's open/fsync bound and worked (a binding failure would turn the flush off for good).
+            Assert.Equal(!OperatingSystem.IsWindows(), FileSystem.DirectoryFlushAvailable);
+        }
+
+        [Fact]
         public void LeftoverTempFilesAreCleanedUp()
         {
             using var dir = new TempDir();

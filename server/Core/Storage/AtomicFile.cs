@@ -8,7 +8,7 @@ namespace McvsOffline.Server.Core.Storage
 {
     /// <summary>
     /// Crash-safe whole-file writes: the data goes to a temporary file in the same directory, is flushed to disk,
-    /// then renamed over the target. Readers therefore see either the old or the new content, never a partial file.
+    /// then renamed over the target, and the directory is synced so the rename itself survives a power loss. Readers therefore see either the old or the new content, never a partial file.
     /// That matters: a half-written profile reads as "missing", and the game answers a missing profile by resetting
     /// it (verify-C3 §3.1, §7.1). Callers that read-modify-write must also hold a <see cref="KeyedLock"/>.
     /// </summary>
@@ -44,6 +44,8 @@ namespace McvsOffline.Server.Core.Storage
                 try { if (File.Exists(temp)) File.Delete(temp); } catch (Exception) { }
                 throw;
             }
+            // The rename is only durable once the directory entry is (STORAGE request; best effort).
+            FileSystem.FlushDirectory(dir);
         }
 
         /// <summary>Writes text as UTF-8 without BOM.</summary>

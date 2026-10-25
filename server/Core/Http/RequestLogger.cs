@@ -10,8 +10,9 @@ namespace McvsOffline.Server.Core.Http
     /// Request logging. Device testing has no debugger, so the logs are the protocol oracle:
     /// <list type="bullet">
     /// <item>every request: one INFO line (id, method, target, status, route, size, time) and one INFO line with
-    /// its parameters (query, form or body; long values truncated to the configured limit); the full headers and
-    /// body at DEBUG;</item>
+    /// its parameters (query, form or body, each value cut to <see cref="SummaryValueLimit"/> characters); the full
+    /// headers and body, up to logging.bodyLimit, at DEBUG. Game-profile saves carry a form value of hundreds of KB,
+    /// so the INFO line must not repeat it (every 5-minute autosave would otherwise log it twice);</item>
     /// <item>every unknown endpoint: a WARN entry with the complete request (headers, query, form, body) and one
     /// JSON line in logs/unknown-endpoints.jsonl, so missing endpoints can be collected after a play session;</item>
     /// <item>every handler exception: an ERROR with the full request.</item>
@@ -21,6 +22,9 @@ namespace McvsOffline.Server.Core.Http
     {
         /// <summary>Upper bound for bodies in unknown-endpoint entries (they are rare and important).</summary>
         public const int UnknownBodyLimit = 1024 * 1024;
+
+        /// <summary>Characters per parameter value (or raw body) on the INFO parameter line.</summary>
+        public const int SummaryValueLimit = 512;
 
         private readonly Log log;
         private readonly RotatingFile unknownFile;
@@ -51,7 +55,7 @@ namespace McvsOffline.Server.Core.Http
             LogLevel level = status >= 500 ? LogLevel.Warn : LogLevel.Info;
             log.Write(level, sb.ToString(), null);
 
-            string parameters = DescribeParameters(request, bodyLimit());
+            string parameters = DescribeParameters(request, Num.Min(bodyLimit(), SummaryValueLimit));
             if (parameters.Length > 0) log.Write(level, "#" + request.Id.ToString(CultureInfo.InvariantCulture) + "   " + parameters, null);
 
             if (log.IsEnabled(LogLevel.Debug))
@@ -108,14 +112,14 @@ namespace McvsOffline.Server.Core.Http
             return sb.ToString().TrimEnd('\n');
         }
 
-        /// <summary>One line: "query: a=1 b=2 | form: c=3" or "body(n B): ...".</summary>
+        /// <summary>One line: "query: a=1 b=2 | form: c=3" or "body(n B): ..."; every value cut to <paramref name="maxValueChars"/>.</summary>
         public static string DescribeParameters(HttpRequest request, int maxValueChars)
         {
             var sb = new StringBuilder();
             if (request.Query.Count > 0)
             {
                 sb.Append("query:");
-                foreach (var kv in request.Query) sb.Append(' ').Append(kv.Key).Append('=').Append(Truncate(kv.Value, Num.Min(maxValueChars, 512)));
+                foreach (var kv in request.Query) sb.Append(' ').Append(kv.Key).Append('=').Append(Truncate(kv.Value, maxValueChars));
             }
             if (request.IsFormBody && request.Form.Count > 0)
             {
