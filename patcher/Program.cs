@@ -158,8 +158,14 @@ namespace McvsOffline.Patcher
                 "                          debloat  remove the manifest declarations of SDK parts dead offline (ad screens, GCM\n" +
                 "                                   push, install-referrer and boot receivers, Crashlytics/Facebook init providers,\n" +
                 "                                   location/legacy permissions) and drop the Crashlytics/Fabric files\n" +
+                "                          adminpage  Settings > Account: an 'MCVS Offline' button that opens the offline\n" +
+                "                                   settings page\n" +
+                "                          adminlink  the 'MCVS Offline' inbox message opens the settings page (without it the\n" +
+                "                                   message shows a view-only page)\n" +
+                "                          forum    Settings > Forum opens the settings page (not in the default set)\n" +
                 "                        'none' = only the mandatory patches (server hook, headless TS/GS fixes, server physics),\n" +
-                "                        'all' = everything\n" +
+                "                        'all' = everything (the default set plus lan and forum), 'default' = the default set,\n" +
+                "                        e.g. default,forum\n" +
                 "  --game-log <m>        all (default): the game logs every level to logcat (mono-stdout); fatal: Fatal only,\n" +
                 "                        as shipped (res/raw/args.txt unchanged)\n" +
                 "  --port <n>            port of the embedded server baked into the geo URL (default 51780)\n" +
