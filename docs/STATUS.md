@@ -17,7 +17,7 @@ copied `Data/` folder and the avatar editor freezing after unlock-all. Build 5 a
 **Device test 5: live ops and the copied-data install work**; leaving the firing range took ~11 s on "connecting to the
 server". Build 6 makes the CRM document the game reloads there ~78% smaller for an unlock-all profile: **in device test 6
 the return to the menu was fast**, and a thread dump finally caught the kill-signature screen freeze, which build 7 patches;
-device test 7 is next (checklist below).
+**device test 7 (builds 7 and 8): the signature screen is fast and the debloated build works.**
 
 ## Build 8 (October 2026): 'debloat', dead SDK pieces removed
 
