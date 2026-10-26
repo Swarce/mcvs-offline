@@ -26,6 +26,12 @@ namespace McvsOffline.Server.Core
         public Exception Exception;
         public int ThreadId;
 
+        /// <summary>
+        /// The logger's redactor (<see cref="Logger.Redactor"/>) when the entry was written: <see cref="Message"/> is
+        /// already redacted, the exception text is redacted by <see cref="Format"/> and <see cref="ExceptionText"/>.
+        /// </summary>
+        public Func<string, string> Redactor;
+
         /// <summary>"2026-10-25T10:00:00.123Z INFO  [auth] message" (+ exception on following lines).</summary>
         public string Format()
         {
@@ -33,8 +39,33 @@ namespace McvsOffline.Server.Core
             sb.Append(TimeUtc.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture)).Append(' ');
             sb.Append(LevelName(Level)).Append(" [").Append(Category ?? "-").Append("] ");
             sb.Append(Message);
-            if (Exception != null) sb.Append('\n').Append(Exception);
+            if (Exception != null) sb.Append('\n').Append(ExceptionText());
             return sb.ToString();
+        }
+
+        /// <summary>The exception's text (type, message, stack) through the redactor, or null without an exception.</summary>
+        public string ExceptionText()
+        {
+            if (Exception == null) return null;
+            string text;
+            try
+            {
+                text = Exception.ToString();
+            }
+            catch (Exception)
+            {
+                text = Exception.GetType().FullName;
+            }
+            var redactor = Redactor;
+            if (redactor == null) return text;
+            try
+            {
+                return redactor(text) ?? text;
+            }
+            catch (Exception)
+            {
+                return text;
+            }
         }
 
         public static string LevelName(LogLevel level)
@@ -192,6 +223,18 @@ namespace McvsOffline.Server.Core
         private readonly object gate = new object();
         private volatile LogSink[] sinks = new LogSink[0];   // replaced as a whole under the lock, read without it
         private volatile int minLevel = (int)LogLevel.None;
+        private volatile Func<string, string> redactor;
+
+        /// <summary>
+        /// Applied to every message in <see cref="Write"/> and to exception texts when an entry is formatted, before any
+        /// sink sees them (design §5.4: the settings page's tickets and cookies, passwords and tokens never reach a log
+        /// file, logcat or the problem list). Null: none. A redactor that throws leaves the text unchanged.
+        /// </summary>
+        public Func<string, string> Redactor
+        {
+            get { return redactor; }
+            set { redactor = value; }
+        }
 
         public void AddSink(LogSink sink)
         {
@@ -243,6 +286,17 @@ namespace McvsOffline.Server.Core
         public void Write(LogLevel level, string category, string message, Exception exception = null)
         {
             if (!IsEnabled(level)) return;
+            Func<string, string> redact = redactor;
+            if (redact != null && message != null)
+            {
+                try
+                {
+                    message = redact(message) ?? message;
+                }
+                catch (Exception)
+                {
+                }
+            }
             var entry = new LogEntry
             {
                 TimeUtc = DateTime.UtcNow,
@@ -251,6 +305,7 @@ namespace McvsOffline.Server.Core
                 Message = message,
                 Exception = exception,
                 ThreadId = Thread.CurrentThread.ManagedThreadId,
+                Redactor = redact,
             };
             LogSink[] current = sinks;
             foreach (var sink in current)

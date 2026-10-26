@@ -24,7 +24,8 @@ namespace McvsOffline.Server.Core
                 return HttpResponse.Json(body);
             }, Router.CoreOrder);
 
-            // Developer diagnostics (not used by the game).
+            // Developer diagnostics (not used by the game). Like every /_mcvs route they answer only loopback callers with
+            // a 127.0.0.1/localhost Host (LocalAccessGate, in McvsServer.Handle).
             router.Get("_mcvs/status", "core.status", request =>
             {
                 var body = new Dictionary<string, object>(StringComparer.Ordinal);
@@ -37,7 +38,10 @@ namespace McvsOffline.Server.Core
                 body["dataPack"] = context.Content.DataPack == null ? null : context.Content.DataPack.DataDirectory;
                 body["accounts"] = (long)context.Accounts.Count;
                 body["tokens"] = (long)context.Tokens.Count;
-                body["settings"] = context.Settings.Snapshot();
+                // Readable by any app on the phone (loopback + Host only): no secret in it (design §5.2).
+                Dictionary<string, object> settings = context.Settings.Snapshot();
+                if (settings.ContainsKey("superPassword")) settings["superPassword"] = "***";
+                body["settings"] = settings;
                 return HttpResponse.Json(body);
             }, Router.CoreOrder);
 

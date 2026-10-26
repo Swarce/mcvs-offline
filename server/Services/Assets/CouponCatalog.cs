@@ -72,6 +72,25 @@ namespace McvsOffline.Server.Services.Assets
         /// <summary>The known codes (normalised).</summary>
         public List<string> Codes { get { return new List<string>(codes.Keys); } }
 
+        /// <summary>
+        /// Every code with its description and numeric-suffix flag (coupons.json, then the codes settings.json
+        /// <c>assets.coupons</c> adds; a code it redefines keeps its place): the settings page's code list.
+        /// </summary>
+        public List<CouponDescription> Describe()
+        {
+            var list = new List<CouponDescription>();
+            foreach (var kv in codes)
+            {
+                list.Add(new CouponDescription
+                {
+                    Code = kv.Key,
+                    Description = JsonValue.GetString(kv.Value, "description") ?? "",
+                    NumericSuffix = JsonValue.GetBool(kv.Value, "allowNumericSuffix", false),
+                });
+            }
+            return list;
+        }
+
         /// <summary>Reward ids of an unlocks.json group, in order (empty when unknown).</summary>
         public List<string> Group(string id)
         {
@@ -189,6 +208,19 @@ namespace McvsOffline.Server.Services.Assets
             }
             return (Dictionary<string, object>)parsed;
         }
+    }
+
+    /// <summary>One code of <see cref="CouponCatalog.Describe"/>.</summary>
+    public sealed class CouponDescription
+    {
+        /// <summary>Normalised (upper case).</summary>
+        public string Code { get; set; }
+
+        /// <summary>The definition's "description", or "".</summary>
+        public string Description { get; set; }
+
+        /// <summary>The code also works followed by digits (UNLOCKALL2), "allowNumericSuffix".</summary>
+        public bool NumericSuffix { get; set; }
     }
 
     /// <summary>

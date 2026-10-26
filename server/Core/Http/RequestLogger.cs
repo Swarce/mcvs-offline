@@ -17,6 +17,11 @@ namespace McvsOffline.Server.Core.Http
     /// JSON line in logs/unknown-endpoints.jsonl, so missing endpoints can be collected after a play session;</item>
     /// <item>every handler exception: an ERROR with the full request.</item>
     /// </list>
+    /// Requests under <c>/_mcvs/</c> (the settings page and the diagnostics routes) carry tickets and settings, so their
+    /// summary line is DEBUG (INFO from status 400 on) and shows the path and the body size only, never parameters or a
+    /// body; the DEBUG full request, handler errors and unknown-endpoint entries leave out their query, form and body.
+    /// The values of Cookie and Set-Cookie headers are never logged (design §5.4); everything else goes through the
+    /// logger's redactor (<see cref="LogRedaction"/>).
     /// </summary>
     public sealed class RequestLogger : IDisposable
     {
@@ -54,21 +59,28 @@ namespace McvsOffline.Server.Core.Http
 
         public void LogRequest(HttpRequest request, HttpResponse response, double elapsedMs)
         {
-            if (!log.IsEnabled(LogLevel.Info)) return;
             int status = response == null ? 0 : response.StatusCode;
+            bool admin = LocalAccessGate.IsAdminPath(request);
+            LogLevel level = status >= 500 ? LogLevel.Warn : (!admin || status >= 400) ? LogLevel.Info : LogLevel.Debug;
+            if (!log.IsEnabled(level)) return;
             string size = response == null ? "-" : response.StreamBody != null ? "stream" : response.Body.Length.ToString(CultureInfo.InvariantCulture) + " B";
+            string target = admin ? request.RawPath : request.RawTarget;
             var sb = new StringBuilder(128);
             sb.Append('#').Append(request.Id.ToString(CultureInfo.InvariantCulture)).Append(' ')
-              .Append(request.Method).Append(' ').Append(request.RawTarget.Length > 300 ? request.RawTarget.Substring(0, 300) + "..." : request.RawTarget)
+              .Append(request.Method).Append(' ').Append(target.Length > 300 ? target.Substring(0, 300) + "..." : target)
               .Append(" -> ").Append(status.ToString(CultureInfo.InvariantCulture))
               .Append(" [").Append(request.RouteName ?? "-").Append("] ")
               .Append(size).Append(' ')
               .Append(elapsedMs.ToString("0.0", CultureInfo.InvariantCulture)).Append(" ms");
-            LogLevel level = status >= 500 ? LogLevel.Warn : LogLevel.Info;
+            if (admin && request.Body.Length > 0)
+                sb.Append(" (request body ").Append(request.Body.Length.ToString(CultureInfo.InvariantCulture)).Append(" B)");
             log.Write(level, sb.ToString(), null);
 
-            string parameters = DescribeParameters(request, Num.Min(bodyLimit(), SummaryValueLimit));
-            if (parameters.Length > 0) log.Write(level, "#" + request.Id.ToString(CultureInfo.InvariantCulture) + "   " + parameters, null);
+            if (!admin)
+            {
+                string parameters = DescribeParameters(request, Num.Min(bodyLimit(), SummaryValueLimit));
+                if (parameters.Length > 0) log.Write(level, "#" + request.Id.ToString(CultureInfo.InvariantCulture) + "   " + parameters, null);
+            }
 
             if (log.IsEnabled(LogLevel.Debug))
                 log.Debug("#" + request.Id.ToString(CultureInfo.InvariantCulture) + " full request:\n" + Describe(request, bodyLimit()));
@@ -79,22 +91,25 @@ namespace McvsOffline.Server.Core.Http
             log.Warn("UNKNOWN ENDPOINT #" + request.Id.ToString(CultureInfo.InvariantCulture) + " (" + (reason ?? "no route") + ")\n"
                      + Describe(request, UnknownBodyLimit));
             if (unknownFile == null) return;
+            bool admin = LocalAccessGate.IsAdminPath(request);
             var entry = new Dictionary<string, object>(StringComparer.Ordinal);
             entry["time"] = TimeFormat.Iso8601Millis(DateTime.UtcNow);
             entry["id"] = request.Id;
             entry["reason"] = reason;
             entry["method"] = request.Method;
-            entry["target"] = request.RawTarget;
+            entry["target"] = admin ? request.RawPath : request.RawTarget;
             entry["path"] = request.Path;
-            entry["query"] = request.Query.ToJsonObject();
-            entry["form"] = request.Form.ToJsonObject();
+            entry["query"] = admin ? null : request.Query.ToJsonObject();
+            entry["form"] = admin ? null : request.Form.ToJsonObject();
             entry["contentType"] = request.ContentType;
-            entry["body"] = request.IsFormBody ? null : Truncate(request.BodyText, UnknownBodyLimit);
+            entry["body"] = admin || request.IsFormBody ? null : Truncate(request.BodyText, UnknownBodyLimit);
+            if (admin) entry["bodyBytes"] = (long)request.Body.Length;
             entry["remote"] = request.RemoteEndPoint == null ? null : request.RemoteEndPoint.ToString();
             var headers = new Dictionary<string, object>(StringComparer.Ordinal);
-            foreach (var h in request.Headers) headers[h.Key] = h.Value;
+            foreach (var h in request.Headers) headers[h.Key] = HeaderValueForLog(h.Key, h.Value);
             entry["headers"] = headers;
-            unknownFile.AppendLine(MiniJson.Serialize(entry));
+            // The file is written directly, not through the logger: redact it here.
+            unknownFile.AppendLine(LogRedaction.Redact(MiniJson.Serialize(entry)));
         }
 
         public void LogHandlerError(HttpRequest request, Exception ex)
@@ -103,14 +118,25 @@ namespace McvsOffline.Server.Core.Http
                       + Describe(request, bodyLimit()), ex);
         }
 
-        /// <summary>Multi-line description of a request: line, remote, headers, query, form or body.</summary>
+        /// <summary>
+        /// Multi-line description of a request: line, remote, headers, query, form or body. Cookie values are never
+        /// shown; under <c>/_mcvs/</c> the query, form and body are left out (only the body size is given).
+        /// </summary>
         public static string Describe(HttpRequest request, int maxValueChars)
         {
+            bool admin = LocalAccessGate.IsAdminPath(request);
             var sb = new StringBuilder(256);
-            sb.Append("  ").Append(request.Method).Append(' ').Append(request.RawTarget).Append(' ').Append(request.ProtocolVersion).Append('\n');
+            sb.Append("  ").Append(request.Method).Append(' ').Append(admin ? request.RawPath : request.RawTarget).Append(' ')
+              .Append(request.ProtocolVersion).Append('\n');
             sb.Append("  path: ").Append(request.Path).Append('\n');
             if (request.RemoteEndPoint != null) sb.Append("  remote: ").Append(request.RemoteEndPoint).Append('\n');
-            foreach (var h in request.Headers) sb.Append("  ").Append(h.Key).Append(": ").Append(h.Value).Append('\n');
+            foreach (var h in request.Headers) sb.Append("  ").Append(h.Key).Append(": ").Append(HeaderValueForLog(h.Key, h.Value)).Append('\n');
+            if (admin)
+            {
+                if (request.Body.Length > 0)
+                    sb.Append("  body: ").Append(request.Body.Length.ToString(CultureInfo.InvariantCulture)).Append(" B (not logged)\n");
+                return sb.ToString().TrimEnd('\n');
+            }
             AppendParams(sb, "query", request.Query, maxValueChars);
             if (request.IsFormBody)
             {
@@ -146,6 +172,15 @@ namespace McvsOffline.Server.Core.Http
                   .Append(Truncate(request.BodyText, maxValueChars));
             }
             return sb.ToString();
+        }
+
+        /// <summary>The value of a header as logged: Cookie and Set-Cookie values are replaced by &lt;redacted&gt;.</summary>
+        public static string HeaderValueForLog(string name, string value)
+        {
+            if (string.Equals(name, "Cookie", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "Set-Cookie", StringComparison.OrdinalIgnoreCase))
+                return LogRedaction.Marker;
+            return value;
         }
 
         private static void AppendParams(StringBuilder sb, string label, ParamCollection p, int maxValueChars)

@@ -335,11 +335,20 @@ namespace McvsOffline.Tests.Unlocks
             remote.RemoteEndPoint = new System.Net.IPEndPoint(System.Net.IPAddress.Parse("192.168.1.30"), 5000);
             Assert.Equal(404, h.Server.Handle(remote).StatusCode);
 
-            Assert.Equal(404, h.Server.Handle(HttpRequest.Create("POST", "/_mcvs/unlocks/grant", "account=nobody")).StatusCode);
+            // Writes under /_mcvs need the CSRF header (design §5.2 rule 4): an HTML form cannot add it.
+            Assert.Equal(403, h.Server.Handle(HttpRequest.Create("POST", "/_mcvs/unlocks/grant", "account=nobody")).StatusCode);
+            Assert.Equal(404, h.Server.Handle(Grant("account=nobody")).StatusCode);
             string account = h.SaveGameProfile("unlock4");
             h.WaitForStatus(account, "done (");
-            var again = h.Server.Handle(HttpRequest.Create("POST", "/_mcvs/unlocks/grant", "account=fed_id:" + account));
+            var again = h.Server.Handle(Grant("account=fed_id:" + account));
             Assert.Equal(false, MiniJson.ParseObject(again.BodyText)["queued"]); // already done this run
+        }
+
+        private static HttpRequest Grant(string form)
+        {
+            var request = HttpRequest.Create("POST", "/_mcvs/unlocks/grant", form);
+            request.Headers.Add("X-MCVS", "1");
+            return request;
         }
     }
 }
