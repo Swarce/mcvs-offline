@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """MCVS Offline content generator (owner: CONTENT).
 
-Reads the player's own decoded data pack (``datapack-decoded/_catalog.json`` and ``_tables.json``, optionally
-``Design/*.xlsx`` for index columns) plus our tuning in ``pricing.json`` and ``liveops_tuning.json`` and writes the generated content that
-the server compiles into ``McvsOffline.Server.dll`` (``server/Content/``):
+Reads the player's own decoded data pack (``datapack-decoded/_catalog.json`` and ``_tables.json``, ``Design/MCVS_Meta.xlsx``
+for index columns and the collector's rules) plus our tuning in ``pricing.json``, ``liveops_tuning.json`` and
+``collector_tuning.json`` and writes the generated content that the server compiles into ``McvsOffline.Server.dll``
+(``server/Content/``):
 
   offline_store.json  CRM ``offline_store`` priced in VersusCoins (merc/skin/kill-signature screens and the
                       generic ``#VersusCoins`` shop-hub tab), see docs/ECONOMY.md and verify-C5 (d)
@@ -13,7 +14,10 @@ the server compiles into ``McvsOffline.Server.dll`` (``server/Content/``):
   economy.json        ``_OverrideTables`` targets for the settings.json economy multipliers + a cost summary
   crm_overlay.json    static CRM overlay (game parameters we always send)
   liveops.json        live-ops catalogue (weekly division seasons, daily quests, weekly achievement events, weekly
-                      modifiers) from ``liveops_tuning.json``, validated against the catalogue (docs/LIVEOPS.md)
+                      modifiers, the collector's crate rewards) from ``liveops_tuning.json``, validated against the
+                      catalogue (docs/LIVEOPS.md)
+  collector.json      the Cosmetic crate (economy collector): crate rows, item pools and season tables from
+                      ``collector_tuning.json`` (ids only), see docs/design/economy-collector.md §3.4
   manifest.json       what was generated from what
 
 Only generated item ids, prices and our own tuning are written: no Gameloft text, no table values.
@@ -25,6 +29,7 @@ Usage (Python 3 standard library only; run isolated):
 """
 
 import argparse
+import datetime
 import json
 import os
 import re
@@ -84,6 +89,11 @@ def compress_ranges(numbers):
         parts.append(str(values[i]) if i == j else "%d-%d" % (values[i], values[j]))
         i = j + 1
     return ",".join(parts)
+
+
+def expand_ranges(text):
+    """Inverse of compress_ranges: "2,4-6,9" -> [2, 4, 5, 6, 9]; "" -> []."""
+    return [int(x) for x in expand_pattern("{%s}" % text)] if text else []
 
 
 def expand_pattern(pattern):
@@ -172,6 +182,8 @@ class Catalog(object):
                 continue
             self.mercs.append((mid, m.get("rarity")))
         self.merc_ids = [m for m, _ in self.mercs]
+        # The weapon whose CamosList_<weapon> table holds a merc's camos (CamosListPerWeapon, GM/WeaponCamoRewardItem.cs).
+        self.merc_weapons = dict((int(m["id"]), m.get("vanilla_weapon")) for m in cats.get("mercs", []))
         if not self.mercs:
             raise ContentError("no displayed mercs in the catalogue")
         # Mercs every new profile starts with: an UnlockMerc reward for an owned merc is unavailable and turns into
@@ -253,6 +265,27 @@ class Catalog(object):
         self.divisions = [int(d["id"]) for d in cats.get("divisions", [])]
         self.player_levels = [int(l["level"]) for l in cats.get("player_levels", [])]
         self.paid = self._find_paid(cats)
+        # reward id -> (category, catalogue entry): the shipped sources of every id the unlock groups can name
+        # (_find_nosource).
+        self.entries = {}
+        for m in cats.get("mercs", []):
+            self.entries["UnlockMerc_%d" % int(m["id"])] = ("mercs", m)
+        for x in cats.get("skins", []):
+            if x.get("item_id"):
+                self.entries[x["item_id"]] = ("skins", x)
+        for w in cats.get("weapons", []):
+            self.entries["MercWeapon_%d_%d" % (int(w["merc_id"]), int(w["id"]))] = ("weapons", w)
+        for c in cats.get("camos", []):
+            if "merc_id" in c:
+                self.entries["WeaponCamo_%d_%d" % (int(c["merc_id"]), int(c["camo_id"]))] = ("camos", c)
+        for a in cats.get("accessories_jerseys", []):
+            for item in a.get("item_ids", []):
+                self.entries[item] = ("accessories", a)
+        for kind, key in (("Avatar", "avatars"), ("Background", "backgrounds"), ("Sound", "sounds")):
+            for x in sig.get(key, []):
+                self.entries["KillSignature_%s_%d" % (kind, int(x["id"]))] = (key, x)
+        for g in cats.get("gear_slot_unlocks", []):
+            self.entries[g["item_id"]] = ("gearSlots", g)
         ecomm_only = sorted([x["item_id"] for x in cats.get("skins", []) if x.get("in_design_tables") is False and x.get("item_id")] +
                             [x["item_id"] for x in cats.get("camos", []) if "merc_id" not in x and x.get("item_id")], key=natural_key)
         if ecomm_only:
@@ -734,34 +767,76 @@ def _loc_tables(decoded_dir):
     return tables
 
 
-def build_liveops(cat, tuning, loc_tables):
-    """liveops.json: our live-ops tuning with every id validated and every id list expanded."""
+def check_loc_id(loc_tables, locid, where):
+    """A "<table>.<id>" localization id that exists in Localization/<table>_en.json (when the folder is known)."""
+    if not isinstance(locid, str) or "." not in locid:
+        raise ContentError("%s: '%s' is not a <table>.<id> localization id" % (where, locid))
+    table, key = locid.split(".", 1)
+    if loc_tables is not None and key not in loc_tables.get(table, ()):
+        raise ContentError("%s: localization id %s does not exist" % (where, locid))
+    return locid
+
+
+def check_image(cat, path, where):
+    """An image path that is a file of the player's data pack (when names.json is known)."""
+    if cat.asset_files is not None and not cat.asset_exists(path):
+        raise ContentError("%s: image %s is not in the data pack" % (where, path))
+    return path
+
+
+# The default season grid (LiveOpsSettings.DefaultAnchor): seasons start on Mondays 00:00 UTC, whole weeks after it.
+SEASON_EPOCH = datetime.datetime(2024, 1, 1, tzinfo=datetime.timezone.utc)
+# content-gen warns when collector.since is closer than this to the generation time (economy-collector.md §3.2).
+SINCE_MARGIN = datetime.timedelta(days=7)
+# The liveops.json collector block, in output order (economy-collector.md §3.2).
+COLLECTOR_BLOCK_KEYS = ("since", "dailyBonus", "weeklyMilestones", "weeklyFinal")
+
+
+def parse_since(value, where):
+    """An ISO 8601 UTC time ("2026-11-09", "2026-11-09T00:00:00Z", "...+00:00") that is a season start of the default
+    grid (a Monday 00:00 UTC): the moment the collector's live-ops rewards and CRM layer start (D5)."""
+    found = re.match(r"^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2}))?)?(Z|[+-]00:?00)?$", str(value))
+    if not found:
+        raise ContentError("%s: '%s' is not an ISO 8601 UTC time" % (where, value))
+    try:
+        since = datetime.datetime(*[int(p or 0) for p in found.groups()[:6]], tzinfo=datetime.timezone.utc)
+    except ValueError:
+        raise ContentError("%s: '%s' is not a valid date" % (where, value))
+    if (since - SEASON_EPOCH).total_seconds() % (7 * 86400) != 0:
+        raise ContentError("%s: %s is not a Monday 00:00 UTC (a season start of the default grid)" % (where, value))
+    return since
+
+
+def warn(message):
+    print("content-gen: warning: %s" % message, file=sys.stderr)
+
+
+def build_liveops(cat, tuning, loc_tables, now=None):
+    """liveops.json: our live-ops tuning with every id validated and every id list expanded. ``now`` (UTC) only decides
+    whether the collector's ``since`` warning is printed; the output never depends on it."""
 
     def loc(locid, where):
-        if not isinstance(locid, str) or "." not in locid:
-            raise ContentError("liveops: %s: '%s' is not a <table>.<id> localization id" % (where, locid))
-        table, key = locid.split(".", 1)
-        if loc_tables is not None and key not in loc_tables.get(table, ()):
-            raise ContentError("liveops: %s: localization id %s does not exist" % (where, locid))
-        return locid
+        return check_loc_id(loc_tables, locid, "liveops: " + where)
 
-    def rewards(items, where):
+    def rewards(items, where, allow_empty=False):
+        if not isinstance(items, list):
+            raise ContentError("liveops: %s: rewards must be a list" % where)
         out = []
         for r in items:
+            if not isinstance(r, dict):
+                raise ContentError("liveops: %s: a reward must be an {item, quantity} object" % where)
             item, qty = r.get("item"), r.get("quantity")
             if not isinstance(qty, int) or qty <= 0:
                 raise ContentError("liveops: %s: quantity of %s must be a positive integer" % (where, item))
             if item not in LIVEOPS_CURRENCIES and item not in cat.crates:
                 raise ContentError("liveops: %s: unknown reward %s" % (where, item))
             out.append({"item": item, "quantity": qty})
-        if not out:
+        if not out and not allow_empty:
             raise ContentError("liveops: %s: no rewards" % where)
         return out
 
     def image(path, where):
-        if cat.asset_files is not None and not cat.asset_exists(path):
-            raise ContentError("liveops: %s: image %s is not in the data pack" % (where, path))
-        return path
+        return check_image(cat, path, "liveops: " + where)
 
     def goals(values, where):
         if not values or any(not isinstance(g, int) or g <= 0 for g in values) or sorted(values) != values:
@@ -875,7 +950,7 @@ def build_liveops(cat, tuning, loc_tables):
     rows = (cat.tables.get("Design/MCVS_Meta.xlsx", {}).get(sr["table"]) or {}).get("rows", 0)
     ranks = cat.index_values("MCVS_Meta", sr["table"], sr["index"], list(range(1, rows + 1)))
 
-    return {
+    out = {
         "format": FORMAT,
         "revision": int(tuning["revision"]),
         "images": images,
@@ -887,6 +962,46 @@ def build_liveops(cat, tuning, loc_tables):
         "seasonRewards": {"database": "MCVS_Meta", "table": sr["table"], "index": sr["index"], "ids": ranks,
                           "fields": reward_fields},
     }
+    if "collector" in tuning:
+        out["collector"] = build_liveops_collector(tuning["collector"], len(milestone_rewards), rewards, now)
+    return out
+
+
+def build_liveops_collector(block, milestone_tiers, rewards, now):
+    """The liveops.json ``collector`` block (economy-collector.md §3.2): the Cosmetic crates the daily bonus, the weekly
+    milestone tiers and the weekly final hand out in every window from ``since`` on. Carried unchanged, ``since``
+    normalised; the ``revision`` stays as it is (a bump would replace the running day and week for everybody). A list
+    may be empty (that event part gets no crate: the content-only fallback of §8, e.g. crates on tier 3 and the final
+    only); every key must be there, so that a misspelt one cannot silently drop its crates."""
+    if not isinstance(block, dict):
+        raise ContentError("liveops: collector must be an object")
+    unknown = sorted(k for k in block if not k.startswith("_") and k not in COLLECTOR_BLOCK_KEYS)
+    missing = [k for k in COLLECTOR_BLOCK_KEYS if k not in block]
+    if unknown or missing:
+        raise ContentError("liveops: collector needs exactly the keys %s (unknown: %s, missing: %s)"
+                           % (", ".join(COLLECTOR_BLOCK_KEYS), ", ".join(unknown) or "-", ", ".join(missing) or "-"))
+    since = parse_since(block["since"], "liveops: collector.since")
+    milestones = block["weeklyMilestones"]
+    if not isinstance(milestones, list) or len(milestones) != milestone_tiers:
+        raise ContentError("liveops: collector.weeklyMilestones needs one reward list per weekly milestone tier (%d)"
+                           % milestone_tiers)
+    out = {
+        "since": since.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "dailyBonus": rewards(block["dailyBonus"], "collector.dailyBonus", allow_empty=True),
+        "weeklyMilestones": [rewards(m, "collector.weeklyMilestones[%d]" % i, allow_empty=True)
+                             for i, m in enumerate(milestones)],
+        "weeklyFinal": rewards(block["weeklyFinal"], "collector.weeklyFinal", allow_empty=True),
+    }
+    if now is not None and since <= now:
+        # A rebuild after the release: since must stay (moving it replaces the running events, §3.3, and must match
+        # the compiled-in CollectorGuard.ShippedSince).
+        warn("liveops: collector.since %s is not after this build (%s): keep it when rebuilding a released build; for a "
+             "first release set collector.since to the first Monday at least 7 days after the build is published"
+             % (out["since"], now.strftime("%Y-%m-%d")))
+    elif now is not None and since < now + SINCE_MARGIN:
+        warn("liveops: collector.since %s is less than 7 days after this build (%s): set collector.since to the first "
+             "Monday at least 7 days after the build is published" % (out["since"], now.strftime("%Y-%m-%d")))
+    return out
 
 
 def build_crm_overlay():
@@ -915,6 +1030,417 @@ def build_crm_overlay():
         },
         "iap": {"prices": []},
     }
+
+
+# ----------------------------------------------------------------------------------------------- collector
+
+# Row types CratesInventoryComponent.GenerateRewardItem builds (GM/CratesInventoryComponent.cs:587-648); any other Type
+# draws no reward at all.
+CRATE_ROW_TYPES = {"UpgradeTokens", "SeasonTickets", "VersusCoins", "HardCurrency", "KillSignature", "Mod", "ModTier",
+                   "Gear", "GearSlot", "UnlockMerc", "TrialMerc", "MercSkin", "Credits", "MercAccessory", "WeaponCamo",
+                   "MercWeapon", "MercWeaponFragment", "TrialWeapon"}
+# Content-table fields the collector's CRM cells write (economy-collector.md §2.2-§2.5).
+LOOT_CRATE_FIELDS = ("Id", "LocId", "CratesCount", "RewardChance.2", "ContentTableName", "Image", "ImageShop")
+CONTENT_FIELDS = ("Id", "Type", "Subtype", "Subtype2", "BundledRewards", "Weight.1", "AlwaysGiveBundledRewards")
+# Only existing rows can change (EN/Database.cs:143-196); the crate's content table has 100 in 1.17.32.
+MAX_CRATE_ROWS = 100
+# Division season placements (PVPDivisionRewardsType): ranks 1, 2, 3, 4-10 and 11-30 get Crate_<tier>_<place>.
+SEASON_PLACES = (("FirstPlace", 1, 1), ("SecondPlace", 2, 2), ("ThirdPlace", 3, 3), ("4To10Place", 4, 10),
+                 ("11To20Place", 11, 30))
+# season_rewards/<numeral><stars>.png: the emblem without star, then one, two and three stars.
+EMBLEM_STARS = ("", "_1", "_2", "_3")
+# The row categories of collector.json, each exactly once in collector_tuning.json "rows" (§2.3, §4.1).
+COLLECTOR_CATEGORIES = ("avatars", "backgrounds", "sounds", "skins", "hiddenJerseys", "agents", "camos", "jerseys",
+                        "exhausted")
+
+
+def _flag(value):
+    return str(value).lower() == "true"
+
+
+def _design_table(cat, table):
+    t = cat.design.get("MCVS_Meta", {}).get(table)
+    if t is None:
+        raise ContentError("collector: no MCVS_Meta table %s in Design/MCVS_Meta.xlsx" % table)
+    return t
+
+
+def _design_rows(cat, table):
+    t = _design_table(cat, table)
+    return [dict(zip(t["Fields"], r)) for r in t["Rows"]]
+
+
+def _require_fields(cat, table, fields):
+    have = _design_table(cat, table)["Fields"]
+    for f in fields:
+        if f not in have:
+            raise ContentError("collector: MCVS_Meta.%s has no field %s" % (table, f))
+
+
+def _number(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _id_of(reward_id):
+    return int(reward_id.rsplit("_", 1)[1])
+
+
+def _find_nosource(cat, unlocks):
+    """Released items that no shipped source gives a player (economy-collector.md §1.1): every reward id of the full
+    unlock (the unlocks.json "order" groups) whose catalogue entry has no shipped source, visible non-Kayac jerseys
+    counted as sourced by the VIP subscription's random pool (GM/MercAccessoriesComponent.cs
+    GetLockedAccessoriesForMerc). Returns {catalogue category: set(reward ids)}; gear slots read as no-source too but
+    are no cosmetics, the crate never names them."""
+    groups = dict((g["id"], g) for g in unlocks["groups"])
+    found = {}
+    for gid in unlocks["order"]:
+        for pattern in groups[gid]["items"]:
+            for item in expand_pattern(pattern):
+                if reward_type(item) == "ModTier":
+                    continue  # a merc's mods, not an item of their own
+                if item not in cat.entries:
+                    raise ContentError("collector: released %s has no catalogue entry" % item)
+                category, entry = cat.entries[item]
+                kinds = shipped_sources(entry)
+                if category == "accessories" and _flag(entry.get("visible_in_shop")) and not entry.get("kayac_only"):
+                    kinds = kinds | {"vip-subscription-reward"}
+                if not kinds:
+                    found.setdefault(category, set()).add(item)
+    return found
+
+
+def collector_row_problem(row):
+    """None when the client can preview a crate row with weight (economy-collector.md §2.3.1), else why not.
+    GetPreview keys each weighted row on its image; a row whose reward has none (a sound, a fixed background) throws
+    KeyNotFoundException on every screen that shows the crate (D8): sounds ride only as carrier bundles."""
+    kind, sub, sub2, bundle = row.get("type"), row.get("subtype"), row.get("subtype2"), row.get("bundle")
+    digits = lambda v: isinstance(v, str) and v.isdigit()
+    if kind not in CRATE_ROW_TYPES:
+        return "type %s is not a reward type GenerateRewardItem builds" % kind
+    if kind == "KillSignature":
+        ok = sub in ("Avatar", "Background") and sub2 == "Random"
+    elif kind == "MercSkin":
+        ok = digits(sub) and digits(sub2)
+    elif kind == "MercAccessory":
+        ok = sub == "Random" and (sub2 == "Random" or digits(sub2))
+    elif kind == "UnlockMerc":
+        ok = digits(sub) and sub2 is None
+    elif kind == "WeaponCamo":
+        ok = sub == "Random" and sub2 == "Random"
+    elif kind == "VersusCoins":
+        ok = isinstance(sub, str) and re.match(r"^Tiers\d+$", sub) is not None and sub2 is None
+    else:
+        ok = False
+    if not ok:
+        return "%s/%s/%s cannot be previewed with weight" % (kind, sub, sub2)
+    if bundle is not None:
+        if not (isinstance(bundle, str) and re.match(r"^KillSignature_Sound_\d+$", bundle)):
+            return "bundle %s is not a KillSignature_Sound_<n> carrier bundle" % bundle
+        if (kind, sub, sub2) != ("KillSignature", "Avatar", "Random"):
+            return "bundle %s on a non-carrier %s/%s/%s row (only KillSignature/Avatar/Random rows carry sounds)" % (
+                bundle, kind, sub, sub2)
+    return None
+
+
+def build_collector(cat, tuning, unlocks, loc_tables):
+    """collector.json: the Cosmetic crate (economy-collector.md §1, §3.4). Ids only; weights, items per crate and the
+    other runtime knobs are economy.collector.* settings (CollectorPlan, server side)."""
+    if "MCVS_Meta" not in cat.design:
+        raise ContentError("collector: needs the design tables (Design/MCVS_Meta.xlsx in the decoded data pack)")
+    nosource = _find_nosource(cat, unlocks)
+    nosource_ids = lambda category: sorted(_id_of(r) for r in nosource.get(category, ()))
+
+    # Crate: an existing LootCrates row whose content table holds no reward yet (rows 1..n become ours).
+    crate = tuning["crate"]
+    _require_fields(cat, "LootCrates", LOOT_CRATE_FIELDS)
+    loot = dict((r["Id"], r) for r in _design_rows(cat, "LootCrates"))
+    if crate.get("id") not in loot:
+        raise ContentError("collector: unknown crate %s (no LootCrates row)" % crate.get("id"))
+    table = loot[crate["id"]]["ContentTableName"]
+    _require_fields(cat, table, CONTENT_FIELDS)
+    if any(r.get("Type") for r in _design_rows(cat, table)):
+        raise ContentError("collector: content table %s already holds rewards" % table)
+    check_loc_id(loc_tables, crate.get("locId"), "collector: crate.locId")
+    check_image(cat, crate.get("image"), "collector: crate.image")
+
+    # Avatars (§1.2, §1.3): the Kayac rule, the reserved season emblems, then the sets the CRM cells need.
+    av = dict((int(r["ID"]), r) for r in _design_rows(cat, "KillsignatureAvatars"))
+    released_av = set(a for a, _ in cat.avatars)
+    if released_av - set(av):
+        raise ContentError("collector: avatars %s have no KillsignatureAvatars row" % compress_ranges(released_av - set(av)))
+    rule = tuning["kayac"]
+    folders = list(rule.get("folders") or [])
+    name_part = (rule.get("nameContains") or "").lower()
+    extra = set(int(x) for x in rule.get("extra") or [])
+    if extra - set(av):
+        raise ContentError("collector: kayac.extra names unknown avatars %s" % compress_ranges(extra - set(av)))
+
+    def is_kayac(aid):
+        asset = av[aid].get("Asset") or ""
+        name = asset.rsplit("/", 1)[-1].lower()
+        return any(asset.startswith(f) for f in folders) or bool(name_part and name_part in name) or aid in extra
+
+    kayac = sorted(a for a in av if is_kayac(a))
+
+    season = tuning["season"]
+    by_asset = {}
+    for aid, r in av.items():
+        by_asset.setdefault(r.get("Asset"), []).append(aid)
+    emblems = []
+    for numeral in season["numerals"]:
+        ids = []
+        for stars in EMBLEM_STARS:
+            asset = "%s%s%s.png" % (season["emblemFolder"], numeral, stars)
+            found = by_asset.get(asset, [])
+            if len(found) != 1 or found[0] not in released_av:
+                raise ContentError("collector: season emblem %s does not resolve to one released avatar" % asset)
+            ids.append(found[0])
+        emblems.append(ids)
+    reserved = sorted(i for e in emblems for i in e[1:]) if tuning.get("reservePlacementEmblems", True) else []
+
+    unlockable = lambda aid: _flag(av[aid].get("Unlockable"))
+    kayac_set, reserved_set = set(kayac), set(reserved)
+    base = [a for a in nosource_ids("avatars") if a not in kayac_set and a not in reserved_set]
+    unlock = [a for a in base if not unlockable(a)]
+    lock = [a for a in kayac if a in released_av and unlockable(a)]
+    drawable = sorted(a for a in released_av if unlockable(a) and a not in kayac_set)
+
+    # Backgrounds (§1.4): no Kayac ones.
+    bg = dict((int(r["ID"]), r) for r in _design_rows(cat, "KillsignatureBackgrounds"))
+    released_bg = set(b for b, _ in cat.backgrounds)
+    if released_bg - set(bg):
+        raise ContentError("collector: backgrounds %s have no KillsignatureBackgrounds row" % compress_ranges(released_bg - set(bg)))
+    bg_base = nosource_ids("backgrounds")
+    bg_unlock = [b for b in bg_base if not _flag(bg[b].get("Unlockable"))]
+    bg_drawable = sorted(b for b in released_bg if _flag(bg[b].get("Unlockable")))
+
+    # The explicit rows of O5: released no-source items each (a tuning typo would otherwise sell a sourced item).
+    sound_rows = set(int(r["ID"]) for r in _design_rows(cat, "KillsignatureSounds"))
+    sounds = [int(s) for s in tuning["sounds"]]
+    for s in sounds:
+        if s not in sound_rows or "KillSignature_Sound_%d" % s not in nosource.get("sounds", ()):
+            raise ContentError("collector: sound %d is not a released no-source sound" % s)
+    skin_tables = dict((int(r["MercId"]), r["SkinsTableName"]) for r in _design_rows(cat, "SkinsListPerMerc"))
+    skins = [(int(m), int(s)) for m, s in tuning["skins"]]
+    for m, s in skins:
+        listed = [r for r in _design_rows(cat, skin_tables[m]) if int(r["ID"]) == s] if m in skin_tables else []
+        if len(listed) != 1 or _flag(listed[0].get("Locked")):
+            raise ContentError("collector: skin %d/%d has no unlocked SkinsList row (the client hides locked skins)" % (m, s))
+        if "MercSkin_%d_%d" % (m, s) not in nosource.get("skins", ()):
+            raise ContentError("collector: skin %d/%d is not a released no-source skin" % (m, s))
+    accessories = dict((int(r["Id"]), r) for r in _design_rows(cat, "MercAccessories"))
+    hidden = [int(j) for j in tuning["hiddenJerseys"]]
+    hidden_pairs = 0
+    for j in hidden:
+        r = accessories.get(j)
+        if r is None or _flag(r.get("VisibleInShop")) or _flag(r.get("IsKayac")) or r.get("MercId") not in (None, ""):
+            raise ContentError("collector: hidden jersey %d must exist with VisibleInShop=false, IsKayac=false and no MercId" % j)
+        released = set("MercAccessory_%d_%d" % (m, j) for m in cat.merc_ids if j in cat.accessories.get(m, ()))
+        if not released or not released <= nosource.get("accessories", set()):
+            raise ContentError("collector: hidden jersey %d is not a released no-source jersey" % j)
+        hidden_pairs += len(released)
+    agents = [int(a) for a in tuning["agents"]]
+    for name, values in (("sounds", sounds), ("skins", skins), ("hiddenJerseys", hidden), ("agents", agents)):
+        if len(set(values)) != len(values):
+            raise ContentError("collector: %s names an item twice (one row per item)" % name)
+    for a in agents:
+        if a not in cat.merc_ids or "UnlockMerc_%d" % a not in nosource.get("mercs", ()):
+            raise ContentError("collector: agent %d is not a displayed, released no-source agent" % a)
+
+    # Paid tier (§1.5): what WeaponCamo_Random_Random / MercAccessory_Random_Random draw from, per agent. Both must equal
+    # the unlocks.json groups (minus the hidden jerseys), which the client's own tables decide.
+    camo_tables = dict((r["WeaponId"], r["SkinsTableName"]) for r in _design_rows(cat, "CamosListPerWeapon"))
+    camos = {}
+    for m in cat.merc_ids:
+        weapon = cat.merc_weapons.get(m)
+        if weapon not in camo_tables:
+            raise ContentError("collector: agent %d: no CamosListPerWeapon row for its weapon %s" % (m, weapon))
+        pool = sorted(int(r["ID"]) for r in _design_rows(cat, camo_tables[weapon]) if not _flag(r.get("IsKayac")))
+        if pool != sorted(cat.camos.get(m, [])):
+            raise ContentError("collector: agent %d: the camo pool of %s differs from the unlocks.json camos group"
+                               % (m, camo_tables[weapon]))
+        camos[str(m)] = compress_ranges(pool)
+    visible = sorted(j for j, r in accessories.items() if _flag(r.get("VisibleInShop")) and not _flag(r.get("IsKayac")))
+    for j in visible:
+        if accessories[j].get("MercId") not in (None, ""):
+            raise ContentError("collector: jersey %d is agent-specific (MercId): collector.json has one jersey pool for "
+                               "every agent" % j)
+    not_visible = set(j for j, r in accessories.items() if not _flag(r.get("VisibleInShop")))
+    for m in cat.merc_ids:
+        if set(cat.accessories.get(m, [])) - not_visible != set(visible):
+            raise ContentError("collector: agent %d: the visible jersey pool differs from the unlocks.json accessories group" % m)
+
+    # Exhausted row (D7): a currency tier row (the setting economy.collector.exhaustedReward replaces it at run time).
+    exhausted_type, _, exhausted_tier = str(tuning["exhausted"]).partition("_")
+    tiers_table = exhausted_type + "Tiers"
+    if exhausted_tier not in [r["Id"] for r in _design_rows(cat, tiers_table)]:
+        raise ContentError("collector: exhausted reward %s has no %s row" % (tuning["exhausted"], tiers_table))
+
+    rows = []
+
+    def row(category, kind, sub, sub2=None, bundle=None, merc=None, item=None):
+        r = {"id": len(rows) + 1, "category": category, "type": kind, "subtype": sub}
+        for key, value in (("subtype2", sub2), ("bundle", bundle), ("merc", merc), ("item", item)):
+            if value is not None:
+                r[key] = value
+        rows.append(r)
+
+    order = list(tuning["rows"])
+    if sorted(order) != sorted(COLLECTOR_CATEGORIES):
+        raise ContentError("collector: rows must list each of %s once" % ", ".join(COLLECTOR_CATEGORIES))
+    for category in order:
+        if category == "avatars":
+            row(category, "KillSignature", "Avatar", "Random")
+        elif category == "backgrounds":
+            row(category, "KillSignature", "Background", "Random")
+        elif category == "sounds":
+            # Carriers (D8): a random-avatar row that always also gives its sound.
+            for s in sounds:
+                row(category, "KillSignature", "Avatar", "Random", bundle="KillSignature_Sound_%d" % s, item=s)
+        elif category == "skins":
+            for m, s in skins:
+                row(category, "MercSkin", str(m), str(s), merc=m, item=s)
+        elif category == "hiddenJerseys":
+            for j in hidden:
+                row(category, "MercAccessory", "Random", str(j), item=j)
+        elif category == "agents":
+            for a in agents:
+                row(category, "UnlockMerc", str(a), merc=a)
+        elif category == "camos":
+            row(category, "WeaponCamo", "Random", "Random")
+        elif category == "jerseys":
+            row(category, "MercAccessory", "Random", "Random")
+        else:
+            row(category, exhausted_type, exhausted_tier)
+
+    # Season (§2.4, §2.5): the tier of every division from the crates its ranks 1-30 get.
+    tiers = list(season["tiers"])
+    by_rank = dict((int(r["Rank"]), r) for r in _design_rows(cat, "PVPDivisionRewardsType"))
+    division_tier = []
+    for d in cat.divisions:
+        field = "Division%02d" % d
+        tier = None
+        for place, first, last in SEASON_PLACES:
+            for rank in range(first, last + 1):
+                name = (by_rank.get(rank) or {}).get(field) or ""
+                found = re.match(r"^Crate_(\w+)_%s$" % place, name)
+                if not found or (tier is not None and found.group(1) != tier):
+                    raise ContentError("collector: PVPDivisionRewardsType rank %d of division %d is '%s', not the division's "
+                                       "Crate_<tier>_%s" % (rank, d, name, place))
+                tier = found.group(1)
+        if tier not in tiers:
+            raise ContentError("collector: division %d uses tier %s, which season.tiers does not list" % (d, tier))
+        division_tier.append(tiers.index(tier))
+    if sorted(set(division_tier)) != list(range(len(tiers))) or division_tier != sorted(division_tier):
+        raise ContentError("collector: season.tiers must list the %d division tiers in division order (it has %d)"
+                           % (len(set(division_tier)), len(tiers)))
+    retarget = [["Crate_%s_%s" % (t, p) for p, _, _ in SEASON_PLACES[3:]] for t in tiers]
+    placement = [["Crate_%s_%s" % (t, p) for p, _, _ in SEASON_PLACES[:3]] for t in tiers]
+    for name in [c for group in retarget + placement for c in group]:
+        if name not in loot:
+            raise ContentError("collector: tier crate %s has no LootCrates row" % name)
+    for name in [c for group in placement for c in group]:
+        content = loot[name]["ContentTableName"]
+        _require_fields(cat, content, CONTENT_FIELDS)
+        weighted = [r for r in _design_rows(cat, content) if _number(r.get("Weight.1")) > 0]
+        if len(weighted) != 1 or int(weighted[0]["Id"]) != 1 or weighted[0].get("Type") != "HardCurrency":
+            raise ContentError("collector: %s row 1 must be the only Weight.1 row, a HardCurrency one (its bundle is the "
+                               "season emblem)" % content)
+
+    _require_fields(cat, "PlayerLevelXP", ("Level", "AvatarRewards"))
+    levels = [int(r["Level"]) for r in _design_rows(cat, "PlayerLevelXP") if int(r["Level"]) >= 2]
+
+    starting_av = set(a for a in av if "KillSignature_Avatar_%d" % a in cat.default_signatures)
+    starting_bg = set(b for b in bg if "KillSignature_Background_%d" % b in cat.default_signatures)
+    base_items = len(base) + len(bg_base) + len(sounds) + len(skins) + hidden_pairs + len(agents)
+    # What a fresh profile drains from the base tier: the random rows also reach the other unlockable signatures.
+    base_tier = (len((set(drawable) | set(unlock)) - starting_av) + len((set(bg_drawable) | set(bg_unlock)) - starting_bg)
+                 + len(sounds) + len(skins) + hidden_pairs + len(agents))
+    paid_pairs = sum(len(expand_ranges(v)) for v in camos.values()) + len(visible) * len(cat.merc_ids)
+    vip_only = sum(len(v) for v in cat.paid["camos"].values()) + sum(len(v) for v in cat.paid["accessories"].values())
+
+    doc = {
+        "format": FORMAT,
+        "crate": {"id": crate["id"], "table": table, "locId": crate["locId"], "image": crate["image"]},
+        "rows": rows,
+        "avatars": {"base": compress_ranges(base), "drawable": compress_ranges(drawable), "unlock": compress_ranges(unlock),
+                    "lock": compress_ranges(lock), "kayac": compress_ranges(kayac), "reserved": compress_ranges(reserved)},
+        "backgrounds": {"base": compress_ranges(bg_base), "drawable": compress_ranges(bg_drawable),
+                        "unlock": compress_ranges(bg_unlock)},
+        "sounds": sounds,
+        "camos": camos,
+        "jerseys": compress_ranges(visible),
+        "season": {"tiers": tiers, "divisionTier": division_tier, "retarget": retarget, "placement": placement,
+                   "emblems": emblems},
+        "levels": compress_ranges(levels),
+        "summary": {"baseItems": base_items, "baseTier": base_tier, "paidPairs": paid_pairs, "vipOnlyPairs": vip_only,
+                    "kayacAvatars": len([a for a in kayac if a in released_av])},
+    }
+    check_collector(cat, doc)
+    return doc
+
+
+def check_collector(cat, doc):
+    """The invariants of collector.json (economy-collector.md §3.4), checked on the document itself so that neither a
+    generator change nor a tuning edit can ship a crate the client cannot open or a set that breaks O5/D4."""
+    rows = doc["rows"]
+    table_ids = set(int(r["Id"]) for r in _design_rows(cat, doc["crate"]["table"]))
+    if not rows or len(rows) > MAX_CRATE_ROWS:
+        raise ContentError("collector: %d crate rows (1..%d)" % (len(rows), MAX_CRATE_ROWS))
+    for i, r in enumerate(rows, 1):
+        if r.get("id") != i or i not in table_ids:
+            raise ContentError("collector: row %s: ids must run 1..n over existing rows of %s" % (r.get("id"), doc["crate"]["table"]))
+        problem = collector_row_problem(r)
+        if problem:
+            raise ContentError("collector: row %d: %s" % (i, problem))
+
+    av = dict((int(r["ID"]), r) for r in _design_rows(cat, "KillsignatureAvatars"))
+    released_av = set(a for a, _ in cat.avatars)
+    sets = dict((k, set(expand_ranges(v))) for k, v in doc["avatars"].items())
+    for key in ("base", "drawable", "unlock", "lock", "reserved"):
+        # released excludes the never-released ids (1513-1518 in 1.17.32): never in base, unlock or lock
+        bad = sets[key] - released_av
+        if bad:
+            raise ContentError("collector: avatars.%s holds unknown or unreleased avatars %s" % (key, compress_ranges(bad)))
+    if sets["kayac"] - set(av):
+        raise ContentError("collector: avatars.kayac holds unknown avatars")
+    unlockable = lambda aid: _flag(av[aid].get("Unlockable"))
+    for key, other in (("base", "kayac"), ("base", "reserved"), ("drawable", "kayac"), ("drawable", "reserved")):
+        if sets[key] & sets[other]:
+            raise ContentError("collector: avatars %s in both %s and %s" % (compress_ranges(sets[key] & sets[other]), key, other))
+    if not sets["unlock"] <= sets["base"] or any(unlockable(a) for a in sets["unlock"]):
+        raise ContentError("collector: avatars.unlock must be the base avatars with Unlockable=false")
+    if sets["lock"] != set(a for a in sets["kayac"] & released_av if unlockable(a)):
+        raise ContentError("collector: avatars.lock must be the released Kayac avatars with Unlockable=true")
+
+    bg = dict((int(r["ID"]), r) for r in _design_rows(cat, "KillsignatureBackgrounds"))
+    released_bg = set(b for b, _ in cat.backgrounds)
+    bgs = dict((k, set(expand_ranges(v))) for k, v in doc["backgrounds"].items())
+    for key, ids in bgs.items():
+        if ids - released_bg:
+            raise ContentError("collector: backgrounds.%s holds unknown or unreleased backgrounds" % key)
+    if not bgs["unlock"] <= bgs["base"] or any(_flag(bg[b].get("Unlockable")) for b in bgs["unlock"]):
+        raise ContentError("collector: backgrounds.unlock must be the base backgrounds with Unlockable=false")
+
+
+def check_collector_rewards(liveops, collector):
+    """The crates the liveops.json collector block hands out are the collector's crate (what CollectorRuntime guards),
+    at least one of them (lists may be empty, the block as a whole may not: economy.collector.enabled switches it off)."""
+    block = liveops.get("collector")
+    if block is None:
+        return
+    lists = [block["dailyBonus"], block["weeklyFinal"]] + block["weeklyMilestones"]
+    crates = 0
+    for r in [r for rewards in lists for r in rewards]:
+        if r["item"] not in LIVEOPS_CURRENCIES and r["item"] != collector["crate"]["id"]:
+            raise ContentError("liveops: the collector block hands out %s, not the collector's crate %s"
+                               % (r["item"], collector["crate"]["id"]))
+        crates += r["item"] == collector["crate"]["id"]
+    if not crates:
+        raise ContentError("liveops: the collector block hands out no %s" % collector["crate"]["id"])
 
 
 # ----------------------------------------------------------------------------------------------- output
@@ -953,7 +1479,10 @@ def _big(items):
     return len(items) > 1 and len(json.dumps(items)) > 100
 
 
-def generate(decoded_dir, pricing_path, liveops_path=None):
+def generate(decoded_dir, pricing_path, liveops_path=None, collector_path=None, now=None):
+    """{file name: text} for server/Content. ``now`` (UTC, default the current time) only feeds warnings."""
+    if now is None:
+        now = datetime.datetime.now(datetime.timezone.utc)
     catalog = load_json(os.path.join(decoded_dir, "_catalog.json"))
     tables = load_json(os.path.join(decoded_dir, "_tables.json"))
     design = {}
@@ -963,9 +1492,13 @@ def generate(decoded_dir, pricing_path, liveops_path=None):
         if os.path.exists(path):
             design[db] = load_json(path)
     pricing = load_json(pricing_path)
+    here = os.path.dirname(os.path.abspath(__file__))
     if liveops_path is None:
-        liveops_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "liveops_tuning.json")
+        liveops_path = os.path.join(here, "liveops_tuning.json")
     liveops_tuning = load_json(liveops_path)
+    if collector_path is None:
+        collector_path = os.path.join(here, "collector_tuning.json")
+    collector_tuning = load_json(collector_path)
     loc_tables = _loc_tables(decoded_dir)
     inputs = ["_catalog.json", "_tables.json"]
     if loc_tables is not None:
@@ -988,7 +1521,9 @@ def generate(decoded_dir, pricing_path, liveops_path=None):
     coupons = build_coupons(set(g["id"] for g in unlocks["groups"]))
     economy = build_economy(cat, store_summary, unlock_counts)
     overlay = build_crm_overlay()
-    liveops = build_liveops(cat, liveops_tuning, loc_tables)
+    liveops = build_liveops(cat, liveops_tuning, loc_tables, now)
+    collector = build_collector(cat, collector_tuning, unlocks, loc_tables)
+    check_collector_rewards(liveops, collector)
 
     files = {
         "offline_store.json": store,
@@ -997,13 +1532,15 @@ def generate(decoded_dir, pricing_path, liveops_path=None):
         "economy.json": economy,
         "crm_overlay.json": overlay,
         "liveops.json": liveops,
+        "collector.json": collector,
     }
     manifest = {
         "schema": FORMAT,
         "generator": GENERATOR,
         "source": {"game": "Modern Combat Versus", "version": cat.game_version,
-                   "inputs": inputs + (["Design/MCVS_Meta.xlsx (index columns only)"] if design else []),
-                   "pricing": "tools/content-gen/pricing.json", "liveops": "tools/content-gen/liveops_tuning.json"},
+                   "inputs": inputs + (["Design/MCVS_Meta.xlsx (index columns; ids and flags for the collector)"] if design else []),
+                   "pricing": "tools/content-gen/pricing.json", "liveops": "tools/content-gen/liveops_tuning.json",
+                   "collector": "tools/content-gen/collector_tuning.json"},
         "files": [{"name": name, "entries": _entries(name, data)} for name, data in sorted(files.items())],
     }
     files["manifest.json"] = manifest
@@ -1019,6 +1556,8 @@ def _entries(name, data):
         return len(data["codes"])
     if name == "liveops.json":
         return len(data["objectives"])
+    if name == "collector.json":
+        return len(data["rows"])
     return None
 
 
@@ -1030,12 +1569,13 @@ def main(argv=None):
                         help="decoded data pack (with _catalog.json and _tables.json)")
     parser.add_argument("--pricing", default=os.path.join(here, "pricing.json"))
     parser.add_argument("--liveops", default=os.path.join(here, "liveops_tuning.json"))
+    parser.add_argument("--collector", default=os.path.join(here, "collector_tuning.json"))
     parser.add_argument("--out", default=os.path.join(repo, "server", "Content"))
     parser.add_argument("--check", action="store_true", help="only verify that --out is up to date")
     args = parser.parse_args(argv)
 
     try:
-        outputs = generate(args.decoded, args.pricing, args.liveops)
+        outputs = generate(args.decoded, args.pricing, args.liveops, args.collector)
     except (ContentError, KeyError, ValueError, OSError) as e:
         print("content-gen: error: %s" % e, file=sys.stderr)
         return 2
