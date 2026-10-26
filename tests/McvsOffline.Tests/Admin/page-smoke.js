@@ -843,6 +843,26 @@ async function fixtureExtras(p, fx) {
   await p.tap('saves-open-export');
   await p.tap('export-share');
   check(/within a minute/.test(p.text('export-result')), 'fixtures: export share result missing (' + p.text('export-result') + ')');
+  // 413 too_large: more than 999 parts of 1,900 characters. The page offers larger parts and a file.
+  fx.state.exportTooLarge = 'parts';
+  await p.choose('export-partsize', '1900');
+  await p.tap('export-copy');
+  check(/999 parts/.test(p.text('export-result')) && p.isShown('export-more'), 'fixtures: export 413 (parts) not explained (' + p.text('export-result') + ')');
+  check(p.button('export-more', 'Use Telegram parts (3,900)') && p.button('export-more', 'Share as a file'), 'fixtures: export 413 (parts) offers ' + p.text('export-more'));
+  await p.tap(p.button('export-more', 'Use whole parts (60,000)'));
+  check(p.isShown('export-text') && !p.isShown('export-more') && p.byId('export-partsize').props.value === '60000', 'fixtures: larger parts after a 413 did not export');
+  check(fx.state.exports[fx.state.exports.length - 1].partChars === 60000, 'fixtures: the retry did not ask for 60,000-character parts');
+  // 413 too_large in bytes: only the .json file can carry it.
+  fx.state.exportTooLarge = 'bytes';
+  await p.tap('export-copy');
+  const json = p.button('export-more', 'Share as a .json file');
+  if (check(json, 'fixtures: export 413 (bytes) offers ' + p.text('export-more'))) {
+    await p.tap(json);
+    const last = fx.state.exports[fx.state.exports.length - 1];
+    check(last.format === 'json' && last.target === 'share', 'fixtures: the .json share asked for ' + JSON.stringify(last));
+    check(/within a minute/.test(p.text('export-result')) && !p.isShown('export-more'), 'fixtures: the .json share result is missing (' + p.text('export-result') + ')');
+  }
+  fx.state.exportTooLarge = null;
   await p.tap('export-back');
   await p.tap('saves-open-import');
   const fileCheck = p.button('import-files', 'Check');
@@ -873,7 +893,22 @@ async function fixtureExtras(p, fx) {
   await p.tap('logs-share');
   check(/within a minute/.test(p.text('logs-built')), 'fixtures: logs share result missing (' + p.text('logs-built') + ')');
   await p.tap('logs-share-text');
+  check(/Choose an app\. Come back to the game within a minute/.test(p.text('toast-text')), 'fixtures: text report toast (' + p.text('toast-text') + ')');
+  fx.state.shareTextResult = { ok: false, method: 'text', publicPath: null, message: 'The share sheet is slow to open; it may still appear.' };
+  await p.tap('logs-share-text');
+  check(/may still appear\. If it opens, come back .*; if not, try again/.test(p.text('toast-text')), 'fixtures: slow text report toast (' + p.text('toast-text') + ')');
+  fx.state.shareTextResult = { ok: false, method: 'none', publicPath: null, message: 'Sharing failed: no activity.' };
+  await p.tap('logs-share-text');
+  check(p.text('toast-text') === 'Sharing failed: no activity.', 'fixtures: failed text report toast (' + p.text('toast-text') + ')');
+  fx.state.shareTextResult = null;
   await p.tap('logs-tab-view');
+  // game.log: the game's clock (no date) is shown as it is.
+  const gameLog = [...walk(p.el('logs-files'))].find((n) => n.listeners.click && /game\.log/.test(textOf(n)) && p.isShown(n));
+  if (check(gameLog, 'fixtures: game.log is not listed')) {
+    await p.tap(gameLog);
+    check(/10:42:39\.123 ERROR/.test(p.text('logs-view')), 'fixtures: game.log times not shown (' + p.text('logs-view').slice(0, 120) + ')');
+    await p.tap('logs-back');
+  }
   await p.tap('nav-actions');
   await p.tap('action-crm-reload');
   check(/takes effect/.test(p.text('toast-text')), 'fixtures: CRM rebuild not confirmed');
@@ -914,6 +949,11 @@ async function repairRun(fx) {
     await p.tap(copy);
     check(fx.state.clipboard.length === 1, 'run 4: the copy did not fall back to POST clipboard');
     check(/through the game/.test(p.text('toast-text')), 'run 4: wrong copy toast (' + p.text('toast-text') + ')');
+    // The game could not copy (POST clipboard 501): the player copies it by hand.
+    fx.state.clipboardFails = true;
+    await p.tap(copy);
+    check(/^Could not copy\. Select the text/.test(p.text('toast-text')), 'run 4: wrong toast when the game cannot copy (' + p.text('toast-text') + ')');
+    fx.state.clipboardFails = false;
   }
   check(p.pageErrorsShown() === null, 'run 4: page errors: ' + p.pageErrorsShown());
   p.close();
@@ -1055,6 +1095,9 @@ function startFixtures(html) {
       [OTHER]: [{ id: '20261020T080000000Z-r900-auto', date: ISO(Date.now() - 86400000 * 6), revision: 900, reason: 'auto', pool: 'auto', size: 640000, level: 41, deletable: false }],
     },
     sets: {}, uploads: {}, zip: null,
+    // Failure switches of the extras: export 413 ('parts' for 1,900-character parts, or 'bytes'), the text report's share
+    // result, POST clipboard answering 501.
+    exportTooLarge: null, exports: [], shareTextResult: null, clipboardFails: false,
   };
   for (const k in keys) if (keys[k].editable) state.values[k] = keys[k].default;
   state.boot = Object.assign({}, state.values);
@@ -1118,10 +1161,12 @@ function startFixtures(html) {
     current: { account: ACCOUNT, alias: 'Player0815', level: 37, source: 'game' },
     plans: [plan], plan, errors: [], warnings: plan === 'replace' ? [] : ['This phone already has a newer save of that account (revision 950 > 900).'], canStage: true,
   });
-  const logEntries = (min) => {
+  const logEntries = (min, name) => {
     const order = ['TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR'];
     const all = [];
-    for (let i = 0; i < 40; i++) all.push({ t: ISO(Date.now() - (40 - i) * 1000), l: order[i % 5], c: ['http', 'crm', 'storage'][i % 3], m: 'line ' + i + (i % 7 === 0 ? '\n   at Something.Else()' : '') });
+    // game.log has the game's own clock, without a date (design §7.1).
+    const time = (i) => (name === 'game.log' ? '10:42:' + String(i).padStart(2, '0') + '.123' : ISO(Date.now() - (40 - i) * 1000));
+    for (let i = 0; i < 40; i++) all.push({ t: time(i), l: order[i % 5], c: ['http', 'crm', 'storage'][i % 3], m: 'line ' + i + (i % 7 === 0 ? '\n   at Something.Else()' : '') });
     return all.filter((e) => order.indexOf(e.l) >= order.indexOf(String(min || 'trace').toUpperCase()));
   };
 
@@ -1170,6 +1215,7 @@ function startFixtures(html) {
     }],
     ['GET', /^codes$/, true, (req, res) => json(res, 200, { codes: [{ code: 'UNLOCKALL', description: 'Everything that was released.', numericSuffix: true }, { code: 'UNLOCKMERCS', description: 'Every agent.', numericSuffix: true }], pageCode: 'MCVSOFFLINE', enabled: true })],
     ['POST', /^clipboard$/, true, (req, res, body) => {
+      if (state.clipboardFails) return error(res, 501, 'not_supported', 'The game could not copy the text.');
       state.clipboard.push(body.text);
       return json(res, 200, { ok: true });
     }],
@@ -1243,6 +1289,13 @@ function startFixtures(html) {
     }],
     ['POST', /^saves\/([0-9a-f]{24})\/relink$/, true, (req, res, body, m) => (body.confirm === 'switch' ? stage(res, body, manifest('relink', 'switch', m[1], { alias: account(m[1]).alias, level: 41 })) : error(res, 400, 'invalid', 'Confirm.'))],
     ['POST', /^saves\/([0-9a-f]{24})\/export$/, true, (req, res, body) => {
+      state.exports.push(body);
+      if (state.exportTooLarge === 'parts' && body.format !== 'json' && body.partChars === 1900) {
+        return error(res, 413, 'too_large', 'This save needs more than 999 parts of 1900 characters. Choose larger parts, or share it as a file.', { limit: 999, unit: 'parts', partChars: 1900 });
+      }
+      if (state.exportTooLarge === 'bytes' && body.format !== 'json') {
+        return error(res, 413, 'too_large', 'This save is too large to export as transfer text. Export it as a .json file.', { limit: 16777216, unit: 'bytes', partChars: body.partChars || 60000 });
+      }
       const t = transfer(body.partChars || 60000);
       if (body.target === 'text') return json(res, 200, { file: null, size: t.chars, asOf: ISO(Date.now() - 420000), transfer: t, share: null });
       t.texts = null;
@@ -1250,14 +1303,14 @@ function startFixtures(html) {
     }],
     ['GET', /^logs$/, true, (req, res) => json(res, 200, {
       directories: [{ index: 0, path: '/data/McvsOffline/logs', kind: 'primary' }],
-      files: [{ dir: 0, name: 'server.log', kind: 'server', size: 5242880, modified: ISO(Date.now()) }, { dir: 0, name: 'bootstrap.log', kind: 'bootstrap', size: 80000, modified: ISO(Date.now()) }, { dir: 0, name: 'crash-20261025-1010.txt', kind: 'crash', size: 9000, modified: ISO(Date.now() - 864e5) }],
+      files: [{ dir: 0, name: 'server.log', kind: 'server', size: 5242880, modified: ISO(Date.now()) }, { dir: 0, name: 'bootstrap.log', kind: 'bootstrap', size: 80000, modified: ISO(Date.now()) }, { dir: 0, name: 'game.log', kind: 'game', size: 40000, modified: ISO(Date.now()) }, { dir: 0, name: 'crash-20261025-1010.txt', kind: 'crash', size: 9000, modified: ISO(Date.now() - 864e5) }],
       mirror: 'active, 3 files, last copy 12 s ago',
     })],
     ['POST', /^logs\/zip$/, true, (req, res) => { state.zip = 'mcvs-logs-20261026-101500.zip'; return json(res, 200, { file: state.zip, size: 2412345, entries: 14, skipped: 3, fits: { discord: true, gmail: true } }); }],
     ['POST', /^logs\/share$/, true, (req, res, body) => (body.file === state.zip ? json(res, 200, { share: { ok: true, method: 'sheet', publicPath: 'Download/MCVS-Offline/' + state.zip, message: 'Shared.' } }) : error(res, 404, 'not_found', 'Build the zip first.'))],
-    ['POST', /^logs\/share-text$/, true, (req, res) => json(res, 200, { share: { ok: true, method: 'text', publicPath: null, message: 'Shared as text.' } })],
+    ['POST', /^logs\/share-text$/, true, (req, res) => json(res, 200, { share: state.shareTextResult || { ok: true, method: 'text', publicPath: null, message: 'Choose an app.' } })],
     ['GET', /^logs\/([A-Za-z0-9._-]{1,128})$/, true, (req, res, body, m, s, q) => {
-      const entries = logEntries(q.get('min')).filter((e) => !q.get('q') || e.m.indexOf(q.get('q')) >= 0);
+      const entries = logEntries(q.get('min'), m[1]).filter((e) => !q.get('q') || e.m.indexOf(q.get('q')) >= 0);
       return json(res, 200, { name: m[1], size: 5242880, window: 1048576, truncatedHead: true, entries: entries.slice(-Number(q.get('lines') || 200)) });
     }],
   ];
