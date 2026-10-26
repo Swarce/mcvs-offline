@@ -6,6 +6,7 @@ using System.Linq;
 using System.Reflection;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Json;
+using McvsOffline.Server.Services.Crm.Collector;
 using McvsOffline.Server.Services.Social.LiveOps;
 using McvsOffline.Tests.Conformance;
 using Xunit;
@@ -21,11 +22,16 @@ namespace McvsOffline.Tests.Misc
     /// then the type's own <c>Initialize</c> (DivisionSeasonEvent, TimeLimitedAchievementEvent,
     /// TimeLimitedDailyQuestEvent, which create every reward with <c>RewardHelper.CreateRewardItem</c>), and the checks
     /// the TS later relies on without guarding (titles, milestones, rewards, the daily-quest pool selection).
+    /// The run's liveops.json is an override whose <c>collector.since</c> falls inside it, so it covers the events
+    /// without and with the Cosmetic crate (docs/design/economy-collector.md §3.2).
     /// Parsing runs under a day-first culture (de-DE), as on a European phone.
     /// Skipped without the player's assemblies (MCVS_REFS), mandatory with MCVS_REQUIRE_REAL_CLIENT=1.
     /// </summary>
     public class LiveOpsConformanceTests
     {
+        /// <summary>The run's <c>collector.since</c> (a content override): Monday 2026-10-26, three days into the run.</summary>
+        private static readonly DateTime Since = new DateTime(2026, 10, 26, 0, 0, 0, DateTimeKind.Utc);
+
         private readonly ITestOutputHelper output;
 
         public LiveOpsConformanceTests(ITestOutputHelper output)
@@ -66,9 +72,14 @@ namespace McvsOffline.Tests.Misc
             var clock = new ManualClock(new DateTime(2026, 10, 23, 15, 0, 0, DateTimeKind.Utc));
             using var s = new MiscServer(clock);
             s.Set("liveops.seasonDays", (long)seasonDays);
+            // The Cosmetic crate from Monday 2026-10-26, the fourth day of the run.
+            LiveOpsTests.OverrideContent(s, LiveOpsCatalog.ContentName, LiveOpsContent.WithSince(Since));
+            LiveOpsCollectorRewards collector = LiveOpsService.For(s.Context).Catalog.Collector;
+            Assert.True(collector != null && collector.Since == Since, "the override's collector block was not read");
             TestPlayer p = s.NewPlayer("conformance");
             var checkedIds = new HashSet<string>();
             var types = new Dictionary<string, int>();
+            var crates = new Dictionary<string, int>();
             try
             {
                 // 16 days from a Friday: two season changes, every daily rotation step of two weeks, the last-day
@@ -114,8 +125,17 @@ namespace McvsOffline.Tests.Misc
                         Assert.Equal(0, (int)GameClient.Get(tle, "TemplateVersion")); // kept: <= TimeLimitedEventsComponent.TemplateVersion (0)
                         types[eventType] = types.TryGetValue(eventType, out int n) ? n + 1 : 1;
 
-                        if (eventType == "DivisionSeasonEvent") CheckDivision(tle, raw);
-                        else CheckAchievements(tle, eventType, rewardItem);
+                        if (eventType == "DivisionSeasonEvent")
+                        {
+                            CheckDivision(tle, raw);
+                        }
+                        else
+                        {
+                            CheckAchievements(tle, eventType, rewardItem);
+                            bool withCrate = CheckRewards(tle, eventType, raw, start >= Since);
+                            string kind = eventType + (withCrate ? " with" : " without") + " the Cosmetic crate";
+                            crates[kind] = crates.TryGetValue(kind, out int c) ? c + 1 : 1;
+                        }
                     }
                     clock.Advance(TimeSpan.FromHours(step == 3 ? 23 : 24));
                 }
@@ -125,9 +145,27 @@ namespace McvsOffline.Tests.Misc
                 CultureInfo.CurrentCulture = saved;
             }
             foreach (var kv in types) output.WriteLine(kv.Key + ": " + kv.Value + " distinct events initialized");
+            foreach (var kv in crates) output.WriteLine(kv.Key + ": " + kv.Value);
             Assert.True(types.ContainsKey("DivisionSeasonEvent") && types["DivisionSeasonEvent"] >= 17 * 4);
             Assert.True(types.ContainsKey("TimeLimitedDailyQuestEvent") && types["TimeLimitedDailyQuestEvent"] >= 16);
             Assert.True(types.ContainsKey("TimeLimitedAchievementEvent") && types["TimeLimitedAchievementEvent"] >= 3);
+            int Crates(string kind) => crates.TryGetValue(kind, out int n) ? n : 0;
+            Assert.True(Crates("TimeLimitedDailyQuestEvent without the Cosmetic crate") >= 3);   // 10-23 … 10-25
+            Assert.True(Crates("TimeLimitedDailyQuestEvent with the Cosmetic crate") >= 12);     // 10-26 … 11-08
+            Assert.True(Crates("TimeLimitedAchievementEvent without the Cosmetic crate") >= 1);  // the season before since
+            Assert.True(Crates("TimeLimitedAchievementEvent with the Cosmetic crate") >= 2);
+
+            // RewardHelper.CreateRewardItem("Crate_Event_Special", n), as Initialize calls it: a crate of n.
+            Type helper = game.Type("Game", "Game.RewardHelper");
+            Type source = game.Type("Game", "Game.RewardItem+TrackingSource");
+            MethodInfo create = helper.GetMethod("CreateRewardItem", new[] { typeof(string), typeof(int), source });
+            foreach (int n in new[] { 1, 2, 5 })
+            {
+                object item = create.Invoke(null, new object[] { CollectorGuard.CrateId, n, Activator.CreateInstance(source) });
+                Assert.Equal("Game.CrateRewardItem", item?.GetType().FullName);
+                Assert.Equal(n, (int)GameClient.Get(item, "Quantity"));
+                Assert.Equal(CollectorGuard.CrateId, (string)GameClient.Get(item, "Id"));
+            }
             output.WriteLine("parsed under " + (dayFirst.Name.Length == 0 ? "a day-first copy of the invariant culture" : dayFirst.Name)
                              + " (dates as " + new DateTime(2026, 10, 5).ToString(dayFirst) + ")");
         }
@@ -172,6 +210,57 @@ namespace McvsOffline.Tests.Misc
             string qa = ((string)GameClient.Get(tle, "LeaderboardId")).Replace("Leaderboard", "Leaderboard_QA");
             Assert.True(LiveOpsSchedule.TryParseBoard(qa, out LiveOpsWindow season, out int d));
             Assert.Equal(division, d);
+        }
+
+        /// <summary>
+        /// Every reward of the template became a RewardItem with its id and quantity, in order (Initialize calls
+        /// <c>RewardHelper.CreateRewardItem(item, quantity, source)</c> for each); in a window from <c>collector.since</c>
+        /// the Cosmetic crate is a <c>Game.CrateRewardItem</c> after today's rewards in the daily bonus, in every milestone
+        /// of every weekly objective and in the weekly final, and nowhere else; before it, nowhere. True when it was there.
+        /// </summary>
+        private static bool CheckRewards(object tle, string eventType, Dictionary<string, object> raw, bool crateWindow)
+        {
+            var template = MiniJson.ParseObject((string)raw["_template"]);
+            var expected = ((List<object>)JsonPath.Get(template, "milestones.value")).Cast<Dictionary<string, object>>().ToList();
+            var achievements = ((IEnumerable)GameClient.Get(tle, "Achievements")).Cast<object>().ToList();
+            Assert.Equal(expected.Count, achievements.Count);
+            bool weekly = eventType == "TimeLimitedAchievementEvent";
+            int found = 0, all = 0;
+            for (int i = 0; i < achievements.Count; i++)
+            {
+                string tracker = GameClient.Get(achievements[i], "MainTracker").ToString();
+                Assert.Equal((string)expected[i]["primary_tracker"], tracker);
+                var milestones = ((IEnumerable)GameClient.Get(achievements[i], "Milestones")).Cast<object>().ToList();
+                var wanted = ((List<object>)expected[i]["milestones"]).Cast<Dictionary<string, object>>().ToList();
+                Assert.Equal(wanted.Count, milestones.Count);
+                all += milestones.Count;
+                bool final = tracker == LiveOpsEvents.CompleteAll;
+                for (int m = 0; m < milestones.Count; m++)
+                {
+                    var rewards = ((IEnumerable)GameClient.Get(milestones[m], "Rewards")).Cast<object>().ToList();
+                    var want = ((List<object>)wanted[m]["rewards"]).Cast<Dictionary<string, object>>().ToList();
+                    Assert.Equal(want.Count, rewards.Count);
+                    for (int r = 0; r < rewards.Count; r++)
+                    {
+                        Assert.Equal((string)want[r]["item"], (string)GameClient.Get(rewards[r], "Id"));
+                        Assert.Equal((long)want[r]["quantity"], (long)(int)GameClient.Get(rewards[r], "Quantity"));
+                    }
+                    var crates = rewards.Where(r => (string)GameClient.Get(r, "Id") == CollectorGuard.CrateId).ToList();
+                    if (!crateWindow || !(weekly || final))
+                    {
+                        Assert.Empty(crates);
+                        continue;
+                    }
+                    object crate = Assert.Single(crates);
+                    Assert.Equal("Game.CrateRewardItem", crate.GetType().FullName);
+                    Assert.Same(crate, rewards.Last());
+                    Assert.Equal(weekly && final ? 2 : 1, (int)GameClient.Get(crate, "Quantity"));   // §3.1: 1 per tier and bonus, 2 in the final
+                    found++;
+                }
+            }
+            // The daily bonus alone; or every milestone of the weekly event (each objective's tiers and the final).
+            if (crateWindow) Assert.Equal(weekly ? all : 1, found);
+            return found > 0;
         }
 
         private static void CheckAchievements(object tle, string eventType, Type rewardItem)
@@ -227,8 +316,12 @@ namespace McvsOffline.Tests.Misc
             }
         }
 
-        /// <summary>A two-function stand-in for libnativeengine.so's tracking entry points used by static constructors.</summary>
-        private static class NativeTrackingStub
+        /// <summary>
+        /// A two-function stand-in for libnativeengine.so's tracking entry points used by static constructors. Internal:
+        /// other real-client tests that initialize achievement events install it too
+        /// (<c>LiveOpsConformanceTests.NativeTrackingStub.Install(engine, output)</c>; once per process).
+        /// </summary>
+        internal static class NativeTrackingStub
         {
             private static readonly object Gate = new object();
             private static string installed;

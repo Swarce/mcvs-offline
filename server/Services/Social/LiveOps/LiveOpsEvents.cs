@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using McvsOffline.Server.Core.Json;
+using McvsOffline.Server.Services.Crm.Collector;
 
 namespace McvsOffline.Server.Services.Social.LiveOps
 {
@@ -60,9 +61,17 @@ namespace McvsOffline.Server.Services.Social.LiveOps
             return Finish(catalog, e, MiniJson.Serialize(template) + "|" + e["_participation"] + "|" + leaderboard["name"]);
         }
 
-        /// <summary>The day's quests (a TimeLimitedDailyQuestEvent): <c>count</c> objectives picked from the catalogue by
-        /// the day, plus the "complete all" bonus (its goal is set by the TS to the number of other milestones).</summary>
+        /// <summary><see cref="DailyQuest(LiveOpsCatalog, LiveOpsWindow, CollectorRuntime)"/> without the collector (no Cosmetic crate).</summary>
         public static Dictionary<string, object> DailyQuest(LiveOpsCatalog catalog, LiveOpsWindow day)
+        {
+            return DailyQuest(catalog, day, null);
+        }
+
+        /// <summary>The day's quests (a TimeLimitedDailyQuestEvent): <c>count</c> objectives picked from the catalogue by
+        /// the day, plus the "complete all" bonus (its goal is set by the TS to the number of other milestones). In a day
+        /// that gets the Cosmetic crate (<see cref="CratesIn"/>) the collector's <c>dailyBonus</c> follows the bonus
+        /// rewards; otherwise the event, and so its <c>_version</c>, is exactly as without the collector.</summary>
+        public static Dictionary<string, object> DailyQuest(LiveOpsCatalog catalog, LiveOpsWindow day, CollectorRuntime runtime)
         {
             var pool = new List<LiveOpsObjective>();
             foreach (LiveOpsObjective o in catalog.Objectives)
@@ -77,9 +86,11 @@ namespace McvsOffline.Server.Services.Social.LiveOps
                 int goal = o.DailyGoals[LiveOpsHash.Below(ref state, o.DailyGoals.Count)];
                 achievements.Add(Achievement(o.Tracker, o.Title, o.TitlePlural, new[] { goal }, new List<List<LiveOpsReward>> { o.DailyRewards }));
             }
-            if (catalog.DailyBonusRewards.Count > 0)
+            var bonus = new List<LiveOpsReward>(catalog.DailyBonusRewards);
+            if (CratesIn(catalog, day, runtime)) bonus.AddRange(catalog.Collector.DailyBonus);
+            if (bonus.Count > 0)
                 achievements.Add(Achievement(CompleteAll, catalog.DailyBonusTitle, catalog.DailyBonusTitle, new[] { picked.Count },
-                                             new List<List<LiveOpsReward>> { catalog.DailyBonusRewards }));
+                                             new List<List<LiveOpsReward>> { bonus }));
 
             var template = AchievementTemplate(DailyQuestType, catalog.DailyTitle, catalog.DailyDescription, catalog.DailyBanner,
                                                catalog.DailyMenu, catalog.DailyAdvertisement, null, achievements);
@@ -87,10 +98,21 @@ namespace McvsOffline.Server.Services.Social.LiveOps
             return Finish(catalog, e, MiniJson.Serialize(template));
         }
 
+        /// <summary><see cref="WeeklyEvent(LiveOpsCatalog, LiveOpsWindow, LiveOpsModifier, CollectorRuntime)"/> without the
+        /// collector (no Cosmetic crate).</summary>
+        public static Dictionary<string, object> WeeklyEvent(LiveOpsCatalog catalog, LiveOpsWindow season, LiveOpsModifier modifier)
+        {
+            return WeeklyEvent(catalog, season, modifier, null);
+        }
+
         /// <summary>The season's achievement event (a TimeLimitedAchievementEvent over the season window): a themed
         /// objective plus <c>count - 1</c> others, three milestones each, goals scaled to the season length, and a
-        /// "complete all" final reward with the season's event crate.</summary>
-        public static Dictionary<string, object> WeeklyEvent(LiveOpsCatalog catalog, LiveOpsWindow season, LiveOpsModifier modifier)
+        /// "complete all" final reward with the season's event crate. In a season that gets the Cosmetic crate
+        /// (<see cref="CratesIn"/>) the collector's <c>weeklyMilestones[i]</c> follow tier <c>i</c>'s rewards and its
+        /// <c>weeklyFinal</c> follows the event crate; otherwise the event, and so its <c>_version</c>, is exactly as
+        /// without the collector.</summary>
+        public static Dictionary<string, object> WeeklyEvent(LiveOpsCatalog catalog, LiveOpsWindow season, LiveOpsModifier modifier,
+                                                             CollectorRuntime runtime)
         {
             var pool = new List<LiveOpsObjective>();
             foreach (LiveOpsObjective o in catalog.Objectives)
@@ -124,17 +146,31 @@ namespace McvsOffline.Server.Services.Social.LiveOps
             var picked = new List<LiveOpsObjective> { theme };
             picked.AddRange(Pick(others, MinInt(catalog.WeeklyCount - 1, others.Count), ref state));
 
+            bool crates = CratesIn(catalog, season, runtime);
+            List<List<LiveOpsReward>> tiers = catalog.WeeklyMilestoneRewards;
+            if (crates)
+            {
+                // ParseCollector checked there is one collector list per tier.
+                tiers = new List<List<LiveOpsReward>>();
+                for (int i = 0; i < catalog.WeeklyMilestoneRewards.Count; i++)
+                {
+                    var tier = new List<LiveOpsReward>(catalog.WeeklyMilestoneRewards[i]);
+                    if (i < catalog.Collector.WeeklyMilestones.Count) tier.AddRange(catalog.Collector.WeeklyMilestones[i]);
+                    tiers.Add(tier);
+                }
+            }
             var achievements = new List<object>();
             int milestones = 0;
             foreach (LiveOpsObjective o in picked)
             {
                 int[] goals = ScaleGoals(o.WeeklyGoals, season.Days);
                 milestones += goals.Length;
-                achievements.Add(Achievement(o.Tracker, o.Title, o.TitlePlural, goals, catalog.WeeklyMilestoneRewards));
+                achievements.Add(Achievement(o.Tracker, o.Title, o.TitlePlural, goals, tiers));
             }
             var final = new List<LiveOpsReward>(catalog.WeeklyFinalRewards);
             if (catalog.WeeklyFinalEventCrate && catalog.EventCrates.Count > 0)
                 final.Add(new LiveOpsReward { Item = catalog.EventCrates[(int)Mod(ordinal, catalog.EventCrates.Count)], Quantity = 1 });
+            if (crates) final.AddRange(catalog.Collector.WeeklyFinal);
             if (final.Count > 0)
                 achievements.Add(Achievement(CompleteAll, catalog.WeeklyFinalTitle, catalog.WeeklyFinalTitle, new[] { milestones },
                                              new List<List<LiveOpsReward>> { final }));
@@ -166,6 +202,27 @@ namespace McvsOffline.Server.Services.Social.LiveOps
                 previous = g;
             }
             return result;
+        }
+
+        /// <summary>
+        /// True when the event of <paramref name="window"/> (a quest day or a season) carries the Cosmetic crate: the
+        /// catalogue has a valid <c>collector</c> block and <see cref="CollectorRuntime.CratesInWindow"/> allows the
+        /// window's start (enabled, collector.json valid, store patch not known missing, start ≥ <c>since</c>). The one
+        /// question live ops ask the collector (§2.12): the CRM layer is decided from the same inputs.
+        /// </summary>
+        public static bool CratesIn(LiveOpsCatalog catalog, LiveOpsWindow window, CollectorRuntime runtime)
+        {
+            if (runtime == null || catalog == null || catalog.Collector == null || window == null) return false;
+            try
+            {
+                return runtime.CratesInWindow(window.Start, catalog.Collector.Since);
+            }
+            catch (Exception)
+            {
+                // The runtime does not throw on its inputs (it keeps the last collector.json read). Anything else costs
+                // the crate, never the event; LiveOpsService logs it when it reads the runtime's InputsKey.
+                return false;
+            }
         }
 
         // ------------------------------------------------------------------------------------------ helpers
