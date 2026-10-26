@@ -77,10 +77,10 @@ namespace McvsOffline.Server.Services.Crm
                 {
                     // The per-player document (economy-collector.md §2.9): for the store filter, or while the document
                     // carries the collector layer. Selectors and explicit user paths stay static.
-                    bool omit = cache.Options.OmitOwnedSignatures;
-                    if (path.Length == 0 && owned != null && (omit || doc.CollectorPhase == CollectorPhase.Active))
+                    if (path.Length == 0 && owned != null)
                     {
-                        Caller caller = Fed.TryGetCaller(context, request);
+                        bool omit = cache.Options.OmitOwnedSignatures;
+                        Caller caller = omit || doc.CollectorPhase == CollectorPhase.Active ? Fed.TryGetCaller(context, request) : null;
                         if (caller != null) json = owned.JsonFor(doc, caller.AccountId, omit);
                     }
                     log.Debug("configs" + (path.Length == 0 ? "" : " selector '" + path + "'") + ": " + json.Length + " chars");

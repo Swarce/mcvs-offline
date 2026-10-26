@@ -575,6 +575,37 @@ namespace McvsOffline.Tests.Content
             Assert.Contains("collector.json", second.Collector.Status.Reason);
         }
 
+        /// <summary>
+        /// collector.since as the CRM reads it from liveops.json until the live-ops snapshot carries it (WP-E): the shipped
+        /// block gives the compiled-in ShippedSince; a missing block or a since in another form gives none (the guard then
+        /// starts at ShippedSince).
+        /// </summary>
+        [Fact]
+        public void CollectorSinceComesFromLiveOpsJson()
+        {
+            Assert.True(new ContentProvider(null, null, Log.Null).TryReadContentText(LiveOpsCatalog.ContentName, out string shipped));
+            DateTime? since = CrmDocumentCache.ParseCollectorSince(shipped);
+            Assert.Equal(CollectorGuard.ShippedSince, since);
+            Assert.Equal(DateTimeKind.Utc, since.Value.Kind);
+            foreach (string text in new[] { null, "", "{", "{}", "{\"collector\":{}}", "{\"collector\":{\"since\":\"2026-11-09\"}}",
+                                            "{\"collector\":{\"since\":\"2026-11-09T00:00:00+01:00\"}}", "{\"collector\":{\"since\":20261109}}" })
+                Assert.Null(CrmDocumentCache.ParseCollectorSince(text));
+            Assert.Equal(new DateTime(2026, 11, 16, 0, 0, 0, DateTimeKind.Utc),
+                         CrmDocumentCache.ParseCollectorSince("{\"collector\":{\"since\":\"2026-11-16T00:00:00Z\"}}"));
+
+            // An override that moves since a week later: the first week after the shipped since is the guard (live ops on,
+            // before since, after guardSince), the next one the layer.
+            using var run = new GoldenRun(ActiveDay);
+            var liveOps = MiniJson.ParseObject(shipped);
+            ((Dictionary<string, object>)liveOps["collector"])["since"] = "2026-11-16T00:00:00Z";
+            run.OverrideContent(LiveOpsCatalog.ContentName, MiniJson.Serialize(liveOps));
+            CrmDocumentCache cache = run.Context.Features.Get<CrmDocumentCache>();
+            Assert.Equal(CollectorPhase.Guard, cache.Get(0).CollectorPhase);
+            Assert.Contains("before collector.since 2026-11-16", cache.Get(0).Collector.Status.Reason);
+            run.Clock.UtcNow = ActiveDay.AddDays(7);
+            Assert.Equal(CollectorPhase.Active, cache.Get(0).CollectorPhase);
+        }
+
         // ------------------------------------------------------------------------------------------ helpers
 
         private static CrmCollector ActivePart(CollectorContent content)

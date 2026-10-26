@@ -326,7 +326,11 @@ namespace McvsOffline.Server.Services.Crm
 
         private static void WriteCells(Dictionary<string, object> tables, IEnumerable<CollectorCell> cells)
         {
-            foreach (CollectorCell cell in cells) SetCell(tables, CollectorPlan.Database, cell.Table, cell.Index, cell.Field, cell.Key, cell.Value);
+            foreach (CollectorCell cell in cells)
+            {
+                if (cell == null) throw new ArgumentException("the layer holds a null cell");
+                SetCell(tables, CollectorPlan.Database, cell.Table, cell.Index, cell.Field, cell.Key, cell.Value);
+            }
         }
 
         private static void RemoveCells(Dictionary<string, object> tables, IEnumerable<CollectorCell> cells)
@@ -334,9 +338,11 @@ namespace McvsOffline.Server.Services.Crm
             foreach (CollectorCell cell in cells) RemoveCell(tables, cell);
         }
 
-        /// <summary>The changer of <paramref name="cell"/> in <paramref name="tables"/>, or null.</summary>
+        /// <summary>The changer of <paramref name="cell"/> in <paramref name="tables"/>, or null (also for a malformed cell:
+        /// this runs on the failure path too).</summary>
         private static Dictionary<string, object> ChangerOf(Dictionary<string, object> tables, CollectorCell cell)
         {
+            if (cell == null || cell.Index == null || cell.Field == null) return null;
             var db = JsonValue.AsObject(JsonValue.Get(tables, CollectorPlan.Database));
             return JsonValue.AsObject(JsonValue.Get(JsonValue.AsObject(JsonValue.Get(db, cell.Table)), cell.Changer));
         }
@@ -358,7 +364,7 @@ namespace McvsOffline.Server.Services.Crm
         private static void RemoveCell(Dictionary<string, object> tables, CollectorCell cell)
         {
             var changer = ChangerOf(tables, cell);
-            if (changer != null) JsonPath.RemoveKey(changer, cell.Key);
+            if (changer != null && cell.Key != null) JsonPath.RemoveKey(changer, cell.Key);
         }
 
         // ---------------------------------------------------------------------------------------- sections

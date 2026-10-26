@@ -142,14 +142,20 @@ namespace McvsOffline.Server.Services.Crm
             Dictionary<string, object> statics = LayerValues();
             var cells = new List<CollectorCell>();
             var patched = new HashSet<string>(StringComparer.Ordinal);
+            var copies = new Dictionary<string, Dictionary<string, object>>(StringComparer.Ordinal);
             foreach (FieldPatch patch in patches)
             {
-                var db = CopyChild(tables, patch.Database);
-                var table = CopyChild(db, patch.Table);
+                Dictionary<string, object> db, table;
+                if (!copies.TryGetValue(patch.Database, out db)) copies[patch.Database] = db = CopyChild(tables, patch.Database);
+                if (!copies.TryGetValue(patch.Database + "\n" + patch.Table, out table)) copies[patch.Database + "\n" + patch.Table] = table = CopyChild(db, patch.Table);
                 Dictionary<string, object> changer = Patched(JsonValue.AsObject(JsonValue.Get(table, patch.Changer)), patch, statics);
                 if (changer.Count > 0) table[patch.Changer] = changer;
                 else JsonPath.RemoveKey(table, patch.Changer);
-                if (table.Count == 0) JsonPath.RemoveKey(db, patch.Table);
+                if (table.Count == 0)
+                {
+                    JsonPath.RemoveKey(db, patch.Table);
+                    copies.Remove(patch.Database + "\n" + patch.Table);
+                }
                 patched.Add(patch.Table + "\n" + patch.Changer);
                 foreach (var kv in changer) cells.Add(new CollectorCell(patch.Table, patch.Index, patch.Field, kv.Key, kv.Value));
             }
