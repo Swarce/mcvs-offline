@@ -15,20 +15,22 @@ Done items are struck through. Device-test history and open risks are in [STATUS
 - ~~**Install from copied data** ([INSTALL-OFFLINE.md](INSTALL-OFFLINE.md)): a copied `Data/` folder or a `files/` backup is accepted without Gameloft's CDN (confirmed in device test 5).~~ ✅
 - ~~**ABIs**: 32-bit kept by default; `--abi arm64-v8a` gives a 64-bit-only APK.~~ ✅
 - ~~**Firing-range exit lag**: the CRM document leaves owned kill signatures out (build 6; fast in device test 6).~~ ✅
+- ~~**Avatar editor freeze** after unlock-all: caught in a thread dump in device test 6 (managed code, not the Flash VM); the `signatures` patch builds the list once per screen and looks ids up in sets (build 7, ×380 on net8).~~ ✅ (to confirm in device test 7)
+- ~~**Unlock-all reward-popup stalls** (18–27 s per batch in device test 5): the same list builder; below a second per batch with build 7.~~ ✅ (the level jump to ~46 itself is the game's own behaviour: every new mod gives XP)
+- ~~**Patcher tooling**: `--game-log fatal` for quiet player builds, `--abi`, `--dry-run`, fingerprint-verified IL patches.~~ ✅
 
 ## Next
 
 | Priority | Item |
 |---|---|
-| Low | **Server write speed**: faster profile saves and storage writes (currently usable). |
-| Low | **Avatar editor hang** with ~1,500 owned avatars: caught in a thread dump in device test 6 (managed, not the Flash VM); build 7's `signatures` patch removes it (×380 on net8), to confirm in device test 7. Optional follow-up if half-unlocked profiles still hitch (~0.5–0.9 s): build the avatar list once per screen refresh in `GameOfflineStore.GetKillSignItemObject` too. |
-| Low | Level jump to ~46 while unlock-all grants every mod (known game behaviour: each new mod gives XP). The 18–27 s reward-popup stalls of that grant came from the signature list builder and drop below a second per batch with build 7. |
+| Low | **Server write speed**: faster profile saves and storage writes (usable; build 6 already made the CRM refetch after every save ~78% smaller for unlock-all profiles). |
+| Low | **Signature screen, half-unlocked profiles**: only if device test 7 shows a hitch (~0.5–0.9 s estimated): build the avatar list once per screen refresh in `GameOfflineStore.GetKillSignItemObject` too. |
 
 ## Later
 
-- **Release polish**: quieter logging for player builds (`--game-log fatal`); a settings page served by the embedded server (`http://127.0.0.1:51780/`) for toggles, save backup/restore and logs; ready-to-use patcher builds for Windows/macOS/Linux; player guide; testing on more devices.
+- **Release polish**: quieter logging by default for player builds (the `--game-log fatal` option exists; the default is still `all` for testing); a settings page served by the embedded server (`http://127.0.0.1:51780/`) for toggles, save backup/restore and logs; ready-to-use patcher builds for Windows/macOS/Linux; player guide; testing on more devices.
 - **Economy**: progression paths (reward tracks, crates) for the ~1,600 items that never had an unlock source; tuning from play.
-- **M3 LAN multiplayer**: `lan` patches; host's Game Server reaches each guest's profile on the guest's own embedded server; LAN discovery.
+- **M3 LAN multiplayer** (experimental groundwork in: the optional `lan` patches and the server's LAN mode): host's Game Server reaches each guest's profile on the guest's own embedded server; LAN discovery.
 - **M4 Internet multiplayer**: overlay VPN guide first (Tailscale/ZeroTier), then an optional relay; host-leaves handling.
-- **M5 Preservation extras**: mirror all 121 CDN builds while the CDN lives; missing maps from older builds (Barrage, Bridge, Downtown, Gym); archive the remaining online assets (news/event images); fully CDN-independent installs.
+- **M5 Preservation extras** (`tools/cdn-mirror` and the offline install from copied data are done): mirror all 121 CDN builds while the CDN lives; missing maps from older builds (Barrage, Bridge, Downtown, Gym); archive the remaining online assets (news/event images); fully CDN-independent installs.
 - **Steam PC version**: try the same server and patches on the Steam build, which ships the same .NET assemblies and data.
