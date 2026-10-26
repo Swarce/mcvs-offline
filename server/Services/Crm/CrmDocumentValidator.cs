@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Json;
 
@@ -7,7 +8,8 @@ namespace McvsOffline.Server.Services.Crm
 {
     /// <summary>
     /// Checks a CRM document against what the client's parsers dereference without null checks
-    /// (OP/StandardCrm.cs, OP/OfflineStore*.cs, OP/Iap*.cs, OP/PointCut*.cs, EN/CRMTableChanger.cs; report 04 §15).
+    /// (OP/StandardCrm.cs, OP/OfflineStore*.cs, OP/Iap*.cs, OP/PointCut*.cs, OP/NewsFeedData.cs, EN/CRMTableChanger.cs;
+    /// report 04 §15).
     /// A 200 with a broken document is worse than an error: the TS has no fallback once it got a 200 (verify-C2 §1.7)
     /// and a single bad offline_store entry makes UnifiedStoreComponent throw for the whole shop. The builder uses
     /// this to drop bad store entries and to log everything else, so a tester's override cannot silently break CRM.
@@ -123,6 +125,21 @@ namespace McvsOffline.Server.Services.Crm
                     }
                 }
             }
+
+            object news;
+            if (doc.TryGetValue("newsfeeds", out news))
+            {
+                var list = news as List<object>;
+                if (list == null) problems.Add("newsfeeds must be an array (NewsFeedData enumerates it; null or an object throws)");
+                else
+                {
+                    for (int i = 0; i < list.Count; i++)
+                    {
+                        string p = CheckNewsfeed(list[i]);
+                        if (p != null) problems.Add("newsfeeds[" + i + "]: " + p);
+                    }
+                }
+            }
             return problems;
         }
 
@@ -225,7 +242,8 @@ namespace McvsOffline.Server.Services.Crm
         /// <summary>
         /// Repairs what can be repaired without guessing: drops pointcut actions, fatigue groups, iap items and event
         /// ids the client parsers would throw on (a single one fails the whole CRM refresh on the TS, which then has no
-        /// fallback), and a malformed expiry. Returns the number of removals; each is logged.
+        /// fallback), and a malformed expiry; makes <c>newsfeeds</c> what NewsFeedData reads (<see cref="SanitizeNewsfeeds"/>).
+        /// Returns the number of removals; each is logged.
         /// </summary>
         public static int Sanitize(Dictionary<string, object> doc, Log log)
         {
@@ -271,7 +289,98 @@ namespace McvsOffline.Server.Services.Crm
                     if (list != null) removed += RemoveInvalid(list, CheckEventReference, "event reference", "id", log);
                 }
             }
+            if (doc.TryGetValue("newsfeeds", out value))
+            {
+                var list = value as List<object>;
+                if (list == null)
+                {
+                    // StandardCrm.Data deserializes any key that is present: null or an object makes NewsFeedData throw
+                    // for the whole document.
+                    doc["newsfeeds"] = new List<object>();
+                    log.Warn("CRM: newsfeeds was not an array; replaced with []");
+                    removed++;
+                }
+                else removed += SanitizeNewsfeeds(list, log);
+            }
             return removed;
+        }
+
+        /// <summary>The text members of a newsfeeds entry (NewsFeedData reads each with SafeGetString).</summary>
+        private static readonly string[] NewsfeedTextFields = { "news_id", "title", "body", "redirect", "asset", "youtube" };
+
+        /// <summary>
+        /// Makes every <c>newsfeeds</c> entry what OP/NewsFeedData.cs reads, with the value the client would have read:
+        /// a text member that is not a string becomes the client's text of it (<c>SafeGetString</c>: numbers and
+        /// booleans through <c>Convert.ChangeType</c>, anything else ""); <c>timestamp</c> becomes integer epoch seconds
+        /// (the client parses its text with <c>Convert.ToInt64</c>; a fraction is cut off here, and a value without a
+        /// number becomes 0, which the client, like the unparseable original, treats as older than 30 days). Entries
+        /// that are not objects or have no <c>news_id</c> (the inbox id is "newsfeed_" + news_id) are removed. Returns
+        /// the number of removals; every change is logged.
+        /// </summary>
+        private static int SanitizeNewsfeeds(List<object> list, Log log)
+        {
+            foreach (object e in list)
+            {
+                var entry = e as Dictionary<string, object>;
+                if (entry == null) continue;
+                foreach (string key in NewsfeedTextFields)
+                {
+                    object v;
+                    if (!entry.TryGetValue(key, out v) || v is string) continue;
+                    string text = ClientText(v);
+                    entry[key] = text;
+                    log.Warn("CRM: newsfeed '" + (JsonValue.GetString(entry, "news_id") ?? "?") + "': " + key + " was not a string; now \""
+                             + text + "\"");
+                }
+                object timestamp;
+                if (entry.TryGetValue("timestamp", out timestamp) && !(timestamp is long) && !(timestamp is int))
+                {
+                    long seconds = EpochSeconds(timestamp);
+                    entry["timestamp"] = seconds;
+                    log.Warn("CRM: newsfeed '" + (JsonValue.GetString(entry, "news_id") ?? "?")
+                             + "': timestamp was not integer epoch seconds; now " + seconds.ToString(CultureInfo.InvariantCulture));
+                }
+            }
+            return RemoveInvalid(list, CheckNewsfeedEntry, "newsfeed", "news_id", log);
+        }
+
+        /// <summary>Why the client would make no proper inbox message of this newsfeeds entry, or null when it is fine.</summary>
+        public static string CheckNewsfeed(object entry)
+        {
+            string problem = CheckNewsfeedEntry(entry);
+            if (problem != null) return problem;
+            var item = (Dictionary<string, object>)entry;
+            foreach (string key in NewsfeedTextFields)
+            {
+                object v = JsonValue.Get(item, key);
+                if (v != null && !(v is string)) return key + " must be a string";
+            }
+            object timestamp = JsonValue.Get(item, "timestamp");
+            if (timestamp != null && !(timestamp is long) && !(timestamp is int)) return "timestamp must be integer epoch seconds";
+            return null;
+        }
+
+        /// <summary>The problems Sanitize removes an entry for (after the members were converted).</summary>
+        private static string CheckNewsfeedEntry(object entry)
+        {
+            var item = entry as Dictionary<string, object>;
+            if (item == null) return "not an object";
+            return string.IsNullOrEmpty(JsonValue.Get(item, "news_id") as string) ? "needs a news_id" : null;
+        }
+
+        /// <summary>What SafeGetString gives for a JSON value that is not a string (Convert.ChangeType, invariant culture).</summary>
+        private static string ClientText(object value)
+        {
+            if (value is bool) return (bool)value ? "True" : "False";
+            if (JsonValue.IsNumber(value)) return JsonValue.AsString(value) ?? "";
+            return ""; // null, objects and arrays: SafeGet catches the failed JValue cast and returns the default
+        }
+
+        private static long EpochSeconds(object value)
+        {
+            double? d = value is bool ? null : JsonValue.AsDouble(value);
+            if (!d.HasValue || double.IsNaN(d.Value) || double.IsInfinity(d.Value) || Math.Abs(d.Value) > 9e18) return 0;
+            return (long)Math.Floor(d.Value);
         }
 
         private static string CheckFatigueGroup(object entry)

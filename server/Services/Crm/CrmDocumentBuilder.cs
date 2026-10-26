@@ -17,7 +17,8 @@ namespace McvsOffline.Server.Services.Crm
     /// <item>settings: <c>_ServerConfig.default.IsDevelopment</c> = devMenu (explicitly false otherwise: the dev cheat menu
     /// is on by default over loopback, verify-C5 (a)), <c>Matchmaking {MinPlayers:1, MaxOpenTimeInSeconds:0}</c> when
     /// instantBots (verify-C4 §3.4), age gate, the RedeemCoupons switch, economy multipliers as <c>_OverrideTables</c>;</item>
-    /// <item><c>crm.overlay</c> from settings.json.</item>
+    /// <item><c>crm.overlay</c> from settings.json;</item>
+    /// <item><c>newsfeeds</c>: our inbox item (<see cref="CrmNewsfeed"/>) appended to whatever the layers above put there.</item>
     /// </list>
     /// Finally <c>game._OverrideTables</c> is pruned of empty/invalid changers and mirrored into
     /// <c>_ServerConfig.default._OverrideTables</c>: the TS applies the former, the GS applies and forwards the latter
@@ -36,6 +37,17 @@ namespace McvsOffline.Server.Services.Crm
         /// <param name="liveOps">The live-ops layer (event ids, CRM expiry, weekly modifier cells); null for none.</param>
         public static Dictionary<string, object> Build(Dictionary<string, object> preconfig, CrmContent content, CrmOptions options, Log log,
                                                        LiveOpsSnapshot liveOps)
+        {
+            return Build(preconfig, content, options, log, liveOps, null);
+        }
+
+        /// <param name="liveOps">The live-ops layer (event ids, CRM expiry, weekly modifier cells); null for none.</param>
+        /// <param name="newsfeeds">
+        /// Our inbox items (<see cref="CrmNewsfeed.Build"/>), applied after <c>crm.overlay</c>: an empty list still writes
+        /// <c>"newsfeeds": []</c>; null leaves <c>newsfeeds</c> as the layers made it (absent unless an overlay has it).
+        /// </param>
+        public static Dictionary<string, object> Build(Dictionary<string, object> preconfig, CrmContent content, CrmOptions options, Log log,
+                                                       LiveOpsSnapshot liveOps, List<object> newsfeeds)
         {
             log = log ?? Log.Null;
             content = content ?? new CrmContent();
@@ -70,6 +82,7 @@ namespace McvsOffline.Server.Services.Crm
             }
 
             if (options.Overlay != null) JsonPath.DeepMerge(doc, options.Overlay);
+            ApplyNewsfeeds(doc, newsfeeds, log);
             CrmDocumentValidator.Sanitize(doc, log);
 
             // The overlay may have replaced "game"; re-resolve before the final passes.
@@ -246,6 +259,35 @@ namespace McvsOffline.Server.Services.Crm
             var events = ChildObject(ChildObject(doc, "groupware"), "events");
             events["participation"] = participation;
             if (!(JsonValue.Get(events, "advertisement") is List<object>)) events["advertisement"] = new List<object>();
+        }
+
+        /// <summary>
+        /// Our inbox items after every other layer (design §9.1): a <c>newsfeeds</c> array from the preconfiguration or
+        /// an overlay is kept and ours are appended, each replacing an entry with the same <c>news_id</c>. The key is
+        /// written even for an empty list, so a message that is turned off leaves the inbox at the next CRM fetch.
+        /// </summary>
+        private static void ApplyNewsfeeds(Dictionary<string, object> doc, List<object> newsfeeds, Log log)
+        {
+            if (newsfeeds == null) return;
+            object value;
+            var list = doc.TryGetValue("newsfeeds", out value) ? value as List<object> : null;
+            if (list == null)
+            {
+                if (doc.ContainsKey("newsfeeds")) log.Warn("CRM: newsfeeds was not an array; replaced with []");
+                list = new List<object>();
+                doc["newsfeeds"] = list;
+            }
+            foreach (object item in newsfeeds)
+            {
+                string id = JsonValue.GetString(JsonValue.AsObject(item), "news_id");
+                if (!string.IsNullOrEmpty(id))
+                {
+                    int replaced = list.RemoveAll(e => string.Equals(JsonValue.AsString(JsonValue.Get(JsonValue.AsObject(e), "news_id")), id,
+                                                                     StringComparison.Ordinal));
+                    if (replaced > 0) log.Debug("CRM: newsfeed '" + id + "' from the overlay replaced by ours");
+                }
+                list.Add(JsonValue.DeepClone(item));
+            }
         }
 
         /// <summary>

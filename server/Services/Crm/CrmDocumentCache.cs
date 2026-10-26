@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Json;
+using McvsOffline.Server.Services.Admin;
 using McvsOffline.Server.Services.Social.LiveOps;
 
 namespace McvsOffline.Server.Services.Crm
@@ -97,7 +98,8 @@ namespace McvsOffline.Server.Services.Crm
 
     /// <summary>
     /// Builds and caches the CRM document. The cache key is the effective settings plus whether the preconfiguration is
-    /// available, so editing settings (or the data pack appearing after a fresh install) yields a new document.
+    /// available, the live-ops schedule step and the inbox item (<see cref="CrmNewsfeed"/>), so editing settings (or the
+    /// data pack appearing after a fresh install, or a new week) yields a new document.
     /// <para>
     /// Timing matters: the TS waits only 1 s for <c>configs/users/me/game</c> on its game-server session before using
     /// its defaults (WaitForCRM, verify-C5 (a); IsDevelopment would then stay true), and the GS waits forever for a 200
@@ -207,13 +209,20 @@ namespace McvsOffline.Server.Services.Crm
                 log.Error("CRM: live ops unavailable for this document", ex);
             }
 
+            // The inbox item (design §9.1): its link (the port), the week of its timestamp, and whether it is there at
+            // all (crm.newsfeedLink, admin.enabled, and the admin module, which registers after this one: the warm-up
+            // may build the first document without it) are part of the key, so the document is rebuilt when any changes.
+            List<object> newsfeeds = CrmNewsfeed.Build(o, context.Features.Get<IAdminPortal>(), context.Clock.UtcNow);
+            string newsKey = MiniJson.Serialize(newsfeeds);
+
             lock (gate)
             {
-                string key = optionsFingerprint + "|" + (withPre ? "pre" : "nopre") + "|" + generation + "|" + (liveOps == null ? "-" : liveOps.Key);
+                string key = optionsFingerprint + "|" + (withPre ? "pre" : "nopre") + "|" + generation + "|" + (liveOps == null ? "-" : liveOps.Key)
+                             + "|" + newsKey;
                 if (cached != null && cachedKey == key) return cached;
 
                 var content = CrmContent.Load(context.Content, log);
-                var root = CrmDocumentBuilder.Build(withPre ? preconfiguration.GetCopy() : null, content, o, log, liveOps);
+                var root = CrmDocumentBuilder.Build(withPre ? preconfiguration.GetCopy() : null, content, o, log, liveOps, newsfeeds);
                 var problems = CrmDocumentValidator.Validate(root);
                 foreach (string p in problems) log.Warn("CRM document: " + p);
                 cached = new CrmDocument(root, withPre, problems, context.Clock.UtcNow);
@@ -227,6 +236,7 @@ namespace McvsOffline.Server.Services.Crm
                                 ? ", live ops: " + liveOps.EventIds.Count + " event ids, modifier " + (liveOps.Modifier == null ? "none" : liveOps.Modifier.Id)
                                   + ", expires " + TimeFormat.Iso8601(liveOps.Expiry.Value)
                                 : "")
+                         + ", inbox item " + (newsfeeds.Count > 0 ? "on" : "off")
                          + ", " + cached.Json.Length + " chars" + (problems.Count > 0 ? ", " + problems.Count + " problem(s)" : ""));
                 return cached;
             }
