@@ -35,6 +35,10 @@ namespace McvsOffline.Tests.Content
         {
             public readonly Dictionary<string, string> Files = new Dictionary<string, string>(StringComparer.Ordinal);
 
+            /// <summary>Thrown by the content reads while set (as ContentProvider throws when the override changes
+            /// between its File.Exists and its read).</summary>
+            public Exception Fail;
+
             public DataPack DataPack => null;
 
             public List<string> ContentNames => Files.Keys.ToList();
@@ -53,12 +57,14 @@ namespace McvsOffline.Tests.Content
 
             public bool TryReadContent(string name, out byte[] data)
             {
+                if (Fail != null) throw Fail;
                 data = Files.TryGetValue(name, out string text) ? System.Text.Encoding.UTF8.GetBytes(text) : null;
                 return data != null;
             }
 
             public bool TryReadContentText(string name, out string text)
             {
+                if (Fail != null) throw Fail;
                 return Files.TryGetValue(name, out text);
             }
         }
@@ -279,8 +285,16 @@ namespace McvsOffline.Tests.Content
                         }
                         if (enabled && content == ContentState.Valid && patch != false)
                         {
+                            // The crate live ops hand out is the guard's Crate_Event_Special (whatever collector.json says):
+                            // its own content table gets typed, weighted rows and its LootCrates row the item count.
                             CollectorLayer layer = CollectorPlan.Static(f.Runtime.Content, f.Runtime.Options, CollectorPlanTests.Snapshot(Shipped));
-                            Assert.Contains(layer.Game, c => c.Table == f.Runtime.Content.Table && c.Changer == "Id@Weight#1" && (long)c.Value > 0);
+                            List<string> weighted = layer.Game.Where(c => c.Table == CollectorGuard.CrateTable && c.Changer == "Id@Weight#1" && (long)c.Value > 0)
+                                                              .Select(c => c.Key).ToList();
+                            Assert.NotEmpty(weighted);
+                            foreach (string row in weighted)
+                                Assert.Contains(layer.Game, c => c.Table == CollectorGuard.CrateTable && c.Changer == "Id@Type" && c.Key == row);
+                            Assert.Contains(layer.Game, c => c.Table == CollectorPlan.LootCratesTable && c.Changer == "Id@CratesCount"
+                                                             && c.Key == CollectorGuard.CrateId && (long)c.Value > 0);
                         }
                     }
                 }
@@ -363,6 +377,142 @@ namespace McvsOffline.Tests.Content
             Assert.Equal("not a JSON object", r.ContentProblem);
             File.Delete(file);
             Assert.NotNull(r.Content);
+        }
+
+        /// <summary>
+        /// A collector.json for another crate or table is refused (the guard covers only Crate_Event_Special): the guard,
+        /// and live ops hand out no crate whose table the layer would not fill.
+        /// </summary>
+        [Theory]
+        [InlineData("crate.id")]
+        [InlineData("crate.table")]
+        public void ContentForAnotherCrateKeepsTheCollectorInactive(string path)
+        {
+            using var f = new Fixture();
+            var doc = MiniJson.ParseObject(CollectorPlanTests.ShippedJson);
+            JsonPath.Set(doc, path, "Crate_Event_1");
+            f.Content.Files[CollectorContent.FileName] = MiniJson.Serialize(doc);
+            CollectorStatus status = f.Runtime.Status(Shipped.AddDays(1), true, Shipped);
+            Assert.Equal(CollectorPhase.Guard, status.Phase);
+            Assert.Equal("collector.json: " + path + " Crate_Event_1 is not Crate_Event_Special", status.Reason.Substring(0, status.Reason.IndexOf(" (")));
+            Assert.False(f.Runtime.CratesInWindow(Shipped, Shipped));
+            Assert.Null(f.Runtime.Content);
+        }
+
+        /// <summary>
+        /// A content read that throws never escapes Status, CratesInWindow, InputsKey or Content: before any read the file
+        /// counts as unreadable (the guard); after one the last read is kept, so InputsKey and the running events do not
+        /// flip on a transient failure (§3.3). Each failing streak is logged once.
+        /// </summary>
+        [Fact]
+        public void AContentReadThatThrowsNeverEscapes()
+        {
+            using var f = new Fixture();
+            CollectorRuntime r = f.Runtime;
+            f.Content.Fail = new FileNotFoundException("collector.json vanished");
+            CollectorStatus s = r.Status(Shipped.AddDays(1), true, Shipped);
+            Assert.Equal(CollectorPhase.Guard, s.Phase);
+            Assert.Equal("collector.json: unreadable (collector.json vanished)", s.Reason);
+            Assert.False(r.CratesInWindow(Shipped, Shipped));
+            Assert.Null(r.Content);
+            Assert.Equal("unreadable (collector.json vanished)", r.ContentProblem);
+            Assert.Contains("|no-content|", r.InputsKey);
+            Assert.Single(f.Logs.Snapshot(), e => e.Level == LogLevel.Error && e.Message.Contains("could not be read"));
+
+            f.Content.Fail = null;
+            Assert.Equal(CollectorPhase.Active, r.Status(Shipped.AddDays(1), true, Shipped).Phase);
+            string key = r.InputsKey;
+            Assert.Contains("|content|", key);
+
+            f.Content.Fail = new IOException("sharing violation");
+            for (int i = 0; i < 3; i++)
+            {
+                Assert.Equal(CollectorPhase.Active, r.Status(Shipped.AddDays(1), true, Shipped).Phase);
+                Assert.True(r.CratesInWindow(Shipped, Shipped));
+                Assert.Equal(key, r.InputsKey);
+                Assert.NotNull(r.Content);
+                Assert.Null(r.ContentProblem);
+            }
+            Assert.Single(f.Logs.Snapshot(), e => e.Level == LogLevel.Warn && e.Message.Contains("keeping the last read"));
+
+            // A refused file read last stays refused while reads fail; a new failing streak is logged again.
+            f.Content.Fail = null;
+            f.Set(ContentState.Broken);
+            Assert.StartsWith("row 3: ", r.ContentProblem);
+            f.Content.Fail = new IOException("again");
+            Assert.StartsWith("row 3: ", r.ContentProblem);
+            Assert.Equal(CollectorPhase.Guard, r.Status(Shipped.AddDays(1), true, Shipped).Phase);
+            Assert.Equal(2, f.Logs.Snapshot().Count(e => e.Level == LogLevel.Warn && e.Message.Contains("keeping the last read")));
+            f.Content.Fail = null;
+            f.Set(ContentState.Valid);
+            Assert.NotNull(r.Content);
+        }
+
+        /// <summary>
+        /// Readers on several threads while the &lt;data&gt;/content override is rewritten (temp file + rename) and deleted:
+        /// no call throws (ContentProvider checks File.Exists, then reads).
+        /// </summary>
+        [Fact]
+        public void ConcurrentCallsNeverThrowWhileTheOverrideChanges()
+        {
+            using var dir = new TempDir();
+            string overrides = dir.Combine("content");
+            Directory.CreateDirectory(overrides);
+            using var f = new Fixture(new ContentProvider(null, overrides, Log.Null));
+            CollectorRuntime r = f.Runtime;
+            string file = Path.Combine(overrides, CollectorContent.FileName);
+            string temp = file + ".tmp";
+            string[] texts = { CollectorPlanTests.ShippedJson, BrokenJson };
+            var failures = new System.Collections.Concurrent.ConcurrentQueue<Exception>();
+            long calls = 0;
+            int writes = 0;
+            bool done = false;
+            var readers = new List<System.Threading.Thread>();
+            for (int t = 0; t < 4; t++)
+            {
+                var thread = new System.Threading.Thread(() =>
+                {
+                    while (!System.Threading.Volatile.Read(ref done))
+                    {
+                        try
+                        {
+                            r.Status(Shipped.AddDays(1), true, Shipped);
+                            r.CratesInWindow(Shipped, Shipped);
+                            Assert.NotNull(r.InputsKey);
+                            _ = r.Content;
+                            _ = r.ContentProblem;
+                            System.Threading.Interlocked.Increment(ref calls);
+                        }
+                        catch (Exception ex)
+                        {
+                            failures.Enqueue(ex);
+                        }
+                    }
+                });
+                thread.IsBackground = true;
+                readers.Add(thread);
+                thread.Start();
+            }
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            while (clock.ElapsedMilliseconds < 1500)
+            {
+                try
+                {
+                    File.WriteAllText(temp, texts[writes % 2]);
+                    File.Move(temp, file, true);
+                    if (writes % 3 == 2) File.Delete(file);
+                }
+                catch (IOException)
+                {
+                    // The writer's own race on a platform that locks open files: not what this test is about.
+                }
+                writes++;
+            }
+            System.Threading.Volatile.Write(ref done, true);
+            foreach (var thread in readers) Assert.True(thread.Join(TimeSpan.FromSeconds(30)));
+            output.WriteLine(calls + " calls, " + writes + " writes, " + failures.Count + " failures");
+            Assert.True(failures.IsEmpty, failures.IsEmpty ? null : failures.Count + " calls threw, the first: " + failures.First());
+            Assert.True(calls > 0);
         }
 
         [Fact]

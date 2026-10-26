@@ -36,7 +36,8 @@ namespace McvsOffline.Server.Services.Crm.Collector
     /// <list type="bullet">
     /// <item><see cref="Options"/>: <c>economy.collector.*</c>, parsed once per settings snapshot;</item>
     /// <item><see cref="Content"/>: collector.json through <c>context.Content</c> (the &lt;data&gt;/content override
-    /// wins), re-read when its text changes; null with <see cref="ContentProblem"/> when missing, broken or failing §2.3.1;</item>
+    /// wins), re-read when its text changes; null with <see cref="ContentProblem"/> when missing, broken or failing §2.3.1;
+    /// a read that throws keeps the last read (unreadable before any: null), logged once per failing streak;</item>
     /// <item><see cref="StorePatch"/>: <see cref="ClientCapabilities.StorePatch"/> (§2.13);</item>
     /// <item>from the caller: live ops on, <c>since</c> (liveops.json <c>collector</c> block) and the time.</item>
     /// </list>
@@ -54,6 +55,7 @@ namespace McvsOffline.Server.Services.Crm.Collector
         private string contentText;
         private CollectorContent content;
         private string contentProblem;
+        private bool readFailing;
 
         public CollectorRuntime(ServerContext context)
         {
@@ -193,9 +195,44 @@ namespace McvsOffline.Server.Services.Crm.Collector
         private CollectorContent ReadContent(out string problem)
         {
             string text;
-            if (!context.Content.TryReadContentText(CollectorContent.FileName, out text)) text = null;
+            Exception failure = null;
+            try
+            {
+                if (!context.Content.TryReadContentText(CollectorContent.FileName, out text)) text = null;
+            }
+            catch (Exception ex)
+            {
+                // The <data>/content override changed between the provider's File.Exists and its read (an edit, a delete,
+                // a sharing violation). Status runs on every CRM request and InputsKey in the live-ops fingerprint: never throw.
+                text = null;
+                failure = ex;
+            }
             lock (gate)
             {
+                if (failure != null)
+                {
+                    if (!readFailing)
+                    {
+                        readFailing = true;
+                        if (contentRead)
+                            log.Warn(CollectorContent.FileName + " could not be read (" + failure.GetType().Name + ": " + failure.Message
+                                     + "); keeping the last read until it can be read again");
+                        else
+                            log.Error(CollectorContent.FileName + " could not be read (" + failure.GetType().Name + ": " + failure.Message
+                                      + "); the collector stays inactive (guard only)");
+                    }
+                    // Keep the last read: a transient failure must not flip InputsKey and so replace the running events
+                    // (§3.3). Before any read the file counts as unreadable, which is the guard; nothing is cached, so
+                    // the next call reads again.
+                    if (contentRead)
+                    {
+                        problem = contentProblem;
+                        return content;
+                    }
+                    problem = "unreadable (" + failure.Message + ")";
+                    return null;
+                }
+                readFailing = false;
                 if (!contentRead || !string.Equals(text, contentText, StringComparison.Ordinal))
                 {
                     contentRead = true;

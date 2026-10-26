@@ -192,6 +192,8 @@ namespace McvsOffline.Tests.Content
             ["not JSON"] = ("not json", null, "not a JSON object"),
             ["format 2"] = (null, d => d["format"] = 2L, "format 2"),
             ["no crate"] = (null, d => d.Remove("crate"), "crate"),
+            ["crate id is not Crate_Event_Special"] = (null, d => JsonPath.Set(d, "crate.id", "Crate_Event_1"), "crate.id Crate_Event_1 is not Crate_Event_Special"),
+            ["crate table is not Crate_Event_Special"] = (null, d => JsonPath.Set(d, "crate.table", "Crate_Event_1"), "crate.table Crate_Event_1 is not Crate_Event_Special"),
             ["sound row with weight"] = (null, d => Row(d, 3)["subtype"] = "Sound", "cannot be previewed"),
             ["sound row without carrier"] = (null, d => { Row(d, 3)["subtype"] = "Sound"; Row(d, 3)["subtype2"] = "2"; Row(d, 3).Remove("bundle"); }, "cannot be previewed"),
             ["bundle on a skin row"] = (null, d => Row(d, 7)["bundle"] = "KillSignature_Sound_2", "non-carrier"),
@@ -341,6 +343,69 @@ namespace McvsOffline.Tests.Content
             (o, sink) = Options(("seasonCrates", new List<object> { 1L, 2L }));
             Assert.Equal(new[] { 1, 1, 2, 2, 3, 3, 4 }, o.SeasonCrates);
             Assert.Contains(sink.Snapshot(), e => e.Message.StartsWith("settings: economy.collector.seasonCrates "));
+        }
+
+        /// <summary>
+        /// The opt-out (O7) written the plain ways switches the collector off; a value that cannot be read keeps the §4.4
+        /// default (on) and is logged as an error, not a warning.
+        /// </summary>
+        [Theory]
+        [InlineData(false, false)]
+        [InlineData(0L, false)]
+        [InlineData("false", false)]
+        [InlineData("0", false)]
+        [InlineData("off", false)]
+        [InlineData("OFF", false)]
+        [InlineData(" no ", false)]
+        [InlineData(true, true)]
+        [InlineData(1L, true)]
+        [InlineData("on", true)]
+        [InlineData("Yes", true)]
+        public void TheOptOutReadsThePlainSpellings(object value, bool enabled)
+        {
+            var (o, sink) = Options(("enabled", value));
+            Assert.Equal(enabled, o.Enabled);
+            Assert.DoesNotContain(sink.Snapshot(), e => e.Level >= LogLevel.Warn);
+
+            // "collector": false instead of the object: read as enabled with the other defaults, logged.
+            var settings = new Settings();
+            settings.Override("economy.collector", value);
+            sink = new MemoryLogSink();
+            var logger = new Logger();
+            logger.AddSink(sink);
+            o = CollectorOptions.FromSettings(settings, logger.For("test"));
+            Assert.Equal(enabled, o.Enabled);
+            Assert.Equal(new CollectorOptions { Enabled = enabled }.Fingerprint, o.Fingerprint);
+            Assert.Contains(sink.Snapshot(), e => e.Level == LogLevel.Warn && e.Message.StartsWith("settings: economy.collector is ")
+                                                  && e.Message.Contains("economy.collector.enabled = " + (enabled ? "true" : "false")));
+
+            (o, sink) = Options(("seasonEmblems", value));
+            Assert.Equal(enabled, o.SeasonEmblems);
+        }
+
+        [Theory]
+        [InlineData("maybe")]
+        [InlineData("disable")]
+        [InlineData(2.5)]
+        public void AnUnreadableOptOutStaysOnAndIsAnError(object value)
+        {
+            var (o, sink) = Options(("enabled", value));
+            Assert.True(o.Enabled);
+            Assert.Contains(sink.Snapshot(), e => e.Level == LogLevel.Error && e.Message.StartsWith("settings: economy.collector.enabled = ")
+                                                  && e.Message.Contains("the collector stays on"));
+
+            var settings = new Settings();
+            settings.Override("economy.collector", value);
+            sink = new MemoryLogSink();
+            var logger = new Logger();
+            logger.AddSink(sink);
+            Assert.True(CollectorOptions.FromSettings(settings, logger.For("test")).Enabled);
+            Assert.Contains(sink.Snapshot(), e => e.Level == LogLevel.Error && e.Message.StartsWith("settings: economy.collector = ")
+                                                  && e.Message.Contains("the collector stays on"));
+
+            (o, sink) = Options(("seasonEmblems", value));
+            Assert.True(o.SeasonEmblems);
+            Assert.Contains(sink.Snapshot(), e => e.Level == LogLevel.Warn && e.Message.StartsWith("settings: economy.collector.seasonEmblems = "));
         }
 
         /// <summary>

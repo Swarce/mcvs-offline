@@ -26,7 +26,10 @@ namespace McvsOffline.Server.Services.Crm.Collector
     /// }
     /// </code>
     /// Out-of-range values are clamped, values of the wrong type replaced by the default; both are logged
-    /// (<c>settings: economy.collector.&lt;key&gt; …</c>).
+    /// (<c>settings: economy.collector.&lt;key&gt; …</c>). The bools also read 1/0, "true"/"false", "on"/"off" and
+    /// "yes"/"no", and <c>"collector": false</c> (a bool instead of the object) is read as <c>enabled: false</c>, so the
+    /// plain ways of writing the opt-out (O7) switch it off. Any other <c>enabled</c> value keeps the default, on (§4.4),
+    /// logged as an error.
     /// </summary>
     public sealed class CollectorOptions
     {
@@ -144,7 +147,16 @@ namespace McvsOffline.Server.Services.Crm.Collector
             var s = raw as Dictionary<string, object>;
             if (s == null)
             {
-                log.Warn("settings: " + SettingsPath + " is not an object; using the defaults");
+                // "collector": false is a plain opt-out (O7): honour it rather than fall back to the default "on".
+                bool? shorthand = Switch(raw);
+                if (shorthand.HasValue)
+                {
+                    o.Enabled = shorthand.Value;
+                    log.Warn("settings: " + SettingsPath + " is " + MiniJson.Serialize(raw) + ", not an object; read as " + SettingsPath
+                             + ".enabled = " + (o.Enabled ? "true" : "false") + " with the other defaults");
+                    return o;
+                }
+                log.Error("settings: " + SettingsPath + " = " + MiniJson.Serialize(raw) + " is not an object; using the defaults (the collector stays on)");
                 return o;
             }
             foreach (string key in s.Keys)
@@ -246,10 +258,29 @@ namespace McvsOffline.Server.Services.Crm.Collector
         {
             object raw;
             if (!s.TryGetValue(key, out raw) || raw == null) return defaultValue;
-            bool? value = JsonValue.AsBool(raw);
+            bool? value = Switch(raw);
             if (value.HasValue) return value.Value;
-            log.Warn("settings: " + SettingsPath + "." + key + " is not a bool; using " + (defaultValue ? "true" : "false"));
+            string message = "settings: " + SettingsPath + "." + key + " = " + MiniJson.Serialize(raw) + " is not a bool; using " + (defaultValue ? "true" : "false");
+            // §4.4: a value of the wrong type is replaced by the default, which for the opt-out (O7) is "on": say so loudly.
+            if (key == "enabled") log.Error(message + " (the collector stays on; write false to switch it off)");
+            else log.Warn(message);
             return defaultValue;
+        }
+
+        /// <summary>
+        /// A bool as <see cref="JsonValue.AsBool"/> reads it (true/false, 1/0, "true"/"false"/"1"/"0"), and also the words
+        /// "on"/"off" and "yes"/"no" (any case): someone switching the collector off with one of them means off. Null otherwise.
+        /// </summary>
+        private static bool? Switch(object raw)
+        {
+            bool? value = JsonValue.AsBool(raw);
+            if (value.HasValue) return value;
+            string text = raw as string;
+            if (text == null) return null;
+            text = text.Trim();
+            if (string.Equals(text, "on", StringComparison.OrdinalIgnoreCase) || string.Equals(text, "yes", StringComparison.OrdinalIgnoreCase)) return true;
+            if (string.Equals(text, "off", StringComparison.OrdinalIgnoreCase) || string.Equals(text, "no", StringComparison.OrdinalIgnoreCase)) return false;
+            return null;
         }
 
         private static int Int(Dictionary<string, object> s, string key, int defaultValue, int min, int max, Log log)

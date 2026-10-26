@@ -186,8 +186,10 @@ namespace McvsOffline.Tests.Content
             Assert.Equal(new[] { "format", "crate", "rows", "avatars", "backgrounds", "sounds", "camos", "jerseys", "season", "levels", "summary" },
                          collector.Keys);
             Assert.Equal(new[] { "id", "table", "locId", "image" }, ((Dictionary<string, object>)collector["crate"]).Keys);
-            Assert.Equal("Crate_Event_Special", JsonPath.Get(collector, "crate.id"));
-            Assert.Equal("Crate.Cosmetic_Crate", JsonPath.Get(collector, "crate.locId"));
+            // The crate and table the compiled-in guard covers (CollectorContent refuses any other, §2.8).
+            Assert.Equal(CollectorGuard.CrateId, JsonPath.Get(collector, "crate.id"));
+            Assert.Equal(CollectorGuard.CrateTable, JsonPath.Get(collector, "crate.table"));
+            Assert.Equal(CollectorGuard.LocId, JsonPath.Get(collector, "crate.locId"));
             Assert.Equal(new[] { "base", "drawable", "unlock", "lock", "kayac", "reserved" }, ((Dictionary<string, object>)collector["avatars"]).Keys);
             Assert.Equal(new[] { "base", "drawable", "unlock" }, ((Dictionary<string, object>)collector["backgrounds"]).Keys);
             Assert.Equal(new[] { "tiers", "divisionTier", "retarget", "placement", "emblems" }, ((Dictionary<string, object>)collector["season"]).Keys);
@@ -254,6 +256,7 @@ namespace McvsOffline.Tests.Content
             var lists = new List<object> { block["dailyBonus"], block["weeklyFinal"] };
             lists.AddRange(milestones);
             string crate = (string)JsonPath.Get(Load("collector.json"), "crate.id");
+            Assert.Equal(CollectorGuard.CrateId, crate);
             int crates = 0;
             foreach (object list in lists)
             {
