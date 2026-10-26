@@ -416,15 +416,17 @@ namespace McvsOffline.Tests.Content
             Assert.Equal(keys.OrderBy(k => k), keys);
         }
 
-        /// <summary>When the design's scratch files are on this machine: the same comparison cell by cell, readable on failure.</summary>
+        /// <summary>
+        /// With <c>MCVS_COLLECTOR_ORACLE</c> naming the folder of the design's scratch files (cells-game.json,
+        /// cells-mirror.json): the same comparison cell by cell, readable on failure.
+        /// </summary>
         [Fact]
         public void StaticLayerMatchesTheOracleFilesWhenPresent()
         {
-            string dir = Environment.GetEnvironmentVariable("MCVS_COLLECTOR_ORACLE")
-                         ?? "/tmp/claude-0/-home-user-mcvs-offline/98d9334c-9d5f-5995-bde1-c27c1652af38/scratchpad/collector/rev";
-            if (!File.Exists(Path.Combine(dir, "cells-game.json")))
+            string dir = Environment.GetEnvironmentVariable("MCVS_COLLECTOR_ORACLE");
+            if (string.IsNullOrEmpty(dir) || !File.Exists(Path.Combine(dir, "cells-game.json")))
             {
-                output.WriteLine("oracle files not found: skipped (StaticLayerMatchesTheDesignCells pins their hashes)");
+                output.WriteLine("MCVS_COLLECTOR_ORACLE not set: skipped (StaticLayerMatchesTheDesignCells pins the files' hashes)");
                 return;
             }
             CollectorLayer layer = CollectorPlan.Static(Shipped(), new CollectorOptions { ItemsPerCrate = 3 }, Snapshot(Week147));
@@ -674,6 +676,32 @@ namespace McvsOffline.Tests.Content
             Assert.Equal(0.0, only.BaseShare);
             Assert.Equal(1000000L, only.Of(37));
             Assert.Equal(0L, only.Of(39));
+        }
+
+        /// <summary>§4.1: a row with something left never rounds to 0, and the category weights scale the units.</summary>
+        [Fact]
+        public void ARowWithUnitsKeepsAtLeastWeightOne()
+        {
+            CollectorContent content = Shipped();
+            var units = new CollectorUnits();
+            foreach (CollectorRow row in content.Rows) units.Rows[row.Id] = 0;
+            units.Rows[1] = 10000000;
+            units.Rows[3] = 1;
+            units.Rows[37] = 5;
+            CollectorWeights w = CollectorWeights.Compute(content, new CollectorOptions(), units);
+            Assert.Equal(750000L, w.Of(1));
+            Assert.Equal(1L, w.Of(3));                 // 0.075 rounds to 0: at least 1
+            Assert.Equal(250000L, w.Of(37));
+            Assert.Equal(0L, w.Of(4));
+
+            var options = new CollectorOptions();
+            options.Weights["sounds"] = 3;
+            options.Weights["avatars"] = 0;            // 0 removes the category
+            units.Rows[1] = 4;
+            w = CollectorWeights.Compute(content, options, units);
+            Assert.Equal(3.0, w.Base);
+            Assert.Equal(0L, w.Of(1));
+            Assert.Equal(750000L, w.Of(3));
         }
 
         /// <summary>Owned skins, sounds and agents weigh 0; their categories' other rows keep theirs.</summary>

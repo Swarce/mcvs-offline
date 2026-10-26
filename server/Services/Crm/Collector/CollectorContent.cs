@@ -502,7 +502,7 @@ namespace McvsOffline.Server.Services.Crm.Collector
         {
             id = 0;
             if (!IsDigits(text) || text.Length > 9 || (text.Length > 1 && text[0] == '0')) return false;
-            id = int.Parse(text, NumberStyles.None, CultureInfo.InvariantCulture);
+            foreach (char ch in text) id = id * 10 + (ch - '0');
             return true;
         }
 
