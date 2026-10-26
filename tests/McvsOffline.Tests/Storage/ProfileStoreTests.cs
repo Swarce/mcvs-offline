@@ -169,14 +169,16 @@ namespace McvsOffline.Tests.Storage
             h.Clock.Advance(TimeSpan.FromSeconds(1));
             h.Post(Me + "/delete", token);
             Assert.Equal("delete", Backups()[0].Reason);
-            Assert.Equal(3, Backups().Count); // pruned to "keep"
+            // "keep" caps only the automatic pool (2 of 3 here); the guards before destructive writes are a pool of their own.
+            Assert.Equal(new[] { "delete", "wipe", "auto", "auto" }, Backups().Select(b => b.Reason));
+            Assert.Equal(new[] { "event", "event", "auto", "auto" }, Backups().Select(b => b.Pool));
 
             // Every backup is a complete profile file.
             foreach (var b in Backups()) ProfileFile.Parse(File.ReadAllText(b.Path), account, null);
         }
 
         [Fact]
-        public void BackupsCanBeDisabled()
+        public void KeepZeroTakesNoAutomaticBackupsButStillGuardsDestructiveWrites()
         {
             using var h = new StorageHarness(configure: s => s.Set("storage.backups.keep", 0L));
             string token = h.PlayerToken("p");
@@ -184,7 +186,8 @@ namespace McvsOffline.Tests.Storage
             h.Post(Me + "/level", token, ("object", "1"));
             h.Post(Me + "/level", token, ("object", "2"));
             h.Post(Me + "/delete", token);
-            Assert.Empty(h.Store.Backups.List(account));
+            var backups = h.Store.Backups.List(account);
+            Assert.Equal("delete", Assert.Single(backups).Reason);
         }
 
         [Fact]
