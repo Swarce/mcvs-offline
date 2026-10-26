@@ -37,7 +37,8 @@ namespace McvsOffline.Server.Services.Crm
     ///   "skipAgeGate": true, "redeemCoupons": true, "developerIpRange": "",
     ///   "offlineStore": "generated|merge|preconfig", "iap": "empty|preconfig", "iapLanguage": "en",
     ///   "keepAdPointcuts": false, "pointcutActions": [], "eventIds": [], "matchmaking": {},
-    ///   "dailyCapMultiplier": 1.0, "usePreconfiguration": true, "dataPackDir": "", "overlay": {}
+    ///   "dailyCapMultiplier": 1.0, "usePreconfiguration": true, "dataPackDir": "", "overlay": {},
+    ///   "newsfeedLink": true
     /// }
     /// </code>
     /// <see cref="Fingerprint"/> changes whenever any of them does, so the cached document is rebuilt.
@@ -91,6 +92,12 @@ namespace McvsOffline.Server.Services.Crm
         /// <summary>Deep-merged into the document last: an escape hatch for testers.</summary>
         public Dictionary<string, object> Overlay { get; set; }
 
+        /// <summary>
+        /// The "MCVS Offline" inbox item that opens the settings page (<c>crm.newsfeedLink</c>; <see cref="CrmNewsfeed"/>,
+        /// design docs/design/settings-page.md §9.1). Off: <c>"newsfeeds": []</c>, which removes the message.
+        /// </summary>
+        public bool NewsfeedLink { get; set; }
+
         public CrmOptions()
         {
             DeveloperIpRange = "";
@@ -109,6 +116,7 @@ namespace McvsOffline.Server.Services.Crm
             DailyCapMultiplier = 1.0;
             UsePreconfiguration = true;
             DataPackDir = "";
+            NewsfeedLink = true;
         }
 
         public static CrmOptions FromSettings(Settings settings, Log log)
@@ -140,6 +148,7 @@ namespace McvsOffline.Server.Services.Crm
             o.UsePreconfiguration = settings.GetBool("crm.usePreconfiguration", true);
             o.DataPackDir = settings.GetString("crm.dataPackDir", "");
             o.Overlay = settings.GetObject("crm.overlay");
+            o.NewsfeedLink = settings.GetBool("crm.newsfeedLink", true);
             return o;
         }
 
@@ -171,6 +180,7 @@ namespace McvsOffline.Server.Services.Crm
                 d["pre"] = UsePreconfiguration;
                 d["packDir"] = DataPackDir;
                 d["overlay"] = Overlay;
+                d["news"] = NewsfeedLink;
                 return MiniJson.Serialize(d);
             }
         }
