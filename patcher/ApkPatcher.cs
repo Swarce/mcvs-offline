@@ -59,7 +59,7 @@ namespace McvsOffline.Patcher
         {
             new BootstrapHookPatch(), new HeadlessGamePatch(), new HeadlessEnginePatch(), new PhysicsPatch(), new NativeOnlinePatch(),
             new WaitsPatch(), new GeoPatch(), new BotTilePatch(), new FinderPatch(), new LanPatch(), new StorePatch(), new SignaturesPatch(),
-            new DebloatEnginePatch(),
+            new AdminPagePatch(), new DebloatEnginePatch(), new AdminLinkPatch(), new ForumPatch(),
         };
 
         public static PatchReport Run(PatcherOptions options, Action<string> log)

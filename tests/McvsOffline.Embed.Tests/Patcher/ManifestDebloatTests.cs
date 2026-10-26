@@ -395,7 +395,7 @@ namespace McvsOffline.Embed.Tests.Patcher
         private bool Inputs(out string apk, out string server)
         {
             apk = TestEnvironment.GameApk;
-            server = TestEnvironment.EmbeddedServerDll;
+            server = RealAdminPagePatchTests.EmbeddedServer(output);   // the default patches include adminpage/adminlink
             if (apk == null && Environment.GetEnvironmentVariable("MCVS_REQUIRE_REAL_CLIENT") == "1")
                 throw new InvalidOperationException("MCVS_REQUIRE_REAL_CLIENT=1 but the original APK (MCVS_APK) is missing");
             if (server == null && Environment.GetEnvironmentVariable("MCVS_REQUIRE_EMBEDDED") == "1")

@@ -278,15 +278,42 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Equal(new[] { "hook", "headless", "headless-engine", "physics", "finder", "lan" }, ApkPatcher.SelectPatches(new[] { "lan" }).Select(p => p.Id));
             Assert.Equal(new[] { "hook", "headless", "headless-engine", "physics" }, ApkPatcher.SelectPatches(new string[0]).Select(p => p.Id));
             Assert.Equal(new[] { "hook" }, ApkPatcher.SelectPatches(new string[0], headless: false).Select(p => p.Id));
-            Assert.Equal(new[] { "hook", "headless", "headless-engine", "physics", "nativeonline", "waits", "geo", "bottile", "finder", "store", "signatures", "debloat" },
+            Assert.Equal(new[]
+                         {
+                             "hook", "headless", "headless-engine", "physics", "nativeonline", "waits", "geo", "bottile", "finder", "store", "signatures", "adminpage",
+                             "debloat", "adminlink",
+                         },
                          ApkPatcher.SelectPatches(PatcherOptions.ParsePatchList("default")).Select(p => p.Id));
             Assert.Equal(new[] { "finder", "lan" }, PatcherOptions.ParsePatchList("lan"));
             Assert.Empty(PatcherOptions.ParsePatchList("none"));
-            Assert.Equal(new[] { "bottile", "debloat", "finder", "geo", "lan", "nativeonline", "signatures", "store", "waits" }, PatcherOptions.ParsePatchList("all"));
-            Assert.Equal(new[] { "bottile", "debloat", "finder", "geo", "nativeonline", "signatures", "store", "waits" }, PatcherOptions.ParsePatchList("default"));
+            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "forum", "geo", "lan", "nativeonline", "signatures", "store", "waits" },
+                         PatcherOptions.ParsePatchList("all"));
+            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "geo", "nativeonline", "signatures", "store", "waits" },
+                         PatcherOptions.ParsePatchList("default"));
             Assert.Equal(new[] { "signatures" }, PatcherOptions.ParsePatchList("signatures"));
             Assert.Equal(new[] { "debloat" }, PatcherOptions.ParsePatchList("debloat"));
             Assert.Throws<ArgumentException>(() => PatcherOptions.ParsePatchList("geo,unlockall"));
+
+            // The settings-page triggers: adminpage and adminlink by default, forum only on request (--patch default,forum).
+            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "forum", "geo", "nativeonline", "signatures", "store", "waits" },
+                         PatcherOptions.ParsePatchList("default,forum"));
+            Assert.Equal(new[] { "forum" }, PatcherOptions.ParsePatchList("FORUM"));
+            Assert.DoesNotContain("forum", PatcherOptions.DefaultPatches);
+            Assert.Equal(new[] { "lan", "forum" }, PatcherOptions.OptionalPatches.Except(PatcherOptions.DefaultPatches));
+            Assert.Equal(new[] { "hook", "headless", "headless-engine", "physics", "adminpage", "forum" },
+                         ApkPatcher.SelectPatches(new[] { "forum", "adminpage" }).Select(p => p.Id));
+            Assert.Equal(new[] { "hook", "headless", "headless-engine", "physics", "adminlink" }, ApkPatcher.SelectPatches(new[] { "adminlink" }).Select(p => p.Id));
+        }
+
+        [Fact]
+        public void EveryOptionalPatchIdHasItsPatchAndEveryPatchIdIsUnique()
+        {
+            Assert.Equal(ApkPatcher.AllPatches.Length, ApkPatcher.AllPatches.Select(p => p.Id).Distinct().Count());
+            foreach (string id in PatcherOptions.OptionalPatches.Concat(PatcherOptions.MandatoryPatches))
+                Assert.Contains(ApkPatcher.AllPatches, p => p.Id == id);
+            Assert.Equal("Game.dll", Assert.Single(ApkPatcher.AllPatches, p => p.Id == "adminpage").AssemblyFile);
+            Assert.Equal("Gameloft.Engine.dll", Assert.Single(ApkPatcher.AllPatches, p => p.Id == "adminlink").AssemblyFile);
+            Assert.Equal("Game.dll", Assert.Single(ApkPatcher.AllPatches, p => p.Id == "forum").AssemblyFile);
         }
 
         [Fact]
