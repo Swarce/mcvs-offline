@@ -525,7 +525,9 @@ namespace McvsOffline.Server.Services.Admin.Saves
                 return;
             }
 
-            bool relinked = op.Done.Contains(StepRelink) && op.Relink != null;
+            // Resumed after the relink step: whether it moved the login is read back from the accounts (a skipped relink
+            // left the credential elsewhere), since it decides the probation.
+            bool relinked = op.Done.Contains(StepRelink) && op.Relink != null && OpensTarget(op.Relink);
             bool onProbation = false;
             foreach (string step in Steps(op))
             {
@@ -723,6 +725,14 @@ namespace McvsOffline.Server.Services.Admin.Saves
             context.Tokens.RevokeCredential(relink.Credential);
             log.Info("admin: credential " + AdminApi.MaskCredential(relink.Credential) + " now opens account " + relink.To + " (was " + relink.From + ")");
             return true;
+        }
+
+        /// <summary>True when the relink's credential now opens the account it was to open.</summary>
+        private bool OpensTarget(RelinkPlan relink)
+        {
+            if (relink.Credential == null || !relink.Credential.StartsWith("anonymous:", StringComparison.Ordinal)) return false;
+            Account owner = context.Accounts.Find(relink.Credential);
+            return owner != null && owner.Id == relink.To;
         }
 
         /// <summary>

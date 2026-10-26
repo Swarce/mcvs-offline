@@ -119,6 +119,26 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal(file, parsed.ProfileText);
         }
 
+        [Fact]
+        public void ARawProfileAboveTheProfileLimitIsIncomplete()
+        {
+            // The same limit as a bundle's profile (12 MiB), although an import file or a transfer text may carry 16 MiB.
+            var items = new StringBuilder("{\"@version\":\"0.1\",\"$default\":{\"/Profile\":{\"Items\":[");
+            for (int i = 0; items.Length < SaveBundle.MaxProfileBytes + 1024; i++) items.Append(i == 0 ? "" : ",").Append("\"item_").Append(i).Append('"');
+            items.Append("]}}}");
+            string file = ProfileFileText(Account, items.ToString());
+            Assert.True(Encoding.UTF8.GetByteCount(file) > SaveBundle.MaxProfileBytes);
+            SaveBundle raw = SaveBundle.Parse(file, Now);
+            Assert.False(raw.IsValid);
+            Assert.Equal(new[] { SaveBundle.ErrorIncomplete }, raw.Errors);
+            Assert.False(SaveBundle.Parse(BundleText(file), Now).IsValid);   // as in a bundle
+
+            // Multi-byte characters count as bytes: under the limit in characters, over it in UTF-8.
+            string wide = ProfileFileText(Account, "{\"@version\":\"0.1\",\"$default\":{\"/Profile\":{\"Name\":\"" + new string('é', SaveBundle.MaxProfileBytes / 2 + 16) + "\"}}}");
+            Assert.True(wide.Length < SaveBundle.MaxProfileBytes);
+            Assert.Equal(new[] { SaveBundle.ErrorIncomplete }, SaveBundle.Parse(wide, Now).Errors);
+        }
+
         public static IEnumerable<object[]> Broken()
         {
             string good = ProfileFileText(Account);

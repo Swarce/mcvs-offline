@@ -28,7 +28,7 @@ namespace McvsOffline.Tests.Admin
         private readonly bool ownsDir;
 
         public SavesServer(TempDir dir = null, string name = "data", ManualClock clock = null, bool withHost = true,
-                           Action<ServerOptions> configure = null)
+                           Action<ServerOptions> configure = null, ExitTimings exitTimings = null)
         {
             ownsDir = dir == null;
             Dir = dir ?? new TempDir();
@@ -37,6 +37,7 @@ namespace McvsOffline.Tests.Admin
             Logs = new MemoryLogSink();
             WithHost = withHost;
             Configure = configure;
+            ExitTimings = exitTimings;
             Host = new FakeAdminHost();
             Start();
         }
@@ -52,6 +53,8 @@ namespace McvsOffline.Tests.Admin
         public bool WithHost { get; }
 
         public Action<ServerOptions> Configure { get; }
+
+        public ExitTimings ExitTimings { get; }
 
         public FakeAdminHost Host { get; }
 
@@ -80,7 +83,7 @@ namespace McvsOffline.Tests.Admin
             {
                 LogsService.Register(r, c);
                 SavesService.Register(r, c);
-            }, Clock, Configure);
+            }, Clock, Configure, ExitTimings);
             if (WithHost) Context.Features.Set<IAdminHost>(Host);
             Client = new AdminTestClient(Server);
         }

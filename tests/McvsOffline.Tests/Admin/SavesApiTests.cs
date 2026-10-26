@@ -463,6 +463,113 @@ namespace McvsOffline.Tests.Admin
         }
 
         [Fact]
+        public void TheNewExportIsNeverPrunedBeforeItIsShared()
+        {
+            var (s, alice, bob) = Phone();
+            using (s)
+            {
+                // Export names start with the alias: bob's sorts before alice's five.
+                s.Context.Accounts.Update(alice, a => a.Data["alias"] = "900000000");
+                s.Context.Accounts.Update(bob, a => a.Data["alias"] = "100000000");
+                string folder = Path.Combine(s.DataDir, "admin", "exports");
+                for (int i = 0; i < SavesApi.ExportsKept; i++)
+                {
+                    Status(200, s.Client.Post("saves/" + alice + "/export", new Dictionary<string, object> { ["target"] = "share" }));
+                    File.SetLastWriteTimeUtc(s.Host.SharedFiles.Last()[0], DateTime.UtcNow.AddMinutes(i - 10));   // written in this order
+                    s.Clock.Advance(TimeSpan.FromMinutes(1));
+                }
+                string oldest = Path.GetFileName(s.Host.SharedFiles[0][0]);
+                s.Clock.Advance(TimeSpan.FromMinutes(1));
+                HttpResponse r = s.Client.Post("saves/" + bob + "/export", new Dictionary<string, object> { ["target"] = "share" });
+                Status(200, r);
+                string[] shared = s.Host.SharedFiles.Last();
+                Assert.Equal(Path.Combine(folder, (string)J(r)["file"]), shared[0]);
+                Assert.StartsWith("mcvs-save-100000000-", (string)J(r)["file"]);
+                Assert.True(File.Exists(shared[0]));
+                string[] kept = Directory.GetFiles(folder).Select(Path.GetFileName).ToArray();
+                Assert.Equal(SavesApi.ExportsKept, kept.Length);
+                Assert.DoesNotContain(oldest, kept);   // the oldest by time went, not the newest by name
+            }
+        }
+
+        [Fact]
+        public void AnExportThatNeedsMoreThan999PartsIsTooLarge()
+        {
+            var (s, alice, _) = Phone();
+            using (s)
+            {
+                // ~2 MB of random printable characters: even deflated, more than 999 Discord-sized parts.
+                var rng = new Random(5);
+                var blob = new StringBuilder(2000000);
+                while (blob.Length < 2000000)
+                {
+                    char c = (char)rng.Next(0x21, 0x7f);
+                    if (c != '"' && c != '\\') blob.Append(c);
+                }
+                s.SaveGame(alice, 37, "{\"@version\":\"0.1\",\"$default\":{\"/Profile\":{\"@type\":\"Game.PlayerProfileComponent\",\"Blob\":\""
+                                      + blob + "\"}}}");
+                HttpResponse r = s.Client.Post("saves/current/export", new Dictionary<string, object> { ["target"] = "text", ["partChars"] = 1900L });
+                Error(413, "too_large", r);
+                Assert.Equal((long)SaveTransfer.MaxParts, At(r, "details.limit"));
+                Assert.Equal("parts", At(r, "details.unit"));
+                Assert.Contains("Choose larger parts", (string)J(r)["message"]);
+                Error(413, "too_large", s.Client.Post("saves/current/export", new Dictionary<string, object> { ["target"] = "share", ["partChars"] = 1900L }));
+                // Larger parts carry it.
+                HttpResponse ok = s.Client.Post("saves/current/export", new Dictionary<string, object> { ["target"] = "text", ["partChars"] = 3900L });
+                Status(200, ok);
+                Assert.InRange((long)At(ok, "transfer.parts"), 2L, (long)SaveTransfer.MaxParts);
+            }
+        }
+
+        [Fact]
+        public void WhileTheGameSavesOrRestartsNoProfileIsRead()
+        {
+            var fast = new ExitTimings { ResponseDelayMs = 10, GameLoopTimeoutMs = 1000, SaveTimeoutMs = 300, SaveQuietMs = 50, FlushTimeoutMs = 100 };
+            using var s = new SavesServer(exitTimings: fast);
+            string alice = s.Player("alice").Id;
+            string bob = s.Player("bob").Id;
+            s.SaveGame(alice, 37);
+            s.SaveGame(bob, 5);
+            s.Play("alice");
+            s.Session();
+            string backup = s.Store.CreateBackup(alice, "manual").Id;
+            var api = s.Context.Features.Get<AdminApi>();
+
+            // "Save the game now": the sequence waits for the game's save.
+            var gate = new System.Threading.ManualResetEventSlim(false);
+            s.Host.OnRequestGameSave = () => gate.Wait(5000);
+            try
+            {
+                Status(202, s.Client.Post("actions/save-now", new Dictionary<string, object> { ["screen"] = "saves" }));
+                Assert.Equal("saving", api.ExitState);
+                Error(409, "busy", s.Client.Get("saves/" + alice + "/export?format=json"));
+                Error(409, "busy", s.Client.Post("saves/current/export", new Dictionary<string, object> { ["target"] = "text" }));
+                Error(409, "busy", s.Client.Post("saves/current/backups", new Dictionary<string, object>()));
+                Error(409, "busy", s.Client.Post("saves/current/restore", new Dictionary<string, object> { ["backup"] = backup, ["plan"] = "replace", ["confirm"] = "replace" }));
+                Error(409, "busy", s.Client.Post("saves/" + bob + "/relink", new Dictionary<string, object> { ["confirm"] = "switch" }));
+                Error(409, "busy", s.Client.Post("saves/import/paste", new Dictionary<string, object> { ["text"] = "MCVS-SAVE:" }));
+                Error(409, "busy", s.Client.Post("saves/import/stage", new Dictionary<string, object> { ["uploadId"] = "u-0123456789abcdef", ["confirm"] = "replace" }));
+                Error(409, "busy", s.Client.Post("saves/staged/undo", new Dictionary<string, object> { ["confirm"] = "undo" }));
+                Status(200, s.Client.Get("saves"));                        // listed without reading a profile
+                Status(200, s.Client.Get("saves/" + alice + "/backups"));
+            }
+            finally
+            {
+                gate.Set();
+            }
+            for (int i = 0; i < 500 && api.ExitState != "idle"; i++) System.Threading.Thread.Sleep(10);
+            Assert.Equal("idle", api.ExitState);
+            Status(200, s.Client.Get("saves/" + alice + "/export?format=json"));
+
+            // A restart ends with the account's lock held until the process ends: a download answers at once.
+            Status(202, s.Client.Post("actions/restart", new Dictionary<string, object> { ["confirm"] = true, ["restartWithoutSave"] = true }));
+            for (int i = 0; i < 500 && !s.Host.Calls.Any(c => c.StartsWith("Exit:", StringComparison.Ordinal)); i++) System.Threading.Thread.Sleep(10);
+            Assert.Equal(1, s.Store.Locks.QueueLength(alice));
+            Error(409, "restarting", s.Client.Get("saves/" + alice + "/export?format=transfer"));
+            Error(409, "restarting", s.Client.Post("saves/current/export", new Dictionary<string, object> { ["target"] = "text" }));
+        }
+
+        [Fact]
         public void WithoutAHostExportsAreDownloadsOnly()
         {
             using var s = new SavesServer(withHost: false);

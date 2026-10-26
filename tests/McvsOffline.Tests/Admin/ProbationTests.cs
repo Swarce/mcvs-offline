@@ -118,6 +118,116 @@ namespace McvsOffline.Tests.Admin
         }
 
         [Fact]
+        public void TheUndoOfARelinkIsNotOnProbationAndStays()
+        {
+            using var s = new SavesServer();
+            string alice = s.Player("alice").Id;
+            string bob = s.Player("bob").Id;
+            s.SaveGame(alice, 30);
+            s.SaveGame(bob, 6);
+            s.Play("alice");
+            s.Session();
+            Assert.Equal(200, s.Client.Post("saves/" + bob + "/relink", new Dictionary<string, object> { ["confirm"] = "switch" }).StatusCode);
+            s.Restart();
+            Assert.Equal(bob, s.Context.Accounts.Find("anonymous:alice").Id);
+            s.SaveGame(bob, 6);   // the game loaded bob: confirmed
+            Assert.False(s.ProbationExists);
+
+            s.Session();
+            HttpResponse undo = s.Client.Post("saves/staged/undo", new Dictionary<string, object> { ["confirm"] = "undo" });
+            Assert.True(undo.StatusCode == 200, undo.BodyText);
+            s.Restart();
+            Assert.Equal(alice, s.Context.Accounts.Find("anonymous:alice").Id);
+            Assert.False(s.ProbationExists);   // back to the account the phone played: nothing to wait for
+
+            // The game plays alice and saves alice at every start; the undo is never reverted.
+            for (int i = 0; i < 3; i++)
+            {
+                s.SaveGame(alice, 30);
+                s.Restart();
+            }
+            Assert.Equal(alice, s.Context.Accounts.Find("anonymous:alice").Id);
+            var history = s.History();
+            Assert.Equal("undo", history[0]["kind"]);
+            Assert.Equal("applied", history[0]["result"]);
+            Assert.Equal(false, history[0]["probation"]);
+            Assert.Equal("confirmed", history[1]["result"]);
+        }
+
+        [Fact]
+        public void ARestoreOfAnotherAccountIsNotOnProbation()
+        {
+            using var s = new SavesServer();
+            string alice = s.Player("alice").Id;
+            string bob = s.Player("bob").Id;
+            s.SaveGame(alice, 30);
+            s.SaveGame(bob, 6);
+            s.Play("alice");
+            s.Session();
+            string backup = s.Store.CreateBackup(bob, "manual").Id;
+            s.Clock.Advance(TimeSpan.FromSeconds(1));
+            s.SaveGame(bob, 7);
+            HttpResponse restore = s.Client.Post("saves/" + bob + "/restore", new Dictionary<string, object>
+            {
+                ["backup"] = backup, ["plan"] = "restore-other", ["confirm"] = "restore-other",
+            });
+            Assert.True(restore.StatusCode == 200, restore.BodyText);
+            s.Restart();
+            Assert.Equal(6L, s.Store.ReadDocument(bob).Root["level"]);
+            Assert.False(s.ProbationExists);
+
+            // The game plays alice, never bob: the restore stays.
+            for (int i = 0; i < 3; i++)
+            {
+                s.SaveGame(alice, 30);
+                s.Restart();
+            }
+            Assert.Equal(6L, s.Store.ReadDocument(bob).Root["level"]);
+            Assert.Equal("applied", s.History()[0]["result"]);
+        }
+
+        [Fact]
+        public void ANewOperationSupersedesAnOpenProbation()
+        {
+            using var s = RestoredAlice(out string alice, out string bob);
+            string restoreId = (string)s.ProbationFile()["id"];
+            s.Session();
+            Assert.Equal(200, s.Client.Post("saves/" + bob + "/relink", new Dictionary<string, object> { ["confirm"] = "switch" }).StatusCode);
+            s.Restart();
+            var history = s.History();
+            Assert.Equal("relink", history[0]["kind"]);
+            Assert.Equal(restoreId, history[1]["id"]);
+            Assert.Equal("superseded", history[1]["result"]);
+            Assert.Equal(history[0]["id"], s.ProbationFile()["id"]);
+            Assert.Equal(bob, s.ProbationFile()["target"]);
+            Assert.Equal(20L, s.Store.ReadDocument(alice).Root["level"]);   // the superseded restore is not reverted
+        }
+
+        [Theory]
+        [InlineData("import", "replace", false, false, true)]
+        [InlineData("restore", "replace", false, false, true)]
+        [InlineData("restore", "restore-other", false, false, false)]
+        [InlineData("import", "switch", true, true, true)]
+        [InlineData("import", "switch", true, false, false)]   // the login changed since staging: not relinked
+        [InlineData("restore", "switch", true, true, true)]
+        [InlineData("relink", "switch", true, true, true)]
+        [InlineData("relink", "switch", true, false, false)]
+        [InlineData("undo", "undo", true, true, false)]
+        [InlineData("undo", "undo", false, false, false)]
+        public void OnlyAnOperationThatChangesWhatThePhoneLoadsIsOnProbation(string kind, string plan, bool withRelink, bool relinked, bool expected)
+        {
+            const string target = "0123456789abcdef01234567", other = "fedcba9876543210fedcba98";
+            var op = new StagedOperation { Kind = kind, Plan = plan, Target = target };
+            if (withRelink)
+            {
+                op.Relink = kind == StagedOperation.KindUndo
+                    ? new RelinkPlan { Credential = "anonymous:x", From = target, To = other }
+                    : new RelinkPlan { Credential = "anonymous:x", From = other, To = target };
+            }
+            Assert.Equal(expected, StagedOperations.NeedsProbation(op, relinked));
+        }
+
+        [Fact]
         public void APendingOperationIsAppliedAfterARevert()
         {
             using var s = RestoredAlice(out string alice, out string bob);

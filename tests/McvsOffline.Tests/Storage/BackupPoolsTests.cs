@@ -151,6 +151,23 @@ namespace McvsOffline.Tests.Storage
         }
 
         [Fact]
+        public void APruneSparesTheBackupBeingRestored()
+        {
+            using var dir = new TempDir();
+            var backups = new ProfileBackups(dir.Path);
+            DateTime t = T0;
+            string oldest = backups.Create(Account, "{}", 0, "preimport", t, 20).Id;
+            for (int i = 1; i < ProfileBackups.SystemCap; i++) backups.Create(Account, "{}", i, "presettings", t = t.AddMinutes(1), 20);
+            backups.Create(Account, "{}", 99, "prerestore", t = t.AddMinutes(1), 20, spare: oldest);
+            Assert.NotNull(backups.Find(Account, oldest));
+            Assert.Equal(ProfileBackups.SystemCap + 1, backups.List(Account).Count(b => b.Pool == "system"));   // the spared one is extra
+
+            backups.Create(Account, "{}", 100, "presettings", t.AddMinutes(1), 20);   // the next prune is the usual one
+            Assert.Null(backups.Find(Account, oldest));
+            Assert.Equal(ProfileBackups.SystemCap, backups.List(Account).Count(b => b.Pool == "system"));
+        }
+
+        [Fact]
         public void ACommitWithASystemReasonIsBackedUpEvenWithKeepZero()
         {
             using var h = new StorageHarness(configure: s => s.Set("storage.backups.keep", 0L));

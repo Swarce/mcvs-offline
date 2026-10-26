@@ -219,6 +219,29 @@ namespace McvsOffline.Tests.Admin
         }
 
         [Fact]
+        public void AResumeAfterTheRelinkStepStillPutsTheSwitchOnProbation()
+        {
+            using var phones = new TwoPhones();
+            var B = phones.B;
+            phones.StageSwitch();
+            string blocker = Path.Combine(B.StagedDir, "probation.json");
+            Directory.CreateDirectory(blocker);   // step probation fails once
+
+            B.Restart();
+            Assert.True(B.PendingExists);
+            Assert.Equal(new object[] { "account", "profile", "messages", "relink" }, (List<object>)B.Pending()["done"]);
+            Assert.Equal(phones.X, B.Context.Accounts.Find("anonymous:c2newphone").Id);
+
+            Directory.Delete(blocker);
+            B.Restart();
+            var history = B.History().Single();
+            Assert.Equal("applied", history["result"]);
+            Assert.Equal(true, history["relinked"]);   // read back from the accounts, not assumed
+            Assert.Equal(true, history["probation"]);
+            Assert.Equal(phones.X, B.ProbationFile()["target"]);
+        }
+
+        [Fact]
         public void AfterThreeAttemptsItGivesUp()
         {
             using var phones = new TwoPhones();
@@ -279,6 +302,62 @@ namespace McvsOffline.Tests.Admin
             Assert.Contains((List<object>)history["warnings"], w => ((string)w).Contains("changed since staging"));
             Assert.Equal(z, B.Context.Accounts.Find("anonymous:c2newphone").Id);
             Assert.Equal(Root(phones.A.Store, phones.X), Root(B.Store, phones.X));
+
+            // The phone does not load X, so no save of X would ever confirm it: no probation, and nothing is reverted later.
+            Assert.False(B.ProbationExists);
+            Assert.Equal(false, history["probation"]);
+            B.SaveGame(z, 1);
+            B.Restart();
+            B.Restart();
+            Assert.Equal("applied", B.History().Single()["result"]);
+            Assert.Equal(Root(phones.A.Store, phones.X), Root(B.Store, phones.X));
+            Assert.Equal(z, B.Context.Accounts.Find("anonymous:c2newphone").Id);
+        }
+
+        [Fact]
+        public void WithoutTheGamesSaveTwoMoreStartsRevertASwitchImport()
+        {
+            using var phones = new TwoPhones(xOnB: true);
+            var B = phones.B;
+            string xBefore = Root(B.Store, phones.X);
+            phones.StageSwitch();
+            B.Restart();
+            Assert.Equal(phones.X, B.Context.Accounts.Find("anonymous:c2newphone").Id);
+            Assert.Equal(41L, B.Store.ReadDocument(phones.X).Root["level"]);
+            Assert.True(B.ProbationExists);
+            Assert.Equal(phones.X, B.ProbationFile()["target"]);
+            Assert.Equal(true, B.History().Single()["probation"]);
+            string token = B.Context.Tokens.Issue(phones.X, "anonymous:c2newphone", McvsConstants.ClientId, new[] { "auth", "storage" }, "dev").Token;
+
+            B.Restart();   // the game never saved X (say it cannot load it)
+            B.Restart();
+            Assert.False(B.ProbationExists);
+            Assert.Equal(xBefore, Root(B.Store, phones.X));                                  // X's pre-backup restored
+            Assert.Equal(phones.Y, B.Context.Accounts.Find("anonymous:c2newphone").Id);       // c2 back on Y
+            Assert.Null(B.Context.Tokens.Resolve(token));
+            Assert.Contains(B.Store.Backups.List(phones.X), b => b.Reason == "prerevert");
+            Assert.Equal("reverted", B.History().Single()["result"]);
+        }
+
+        [Fact]
+        public void AnApplyWithKeepZeroStillTakesItsPreimportBackup()
+        {
+            using var phones = new TwoPhones(xOnB: true);
+            var B = phones.B;
+            B.Context.Settings.Set("storage.backups.keep", 0L);
+            B.Context.Settings.Save();
+            phones.StageSwitch();
+            B.Clock.Advance(TimeSpan.FromSeconds(5));
+            B.SaveGame(phones.X, 11);   // the TS saved X after staging: the apply takes its own backup
+            string latest = B.ProfileFile(phones.X);
+
+            B.Restart();
+            Assert.Equal(0L, B.Context.Settings.GetLong("storage.backups.keep", 20));   // this start runs with keep 0
+            var history = B.History().Single();
+            Assert.Equal("applied", history["result"]);
+            Assert.Equal(2, B.Store.Backups.List(phones.X).Count(b => b.Reason == "preimport"));
+            Assert.Equal(latest, B.Store.ReadBackupText(phones.X, (string)history["preBackupId"]));
+            Assert.DoesNotContain(B.Store.Backups.List(phones.X), b => b.Pool == "auto");
         }
 
         [Fact]
@@ -303,11 +382,57 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal("undo", history[0]["kind"]);
             Assert.Equal("applied", history[0]["result"]);
             Assert.Equal(history[1]["id"], history[0]["undoOf"]);
+            Assert.Equal("superseded", history[1]["result"]);                  // the import's probation ended with it
             Assert.NotNull(B.ProfileFile(phones.X));                            // X stays on the phone
+            // An undo takes the phone back to what it played: no probation, so it never undoes itself.
+            Assert.False(B.ProbationExists);
+            Assert.Equal(false, history[0]["probation"]);
+            for (int i = 0; i < 3; i++)
+            {
+                B.SaveGame(phones.Y, 3);
+                B.Restart();
+            }
+            Assert.Equal(phones.Y, B.Context.Accounts.Find("anonymous:c2newphone").Id);
+            Assert.Equal("applied", B.History()[0]["result"]);
             // An undo cannot be undone.
             B.Session();
             Assert.Equal(409, B.Client.Post("saves/staged/undo", new Dictionary<string, object> { ["confirm"] = "undo" }).StatusCode);
             Assert.Equal(false, AdminTestClient.At(B.Client.Get("saves"), "last.undoable"));
+        }
+
+        [Fact]
+        public void UndoOfAConfirmedSwitchImportRestoresXAndStays()
+        {
+            using var phones = new TwoPhones(xOnB: true);
+            var B = phones.B;
+            string xBefore = Root(B.Store, phones.X);   // level 10
+            phones.StageSwitch();
+            B.Restart();
+            B.SaveGame(phones.X, 41, SavesServer.BigDump(seed: 7));   // the game loaded X: confirmed
+            Assert.False(B.ProbationExists);
+            Assert.Equal("confirmed", B.History().Single()["result"]);
+
+            B.Session();
+            HttpResponse undo = B.Client.Post("saves/staged/undo", new Dictionary<string, object> { ["confirm"] = "undo" });
+            Assert.True(undo.StatusCode == 200, undo.BodyText);
+            Assert.Contains("goes back to how it was before the import", (string)AdminTestClient.At(undo, "description"));
+            Assert.NotNull(AdminTestClient.At(undo, "staged.restoreBackupId"));
+            Assert.NotNull(AdminTestClient.At(undo, "staged.payload"));   // the pre-import state, copied at staging
+
+            B.Restart();
+            Assert.Equal(phones.Y, B.Context.Accounts.Find("anonymous:c2newphone").Id);
+            Assert.Equal(xBefore, Root(B.Store, phones.X));
+            Assert.False(B.ProbationExists);
+            // The phone plays Y again and the game saves Y at every start: the undo stays.
+            for (int i = 0; i < 3; i++)
+            {
+                B.SaveGame(phones.Y, 3);
+                B.Restart();
+            }
+            Assert.Equal(phones.Y, B.Context.Accounts.Find("anonymous:c2newphone").Id);
+            Assert.Equal(xBefore, Root(B.Store, phones.X));
+            Assert.Equal("applied", B.History()[0]["result"]);
+            Assert.Equal("confirmed", B.History()[1]["result"]);
         }
 
         [Fact]
@@ -363,6 +488,8 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal(6L, s.Store.ReadDocument(b).Root["level"]);
             Assert.Equal(a, s.Context.Accounts.Find("anonymous:alice").Id);
             Assert.Equal("restore", s.History()[0]["kind"]);
+            Assert.False(s.ProbationExists);   // the phone plays alice, not bob: no save of bob would confirm it
+            Assert.Equal(false, s.History()[0]["probation"]);
 
             s.Session();
             Assert.Equal(200, s.Client.Post("saves/" + b + "/relink", new Dictionary<string, object> { ["confirm"] = "switch" }).StatusCode);
@@ -371,7 +498,90 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal("relink", s.History()[0]["kind"]);
             Assert.Equal(true, s.History()[0]["relinked"]);
             Assert.Equal(new object[] { "relink", "probation" }, (List<object>)s.History()[0]["done"]);
-            Assert.Equal("superseded", s.History()[1]["result"]);   // the restore's probation was still open
+            Assert.Equal(true, s.History()[0]["probation"]);
+            Assert.Equal(b, s.ProbationFile()["target"]);
+            Assert.Equal("applied", s.History()[1]["result"]);   // the restore was never on probation
+        }
+
+        [Fact]
+        public void StagingARestoreOfTheOldestSystemBackupKeepsIt()
+        {
+            using var s = new SavesServer();
+            string alice = s.Player("alice").Id;
+            s.SaveGame(alice, 5);
+            s.Play("alice");
+            s.Session();
+            string oldest = s.Store.CreateBackup(alice, "preimport").Id;   // "before my import", level 5
+            for (int i = 0; i < 9; i++)
+            {
+                s.Clock.Advance(TimeSpan.FromSeconds(1));
+                s.SaveGame(alice, 6 + i);
+                s.Store.CreateBackup(alice, "presettings");
+            }
+            Assert.Equal(10, s.Store.Backups.List(alice).Count(b => b.Pool == "system"));
+            var restore = new Dictionary<string, object> { ["backup"] = oldest, ["plan"] = "replace", ["confirm"] = "replace" };
+
+            // Staging takes a prerestore backup; its pruning spares the backup being restored.
+            s.Clock.Advance(TimeSpan.FromSeconds(1));
+            HttpResponse staged = s.Client.Post("saves/" + alice + "/restore", restore);
+            Assert.True(staged.StatusCode == 200, staged.BodyText);
+            Assert.NotNull(s.Store.Backups.Find(alice, oldest));
+            string payload = Path.Combine(s.StagedDir, (string)AdminTestClient.At(staged, "staged.payload"));
+            Assert.Equal(s.Store.ReadBackupText(alice, oldest), File.ReadAllText(payload));
+            // Cancelled: the backup is still there, the copy is gone.
+            Assert.Equal(true, AdminTestClient.At(s.Client.Delete("saves/staged"), "removed"));
+            Assert.NotNull(s.Store.Backups.Find(alice, oldest));
+            Assert.False(File.Exists(payload));
+
+            s.Clock.Advance(TimeSpan.FromSeconds(1));
+            Assert.Equal(200, s.Client.Post("saves/" + alice + "/restore", restore).StatusCode);
+            // The pool rotates on before the restart (another system backup): the staged copy still applies.
+            s.Clock.Advance(TimeSpan.FromSeconds(1));
+            s.Store.CreateBackup(alice, "presettings");
+            Assert.Null(s.Store.Backups.Find(alice, oldest));
+
+            s.Restart();
+            var history = s.History()[0];
+            Assert.True((string)history["result"] == "applied", (string)history["message"]);
+            Assert.Equal(5L, s.Store.ReadDocument(alice).Root["level"]);
+            Assert.Empty(Directory.GetFiles(s.StagedDir, "*.payload.json"));
+        }
+
+        [Fact]
+        public void AnUndoWithAFullSystemPoolStillRestoresTheSaveFromBefore()
+        {
+            using var s = new SavesServer();
+            string alice = s.Player("alice").Id;
+            s.SaveGame(alice, 20);
+            string backup = s.Store.CreateBackup(alice, "manual").Id;
+            s.Clock.Advance(TimeSpan.FromSeconds(1));
+            s.SaveGame(alice, 30);
+            s.Play("alice");
+            s.Session();
+            Assert.Equal(200, s.Client.Post("saves/" + alice + "/restore", new Dictionary<string, object>
+            {
+                ["backup"] = backup, ["plan"] = "replace", ["confirm"] = "replace",
+            }).StatusCode);
+            s.Restart();
+            s.SaveGame(alice, 20);   // confirmed
+            string pre = (string)s.History()[0]["preBackupId"];   // the level-30 state, the oldest system backup
+            for (int i = 0; i < 9; i++)
+            {
+                s.Clock.Advance(TimeSpan.FromSeconds(1));
+                s.Store.CreateBackup(alice, "presettings");   // nine risky settings changes
+            }
+            s.Session();
+            Assert.Equal(true, AdminTestClient.At(s.Client.Get("saves"), "last.undoable"));
+
+            HttpResponse undo = s.Client.Post("saves/staged/undo", new Dictionary<string, object> { ["confirm"] = "undo" });
+            Assert.True(undo.StatusCode == 200, undo.BodyText);
+            Assert.NotNull(s.Store.Backups.Find(alice, pre));   // the prerestore backup of the undo spared it
+            Assert.NotNull(AdminTestClient.At(undo, "staged.payload"));
+            s.Restart();
+            var history = s.History()[0];
+            Assert.True((string)history["result"] == "applied", (string)history["message"]);
+            Assert.Equal("undo", history["kind"]);
+            Assert.Equal(30L, s.Store.ReadDocument(alice).Root["level"]);
         }
 
         [Fact]

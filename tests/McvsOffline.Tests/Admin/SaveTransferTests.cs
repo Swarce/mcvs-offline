@@ -165,6 +165,18 @@ namespace McvsOffline.Tests.Admin
         }
 
         [Fact]
+        public void MoreThan999PartsIsTooLargeWithThePartCount()
+        {
+            var rng = new Random(3);
+            byte[] data = new byte[SaveTransfer.MaxParts * SaveTransfer.DiscordPartChars * 3 / 4 + 4096];
+            rng.NextBytes(data);
+            var ex = Assert.Throws<TransferTooLargeException>(() => SaveTransfer.Encode(data, SaveTransfer.DiscordPartChars, "d0d0d0d0", false));
+            Assert.True(ex.IsPartCount);
+            Assert.Equal(SaveTransfer.MaxParts, ex.Limit);
+            Assert.InRange(SaveTransfer.Encode(data, SaveTransfer.DefaultPartChars, "d0d0d0d0", false).Parts.Count, 2, 40);   // fine in larger parts
+        }
+
+        [Fact]
         public void AStreamThatDoesNotMatchItsChecksumIsRefused()
         {
             TransferExport export = SaveTransfer.Encode(SampleBundle(5), 60000, "c0c0c0c0", true);
