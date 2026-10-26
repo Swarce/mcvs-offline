@@ -90,6 +90,7 @@ namespace McvsOffline.Server.Services.Admin.Saves
         private readonly LocalProfileStore store;
         private readonly StagedOperations staged;
         private readonly Log log;
+        private readonly object uploadsGate = new object();
         private ImportUploads uploads;
 
         public SavesApi(AdminApi api, LocalProfileStore store, StagedOperations staged)
@@ -130,9 +131,12 @@ namespace McvsOffline.Server.Services.Admin.Saves
         {
             get
             {
-                // Created on first use: the folder exists only once somebody imports.
-                if (uploads == null) uploads = new ImportUploads(AdminFiles.Folder(context, "admin/uploads"), context.Clock, log);
-                return uploads;
+                // Created on first use (the folder exists only once somebody imports); one instance, one lock.
+                lock (uploadsGate)
+                {
+                    if (uploads == null) uploads = new ImportUploads(AdminFiles.Folder(context, "admin/uploads"), context.Clock, log);
+                    return uploads;
+                }
             }
         }
 
