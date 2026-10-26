@@ -6,11 +6,14 @@ using System.Globalization;
 using System.IO;
 using System.Net.Sockets;
 using System.Threading;
+using McvsOffline.Embedded.Admin;
 using McvsOffline.Embedded.Diagnostics;
 using McvsOffline.Server;
 using McvsOffline.Server.Core;
+using McvsOffline.Server.Core.Http;
 using McvsOffline.Server.Core.Routing;
 using McvsOffline.Server.Core.Storage;
+using McvsOffline.Server.Services.Admin;
 
 namespace McvsOffline.Embedded
 {
@@ -72,6 +75,9 @@ namespace McvsOffline.Embedded
         private FileLogSink bootstrapSink;
         private SafeLogFile gameLogFile;
         private IPlatformDiagnostics diagnostics;
+        private IAdminPlatform adminPlatform;
+        private MemoryLogSink problemSink;
+        private volatile AdminHost adminHost;
         private string fallbackLogDir;
 
         private EmbeddedHost(Logger logger, Log log)
@@ -177,6 +183,12 @@ namespace McvsOffline.Embedded
         /// <summary>The running server, or null while starting / after a failure.</summary>
         public McvsServer Server { get { return server; } }
 
+        /// <summary>The settings page's view of this host (registered as the server's IAdminHost), or null before the server exists.</summary>
+        internal AdminHost AdminHost { get { return adminHost; } }
+
+        /// <summary>One line on the phone-readable copy of the logs (set by the platform's diagnostics), or null.</summary>
+        public Func<string> MirrorStatus { get; set; }
+
         /// <summary>Why the server could not start, or null.</summary>
         public Exception ServerError { get { return serverError; } }
 
@@ -231,6 +243,12 @@ namespace McvsOffline.Embedded
 
         private void Prepare(IEmbeddedPlatform platform, EmbeddedHostOptions options)
         {
+            // Design §5.4: bootstrap.log, logcat and the problem list never carry a page ticket, a cookie or a password; the
+            // server's own logger gets the same redactor in McvsServer.Create.
+            Logger.Redactor = LogRedaction.Redact;
+            // WARN/ERROR lines of this logger for the settings page's "recent problems" (IAdminHost.RecentProblems).
+            problemSink = new MemoryLogSink(LogLevel.Warn, 100);
+            Logger.AddSink(problemSink);
             Log.Info("MCVS Offline " + McvsVersion.Current + " embedded host starting (platform " + platform.Name + ")");
             diagnostics = platform as IPlatformDiagnostics;
             if (CrashReporter.Hooks != null) Logger.For("crash").Info("hooks: " + CrashReporter.Hooks);
@@ -270,6 +288,8 @@ namespace McvsOffline.Embedded
                 Logger.RemoveSink(earlySink);
             }
             Log.Info("game root " + Paths.GameRoot + "; data directory " + Paths.DataDir);
+            string restartReason = AdminHost.TakeRestartMarker(Paths.LogsDir);
+            if (restartReason != null) Boot.Mark("previous exit: restart requested from the settings page (" + restartReason + ")");
 
             Settings = Settings.Load(Paths.SettingsFile, Logger.For("settings"));
             AddEmbeddedDefaults();
@@ -279,6 +299,7 @@ namespace McvsOffline.Embedded
             // Before the Java GameInstaller (it starts after OnCreate returns): data already on the device must be accepted
             // without Gameloft's CDN (docs/INSTALL-OFFLINE.md).
             PrepareInstallerData(platform);
+            ResolveAdminPlatform(platform);
 
             int port = options.Port ?? Settings.Port;
             if (port <= 0 || port > 65535)
@@ -311,6 +332,58 @@ namespace McvsOffline.Embedded
             thread.Start();
 
             StartDiagnostics(options);
+        }
+
+        /// <summary>
+        /// The settings page's device side (design §8.6): resolves the platform's JNI table once, here on the UI thread, and logs
+        /// the members that did not resolve (the capabilities that need them are off; Status › host › missingJni).
+        /// </summary>
+        private void ResolveAdminPlatform(IEmbeddedPlatform platform)
+        {
+            adminPlatform = platform as IAdminPlatform;
+            if (adminPlatform == null) return;
+            try
+            {
+                List<string> missing = adminPlatform.MissingJniMembers();
+                if (missing != null && missing.Count > 0)
+                    Log.Warn("settings page: " + missing.Count + " JNI member(s) did not resolve: " + string.Join(", ", missing.ToArray()));
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("settings page: the JNI table could not be resolved", ex);
+            }
+        }
+
+        /// <summary>The server's IAdminHost: registered after McvsServer.Create and before Start (design §8.2, §8.9).</summary>
+        private AdminHost CreateAdminHost(McvsServer created)
+        {
+            try
+            {
+                var admin = new AdminHost(created.Context, adminPlatform, GameReflection.Load(), created.Context.Logger.For("admin"))
+                {
+                    PlatformName = adminPlatform == null ? "directory" : "android",
+                    DeviceId = DeviceId,
+                    GameRoot = Paths.GameRoot,
+                    LogsDir = Paths.LogsDir,
+                    FallbackLogsDir = fallbackLogDir,
+                    Watchdog = () => this.Watchdog,
+                    Problems = problemSink,
+                    MirrorStatus = () =>
+                    {
+                        Func<string> mirror = this.MirrorStatus;
+                        return mirror == null ? null : mirror();
+                    },
+                    FlushLogs = this.FlushLogs,
+                };
+                created.Context.Features.Set<IAdminHost>(admin);
+                adminHost = admin;
+                return admin;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("settings page: the host side could not be set up", ex);
+                return null;
+            }
         }
 
         /// <summary>settings.json "install.*": the Java installer's state (InstallerData) and its progress in the log.</summary>
@@ -455,6 +528,12 @@ namespace McvsOffline.Embedded
             }
         }
 
+        /// <summary>"[watchdog] x" → "x": the logger's category says it already.</summary>
+        internal static string WithoutTag(string line, string tag)
+        {
+            return line != null && line.StartsWith(tag, StringComparison.Ordinal) ? line.Substring(tag.Length) : line;
+        }
+
         private void StartDiagnostics(EmbeddedHostOptions options)
         {
             try
@@ -473,11 +552,14 @@ namespace McvsOffline.Embedded
                         string logsDir = Paths.LogsDir;
                         threadDump = (tid, comm) => ThreadDump.Capture(tid, ThreadDump.Related(tid, comm),
                             Path.Combine(logsDir, "threaddump-" + DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + ".txt"),
-                            10000, s => dumpLog.Warn(s.StartsWith("[threaddump] ", StringComparison.Ordinal) ? s.Substring(13) : s));
+                            10000, s => dumpLog.Warn(WithoutTag(s, "[threaddump] ")));
                     }
-                    Watchdog = new GameThreadWatchdog(() => Boot.Describe(),
-                                                      s => watchdogLog.Warn(s.StartsWith("[watchdog] ", StringComparison.Ordinal) ? s.Substring(11) : s),
-                                                      javaStacks, 1000, null, threadDump);
+                    // Stall snapshots at WARN (the page's "recent problems"); the tid and the page's pause/resume at INFO.
+                    Watchdog = new GameThreadWatchdog(() => Boot.Describe(), s => watchdogLog.Warn(WithoutTag(s, "[watchdog] ")),
+                                                      javaStacks, 1000, null, threadDump)
+                    {
+                        Notice = s => watchdogLog.Info(WithoutTag(s, "[watchdog] ")),
+                    };
                     Watchdog.Start();
                 }
             }
@@ -647,6 +729,7 @@ namespace McvsOffline.Embedded
                 if (options.RegisterServices != null) serverOptions.RegisterServices = options.RegisterServices;
 
                 McvsServer created = McvsServer.Create(serverOptions);
+                AdminHost admin = CreateAdminHost(created);
                 int attempts = options.StartAttempts < 1 ? 1 : options.StartAttempts;
                 for (int attempt = 1; ; attempt++)
                 {
@@ -654,6 +737,8 @@ namespace McvsOffline.Embedded
                     {
                         created.Start();
                         server = created;
+                        // The game's hooks (Settings › Account button, inbox marker) work from here on.
+                        if (admin != null) AdminHooks.Host = admin;
                         Log.Info("offline server running at " + created.Context.BaseUrl);
                         Boot.Mark("offline server listening at " + created.Context.BaseUrl);
                         return;
