@@ -1427,15 +1427,20 @@ def check_collector(cat, doc):
 
 
 def check_collector_rewards(liveops, collector):
-    """The crates the liveops.json collector block hands out are the collector's crate (what CollectorRuntime guards)."""
+    """The crates the liveops.json collector block hands out are the collector's crate (what CollectorRuntime guards),
+    at least one of them (lists may be empty, the block as a whole may not: economy.collector.enabled switches it off)."""
     block = liveops.get("collector")
     if block is None:
         return
     lists = [block["dailyBonus"], block["weeklyFinal"]] + block["weeklyMilestones"]
+    crates = 0
     for r in [r for rewards in lists for r in rewards]:
         if r["item"] not in LIVEOPS_CURRENCIES and r["item"] != collector["crate"]["id"]:
             raise ContentError("liveops: the collector block hands out %s, not the collector's crate %s"
                                % (r["item"], collector["crate"]["id"]))
+        crates += r["item"] == collector["crate"]["id"]
+    if not crates:
+        raise ContentError("liveops: the collector block hands out no %s" % collector["crate"]["id"])
 
 
 # ----------------------------------------------------------------------------------------------- output

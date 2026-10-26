@@ -848,6 +848,12 @@ class GeneratorTests(unittest.TestCase):
                           text="not the collector's crate")
         self.assert_error(mutate_liveops=block(since="2030-02-30T00:00:00Z"), text="not a valid date")
         self.assert_error(mutate_liveops=lambda t: t.update(collector=[collector_block()]), text="collector must be an object")
+        # lists may be empty, the block as a whole must hand out the crate (GeneratedContentTests asserts the same)
+        self.assert_error(mutate_liveops=block(dailyBonus=[], weeklyMilestones=[[], [], []], weeklyFinal=[]),
+                          text="hands out no Crate_Event_Special")
+        self.assert_error(mutate_liveops=block(dailyBonus=[], weeklyMilestones=[[], [], []],
+                                               weeklyFinal=[{"item": "VersusCoins", "quantity": 50}]),
+                          text="hands out no Crate_Event_Special")
         # a misspelt or missing key would silently drop its crates
         self.assert_error(mutate_liveops=block(weeklyfinal=crate), text="unknown: weeklyfinal")
 
