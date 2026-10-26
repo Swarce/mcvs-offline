@@ -44,6 +44,8 @@ namespace McvsOffline.Patcher
     /// <item>never touch the six typemap-pinned assemblies (their MVIDs are baked into libxamarin-app.so);</item>
     /// <item>rename the manifest's vendor-wide signature permission into the package's namespace, so the re-signed APK
     /// installs next to other Gameloft games (<see cref="ManifestPatch"/>);</item>
+    /// <item>with "debloat" (default): remove the manifest declarations of SDK components that are dead offline
+    /// (<see cref="ManifestDebloat"/>) and drop the Crashlytics/Fabric files nothing loads (<see cref="DebloatDroppedEntries"/>);</item>
     /// <item>keep every other entry byte-identical (same compression method and bytes; lib/ stays DEFLATED, which
     /// matches the default extractNativeLibs=true of this manifest);</item>
     /// <item>align (4 / 4096 for stored .so) and sign v1+v2(+v3) with the player's key.</item>
@@ -117,11 +119,18 @@ namespace McvsOffline.Patcher
 
             ZipEntry manifestEntry = input.Find(ManifestPatch.EntryName) ?? throw new InvalidDataException(options.InputApk + " has no " + ManifestPatch.EntryName);
             byte[] manifest = ManifestPatch.Apply(manifestEntry.GetData(), report.Notes);
+            bool debloat = options.Patches != null && options.Patches.Contains(ManifestDebloat.PatchId);
+            if (debloat)
+            {
+                log("patch " + ManifestDebloat.PatchId + ": dead SDK components out of the manifest, Crashlytics/Fabric files out of the APK");
+                CheckDebloatEntries(input);
+                manifest = ManifestDebloat.Apply(manifest ?? manifestEntry.GetData(), report.Notes);
+            }
 
             byte[] rawArgs = RawArgsFor(input, options, report);
 
             CheckAbis(input, options.Abis, report);
-            List<ZipEntry> output = ComposeEntries(input, modifiedAssemblies, manifest, rawArgs, serverBytes, options.StripAot, options.Abis, report);
+            List<ZipEntry> output = ComposeEntries(input, modifiedAssemblies, manifest, rawArgs, serverBytes, options.StripAot, options.Abis, debloat, report);
             report.Warnings.AddRange(StaleAotNotes(input, output, modifiedAssemblies.Keys));
             byte[] unsigned = ZipArchiveWriter.Write(output);
             var modifiedEntries = modifiedAssemblies.Keys.Select(f => KnownBuild.AssembliesDir + f).ToList();
@@ -248,10 +257,12 @@ namespace McvsOffline.Patcher
         }
 
         private static List<ZipEntry> ComposeEntries(ZipArchiveReader.Archive input, Dictionary<string, byte[]> modified, byte[] manifest,
-                                                     byte[] rawArgs, byte[] serverBytes, AotStripMode stripAot, SortedSet<string> keepAbis, PatchReport report)
+                                                     byte[] rawArgs, byte[] serverBytes, AotStripMode stripAot, SortedSet<string> keepAbis,
+                                                     bool debloat, PatchReport report)
         {
             var removeAot = new HashSet<string>(modified.Keys.Select(f => "libaot-" + f + ".so"), StringComparer.Ordinal);
             var output = new List<ZipEntry>();
+            var debloated = new List<string>();
             int lastAssembly = -1;
             ZipEntry assemblyTemplate = null;
             foreach (ZipEntry e in input.Entries)
@@ -265,6 +276,12 @@ namespace McvsOffline.Patcher
                 if (abi != null && keepAbis != null && !keepAbis.Contains(abi))
                 {
                     report.Removed.Add(e.Name + " (native library of an ABI not kept, --abi)");
+                    continue;
+                }
+                if (debloat && IsDebloatEntry(e.Name))
+                {
+                    report.Removed.Add(e.Name + " (" + DebloatDroppedEntries[e.Name] + "; " + ManifestDebloat.PatchId + ")");
+                    debloated.Add(e.Name);
                     continue;
                 }
                 if (IsAotImage(e.Name))
@@ -312,7 +329,64 @@ namespace McvsOffline.Patcher
             string serverName = KnownBuild.AssembliesDir + KnownBuild.ServerAssemblyFile;
             output.Insert(lastAssembly + 1, ZipEntry.CreateStored(serverName, serverBytes, assemblyTemplate));
             report.Added.Add(serverName);
+            if (debloat)
+            {
+                int libraries = debloated.Count(n => n.StartsWith("lib/", StringComparison.Ordinal));
+                report.Notes.Add(ManifestDebloat.PatchId + ": dropped " + debloated.Count + " Crashlytics/Fabric files nothing loads offline (" +
+                                 libraries + " lib/<abi>/libcrashlytics.so, " + (debloated.Count - libraries) + " Fabric/Crashlytics .properties)");
+            }
             return output;
+        }
+
+        private const string DebloatLibrary = "Crashlytics NDK library, never loaded offline";
+        private const string DebloatProperties = "read only by Fabric.with, which never runs";
+
+        /// <summary>
+        /// Patch "debloat", files: the Crashlytics/Fabric entries of 1.17.32 (unzip -l) that nothing loads offline, with the
+        /// reason reported. libcrashlytics.so is loaded only by the static initializer of com.crashlytics.android.ndk.JniNativeApi,
+        /// reached only from managed Crashlytics.Start (when the TS handshake says EnableCrashlytics: CRM
+        /// game.CrashlyticsParams.Enable, false in our crm_overlay.json; the debloat IL patch also makes Start a no-op); no native
+        /// library dlopens it and no P/Invoke names it. The .properties files are read only inside Fabric.with, which never
+        /// runs (no google_app_id; ManifestDebloat also removes CrashlyticsInitProvider and io.fabric.ApiKey).
+        /// </summary>
+        public static readonly IReadOnlyDictionary<string, string> DebloatDroppedEntries = new SortedDictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["assets/crashlytics-build.properties"] = "Crashlytics build id, " + DebloatProperties,
+            ["fabric/com.crashlytics.sdk.android.answers.properties"] = "Fabric kit version, " + DebloatProperties,
+            ["fabric/com.crashlytics.sdk.android.beta.properties"] = "Fabric kit version, " + DebloatProperties,
+            ["fabric/com.crashlytics.sdk.android.crashlytics-core.properties"] = "Fabric kit version, " + DebloatProperties,
+            ["fabric/com.crashlytics.sdk.android.crashlytics-ndk.properties"] = "Fabric kit version, " + DebloatProperties,
+            ["fabric/com.crashlytics.sdk.android.crashlytics.properties"] = "Fabric kit version, " + DebloatProperties,
+            ["fabric/io.fabric.sdk.android.fabric.properties"] = "Fabric kit version, " + DebloatProperties,
+            ["lib/arm64-v8a/libcrashlytics.so"] = DebloatLibrary,
+            ["lib/armeabi-v7a/libcrashlytics.so"] = DebloatLibrary,
+        };
+
+        /// <summary>The entry kinds "debloat" drops: lib/&lt;abi&gt;/libcrashlytics.so, fabric/*.properties, assets/crashlytics-build.properties.</summary>
+        internal static bool IsDebloatEntry(string name)
+        {
+            if (name == "assets/crashlytics-build.properties") return true;
+            if (name.StartsWith("fabric/", StringComparison.Ordinal))
+                return name.IndexOf('/', "fabric/".Length) < 0 && name.EndsWith(".properties", StringComparison.Ordinal);
+            string abi = AbiOf(name);
+            return abi != null && name == "lib/" + abi + "/libcrashlytics.so";
+        }
+
+        /// <summary>
+        /// "debloat" drops files by kind only from the APK it was verified on: the entries of those kinds must be exactly
+        /// <see cref="DebloatDroppedEntries"/> (another set means another build), otherwise nothing is written.
+        /// </summary>
+        private static void CheckDebloatEntries(ZipArchiveReader.Archive input)
+        {
+            var present = new SortedSet<string>(input.Entries.Select(e => e.Name).Where(IsDebloatEntry), StringComparer.Ordinal);
+            var missing = DebloatDroppedEntries.Keys.Where(k => !present.Contains(k)).ToList();
+            var unexpected = present.Where(p => !DebloatDroppedEntries.ContainsKey(p)).ToList();
+            if (missing.Count == 0 && unexpected.Count == 0) return;
+            var problems = new List<string>();
+            if (missing.Count > 0) problems.Add("missing " + string.Join(", ", missing));
+            if (unexpected.Count > 0) problems.Add("unexpected " + string.Join(", ", unexpected));
+            throw new InvalidDataException("the APK's Crashlytics/Fabric files are not the verified " + KnownBuild.Version + " set, nothing was written: " +
+                                           string.Join("; ", problems) + " (leave '" + ManifestDebloat.PatchId + "' out of --patch)");
         }
 
         /// <summary>Every entry we did not mean to change must come out with the same method, CRC and stored bytes.</summary>

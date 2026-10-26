@@ -282,9 +282,10 @@ namespace McvsOffline.Embed.Tests.Patcher
                          ApkPatcher.SelectPatches(PatcherOptions.ParsePatchList("default")).Select(p => p.Id));
             Assert.Equal(new[] { "finder", "lan" }, PatcherOptions.ParsePatchList("lan"));
             Assert.Empty(PatcherOptions.ParsePatchList("none"));
-            Assert.Equal(new[] { "bottile", "finder", "geo", "lan", "nativeonline", "signatures", "store", "waits" }, PatcherOptions.ParsePatchList("all"));
-            Assert.Equal(new[] { "bottile", "finder", "geo", "nativeonline", "signatures", "store", "waits" }, PatcherOptions.ParsePatchList("default"));
+            Assert.Equal(new[] { "bottile", "debloat", "finder", "geo", "lan", "nativeonline", "signatures", "store", "waits" }, PatcherOptions.ParsePatchList("all"));
+            Assert.Equal(new[] { "bottile", "debloat", "finder", "geo", "nativeonline", "signatures", "store", "waits" }, PatcherOptions.ParsePatchList("default"));
             Assert.Equal(new[] { "signatures" }, PatcherOptions.ParsePatchList("signatures"));
+            Assert.Equal(new[] { "debloat" }, PatcherOptions.ParsePatchList("debloat"));
             Assert.Throws<ArgumentException>(() => PatcherOptions.ParsePatchList("geo,unlockall"));
         }
 

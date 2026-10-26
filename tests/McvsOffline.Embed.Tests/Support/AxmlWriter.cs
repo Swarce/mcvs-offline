@@ -8,7 +8,9 @@ namespace McvsOffline.Embed.Tests.Support
 {
     /// <summary>
     /// Writes a small compiled (binary XML) AndroidManifest.xml the way aapt does: string pool (framework attribute names
-    /// first, tied to their ids by the resource map), the android namespace, then the elements. Test fixture only.
+    /// first, tied to their ids by the resource map), the android namespace, then the elements (each with a line number of
+    /// its own, in document order), with optional text (CDATA) and namespace scopes declared on inner elements. Test
+    /// fixture only.
     /// </summary>
     internal static class AxmlWriter
     {
@@ -17,7 +19,8 @@ namespace McvsOffline.Embed.Tests.Support
         private static readonly Dictionary<string, uint> FrameworkIds = new Dictionary<string, uint>(StringComparer.Ordinal)
         {
             ["name"] = 0x01010003, ["permission"] = 0x01010006, ["protectionLevel"] = 0x01010009, ["exported"] = 0x01010010,
-            ["authorities"] = 0x01010018, ["value"] = 0x01010024,
+            ["authorities"] = 0x01010018, ["value"] = 0x01010024, ["minSdkVersion"] = 0x0101020c, ["targetSdkVersion"] = 0x01010270,
+            ["maxSdkVersion"] = 0x01010271,
         };
 
         public sealed class Element
@@ -34,10 +37,24 @@ namespace McvsOffline.Embed.Tests.Support
 
             public List<Element> Children { get; } = new List<Element>();
 
+            /// <summary>Text written as a CDATA node right after the start element, or null.</summary>
+            public string Text { get; set; }
+
+            /// <summary>Namespace scopes (prefix, uri) declared on this element: START_NAMESPACE before it, END_NAMESPACE after.</summary>
+            public List<(string Prefix, string Uri)> Namespaces { get; } = new List<(string Prefix, string Uri)>();
+
             public Element Add(Element child)
             {
                 Children.Add(child);
                 return this;
+            }
+
+            /// <summary>This element and every descendant, in document order.</summary>
+            public IEnumerable<Element> Descendants()
+            {
+                yield return this;
+                foreach (Element c in Children)
+                    foreach (Element d in c.Descendants()) yield return d;
             }
         }
 
@@ -74,19 +91,27 @@ namespace McvsOffline.Embed.Tests.Support
             Use(AndroidNs);
             foreach (Element e in all)
             {
+                foreach (var ns in e.Namespaces)
+                {
+                    Use(ns.Prefix);
+                    Use(ns.Uri);
+                }
                 Use(e.Name);
                 foreach (var a in e.Attributes)
                 {
+                    Use(a.Ns);
                     Use(a.Name);
                     if (a.Value is string s) Use(s);
                 }
+                Use(e.Text);
             }
 
             var body = new MemoryStream();
             WriteStringPool(body, pool, utf8);
             Chunk(body, 0x0180, 8, w => { foreach (string name in mapped) w.Write(FrameworkIds[name]); });
             Chunk(body, 0x0100, 16, w => { w.Write(1); w.Write(-1); w.Write(pool.IndexOf("android")); w.Write(pool.IndexOf(AndroidNs)); });
-            WriteElement(body, root, pool);
+            int line = 1;
+            WriteElement(body, root, pool, ref line);
             Chunk(body, 0x0101, 16, w => { w.Write(1); w.Write(-1); w.Write(pool.IndexOf("android")); w.Write(pool.IndexOf(AndroidNs)); });
 
             var file = new MemoryStream();
@@ -104,11 +129,14 @@ namespace McvsOffline.Embed.Tests.Support
             foreach (Element c in e.Children) Collect(c, all);
         }
 
-        private static void WriteElement(Stream output, Element e, List<string> pool)
+        private static void WriteElement(Stream output, Element e, List<string> pool, ref int nextLine)
         {
+            int line = nextLine++;
+            foreach (var ns in e.Namespaces)
+                Chunk(output, 0x0100, 16, w => { w.Write(line); w.Write(-1); w.Write(pool.IndexOf(ns.Prefix)); w.Write(pool.IndexOf(ns.Uri)); });
             Chunk(output, 0x0102, 16, w =>
             {
-                w.Write(1);      // line
+                w.Write(line);   // line
                 w.Write(-1);     // comment
                 w.Write(-1);     // ns
                 w.Write(pool.IndexOf(e.Name));
@@ -148,8 +176,18 @@ namespace McvsOffline.Embed.Tests.Support
                     w.Write(data);
                 }
             });
-            foreach (Element c in e.Children) WriteElement(output, c, pool);
-            Chunk(output, 0x0103, 16, w => { w.Write(1); w.Write(-1); w.Write(-1); w.Write(pool.IndexOf(e.Name)); });
+            if (e.Text != null)
+            {
+                // ResXMLTree_cdataExt: the text, and an empty typed value (as aapt2 writes it).
+                Chunk(output, 0x0104, 16, w => { w.Write(line); w.Write(-1); w.Write(pool.IndexOf(e.Text)); w.Write((ushort)8); w.Write((byte)0); w.Write((byte)0); w.Write(0); });
+            }
+            foreach (Element c in e.Children) WriteElement(output, c, pool, ref nextLine);
+            Chunk(output, 0x0103, 16, w => { w.Write(line); w.Write(-1); w.Write(-1); w.Write(pool.IndexOf(e.Name)); });
+            for (int i = e.Namespaces.Count - 1; i >= 0; i--)
+            {
+                var ns = e.Namespaces[i];
+                Chunk(output, 0x0101, 16, w => { w.Write(line); w.Write(-1); w.Write(pool.IndexOf(ns.Prefix)); w.Write(pool.IndexOf(ns.Uri)); });
+            }
         }
 
         private static void WriteStringPool(Stream output, List<string> strings, bool utf8)

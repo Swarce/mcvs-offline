@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using McvsOffline.Embed.Tests.Support;
 using McvsOffline.Patcher;
+using McvsOffline.Patcher.Manifest;
 using McvsOffline.Patcher.Zip;
 using Xunit;
 using Xunit.Abstractions;
@@ -21,6 +22,30 @@ namespace McvsOffline.Embed.Tests.Patcher
         public RealGameTests(ITestOutputHelper output)
         {
             this.output = output;
+        }
+
+        /// <summary>
+        /// Report notes per IL patch id on the real 1.17.32 assemblies. A new IL patch adds its id here (the debloat IL
+        /// patches: ["debloat"] = their note count, once they are registered in ApkPatcher.AllPatches).
+        /// </summary>
+        internal static readonly IReadOnlyDictionary<string, int> IlPatchNotes = new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["hook"] = 1, ["headless"] = 5, ["headless-engine"] = 3, ["physics"] = 2, ["nativeonline"] = 1, ["waits"] = 2, ["geo"] = 1,
+            ["bottile"] = 1, ["finder"] = 1, ["lan"] = 3, ["store"] = 2, ["signatures"] = 2,
+        };
+
+        /// <summary>
+        /// The notes of a run on the real APK: those of its IL patches, the manifest permission rename, the res/raw/args.txt
+        /// rewrite (--game-log all), the ABI selection, and for "debloat" one per removed manifest element plus one for the
+        /// dropped Crashlytics/Fabric files.
+        /// </summary>
+        internal static int ExpectedNotes(IEnumerable<string> optionalPatches, bool gameLogAll = true)
+        {
+            var ids = new HashSet<string>(PatcherOptions.MandatoryPatches.Concat(optionalPatches), StringComparer.Ordinal);
+            int notes = ids.Sum(id => IlPatchNotes.TryGetValue(id, out int n) ? n : 0);
+            notes += 1 + (gameLogAll ? 1 : 0) + 1;
+            if (ids.Contains(ManifestDebloat.PatchId)) notes += ManifestDebloat.Targets.Count + 1;
+            return notes;
         }
 
         [Fact]
@@ -48,9 +73,11 @@ namespace McvsOffline.Embed.Tests.Patcher
                                  "res/raw/args.txt" },
                          report.Modified.OrderBy(m => m, StringComparer.Ordinal));
             Assert.Equal(new[] { "assemblies/McvsOffline.Server.dll" }, report.Added);
-            // 24 IL patch notes (hook 1, headless 5, headless-engine 3, physics 2, nativeonline 1, waits 2, geo 1, bottile 1,
-            // finder 1, lan 3, store 2, signatures 2), the manifest permission rename, the res/raw/args.txt rewrite and the ABI selection.
-            Assert.Equal(27, report.Notes.Count);
+            // 24 IL patch notes, the manifest permission rename, the res/raw/args.txt rewrite, the ABI selection, and debloat's
+            // 44 manifest removals and file drop: 72 (see IlPatchNotes / ExpectedNotes).
+            Assert.Equal(ExpectedNotes(options.Patches), report.Notes.Count);
+            Assert.Equal(ManifestDebloat.Targets.Count, report.Notes.Count(n => n.StartsWith("manifest: removed <", StringComparison.Ordinal)));
+            Assert.Contains(report.Notes, n => n.StartsWith("debloat: dropped 8 Crashlytics/Fabric files", StringComparison.Ordinal));   // armeabi-v7a's went with its ABI
             Assert.Contains("native libraries: kept arm64-v8a; dropped armeabi-v7a (the offline build is 64-bit ARM only)", report.Notes);
             Assert.Contains(report.Notes, n => n.Contains("KillSignatureRewardItem::GetAvailableId") && n.Contains("\"Sound\""));
             Assert.Contains(report.Notes, n => n.Contains("<SelectItems>b__8") && n.Contains("McvsStoreSafety.Report"));
@@ -80,7 +107,11 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Equal(input.Entries.Count(e => e.Name.StartsWith("lib/armeabi-v7a/", StringComparison.Ordinal)), dropped.Count);
             Assert.Equal(67, dropped.Count);
             Assert.All(dropped, d => Assert.StartsWith("lib/armeabi-v7a/", d));
-            Assert.DoesNotContain(report.Removed, r => r.StartsWith("lib/arm64-v8a/", StringComparison.Ordinal) && !r.Contains("(AOT image"));
+            Assert.DoesNotContain(report.Removed, r => r.StartsWith("lib/arm64-v8a/", StringComparison.Ordinal) && !r.Contains("(AOT image") &&
+                                                       r != "lib/arm64-v8a/libcrashlytics.so (Crashlytics NDK library, never loaded offline; debloat)");
+            Assert.Contains("lib/arm64-v8a/libcrashlytics.so (Crashlytics NDK library, never loaded offline; debloat)", report.Removed);
+            Assert.Equal(7, report.Removed.Count(r => r.EndsWith(".properties (Fabric kit version, read only by Fabric.with, which never runs; debloat)", StringComparison.Ordinal) ||
+                                                    r.StartsWith("assets/crashlytics-build.properties (", StringComparison.Ordinal)));
             Assert.Contains(report.Warnings, w => w.StartsWith("AOT image of XaLaunchANMP.dll"));
             int entries = ZipArchiveReader.Read(apk).Entries.Count;
             Assert.Equal(entries - report.Removed.Count - report.Modified.Count, report.UnchangedEntries);
@@ -98,14 +129,15 @@ namespace McvsOffline.Embed.Tests.Patcher
             }
             PatchReport report = ApkPatcher.Run(new PatcherOptions { InputApk = apk, ServerDll = server, DryRun = true }, null);
             // 21 IL patch notes (hook, headless 5 + 3, physics 2, nativeonline, waits 2, geo, bottile, finder, store 2,
-            // signatures 2), the manifest rename, res/raw/args.txt, the ABI selection.
-            Assert.Equal(24, report.Notes.Count);
+            // signatures 2), the manifest rename, res/raw/args.txt, the ABI selection, debloat's 44 + 1: 69.
+            Assert.Equal(ExpectedNotes(PatcherOptions.DefaultPatches), report.Notes.Count);
             Assert.DoesNotContain(report.Notes, n => n.Contains("LocalAnubisManager"));
 
             // --game-log fatal leaves res/raw/args.txt byte for byte (VerifyUnchanged checks the bytes).
             PatchReport fatal = ApkPatcher.Run(new PatcherOptions { InputApk = apk, ServerDll = server, DryRun = true, GameLog = GameLogMode.Fatal }, null);
             Assert.DoesNotContain("res/raw/args.txt", fatal.Modified);
-            Assert.Equal(23, fatal.Notes.Count);
+            Assert.Equal(ExpectedNotes(PatcherOptions.DefaultPatches, gameLogAll: false), fatal.Notes.Count);
+            Assert.Equal(report.Notes.Count - 1, fatal.Notes.Count);
 
             // The default keeps both ABIs: both lose the AOT images of the modified assemblies.
             PatchReport both = ApkPatcher.Run(new PatcherOptions { InputApk = apk, ServerDll = server, DryRun = true }, null);
