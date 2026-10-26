@@ -14,15 +14,15 @@ Done items are struck through. Device-test history and open risks are in [STATUS
 - ~~**Live-ops** ([LIVEOPS.md](LIVEOPS.md)): weekly division seasons, weekly modifier rotation, daily missions and weekly events, generated from the clock, working offline (confirmed in device test 5).~~ ✅
 - ~~**Install from copied data** ([INSTALL-OFFLINE.md](INSTALL-OFFLINE.md)): a copied `Data/` folder or a `files/` backup is accepted without Gameloft's CDN (confirmed in device test 5).~~ ✅
 - ~~**ABIs**: 32-bit kept by default; `--abi arm64-v8a` gives a 64-bit-only APK.~~ ✅
+- ~~**Firing-range exit lag**: the CRM document leaves owned kill signatures out (build 6; fast in device test 6).~~ ✅
 
 ## Next
 
 | Priority | Item |
 |---|---|
-| Medium | **Firing-range exit lag** (~11 s on "connecting to the server" in device test 5; cause in [STATUS.md](STATUS.md) "Device test 5"). Build 6 makes the CRM document ~78% smaller for unlock-all profiles (owned kill signatures are no longer listed); to confirm in device test 6. If still too slow, the next step is an IL patch that skips re-parsing and re-applying an unchanged CRM document (`StandardCrm.GetReader`, `CRMComponent.RefreshDatabases`); the 3.4 s profile reload is the game's own work. |
 | Low | **Server write speed**: faster profile saves and storage writes (currently usable). |
-| Low | **Avatar editor hang** with ~1,500 owned avatars: investigated in build 5, not patched (the work is in the UI's Flash VM, no managed hot spot); needs a thread dump of the freeze to decide on a fix. |
-| Low | Level jump to ~46 and save lag while unlock-all grants every mod (known game behaviour: each new mod gives XP). |
+| Low | **Avatar editor hang** with ~1,500 owned avatars: caught in a thread dump in device test 6 (managed, not the Flash VM); build 7's `signatures` patch removes it (×380 on net8), to confirm in device test 7. Optional follow-up if half-unlocked profiles still hitch (~0.5–0.9 s): build the avatar list once per screen refresh in `GameOfflineStore.GetKillSignItemObject` too. |
+| Low | Level jump to ~46 while unlock-all grants every mod (known game behaviour: each new mod gives XP). The 18–27 s reward-popup stalls of that grant came from the signature list builder and drop below a second per batch with build 7. |
 
 ## Later
 

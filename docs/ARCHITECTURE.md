@@ -126,6 +126,10 @@ Recommended extra IL patches (all optional, patcher flags):
 - `store` (default, device test 3): `KillSignatureRewardItem.GetAvailableId` no longer dereferences its null list for
   sounds (unowned sound -> its id, random/other -> null), and the `GameUnifiedStoreComponent.SelectItems` availability
   filter runs in try/catch (an item that throws is skipped and reported through `GameHooks.StoreItemException`).
+- `signatures` (default, build 7): `PlayerProfileComponent.GetSignatureAssetsList` looks owned/new ids up in a
+  `HashSet<string>` (lists of more than 16 ids) instead of `List.Contains` per table row, and
+  `GameOfflineStore.GetKillSignItems` builds the avatar/background list once per call instead of once per owned item
+  (the kill-signature screen froze for minutes after unlock-all).
 - `lan`: P1 Finder prefix `"*"`, P2 cache a real `PublicHost` at `LocalAnubisManager.Start`, P3
   `ClientSettings.LocalAnubisFinderHost = Args.RemoteIp ?? PublicHost` (verify-C6).
 

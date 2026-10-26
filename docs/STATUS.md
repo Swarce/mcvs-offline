@@ -1,10 +1,10 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-Last updated for build 6 (October 2026), after device test 5 (Samsung Galaxy S22, Android 16; see "Build 6" and
-"Device test 5" below).
+Last updated for build 7 (October 2026), after device test 6 (Samsung Galaxy S22, Android 16; see "Build 7" and
+"Device test 6" below).
 
-**Summary:** the Federation server is complete for the offline single-player goals and passes 672 tests, including a
+**Summary:** the Federation server is complete for the offline single-player goals and passes 677 tests, including a
 conformance harness that runs the game's own client libraries against it. Device test 1 put the player build (patcher +
 embedded host) on a phone for the first time and found two blockers (a stall with the internet on, a crash of the headless
 TS World). Build 2 fixed both: in device test 2 the whole boot chain up to the TS handshake ran, and the TS World loaded its
@@ -15,8 +15,61 @@ game booted to the menu and played matches**; it found two crashes (unlock-all, 
 copied `Data/` folder and the avatar editor freezing after unlock-all. Build 5 adds the offline data install, an optional
 64-bit-only APK (`--abi arm64-v8a`; 32-bit is kept by default again) and live ops (weekly division seasons, daily missions, weekly events).
 **Device test 5: live ops and the copied-data install work**; leaving the firing range took ~11 s on "connecting to the
-server". Build 6 makes the CRM document the game reloads there ~78% smaller for an unlock-all profile; device test 6 is
-next (checklist below).
+server". Build 6 makes the CRM document the game reloads there ~78% smaller for an unlock-all profile: **in device test 6
+the return to the menu was fast**, and a thread dump finally caught the kill-signature screen freeze, which build 7 patches;
+device test 7 is next (checklist below).
+
+## Device test 6 (October 2026): fast return to the menu; the signature-screen freeze caught in a dump
+
+Leaving the firing range is fast with build 6. The kill-signature (avatar) screen still froze after unlock-all; logcat
+`25_10-20-06-49`: watchdog STALLs at 5 s and 15 s with the game thread (tid 27705) in state R, then the Mono managed dump
+(the `logs.zip` upload was 0 bytes again; the logcat carries the dump):
+
+```
+string.op_Equality <- InternalStringComparer.IndexOf <- List<string>.Contains
+  <- PlayerProfileComponent.GetSignatureAssetsList <- GetSignatureAvatarsList
+  <- GameOfflineStore.GetKillSignItems <- GetSignatureList <- NativeGetSignatureList <- MenuComponent.OnInvokeDelegate (UI)
+```
+
+The build-5 analysis below looked only at `NativeGetSignatureLibrary` (one call) and wrongly put the cost in the Flash
+VM. The screen also calls `GetSignatureList`, whose `GetKillSignItems` looks up each owned avatar's image with
+`profile.GetSignatureAvatarsList().FirstOrDefault(...)`. Every one of those 1,512 calls rebuilds the 1,518-row list and
+sets each row's `locked`/`isNew` with `List.Contains` on the owned and new lists (1,512 each): about 1,512 × 1,518 ×
+3,024 ≈ 7 billion string compares. Measured on net8 with the real Game.dll: 26.8–33.8 s for one `GetKillSignItems("avatar")`
+(the phone's Mono JIT is slower still). The same list builder is behind the 18 s and 27.6 s stalls of the unlock-all reward
+popups in device test 5 (two builds per kill-signature reward, `_NotifyBundleReceived`).
+
+## Build 7 (October 2026): the 'signatures' patch
+
+New default patch `signatures` (Game.dll, `patcher/Patches/SignaturesPatch.cs`), both methods checked against their
+1.17.32 IL fingerprint first:
+
+* **G1** `PlayerProfileComponent.GetSignatureAssetsList`: an owned or new list of more than 16 ids is copied once per call
+  into a `HashSet<string>` (the same default comparer as `List.Contains`) and read through `ICollection<string>.Contains`;
+  shorter lists are used as they are. Every caller gains: the shop's availability check per kill-signature item,
+  `GetSignatureObject` (matchmaking, HUD, leaderboards, the match-over sync of every player's card: bots own all avatars),
+  level-up and reward popups. One call at unlock-all scale: 21–41 ms → 0.34–2 ms on net8.
+* **G2** `GameOfflineStore.GetKillSignItems`: the avatar and background lists are built once per call and reused for every
+  owned item (once per owned item before). The signature screen at unlock-all: 26.8–33.8 s → 49–104 ms on net8 (×380 or
+  more); a half-way profile (759 owned, 759 for sale): ~14 s → 0.3 s.
+* **Checked**: a differential test runs the original and the patched real Game.dll side by side on net8 (fake database
+  and profile, real `OfflineStoreData`): ~60 cases of `GetSignatureAssetsList` and 56 of `GetKillSignItems` (null and empty
+  lists, the 16/17 threshold, duplicates, unknown and null ids, case variants, missing tables, unlock-all) give identical
+  rows, flags, dictionaries and exceptions (`RealSignaturesPatchTests`; `MCVS_SLOW_TESTS=1` also runs the original screen
+  at full unlock-all scale). ILVerify against the game's BCL passes, both methods JIT, and a second patch run refuses.
+  Three independent reviews (IL, behavioural equivalence, remaining cost) found no defect.
+* **Left as it is** (minor, measured): for a player who owns about half the avatars, the shop part of the screen still
+  builds the list once per avatar for sale (`GetKillSignItemObject`), ~0.3 s on net8, ~0.5–0.9 s on a phone; reward popups
+  after unlock-all cost ~0.25 s per batch of 400 on net8 (keep `unlocks.batchSize` ≤ 400). A follow-up patch (one list per
+  screen refresh for the shop part too) is noted in ROADMAP.md if device test 7 shows a hitch.
+
+### What to check in device test 7
+
+1. **Signature screen** after unlock-all: it opens within about a second; owned avatars, backgrounds and sounds show and
+   can be equipped; with a profile that is not fully unlocked, the unowned ones can still be bought.
+2. **Match results / return to the menu**: less stutter than before (G1 also covers every player card's signature).
+3. A new unlock-all grant (fresh profile): the reward popups no longer stall for 18–27 s.
+4. Any `[watchdog] STALL`: send the logcat (the managed dump is in it).
 
 ## Device test 5 (October 2026): live ops and the data restore work; firing-range exit lag
 
@@ -158,7 +211,7 @@ reinstalling and copying the `Data/` folder back, the installer screen stalled a
 above), and the kill-signature avatar editor froze after unlock-all (below). Logcat `25_10-12-30-37` is a normal boot of
 this build: 56 requests, all fast; the main menu at about +60 s; the installer screen took about 16 s.
 
-### Open: the kill-signature avatar editor freezes after unlock-all (investigated, not patched)
+### Open: the kill-signature avatar editor freezes after unlock-all (solved in build 7, see "Device test 6")
 
 Logcat `25_10-12-30-37`, second watchdog STALL (`1792945929.086`): opening the avatar (emblem) editor with every avatar
 owned, the game thread (`Thread-22`, tid 31784) is in state R with `+2542 ticks` (25 s of CPU time since the watchdog's
@@ -563,7 +616,7 @@ Superseded by the device-test-3 sequence above (steps 1-8 are what device test 2
 | MISC | Hermes mailboxes, Kairos alert stream, Olympus leaderboards with league groups, Osiris events/profiles, clans, wall, group chat, profanity, game_stats, BanTool, geolocation, tracking/marketing catch-alls | `server/Services/{Social,Messaging,Alerts,...,Misc}` | [misc.md](protocol/misc.md) |
 | LIVE OPS | Weekly division seasons (17 division events, 100-entry season boards with rivals that grow and freeze), daily missions, weekly events, weekly modifier as CRM table overrides, CRM `expiry` for the client's refresh, culture-safe dates | `server/Services/Social/LiveOps`, `server/Services/Leaderboards/SeasonRivals.cs`, `tools/content-gen/liveops_tuning.json` | [LIVEOPS.md](LIVEOPS.md), [misc.md](protocol/misc.md) |
 | Unlocks | `settings.unlockAll` through the inventory ledger (starts only once the game profile and the inventory section are stored, waits for the player's alert stream, backup, ordered batches with the merc unlock re-checked before each, `set_profile` alerts) | `server/Services/Unlocks` | [unlocks.md](protocol/unlocks.md) |
-| EMBED | In-game bootstrap (game root via the game's own Java helpers, `args.txt` managed block with `-DataCenter`, device id, logcat, server thread); diagnostics (crash reporter, self-reporting log files, boot trace, game-thread watchdog with managed and native thread dump, game-log bridge, phone-readable copy, exit reasons); patcher (hook, headless, headless-engine, physics, nativeonline, waits, geo, bottile, finder, lan; `res/raw/args.txt` for `--game-log`; vendor-wide manifest permission renamed into the package namespace; AOT strip; ABI selection (every ABI by default, `--abi arm64-v8a` for 64-bit only); raw zip rewrite; v1/v2/v3 signing); installer-data restore (saved CDN index, journal and preferences, size-only index for a complete `Data/`, background CRC pass, installer monitor) | `hosts/embedded`, `patcher` | [PLAYER-SETUP.md](PLAYER-SETUP.md), [INSTALL-OFFLINE.md](INSTALL-OFFLINE.md) |
+| EMBED | In-game bootstrap (game root via the game's own Java helpers, `args.txt` managed block with `-DataCenter`, device id, logcat, server thread); diagnostics (crash reporter, self-reporting log files, boot trace, game-thread watchdog with managed and native thread dump, game-log bridge, phone-readable copy, exit reasons); patcher (hook, headless, headless-engine, physics, nativeonline, waits, geo, bottile, finder, lan; `res/raw/args.txt` for `--game-log`; vendor-wide manifest permission renamed into the package namespace; AOT strip; ABI selection (every ABI by default, `--abi arm64-v8a` for 64-bit only); signatures (build 7); raw zip rewrite; v1/v2/v3 signing); installer-data restore (saved CDN index, journal and preferences, size-only index for a complete `Data/`, background CRC pass, installer monitor) | `hosts/embedded`, `patcher` | [PLAYER-SETUP.md](PLAYER-SETUP.md), [INSTALL-OFFLINE.md](INSTALL-OFFLINE.md) |
 | Hosts | Standalone net8 console host; embedded DLL compiled against the game's trimmed Mono BCL (ILVerify-clean) | `hosts/standalone`, `server/McvsOffline.Server.Embedded.csproj` | [DEV-LOOP.md](DEV-LOOP.md) |
 
 ### How it was checked

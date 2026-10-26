@@ -48,12 +48,14 @@ namespace McvsOffline.Embed.Tests.Patcher
                                  "res/raw/args.txt" },
                          report.Modified.OrderBy(m => m, StringComparer.Ordinal));
             Assert.Equal(new[] { "assemblies/McvsOffline.Server.dll" }, report.Added);
-            // 22 IL patch notes (hook 1, headless 5, headless-engine 3, physics 2, nativeonline 1, waits 2, geo 1, bottile 1,
-            // finder 1, lan 3, store 2), the manifest permission rename, the res/raw/args.txt rewrite and the ABI selection.
-            Assert.Equal(25, report.Notes.Count);
+            // 24 IL patch notes (hook 1, headless 5, headless-engine 3, physics 2, nativeonline 1, waits 2, geo 1, bottile 1,
+            // finder 1, lan 3, store 2, signatures 2), the manifest permission rename, the res/raw/args.txt rewrite and the ABI selection.
+            Assert.Equal(27, report.Notes.Count);
             Assert.Contains("native libraries: kept arm64-v8a; dropped armeabi-v7a (the offline build is 64-bit ARM only)", report.Notes);
             Assert.Contains(report.Notes, n => n.Contains("KillSignatureRewardItem::GetAvailableId") && n.Contains("\"Sound\""));
             Assert.Contains(report.Notes, n => n.Contains("<SelectItems>b__8") && n.Contains("McvsStoreSafety.Report"));
+            Assert.Contains(report.Notes, n => n.Contains("PlayerProfileComponent::GetSignatureAssetsList") && n.Contains("HashSet<string>"));
+            Assert.Contains(report.Notes, n => n.Contains("GameOfflineStore::GetKillSignItems") && n.Contains("run once per call"));
             Assert.Contains(report.Notes, n => n.StartsWith("Game.InputSettingsComponent: + [KeepInHeadlessMode(false)]"));
             Assert.Contains(report.Notes, n => n.Contains("OnStart IL_0441 -> McvsBindingToActionPreset") && n.Contains("OnStop IL_01a2 -> McvsBindingToDefaultPreset"));
             Assert.Contains(report.Notes, n => n.Contains("FlameZoneComponent::BroadcastEnd(): IL_0035"));
@@ -95,15 +97,15 @@ namespace McvsOffline.Embed.Tests.Patcher
                 return;
             }
             PatchReport report = ApkPatcher.Run(new PatcherOptions { InputApk = apk, ServerDll = server, DryRun = true }, null);
-            // 19 IL patch notes (hook, headless 5 + 3, physics 2, nativeonline, waits 2, geo, bottile, finder, store 2), the
-            // manifest rename, res/raw/args.txt, the ABI selection.
-            Assert.Equal(22, report.Notes.Count);
+            // 21 IL patch notes (hook, headless 5 + 3, physics 2, nativeonline, waits 2, geo, bottile, finder, store 2,
+            // signatures 2), the manifest rename, res/raw/args.txt, the ABI selection.
+            Assert.Equal(24, report.Notes.Count);
             Assert.DoesNotContain(report.Notes, n => n.Contains("LocalAnubisManager"));
 
             // --game-log fatal leaves res/raw/args.txt byte for byte (VerifyUnchanged checks the bytes).
             PatchReport fatal = ApkPatcher.Run(new PatcherOptions { InputApk = apk, ServerDll = server, DryRun = true, GameLog = GameLogMode.Fatal }, null);
             Assert.DoesNotContain("res/raw/args.txt", fatal.Modified);
-            Assert.Equal(21, fatal.Notes.Count);
+            Assert.Equal(23, fatal.Notes.Count);
 
             // The default keeps both ABIs: both lose the AOT images of the modified assemblies.
             PatchReport both = ApkPatcher.Run(new PatcherOptions { InputApk = apk, ServerDll = server, DryRun = true }, null);
