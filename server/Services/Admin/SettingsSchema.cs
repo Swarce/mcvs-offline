@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Json;
+using McvsOffline.Server.Services.Crm.Collector;
 
 namespace McvsOffline.Server.Services.Admin
 {
@@ -50,6 +51,12 @@ namespace McvsOffline.Server.Services.Admin
 
         /// <summary>any or enable: a "presettings" backup of the current player's save is taken before saving; or null.</summary>
         public string BackupBefore { get; internal set; }
+
+        /// <summary>
+        /// What the module makes of a stored value that is not of the key's type (null: the default), shown flagged
+        /// <c>invalidStored</c>; for a key whose module does not fall back to its default (the collector's kill switch).
+        /// </summary>
+        internal Func<object, object> ReadInvalid { get; set; }
 
         /// <summary>The server-side check of a string value (patterns without a regex engine) and its message.</summary>
         internal Func<string, bool> Check { get; set; }
@@ -325,7 +332,8 @@ namespace McvsOffline.Server.Services.Admin
 
         /// <summary>
         /// The stored (effective) value for display, coerced to the key's type: null gives the default; a value of the
-        /// wrong type gives the default with <paramref name="invalid"/> set.
+        /// wrong type gives the default (or what the module reads it as, <see cref="SettingDefinition.ReadInvalid"/>) with
+        /// <paramref name="invalid"/> set.
         /// </summary>
         public static object Coerce(SettingDefinition def, object stored, out bool invalid)
         {
@@ -356,7 +364,7 @@ namespace McvsOffline.Server.Services.Admin
                     break;
             }
             invalid = true;
-            return JsonValue.DeepClone(def.Default);
+            return def.ReadInvalid != null ? def.ReadInvalid(stored) : JsonValue.DeepClone(def.Default);
         }
 
         /// <summary>The schema fields of a key as the page reads them (design §4.4), without value.</summary>
@@ -448,6 +456,14 @@ namespace McvsOffline.Server.Services.Admin
                        "Scales every VersusCoins price in the offline shop (at least 1)."),
                 Number("economy", "crm.dailyCapMultiplier", "Daily cap", 0.1, 20, 0.1, Menu,
                        "Extra factor on the two daily caps only."),
+                // Read by CollectorOptions at the next CRM fetch (docs/design/economy-collector.md §4.4); a stored value it
+                // cannot read switches the crate off (O7), and the page shows that.
+                ReadingInvalid(Bool("economy", CollectorOptions.SettingsPath + ".enabled", "Cosmetic crate", true, Menu,
+                                    "Random cosmetic crates in daily missions, weekly events and season rewards. "
+                                    + "Off restores the original rewards."),
+                               raw => CollectorOptions.ReadEnabled(raw)),
+                Integer("economy", CollectorOptions.SettingsPath + ".itemsPerCrate", "Items per Cosmetic crate",
+                        CollectorOptions.DefaultItemsPerCrate, 1, 10, 1, Menu, ""),
 
                 // Unlocks & codes
                 Confirmed(Bool("unlocks", "unlockAll", "Unlock everything", false, Live,
@@ -522,6 +538,12 @@ namespace McvsOffline.Server.Services.Admin
         private static SettingDefinition Bool(string group, string key, string label, bool defaultValue, string apply, string help)
         {
             return Base(group, key, label, TypeBool, defaultValue, apply, help);
+        }
+
+        private static SettingDefinition ReadingInvalid(SettingDefinition def, Func<object, object> read)
+        {
+            def.ReadInvalid = read;
+            return def;
         }
 
         private static SettingDefinition Integer(string group, string key, string label, long defaultValue, long min, long max, long step,

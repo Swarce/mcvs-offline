@@ -5,6 +5,7 @@ using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Json;
 using McvsOffline.Server.Services.Admin;
 using McvsOffline.Server.Services.Crm;
+using McvsOffline.Server.Services.Crm.Collector;
 using McvsOffline.Server.Services.Social.LiveOps;
 using McvsOffline.Server.Services.Storage;
 using Xunit;
@@ -19,6 +20,7 @@ namespace McvsOffline.Tests.Admin
         {
             "instantBots", "devMenu", "leaderboards.virtualPlayers", "geo.country",
             "economy.versusCoinsMultiplier", "economy.creditsMultiplier", "economy.xpMultiplier", "economy.priceMultiplier", "crm.dailyCapMultiplier",
+            "economy.collector.enabled", "economy.collector.itemsPerCrate",
             "unlockAll", "assets.couponsEnabled", "crm.redeemCoupons", "unlocks.batchSize", "admin.redeemCode",
             "liveops.enabled", "liveops.divisionSeasons", "liveops.dailyQuests", "liveops.weeklyEvents", "liveops.seasonDays",
             "liveops.seasonStart", "liveops.dailyResetHour", "liveops.modifiers", "liveops.difficulty", "liveops.seasonRewardMultiplier",
@@ -64,7 +66,7 @@ namespace McvsOffline.Tests.Admin
         {
             Dictionary<string, object> core = Settings.CreateDefaults();
             foreach (string key in new[] { "instantBots", "devMenu", "unlockAll", "economy.versusCoinsMultiplier", "economy.creditsMultiplier",
-                                           "economy.xpMultiplier", "economy.priceMultiplier", "logging.fileLevel" })
+                                           "economy.xpMultiplier", "economy.priceMultiplier", "logging.fileLevel", "economy.collector.enabled" })
                 Assert.True(JsonValue.DeepEquals(JsonPath.Get(core, key), Default(key)), key);
 
             var storage = new StorageSettings(new Settings());
@@ -83,6 +85,11 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal(liveOps.Modifiers, Default("liveops.modifiers"));
             Assert.Equal(liveOps.Difficulty, Default("liveops.difficulty"));
             Assert.Equal(liveOps.SeasonRewardMultiplier, Default("liveops.seasonRewardMultiplier"));
+
+            var collector = new CollectorOptions();
+            Assert.Equal(collector.Enabled, Default("economy.collector.enabled"));
+            Assert.Equal((long)collector.ItemsPerCrate, Default("economy.collector.itemsPerCrate"));
+            Assert.Equal(5L, Default("economy.collector.itemsPerCrate"));   // O3
 
             var crm = new CrmOptions();
             Assert.Equal(crm.DailyCapMultiplier, Default("crm.dailyCapMultiplier"));
@@ -245,6 +252,46 @@ namespace McvsOffline.Tests.Admin
             Assert.True(invalid);
             Assert.Equal("rotate", SettingsSchema.Coerce(Def("liveops.modifiers"), "nonsense", out invalid));
             Assert.True(invalid);
+        }
+
+        /// <summary>
+        /// The Cosmetic crate's two keys (docs/design/economy-collector.md §4.4): a switch and a 1-10 stepper in the Economy
+        /// group, read at the next CRM fetch. A stored kill switch the collector cannot read shows what the collector does
+        /// with it, off (O7), not the default.
+        /// </summary>
+        [Fact]
+        public void TheCosmeticCrateKeys()
+        {
+            SettingDefinition enabled = Def("economy.collector.enabled");
+            Assert.Equal(("economy", "bool", "menu", "Cosmetic crate"), (enabled.Group, enabled.Type, enabled.Apply, enabled.Label));
+            Assert.Contains("daily missions, weekly events and season rewards", enabled.Help);
+            Assert.Contains("Off restores the original rewards", enabled.Help);
+            Assert.Null(enabled.Confirm);
+            SettingDefinition items = Def("economy.collector.itemsPerCrate");
+            Assert.Equal(("economy", "int", "menu", "Items per Cosmetic crate"), (items.Group, items.Type, items.Apply, items.Label));
+            Assert.Equal((1.0, 10.0, 1.0), (items.Min.Value, items.Max.Value, items.Step.Value));
+            Assert.True(Check("economy.collector.itemsPerCrate", 10L).ok);
+            Assert.False(Check("economy.collector.itemsPerCrate", 11L).ok);
+            Assert.False(Check("economy.collector.itemsPerCrate", 0L).ok);
+            Assert.False(Check("economy.collector.itemsPerCrate", 2.5).ok);
+            Assert.False(Check("economy.collector.enabled", "off").ok);
+
+            foreach (var (stored, shown) in new (object, bool)[] { ("maybe", false), (2.5, false), ("off", false), (0L, false), ("yes", true), (1L, true) })
+            {
+                Assert.Equal(shown, SettingsSchema.Coerce(enabled, stored, out bool invalid));
+                Assert.True(invalid, MiniJson.Serialize(stored));
+                Assert.Equal(shown, CollectorOptions.ReadEnabled(stored));
+            }
+            Assert.Equal(true, SettingsSchema.Coerce(enabled, null, out bool unset));
+            Assert.False(unset);
+            Assert.Equal(false, SettingsSchema.Coerce(enabled, false, out unset));
+            Assert.False(unset);
+            Assert.Equal(5L, SettingsSchema.Coerce(items, "many", out unset));
+            Assert.True(unset);
+
+            // The presets keep to the currency keys.
+            foreach (SettingPreset preset in SettingsSchema.Presets)
+                Assert.DoesNotContain(preset.Values.Keys, k => k.StartsWith("economy.collector.", StringComparison.Ordinal));
         }
 
         [Fact]

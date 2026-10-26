@@ -83,6 +83,14 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal(true, coins["editable"]);
             Assert.True(coins.ContainsKey("confirm"));
             Assert.Equal(400L, Entry(body, "unlocks.batchSize")["value"]);
+            var crate = Entry(body, "economy.collector.enabled");
+            Assert.Equal(("bool", true, true, "menu"), ((string)crate["type"], crate["value"], crate["default"], (string)crate["apply"]));
+            var items = Entry(body, "economy.collector.itemsPerCrate");
+            Assert.Equal(("int", 5L, 5L, 1L, 10L, 1L, "menu"),
+                         ((string)items["type"], items["value"], items["default"], items["min"], items["max"], items["step"], (string)items["apply"]));
+            var economy = (List<object>)groups[1]["keys"];
+            Assert.Equal(new[] { "economy.collector.enabled", "economy.collector.itemsPerCrate" },
+                         economy.Cast<Dictionary<string, object>>().Select(k => (string)k["key"]).Where(k => k.StartsWith("economy.collector.")));
             Assert.Equal("enable", Entry(body, "devMenu")["confirmWhen"]);
 
             var password = Entry(body, "superPassword");
@@ -124,6 +132,36 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal(200, rig.Save(new Dictionary<string, object> { ["storage.backups.keep"] = 5L, ["geo.country"] = "DE" }).StatusCode);
             Assert.Equal(5L, JsonPath.Get(rig.Disk(), "storage.backups.keep"));
             Assert.Equal("DE", JsonPath.Get(rig.Disk(), "geo.country"));
+        }
+
+        /// <summary>
+        /// The Cosmetic crate's keys are written nested into economy.collector and the collector reads them at the next
+        /// CRM fetch (apply "menu"); a stored kill switch the collector cannot read is shown off (O7), flagged.
+        /// </summary>
+        [Fact]
+        public void TheCosmeticCrateKeysReachTheCollector()
+        {
+            using (var rig = new Rig())
+            {
+                var response = rig.Save(new Dictionary<string, object> { ["economy.collector.itemsPerCrate"] = 3L, ["economy.collector.enabled"] = false });
+                Assert.Equal(200, response.StatusCode);
+                var applied = ((List<object>)AdminTestClient.Json(response)["applied"]).Cast<Dictionary<string, object>>().ToList();
+                Assert.All(applied, a => Assert.Equal("menu", (string)a["apply"]));
+                Assert.Equal(3L, JsonPath.Get(rig.Disk(), "economy.collector.itemsPerCrate"));
+                Assert.Equal(false, JsonPath.Get(rig.Disk(), "economy.collector.enabled"));
+                var options = McvsOffline.Server.Services.Crm.Collector.CollectorRuntime.For(rig.Server.Context).Options;
+                Assert.Equal(3, options.ItemsPerCrate);
+                Assert.False(options.Enabled);
+                Assert.False(rig.Save(new Dictionary<string, object> { ["economy.collector.itemsPerCrate"] = 11L }).StatusCode == 200);
+            }
+
+            using (var rig = new Rig("{\"economy\":{\"collector\":{\"enabled\":\"maybe\"}}}"))
+            {
+                var entry = Entry(AdminTestClient.Json(rig.Client.Get("settings")), "economy.collector.enabled");
+                Assert.Equal(false, entry["value"]);
+                Assert.Equal(true, entry["invalidStored"]);
+                Assert.False(McvsOffline.Server.Services.Crm.Collector.CollectorRuntime.For(rig.Server.Context).Options.Enabled);
+            }
         }
 
         [Fact]
