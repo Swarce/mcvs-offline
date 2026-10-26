@@ -245,6 +245,7 @@ namespace McvsOffline.Tests.Content
             Assert.Equal(DayOfWeek.Monday, start.DayOfWeek);
             Assert.Equal(TimeSpan.Zero, start.TimeOfDay);
             Assert.Equal(0, (start - new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)).Ticks % TimeSpan.FromDays(7).Ticks);
+            // CollectorGuard.ShippedSince (compiled in, §2.12) must equal this value: asserted here once CollectorGuard exists.
 
             var milestones = (List<object>)block["weeklyMilestones"];
             Assert.Equal(((List<object>)JsonPath.Get(liveops, "weeklyEvents.milestoneRewards")).Count, milestones.Count);
