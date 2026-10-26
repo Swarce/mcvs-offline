@@ -201,12 +201,7 @@ namespace McvsOffline.Server.Services.Admin
         /// <summary>"anonymous:a1b2…f9e8": a credential with only the first and last 4 characters of its user name.</summary>
         public static string MaskCredential(string credential)
         {
-            if (string.IsNullOrEmpty(credential)) return credential;
-            int colon = credential.IndexOf(':');
-            string type = colon < 0 ? "" : credential.Substring(0, colon + 1);
-            string name = colon < 0 ? credential : credential.Substring(colon + 1);
-            if (name.Length <= 8) return type + (name.Length <= 4 ? name : name.Substring(0, 4)) + "…";
-            return type + name.Substring(0, 4) + "…" + name.Substring(name.Length - 4);
+            return McvsOffline.Server.Core.Accounts.Credential.Mask(credential);
         }
 
         // ------------------------------------------------------------------ the route wrapper

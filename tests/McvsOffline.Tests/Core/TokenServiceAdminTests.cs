@@ -78,5 +78,23 @@ namespace McvsOffline.Tests.Core
             Assert.NotNull(reloaded.Resolve(stays.Token));
             Assert.NotEqual(own.Token, reloaded.Issue("dddddddddddddddddddddddd", "anonymous:moved", Client, Scopes, "device-1").Token);
         }
+
+        [Fact]
+        public void TheRevokeLogLineMasksTheCredential()
+        {
+            using var dir = new TempDir();
+            var sink = new MemoryLogSink();
+            var logger = new Logger();
+            logger.AddSink(sink);
+            var tokens = new TokenService(dir.Combine("tokens.json"), "mcvs1234abcd", null, logger.For("auth"));
+            tokens.Issue("aaaaaaaaaaaaaaaaaaaaaaaa", "anonymous:a1b2c3d4e5f6a7b8c9d0f9e8", Client, Scopes, "device-1");
+
+            Assert.Equal(1, tokens.RevokeCredential("anonymous:a1b2c3d4e5f6a7b8c9d0f9e8"));
+            string line = Assert.Single(sink.Snapshot(), e => e.Message.StartsWith("revoked", System.StringComparison.Ordinal)).Message;
+            Assert.Equal("revoked 1 token(s) of anonymous:a1b2…f9e8", line);
+            Assert.Equal("anonymous:shor…", Credential.Mask("anonymous:shortish"));
+            Assert.Equal("anonymous:abc…", Credential.Mask("anonymous:abc"));
+            Assert.Null(Credential.Mask(null));
+        }
     }
 }

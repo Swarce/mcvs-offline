@@ -234,7 +234,7 @@ namespace McvsOffline.Server.Core.Accounts
                 if (revoke.Count > 0)
                 {
                     SaveUnlocked();
-                    log.Info("revoked " + revoke.Count + " token(s) of " + credential);
+                    log.Info("revoked " + revoke.Count + " token(s) of " + Credential.Mask(credential));
                 }
                 return revoke.Count;
             }
