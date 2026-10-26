@@ -334,7 +334,7 @@ namespace McvsOffline.Tests.Content
             Assert.Equal(0.0, o.Weight("vip"));
             Assert.Equal(new[] { 10, 0, 2, 2, 0, 3, 4 }, o.SeasonCrates);
             Assert.Equal(5, o.ItemsPerCrate);
-            Assert.True(o.Enabled);
+            Assert.False(o.Enabled);   // an unreadable kill switch is off (O7)
             string log = string.Join("\n", sink.Snapshot().Select(e => e.Message));
             output.WriteLine(log);
             foreach (string key in new[] { "baseShare", "weights.camos", "weights.vip", "weights.sounds", "seasonCrates[0]", "seasonCrates[4]", "itemsPerCrate", "enabled", "unknownKey" })
@@ -346,8 +346,8 @@ namespace McvsOffline.Tests.Content
         }
 
         /// <summary>
-        /// The opt-out (O7) written the plain ways switches the collector off; a value that cannot be read keeps the §4.4
-        /// default (on) and is logged as an error, not a warning.
+        /// The opt-out (O7) written the plain ways switches the collector off (an absent or null value is the default, on);
+        /// a value that cannot be read is <see cref="AnUnreadableOptOutSwitchesTheCollectorOff"/>.
         /// </summary>
         [Theory]
         [InlineData(false, false)]
@@ -383,25 +383,50 @@ namespace McvsOffline.Tests.Content
             Assert.Equal(enabled, o.SeasonEmblems);
         }
 
+        /// <summary>An absent or null kill switch is the default (on), with nothing logged.</summary>
+        [Fact]
+        public void ANullOptOutIsTheDefault()
+        {
+            var (o, sink) = Options(("enabled", null));
+            Assert.True(o.Enabled);
+            Assert.Empty(sink.Snapshot());
+
+            var settings = new Settings();
+            settings.Override("economy.collector", null);
+            Assert.True(CollectorOptions.FromSettings(settings, Log.Null).Enabled);
+            settings.Override("economy.collector", new Dictionary<string, object> { ["itemsPerCrate"] = 3L });
+            Assert.True(CollectorOptions.FromSettings(settings, Log.Null).Enabled);
+        }
+
+        /// <summary>
+        /// Owner decision on O7: the kill switch fails toward today's behaviour. An <c>enabled</c> value that cannot be read,
+        /// or a <c>collector</c> that is neither an object nor a bool, switches the collector off (every other option keeps
+        /// its default) and is logged as an error, not a warning. Other bools keep their default.
+        /// </summary>
         [Theory]
         [InlineData("maybe")]
         [InlineData("disable")]
+        [InlineData("")]
         [InlineData(2.5)]
-        public void AnUnreadableOptOutStaysOnAndIsAnError(object value)
+        [InlineData("2")]
+        public void AnUnreadableOptOutSwitchesTheCollectorOff(object value)
         {
             var (o, sink) = Options(("enabled", value));
-            Assert.True(o.Enabled);
+            Assert.False(o.Enabled);
+            Assert.Equal(new CollectorOptions { Enabled = false }.Fingerprint, o.Fingerprint);
             Assert.Contains(sink.Snapshot(), e => e.Level == LogLevel.Error && e.Message.StartsWith("settings: economy.collector.enabled = ")
-                                                  && e.Message.Contains("the collector stays on"));
+                                                  && e.Message.Contains("the collector is switched off"));
 
             var settings = new Settings();
             settings.Override("economy.collector", value);
             sink = new MemoryLogSink();
             var logger = new Logger();
             logger.AddSink(sink);
-            Assert.True(CollectorOptions.FromSettings(settings, logger.For("test")).Enabled);
+            o = CollectorOptions.FromSettings(settings, logger.For("test"));
+            Assert.False(o.Enabled);
+            Assert.Equal(new CollectorOptions { Enabled = false }.Fingerprint, o.Fingerprint);
             Assert.Contains(sink.Snapshot(), e => e.Level == LogLevel.Error && e.Message.StartsWith("settings: economy.collector = ")
-                                                  && e.Message.Contains("the collector stays on"));
+                                                  && e.Message.Contains("the collector is switched off"));
 
             (o, sink) = Options(("seasonEmblems", value));
             Assert.True(o.SeasonEmblems);

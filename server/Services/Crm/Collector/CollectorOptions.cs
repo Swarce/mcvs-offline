@@ -12,7 +12,7 @@ namespace McvsOffline.Server.Services.Crm.Collector
     /// live ops and the CRM read these options through <see cref="CollectorRuntime"/>, never the keys.
     /// <code>
     /// "collector": {
-    ///   "enabled": true,                  // false: the guard from since on, events as before (O7)
+    ///   "enabled": true,                  // false (or unreadable): the guard from since on, events as before (O7)
     ///   "itemsPerCrate": 5,               // 1..10: CratesCount of the Cosmetic crate (O3); tier crates band × N
     ///   "baseShare": 0.75,                // 0..1: share of draws for the no-source tier while both tiers have items
     ///   "weights": {"avatars": 1, "backgrounds": 1, "sounds": 1, "skins": 1, "hiddenJerseys": 1, "agents": 2,
@@ -28,8 +28,9 @@ namespace McvsOffline.Server.Services.Crm.Collector
     /// Out-of-range values are clamped, values of the wrong type replaced by the default; both are logged
     /// (<c>settings: economy.collector.&lt;key&gt; …</c>). The bools also read 1/0, "true"/"false", "on"/"off" and
     /// "yes"/"no", and <c>"collector": false</c> (a bool instead of the object) is read as <c>enabled: false</c>, so the
-    /// plain ways of writing the opt-out (O7) switch it off. Any other <c>enabled</c> value keeps the default, on (§4.4),
-    /// logged as an error.
+    /// plain ways of writing the opt-out (O7) switch it off. The kill switch fails toward today's behaviour (owner
+    /// decision on O7): an <c>enabled</c> value that cannot be read, or a <c>collector</c> that is neither an object nor
+    /// a bool, switches the collector <b>off</b>, logged as an error. Absent or null means the default, on.
     /// </summary>
     public sealed class CollectorOptions
     {
@@ -156,13 +157,15 @@ namespace McvsOffline.Server.Services.Crm.Collector
                              + ".enabled = " + (o.Enabled ? "true" : "false") + " with the other defaults");
                     return o;
                 }
-                log.Error("settings: " + SettingsPath + " = " + MiniJson.Serialize(raw) + " is not an object; using the defaults (the collector stays on)");
+                // The kill switch cannot be read: fail toward today's behaviour (O7), loudly.
+                o.Enabled = false;
+                log.Error("settings: " + SettingsPath + " = " + MiniJson.Serialize(raw) + " is not an object; " + SwitchedOff);
                 return o;
             }
             foreach (string key in s.Keys)
                 if (Array.IndexOf(Keys, key) < 0) log.Warn("settings: " + SettingsPath + "." + key + " is not a collector setting; ignored");
 
-            o.Enabled = Bool(s, "enabled", o.Enabled, log);
+            o.Enabled = ReadEnabled(s, log);
             o.ItemsPerCrate = Int(s, "itemsPerCrate", o.ItemsPerCrate, 1, 10, log);
             o.BaseShare = Real(s, "baseShare", o.BaseShare, 0, 1, log);
             o.Weights = ReadWeights(s, log);
@@ -254,16 +257,36 @@ namespace McvsOffline.Server.Services.Crm.Collector
             return DefaultExhaustedReward;
         }
 
+        private const string SwitchedOff = "the collector is switched off (an unreadable kill switch restores the original rewards); "
+                                           + "write \"enabled\": true or false";
+
+        /// <summary>
+        /// <c>economy.collector.enabled</c> as the collector reads it: null (absent) is the default, on; true/false and the
+        /// spellings of <see cref="FromSettings"/>; anything else is off (O7: the kill switch fails toward today's behaviour).
+        /// </summary>
+        public static bool ReadEnabled(object raw)
+        {
+            if (raw == null) return true;
+            bool? value = Switch(raw);
+            return value.HasValue && value.Value;
+        }
+
+        /// <summary><c>enabled</c>: absent or null is the default (on); a value that cannot be read is off (O7), an error.</summary>
+        private static bool ReadEnabled(Dictionary<string, object> s, Log log)
+        {
+            object raw;
+            if (!s.TryGetValue("enabled", out raw) || raw == null) return true;
+            if (!Switch(raw).HasValue) log.Error("settings: " + SettingsPath + ".enabled = " + MiniJson.Serialize(raw) + " is not a bool; " + SwitchedOff);
+            return ReadEnabled(raw);
+        }
+
         private static bool Bool(Dictionary<string, object> s, string key, bool defaultValue, Log log)
         {
             object raw;
             if (!s.TryGetValue(key, out raw) || raw == null) return defaultValue;
             bool? value = Switch(raw);
             if (value.HasValue) return value.Value;
-            string message = "settings: " + SettingsPath + "." + key + " = " + MiniJson.Serialize(raw) + " is not a bool; using " + (defaultValue ? "true" : "false");
-            // §4.4: a value of the wrong type is replaced by the default, which for the opt-out (O7) is "on": say so loudly.
-            if (key == "enabled") log.Error(message + " (the collector stays on; write false to switch it off)");
-            else log.Warn(message);
+            log.Warn("settings: " + SettingsPath + "." + key + " = " + MiniJson.Serialize(raw) + " is not a bool; using " + (defaultValue ? "true" : "false"));
             return defaultValue;
         }
 
