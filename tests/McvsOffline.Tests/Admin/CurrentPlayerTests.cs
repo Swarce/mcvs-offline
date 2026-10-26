@@ -95,6 +95,13 @@ namespace McvsOffline.Tests.Admin
                              "User-Agent", "(" + AndroidClient + "; mcvs)", "Origin", "null", "Sec-Fetch-Site", "cross-site"),
                 // The game's form and User-Agent, but no device id (the game always sends one).
                 user => GameLogin(user, null),
+                // A LAN guest's own login: the game's request, from another device.
+                user =>
+                {
+                    HttpRequest guest = GameLogin(user, "device-1");
+                    guest.RemoteEndPoint = new System.Net.IPEndPoint(System.Net.IPAddress.Parse("192.168.1.23"), 40001);
+                    return guest;
+                },
             };
         }
 

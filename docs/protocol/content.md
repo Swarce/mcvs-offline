@@ -143,10 +143,13 @@ gs: -ServerType gs -EnvironmentSwitcherUrl http://127.0.0.1:51780/ -DataCenter m
 * **The page code** (`admin.redeemCode`, default `MCVSOFFLINE`; empty turns it off; checked before
   `assets.couponsEnabled`): always 404 "coupon does not exist" (a 200 would make the game mark it claimed and add an
   empty inbox message), and it asks the admin portal to open the settings page (trigger `redeem`) only when the request
-  is the game's own: from loopback; no `Origin`, `Referer` or `Sec-Fetch-*` header and a `User-Agent` with the game's
-  `(<client id>; ` comment (any web page on the phone could otherwise send the GET); an access token, if any, of the
-  current player (the game's coupon request carries none); a host whose in-game browser is not open; at most once per
-  30 s. Logged as `coupon '<code>': opens the MCVS Offline page (requested|ignored: <reason>)`.
+  is the game's own: `lanMode` off (a LAN guest's redemption runs on this phone's menu server and looks exactly like
+  the player's); from loopback; no `Origin`, `Referer` or `Sec-Fetch-*` header, a client id in the path of the game's
+  form (`<digits>:<digits>:<version>:<platform>:<store>`) and exactly the game's `User-Agent`
+  `[<agent> ](<client id>; <datacenter>)` for it (any web page on the phone could otherwise send the GET, and picking
+  the client id `Linux` would match every Android browser's User-Agent); an access token, if any, of the current
+  player (the game's coupon request carries none); a host whose in-game browser is not open; at most once per 30 s.
+  Logged as `coupon '<code>': opens the MCVS Offline page (requested|ignored: <reason>)`.
 
 ## Iris assets
 

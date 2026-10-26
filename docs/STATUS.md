@@ -39,14 +39,17 @@ The settings and diagnostics page of [design/settings-page.md](design/settings-p
 * **Security**: one-time tickets (120 s) only in the URL fragment handed to the game's WebView, an `HttpOnly;
   SameSite=Strict` session cookie, a Host check on **every** route while bound to loopback (DNS rebinding;
   `security.hostCheck`), `X-MCVS: 1` on every `_mcvs` write (`curl -X POST -H 'X-MCVS: 1' ...`), a 1 KiB body limit
-  at header time without a session, one log redaction for every logger. Nothing secret is ever written to a file.
+  at header time without a session, one log redaction for every logger. Nothing secret is ever written to a file. The
+  redeem code and the page's "current player" accept only the game's own requests (no browser header, its exact
+  User-Agent for a client id of its form; the player's login must be a POST with a device id), and the code is off in
+  LAN mode.
 * **Host** (`hosts/embedded/Admin`, `Android`): the share sheet through MediaStore Downloads on Android 10+ (`file://`
   before), clipboard, toast, the game's own save (`ForceSaveProfile`) and restart (`MainActivity.a(true)`, host
   fallback), the watchdog paused while the page is open, one JNI table checked against `android.jar` and the APK's dex.
   The public log mirror now writes temp files, renames them into place and asks for a media scan (the 0-byte uploads).
 * **Checked**: `scripts/build.sh` with `MCVS_REFS`, `MCVS_REQUIRE_EMBEDDED=1`, `MCVS_REQUIRE_REAL_CLIENT=1` and
-  `MCVS_REQUIRE_NODE=1`: **McvsOffline.Tests 1071/1071, McvsOffline.Embed.Tests 272/272, 0 skipped**. Among them: the page in node against its fixtures and against a live
-  server (every screen, a settings change with the Back guard, an export pasted back, re-creation, view mode, ES5 parse
+  `MCVS_REQUIRE_NODE=1`: **McvsOffline.Tests 1075/1075, McvsOffline.Embed.Tests 272/272, 0 skipped**. Among them: the page in node against its fixtures and against a live
+  server (every screen, a settings change with the Back guard and its session history, an export pasted back, re-creation, view mode, ES5 parse
   with acorn); end-to-end tests over a socket (ticket → cookie → settings → CRM, the Host check, the early 413, an import
   from another phone applied at the next start and confirmed by the game's save); the three hook patches on the real
   1.17.32 assemblies (fingerprints, IL, executed against recording hooks with a differential, JIT, ILVerify) and
@@ -69,9 +72,11 @@ Details and what to record for each: design §12 (C1–C20).
    into `import/`; can Samsung My Files write `import/`? (C11)
 9. Restart from Actions: does the game come back by itself, one process and one boot? Then `admin.restartVia=host` (C12).
 10. Logs: the zip's size, arrives non-empty in the apps; Downloads › MCVS-Offline sizes right, `is_pending=0` (C13).
-11. Chrome: `/_mcvs/status` loads, `/_mcvs/ui/` is view-only (C14). LAN mode: `/_mcvs/*` from another device is 404 (C16).
+11. Chrome: `/_mcvs/status` loads, `/_mcvs/ui/` is view-only (C14). LAN mode: `/_mcvs/*` from another device is 404,
+    the redeem code is ignored (C16).
 12. Regression: boot, matches, shop, signatures, saves, codes as in build 8, and no `gate: refused Host` in `server.log` (C17).
-13. Layout at 130 % and 200 % font size and with the keyboard open; Status › host › `missingJni` empty (C18, C19).
+13. Layout at 130 % and 200 % font size and with the keyboard open; hardware Back closes the browser when nothing is
+    unsaved, also right after a dialog or a Save; Status › host › `missingJni` empty (C18, C19).
 
 ## Build 8 (October 2026): 'debloat', dead SDK pieces removed
 

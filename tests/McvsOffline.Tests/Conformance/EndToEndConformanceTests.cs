@@ -361,10 +361,12 @@ namespace McvsOffline.Tests.Conformance
             dynamic listener = game.Service(ts, "AlertService").GetAlert();
             alerts.Attach(listener);
             listener.StartListening();
-            await Task.Delay(300, ct);
             // The granter waits for exactly this before its first batch: a stream of the player that takes set_profile.
+            // The listener connects on its own task: poll (a fixed 300 ms was too short under a loaded full test run).
             string fedId = "fed_id:" + AccountStore.DeriveAccountId("anonymous:unlockconformance");
-            Assert.Equal(1, McvsOffline.Server.Services.Alerts.AlertHub.For(host.Server.Context).ListenerCount(fedId, "set_profile"));
+            var hub = McvsOffline.Server.Services.Alerts.AlertHub.For(host.Server.Context);
+            for (int i = 0; i < 100 && hub.ListenerCount(fedId, "set_profile") == 0; i++) await Task.Delay(50, ct);
+            Assert.Equal(1, hub.ListenerCount(fedId, "set_profile"));
 
             var sections = new ProfileSections(game, ts);
             dynamic gameProfile = await GameClient.Await(GameClient.CallGeneric(sections.Profile, "GetGameProfile", new[] { sections.GameProfileType }, ct));

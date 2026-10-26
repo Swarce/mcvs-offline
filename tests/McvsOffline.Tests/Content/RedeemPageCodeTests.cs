@@ -354,6 +354,11 @@ namespace McvsOffline.Tests.Content
             dynamic client = await GameClient.Await(fed.OpenSession(credential, "f3c1a9d2e8b74c55", "mcvs" + new string('7', 32), null,
                                                                     new List<string>(GameScopes.Client), ct));
             Assert.True((bool)client.IsOpen);
+            // The real client's own login (POST authorize, its User-Agent, a device id) is taken as the player's login
+            // (TokenService.LastDirectAnonymous, the "session" source of the current player, design §6.6).
+            Assert.Equal("anonymous:" + user, server.Context.Tokens.LastDirectAnonymous?.Credential);
+            Assert.Equal("mcvs" + new string('7', 32), server.Context.Tokens.LastDirectAnonymous.DeviceId);
+            Assert.False(logs.Contains("not taken as the player's login"));
             host.Info.GameCredential = "anonymous:" + user;
 
             // The menu server: game-server credential, session for the player (EN/Connection.cs SessionForUser).

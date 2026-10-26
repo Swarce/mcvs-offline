@@ -42,7 +42,10 @@ Found while implementing and reviewing the packages and at the integration (WP8)
 
 | Change | Why | Section |
 |---|---|---|
-| The redeem code needs **no** access token; a token that is present must be the current player's. New checks: no `Origin`, `Referer` or `Sec-Fetch-*` header, and a `User-Agent` with the game's `(<client id>; ` comment for the client id in the path. | The game's coupon request has no token (`AssetsApi` builds it without scopes; `FedRequestMessage` adds a token only to scoped requests), and without the header checks any web page on the phone could send the GET (an `<img>`, a no-cors fetch). | §9.5, §5.5, §10.8 |
+| The redeem code needs **no** access token; a token that is present must be the current player's. New checks (`GameRequest`, `server/Core/Http`): no `Origin`, `Referer` or `Sec-Fetch-*` header; the client id in the path has the game's form (`<digits>:<digits>:<version>:<platform>:<store>`); the `User-Agent` is exactly the game's `[<agent> ](<client id>; <datacenter>)` for it (no `Mozilla/`). The code does nothing while `lanMode` is on. | The game's coupon request has no token (`AssetsApi` builds it without scopes; `FedRequestMessage` adds a token only to scoped requests), and without the header checks any web page on the phone could send the GET (an `<img>`, a no-cors fetch). Review: the path's client id is the caller's choice, so "contains `(<client id>; `" let an old browser's `<img>` pass with `coupons/Linux/…` (every Android UA has `(Linux; `). In LAN mode a guest's redemption runs on this phone's menu server and reaches the Federation exactly like the player's own. | §9.5, §5.5, §10.8 |
+| The current player's `session` source counts only the game's own login: `auth/authorize` marks a direct anonymous grant as the player's (`TokenService.Issue(…, playerLogin)`, `LastDirectAnonymous`) only for a POST from loopback with a device id, the game's `User-Agent` and no browser header; the resolver also requires the grant's device id (equal to the host's when it knows it). | Review: `authorize` is served on GET and takes any anonymous name without a password, so a blind `<img>` to `127.0.0.1` without a device id made its own account "the current player" whenever the game's credential was unknown (always on the standalone host). | §6.6, §10.2 |
+| Back guard: the page takes its history entry off again (`history.back()`, ignoring the `popstate` it causes) once no dialog is open and nothing is unsaved; every event handler and every API answer re-checks it. The probation banner shows the server's sentences as written (no repeated "Reverted automatically:", no ".."). | Review: the entry stayed after a dialog, a Save or a Discard, so the next hardware Back did nothing visible (`InGameBrowser.onBackPressed`: `goBack` while it can, else close). | §2.1, §2.3 |
+| Post mode: the redirect always carries a screen (`#s=status` by default). | Review: a failed exchange redirected to a bare `/_mcvs/ui/`, which the page shows as view mode instead of `#banner-nosession`. | §5.3 |
 | The CRM warm-up waits up to 2 s for `IAdminPortal` while `crm.newsfeedLink` is on (requests do not wait). | The portal registers after the CRM module; without a data pack the warm-up built its document first and the TS's first request rebuilt it inside its 1 s `WaitForCRM`. | §9.1 |
 | Probation only for an operation after which the phone's login opens the target: a `replace`, or a switch or relink that moved the login. Not `restore-other`, a skipped relink or any undo. History entries carry `"probation": true/false`; results are `applied`, `failed`, `confirmed`, `reverted`, `superseded`. | A save of an account the phone does not load never comes, so a correct operation would be reverted two starts later; an undo's revert would redo the operation. | §6.4, §6.5 |
 | `<id>.payload.json` also for restores and undos (the backup text, copied at staging); the stage-time backup's pruning spares the backup being restored; relink objects are `{credential, from, to}`; a resumed apply reads the relink outcome back from the accounts. | Pool rotation could delete the backup a staged restore needs before the restart. | §6.4 |
@@ -178,8 +181,11 @@ Main flows:
 * **Navigation** never reloads the document (every load shows the browser's loading dialog) and never changes
   `location`. **Back guard:** while there are unsaved settings, an open dialog or a running wizard, the page pushes one
   same-document history entry (`history.pushState({mcvs: 1}, '')`, feature-tested); on `popstate` it closes the dialog
-  or asks "Discard your changes?" and pushes the entry again if the player stays. With nothing to lose no entry exists,
-  so hardware Back closes the browser as players expect.
+  or asks "Discard your changes?" and pushes the entry again if the player stays. As soon as nothing is left to lose
+  (a dialog closed, a Save, a Discard) the page takes its entry off again with `history.back()` and ignores the
+  `popstate` that causes (a `popstate` onto its own entry, the browser's Forward button, is taken off the same way);
+  every event handler and every API answer ends with this check. With nothing to lose no entry exists, so hardware Back
+  closes the browser as players expect (`InGameBrowser.onBackPressed`: `goBack()` while the WebView can, else close).
 * **Liveness.** The page pings `GET /_mcvs/api/v1/ping` every 10 s while visible and at once on `visibilitychange` to
   visible (renews the host's watchdog lease after a share target, §8.5; detects a dead server).
 
@@ -214,7 +220,7 @@ Main flows:
   `document.addEventListener('visibilitychange')`, `document.hidden`, `window.addEventListener('popstate')`,
   `value/checked/disabled`, `select()`, `focus()`, `scrollTop`, `offsetTop`,
   `setTimeout/clearTimeout/setInterval/clearInterval`, `XMLHttpRequest`, `location.hash/pathname`,
-  `history.replaceState`/`history.pushState` (feature-tested), `navigator.userAgent`, `navigator.clipboard`
+  `history.replaceState`/`history.pushState`/`history.back` (feature-tested), `navigator.userAgent`, `navigator.clipboard`
   (feature-tested), `document.execCommand('copy')` (feature-tested).
 * Dynamic text is always set with `textContent`; numbers and dates are formatted in JS (dates from ISO 8601 UTC to the
   phone's local time with `new Date(iso)` and manual padding; no `Intl`). Sizes are shown in KB/MB with one decimal.
@@ -838,9 +844,11 @@ connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`
 **`POST /_mcvs/ui`** (post mode): form `t=<32 hex>`, optionally `s=<screen>` and `r=nosave` (the minted URL's fragment
 fields). A valid unused ticket → mark used, create a session, `303 See Other` with `Location: /_mcvs/ui/` and the
 `Set-Cookie`. A used/unknown ticket with a valid cookie → `303` without a new session. Otherwise `303` without a cookie
-(the page then shows `#banner-nosession`). The `Location` carries the valid `s`/`r` fields as its fragment
-(`/_mcvs/ui/#s=saves&r=nosave`; `s` one of the six screen names, `r` exactly `nosave`, anything else left out), so the
-page boots on that screen with its toast as from a ticket URL. Redirecting makes the history entry a
+(the page then shows `#banner-nosession`). The `Location` always carries a fragment: the screen, `s` from the form when it
+is one of the six screen names and `status` otherwise, and `&r=nosave` when `r` is exactly `nosave` (anything else is left
+out: `/_mcvs/ui/#s=saves&r=nosave`, `/_mcvs/ui/#s=status`). The page boots on that screen with its toast as from a ticket
+URL, and without a session it shows `#banner-nosession`: a bare `/_mcvs/ui/` would be view mode (§2.4), but a post always
+comes from the game. Redirecting makes the history entry a
 GET: the browser's Refresh button reloads it with the cookie instead of re-POSTing a used ticket (the default
 `WebViewClient.onFormResubmission` refuses to resend, which would show an error page).
 
@@ -873,8 +881,14 @@ GET: the browser's Refresh button reloads it with the cookie instead of re-POSTi
 * `_mcvs/storage/profiles/{account}?raw=1` and the other read-only diagnostics stay readable by local apps; they hold no
   secret (I2).
 * A local app can fire the redeem trigger (§9.5) at most once per 30 s and only while no browser is open: the worst case
-  is the game's browser showing our page, with a ticket only the WebView receives. A web page cannot: a browser's request
-  carries `Origin`, `Referer` or `Sec-Fetch-*`, and a page cannot give a no-cors request the game's `User-Agent`.
+  is the game's browser showing our page, with a ticket only the WebView receives. A web page cannot: a current
+  browser's request carries `Origin`, `Referer` or `Sec-Fetch-*`, and no page can give a no-cors request the game's
+  `User-Agent`, which must be exactly `[<agent> ](<client id>; <datacenter>)` for a client id of the game's form (an old
+  browser's `<img>` with `referrerpolicy="no-referrer"` sends none of the headers, but picking the client id `Linux` to
+  match its own `(Linux; …)` no longer helps). In LAN mode the code is off: a guest's redemption runs on this phone's menu
+  server and cannot be told from the player's own.
+* A local app can likewise log in with the game's form, `User-Agent` and this phone's device id and so become the
+  `session` source of the current player (§6.6) while the game's own credential is unknown; a web page cannot.
 * A local app that wins the race to consume a one-time ticket before the WebView would need the ticket first: it is
   only in the game's memory, the Intent extra to the game's own activity and possibly native logcat (needs `READ_LOGS`).
 * In post mode the ticket is in a form body for ≤ 120 s; no other process sees it.
@@ -1162,10 +1176,15 @@ TS then shows an error or retries, the menu is never reached, and the page (open
    `AuthenticationComponent.cs:213`) by reflection on the game thread every time it opens the page (§8.3). It comes from
    the game's memory, so no HTTP request can spoof it.
 2. `session`: `context.Tokens.LastDirectAnonymous` (WP1: the last grant issued with `actor == null` and an `anonymous:`
-   credential), used only when its `DeviceId` equals the host's `DeviceId` (when both are known) and its `ClientId`
-   contains `:android:` (the game's client id form) → `Accounts.Find(credential)` (follows relinks). `auth/authorize`
-   accepts any anonymous credential without a password, so without these filters any local app could become "the
-   current player".
+   credential **that `auth/authorize` marked as the player's own login**, `Issue(…, playerLogin: true)`: a POST from
+   loopback (not a LAN guest's) with a device id other than `Unknown`, the game's `User-Agent` for its `client_id` and no
+   `Origin`, `Referer` or `Sec-Fetch-*` header, `GameRequest.NotTheGame`; the game's own login is exactly that, OP/Session.cs `GetAuthorizeRequest`), used
+   only when it has a device id, the device id equals the host's `DeviceId` when the host knows one, and its `ClientId`
+   contains `:android:` (the game's client id form) → `Accounts.Find(credential)` (follows relinks). `auth/authorize` is
+   served on GET too and accepts any anonymous credential without a password, so without these filters any web page on
+   the phone (a blind `<img>` or form to `127.0.0.1`) could make its own account "the current player"; the log line of
+   such a grant ends with `(not taken as the player's login: <reason>)`. A local app that imitates all of it still can
+   (§5.5).
 3. `device`: `IAdminHost.Describe().DeviceId` → `Accounts.FindByDevice` returns exactly one account.
 4. `single`: exactly one stored profile has a game profile.
 5. none: `Source = null`. The Saves screen then asks the player to pick an account; `switch`, `relink` and undo of a
@@ -1942,10 +1961,14 @@ Id `forum`, in `OptionalPatches` only. The label stays "Forum".
 
 `AssetsService.Coupon`, before the `assets.couponsEnabled` check: if `admin.redeemCode` is non-empty and
 `CouponCatalog.Normalize(code)` equals it, the request opens the page only when **all** hold: the request is from
-loopback; it looks like the game's own request: no `Origin`, `Referer` or `Sec-Fetch-*` header (a browser adds them; any
-web page on the phone could otherwise send this GET as an `<img>` or a no-cors fetch) and a `User-Agent` that contains
-the game's `(<client id>; ` comment for the client id in the path (`OP/FedRequestMessage.cs:137-142`; a page cannot set
-the `User-Agent` of a no-cors request, which also covers old WebViews without `Sec-Fetch-*`); an access token, **if
+loopback; `lanMode` is off (a LAN guest's redemption runs on this phone's menu server, `RedeemCouponRemote` with the
+guest's `RemoteSource.Session`, and reaches the Federation over loopback with the game's `User-Agent` and no token, just
+like the player's own); it looks like the game's own request (`GameRequest.NotTheGame`): no `Origin`, `Referer` or
+`Sec-Fetch-*` header (a browser adds them; any web page on the phone could otherwise send this GET as an `<img>` or a
+no-cors fetch), the client id in the path has the game's form `<digits>:<digits>:<version>:<platform>:<store>` (lower
+case; the caller picks it, so `coupons/Linux/…` would match every Android browser's `(Linux; …)`), and the `User-Agent`
+is exactly `[<agent> ](<client id>; <datacenter>)` for it, without `Mozilla/` (`OP/FedRequestMessage.cs:137-142`; a page
+cannot set the `User-Agent` of a no-cors request, which also covers old WebViews without `Sec-Fetch-*`); an access token, **if
 any**, resolves to the current player's account (`AdminApi.CurrentPlayer().AccountId`) — as built, the game's coupon
 request carries **no** token (`AssetsApi` builds it without scopes and `FedRequestMessage` adds a token only to scoped
 requests), so none is required; `IAdminHost.Describe().BrowserOpen` is false; the last honoured trigger is more than
@@ -2003,7 +2026,8 @@ existing `tests/McvsOffline.Tests/Content/CrmServiceTests.cs`, `tests/McvsOfflin
 their `_mcvs` POSTs, adjust status assertions, Host values).
 
 Details: §5.2, §5.4, §4.4 (`MoveAsideAndReset`), §6.6 (`LastDirectAnonymous`: set in both the new-grant and the
-re-issued-grant branch of `Issue`, under its lock, clone returned, with `ClientId` and `DeviceId`), §6.4
+re-issued-grant branch of `Issue` when the caller passes `playerLogin: true` (as built: `auth/authorize` for the game's own
+login only), under its lock, clone returned, with `ClientId` and `DeviceId`), §6.4
 (`RevokeCredential`: removes every persisted grant of that credential, saves `tokens.json`, returns the count).
 `Settings.LoadError` holds the read exception message or `MiniJson.Parse`'s exception message (line/column) when
 `IsFallback`. `MoveAsideAndReset` is thread-safe (under `gate`), throws `InvalidOperationException` unless `IsFallback`
@@ -2024,8 +2048,8 @@ never reads the body bytes; with a valid cookie → accepted up to 64 KiB; chunk
 redaction of every pattern including percent-encoded, split across `&`/JSON, parameter names (`password=`,
 `access_token=`, `"superPassword":`), the fast path returning the same instance; `Logger.Redactor` applied to messages
 and exception text for every sink; `Settings` fallback → `LoadError` set, `MoveAsideAndReset` renames, clears the flag,
-saves defaults, refuses when not fallback; `LastDirectAnonymous` ignores on-behalf and `game:` grants, is updated on
-re-issue, carries client and device id; `RevokeCredential` removes grants of one credential only. HTTP through
+saves defaults, refuses when not fallback; `LastDirectAnonymous` ignores on-behalf and `game:` grants and grants not marked
+`playerLogin`, is updated on re-issue, carries client and device id; `RevokeCredential` removes grants of one credential only. HTTP through
 `McvsServer.Handle` — `GET /_mcvs/status` from a LAN address → 404; with `Host: evil.com:51780` → 404; `POST
 /_mcvs/crm/reload` without `X-MCVS` → 403, with → 200; `/storage/_mcvs/storage` → not the diagnostics route;
 `/_mcvs/status` shows `superPassword: "***"`; an `auth/authorize` form with `password=` is logged redacted (MemoryLogSink
@@ -2258,7 +2282,8 @@ one with our `news_id` replaced; toggling the setting rebuilds the cached docume
 Redeem: `GET coupons/<cid>/mcvsoffline` as the game sends it (no token, its `User-Agent`), and with the current player's
 token → 404 and `OpenPage("redeem")` called once, also when `assets.couponsEnabled=false`; the real client's redemption
 opens it too; a second request within 30 s, a token of another account, an `Origin`/`Referer`/`Sec-Fetch-*` header,
-another `User-Agent`, a non-loopback caller or `BrowserOpen=true` → 404 without a call (logged `ignored: <reason>`); empty `admin.redeemCode` →
+another `User-Agent` (also `Mozilla/5.0 (<client id>; mcvs)` and an old WebView's against the client id `Linux`), a
+client id not of the game's form, `lanMode` on, a non-loopback caller or `BrowserOpen=true` → 404 without a call (logged `ignored: <reason>`); empty `admin.redeemCode` →
 normal 404 without a call; other codes unchanged. Real client (MCVS_REFS) — the real `Gameloft.OnlinePlatform.dll`
 `NewsFeedData` built from our `newsfeeds` token (through its Newtonsoft from MCVS_REFS) gives one item with our id,
 title, body, redirect and `CreationDate` = timestamp; the real `Game.dll` `new InboxMessage(NewsFeedItem, DateTime)` gives
@@ -2332,7 +2357,7 @@ Record `adb logcat -s McvsOffline mono-stdout`, keep `server.log`, and screensho
 | C4 | `IsInGameBrowserInitialized` offline. | Status › host › browser = `initialized`; `server.log` shows `marketing_site/redir/ingamenews.php?action=checkNews` or not. |
 | C5 | Watchdog. | No `[watchdog] STALL` and no thread dump while the page is open (≥ 2 min), `[watchdog] paused`/`resumed` lines; time from Close to a responsive menu (GL context resume). |
 | C6 | Settings › Account. | The "MCVS Offline" button shows with the typed label (or a raw key?) and a sensible icon (`Settings.png`; alternatives `settings_gameplay.png`, `redeemCode.png`); tapping opens the page (`trigger account`). Facebook/Google/Redeem/Recover buttons unchanged. Status › player › source = `game`. |
-| C7 | Redeem code `MCVSOFFLINE`. | The page opens; the "code does not exist" popup behind it; nothing claimed; a second try within 30 s is ignored (logged). `server.log` shows `coupon 'MCVSOFFLINE': opens the MCVS Offline page (requested)` for the game's request (no token, the game's User-Agent). |
+| C7 | Redeem code `MCVSOFFLINE`. | The page opens; the "code does not exist" popup behind it; nothing claimed; a second try within 30 s is ignored (logged). `server.log` shows `coupon 'MCVSOFFLINE': opens the MCVS Offline page (requested)` for the game's request (no token, the game's User-Agent); if it says `ignored: not the game's User-Agent` instead, record the request's `User-Agent` (DEBUG request line). The game's own login must not log `not taken as the player's login`. |
 | C8 | Forum (if patched with `--patch default,forum`). | The page opens. |
 | C9 | Settings writes. | VersusCoins ×2: after the next match the win pays double; a `restart` key shows the banner; Restart applies it. Enabling `devMenu` creates a `presettings` backup (Saves). Edit `settings.json` to a syntax error, start: the repair panel (file text with `superPassword` masked); repair; restart: defaults plus host keys. |
 | C10 | Copy. | Which of `navigator.clipboard`, `execCommand`, host clipboard worked (shown in the toast); a 60,000-character part copies and pastes intact. |
@@ -2341,9 +2366,9 @@ Record `adb logcat -s McvsOffline mono-stdout`, keep `server.log`, and screensho
 | C13 | Logs share. | Build (scope Recent): the size shown, ≤ 8 MiB; the zip arrives non-empty in Gmail, Telegram and Discord; scope Everything: size and the page's warning. Files › Downloads › MCVS-Offline shows correct sizes for the current session's mirror files; `adb shell content query --uri content://media/external/file --projection _data:_size:is_pending --where "_data LIKE '%MCVS-Offline%'"` shows `is_pending=0` and real sizes (before the fix: `is_pending=1`, size 0/NULL); after 6 shares only the newest 5 zips remain. Which app/picker the tester uses. |
 | C14 | Chrome. | `http://127.0.0.1:51780/_mcvs/status` loads (Host check passes, `superPassword` masked); `/_mcvs/ui/` shows the view-only page. Freezer timing: `adb shell device_config get activity_manager_native_boot use_freezer`, `adb shell dumpsys activity | grep -A 20 'Apps frozen:'`, reload after 90 s in Chrome, `adb logcat | grep -i freecess`. |
 | C15 | Android 5–9 (if a phone is available). | Share via `file://` (StrictMode) reaches Gmail; otherwise the text report works; a file manager can write `McvsOffline/import/`. |
-| C16 | LAN mode on. | `/_mcvs/*` from another device → 404; Federation requests of the LAN guest work (the Host check is off in LAN mode); the game on the host still plays. |
+| C16 | LAN mode on. | `/_mcvs/*` from another device → 404; the redeem code does nothing (`ignored: LAN mode is on …`); Federation requests of the LAN guest work (the Host check is off in LAN mode); the game on the host still plays. |
 | C17 | Regression. | Boot, matches, shop, signature screen, saves, unlock codes as in build 8; **no `gate: refused Host` WARN** in `server.log` for a whole session (the Federation Host check). |
-| C18 | Layout. | Screenshots in landscape on the S22 and on a 360-dp phone, with the keyboard open (paste box, log search), at 130 % and 200 % system font size: the action bar and dialog buttons stay reachable. Switch dark mode while the page is open (activity re-creation): the session is kept, no "open from the game" banner. Hardware Back with an unsaved setting asks first; without, it closes the browser. |
+| C18 | Layout. | Screenshots in landscape on the S22 and on a 360-dp phone, with the keyboard open (paste box, log search), at 130 % and 200 % system font size: the action bar and dialog buttons stay reachable. Switch dark mode while the page is open (activity re-creation): the session is kept, no "open from the game" banner. Hardware Back with an unsaved setting asks first; without, it closes the browser, also after a dialog, a Save or a Discard (edit, Back, Stay, Save, Back: the browser closes). |
 | C19 | JNI table. | Status › host › `missingJni` is empty; every capability that should be on is on. |
 | C20 | Probation revert (optional, developer). | Stage an import of a profile whose `_mcvs.gameProfile` was damaged by hand; start three times: the third start reverts (history `reverted`, the banner), the game loads the previous save. |
 

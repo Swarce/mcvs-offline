@@ -51,8 +51,8 @@ namespace McvsOffline.Server.Core.Http
 
         /// <summary>
         /// True when the User-Agent is exactly the game's for <paramref name="clientId"/>: <c>(&lt;client id&gt;;
-        /// &lt;datacenter&gt;)</c> (the datacenter may be empty), optionally after one product token (the session agent), and no browser's
-        /// (<c>Mozilla/</c>). The client id must have the game's form (<see cref="IsClientId"/>).
+        /// &lt;datacenter&gt;)</c> (the datacenter may be empty), optionally after one product token (the session
+        /// agent), and no browser's (<c>Mozilla/</c>). The client id must have the game's form (<see cref="IsClientId"/>).
         /// </summary>
         public static bool HasUserAgent(HttpRequest request, string clientId)
         {

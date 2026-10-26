@@ -100,14 +100,16 @@ namespace McvsOffline.Server.Services.Auth
         }
 
         /// <summary>
-        /// Null when a direct anonymous grant is the game's own login (OP/Session.cs GetAuthorizeRequest: a POST with
-        /// device_id and client_id, the game's User-Agent, no browser header); else why not. Only such a login may tell
-        /// the settings page who the current player is (TokenService.LastDirectAnonymous, design §6.6): any web page on
-        /// the phone can send a blind GET or form POST to 127.0.0.1 (the Federation Host rule lets it through), and
-        /// authorize takes any anonymous name without a password.
+        /// Null when a direct anonymous grant is the game's own login on this phone (OP/Session.cs GetAuthorizeRequest:
+        /// a POST with device_id and client_id, the game's User-Agent, no browser header; from loopback, so not a LAN
+        /// guest's); else why not. Only such a login may tell the settings page who the current player is
+        /// (TokenService.LastDirectAnonymous, design §6.6): any web page on the phone can send a blind GET or form POST
+        /// to 127.0.0.1 (the Federation Host rule lets it through), and authorize takes any anonymous name without a
+        /// password.
         /// </summary>
         private static string NotThePlayersLogin(HttpRequest request, bool hasDevice)
         {
+            if (!LocalAccessGate.IsLoopback(request.RemoteEndPoint)) return "not from this phone";
             if (!string.Equals(request.Method, "POST", StringComparison.OrdinalIgnoreCase)) return "not a POST";
             if (!hasDevice) return "no device id";
             return GameRequest.NotTheGame(request, request.Param("client_id"));

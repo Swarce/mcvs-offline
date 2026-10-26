@@ -129,7 +129,7 @@ namespace McvsOffline.Server.Core.Accounts
         /// <summary>
         /// The last grant issued (or re-issued) in this process directly to an "anonymous:" credential (without an actor)
         /// that its caller marked as the player's own login (<c>playerLogin</c> of <see cref="Issue"/>; auth/authorize
-        /// sets it only for a POST with a device id, no browser header and the game's User-Agent): never an on-behalf
+        /// sets it only for a POST from loopback with a device id, no browser header and the game's User-Agent): never an on-behalf
         /// token of the game server, a "game:" grant, or a grant a web page's request obtained. A copy with its ClientId
         /// and DeviceId; null until the first such grant. The settings page uses it to find the current player (design
         /// §6.6, source "session").

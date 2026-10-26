@@ -238,6 +238,7 @@ and nothing on it leaves the phone unless you share it.
 - The **MCVS Offline** message in the inbox: tap its button (patch `adminlink`; without the patch the page opens view-only).
 - Settings › Account › Redeem code: type `MCVSOFFLINE`. The page opens and the game then says the code does not exist;
   that is expected, nothing is claimed. `admin.redeemCode` in `settings.json` changes the code (empty turns it off).
+  The code does nothing while `lanMode` is on.
 - The Forum button, if you patched with `--patch default,forum`.
 
 **Chrome is not supported.** Open the page only from the game. In Chrome (or any other browser)
