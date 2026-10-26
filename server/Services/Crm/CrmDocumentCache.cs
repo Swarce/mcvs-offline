@@ -1,26 +1,60 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Threading;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Json;
 using McvsOffline.Server.Services.Admin;
+using McvsOffline.Server.Services.Crm.Collector;
 using McvsOffline.Server.Services.Social.LiveOps;
 
 namespace McvsOffline.Server.Services.Crm
 {
-    /// <summary>One built CRM document: the tree (for selectors) and its serialized form.</summary>
+    /// <summary>
+    /// One built CRM document: the tree (for selectors), its serialized form and its collector part
+    /// (<see cref="Collector"/>), from which the per-player documents are made (<see cref="JsonFor(ICollection{string}, IList{FieldPatch})"/>).
+    /// The tree is never changed after construction.
+    /// </summary>
     public sealed class CrmDocument
     {
         private readonly object gate = new object();
         private readonly Dictionary<string, string> selectorJson = new Dictionary<string, string>(StringComparer.Ordinal);
+        private Dictionary<string, object> layerValues;
 
         public CrmDocument(Dictionary<string, object> root, bool hasPreconfiguration, List<string> problems, DateTime builtUtc)
+            : this(root, hasPreconfiguration, problems, builtUtc, null)
+        {
+        }
+
+        /// <param name="collector">What the builder wrote for the collector (null: nothing, as Dormant).</param>
+        public CrmDocument(Dictionary<string, object> root, bool hasPreconfiguration, List<string> problems, DateTime builtUtc,
+                           CrmCollector collector)
         {
             Root = root;
             Json = MiniJson.Serialize(root);
             HasPreconfiguration = hasPreconfiguration;
             Problems = problems ?? new List<string>();
             BuiltUtc = builtUtc;
+            Collector = collector;
+        }
+
+        /// <summary>The collector part (status, phase, layer, per-player mirror); null for a document built without one.</summary>
+        public CrmCollector Collector { get; private set; }
+
+        /// <summary>What this document carries for the collector: Dormant (nothing), Guard or Active.</summary>
+        public CollectorPhase CollectorPhase
+        {
+            get { return Collector == null ? CollectorPhase.Dormant : Collector.Phase; }
+        }
+
+        /// <summary>
+        /// The <c>game._ServerConfig.default._OverrideTables</c> of every per-player document while the collector is
+        /// active: the static mirror with the collector's cells replaced by the guard (D10, §2.9.3). Null otherwise (the
+        /// per-player documents then carry the static mirror).
+        /// </summary>
+        public Dictionary<string, object> PlayerMirrorTables
+        {
+            get { return Collector == null || Collector.Phase != CollectorPhase.Active ? null : Collector.PlayerMirrorTables; }
         }
 
         public Dictionary<string, object> Root { get; private set; }
@@ -71,23 +105,178 @@ namespace McvsOffline.Server.Services.Crm
         /// </summary>
         public string JsonWithout(ICollection<string> items, out int omitted)
         {
-            omitted = 0;
+            var root = new Dictionary<string, object>(Root, StringComparer.Ordinal);
+            omitted = FilterStore(root, items);
+            return omitted == 0 ? Json : MiniJson.Serialize(root);
+        }
+
+        /// <summary>
+        /// A player's document (docs/design/economy-collector.md §2.9.4): <see cref="Json"/> without the
+        /// <c>offline_store.prices</c> entries named in <paramref name="omitStoreItems"/> (as <see cref="JsonWithout"/>),
+        /// with the collector's field changers of <c>game._OverrideTables</c> replaced by <paramref name="patches"/>
+        /// (<see cref="CollectorPlan.PlayerCells(CollectorContent, CollectorOptions, PlayerInventory, LiveOpsSnapshot)"/>)
+        /// and the mirror replaced by <see cref="PlayerMirrorTables"/>. The patches apply only while this document carries
+        /// the collector layer (<see cref="CollectorPhase"/> Active); a patched key is replaced only where the document
+        /// still holds the collector's own static value (a <c>crm.overlay</c> cell on the same key wins). If the patched
+        /// tree fails <see cref="CrmDocumentValidator.CheckCollector"/>, the static document is served (store filtered).
+        /// Dictionaries along the patched paths are copied: the cached tree is never changed.
+        /// </summary>
+        public string JsonFor(ICollection<string> omitStoreItems, IList<FieldPatch> patches)
+        {
+            int omitted;
+            string problem;
+            return JsonFor(omitStoreItems, patches, out omitted, out problem);
+        }
+
+        /// <summary><see cref="JsonFor(ICollection{string}, IList{FieldPatch})"/>, also returning how many store entries were
+        /// left out and why the patches were not used (null when they were, or when there were none).</summary>
+        public string JsonFor(ICollection<string> omitStoreItems, IList<FieldPatch> patches, out int omitted, out string problem)
+        {
+            problem = null;
+            if (patches == null || CollectorPhase != CollectorPhase.Active) return JsonWithout(omitStoreItems, out omitted);
+
+            var root = new Dictionary<string, object>(Root, StringComparer.Ordinal);
+            omitted = FilterStore(root, omitStoreItems);
+            var game = CopyChild(root, "game");
+            var tables = CopyChild(game, "_OverrideTables");
+            Dictionary<string, object> statics = LayerValues();
+            var cells = new List<CollectorCell>();
+            var patched = new HashSet<string>(StringComparer.Ordinal);
+            var copies = new Dictionary<string, Dictionary<string, object>>(StringComparer.Ordinal);
+            foreach (FieldPatch patch in patches)
+            {
+                Dictionary<string, object> db, table;
+                if (!copies.TryGetValue(patch.Database, out db)) copies[patch.Database] = db = CopyChild(tables, patch.Database);
+                if (!copies.TryGetValue(patch.Database + "\n" + patch.Table, out table)) copies[patch.Database + "\n" + patch.Table] = table = CopyChild(db, patch.Table);
+                Dictionary<string, object> changer = Patched(JsonValue.AsObject(JsonValue.Get(table, patch.Changer)), patch, statics);
+                if (changer.Count > 0) table[patch.Changer] = changer;
+                else JsonPath.RemoveKey(table, patch.Changer);
+                if (table.Count == 0)
+                {
+                    JsonPath.RemoveKey(db, patch.Table);
+                    copies.Remove(patch.Database + "\n" + patch.Table);
+                }
+                patched.Add(patch.Table + "\n" + patch.Changer);
+                foreach (var kv in changer) cells.Add(new CollectorCell(patch.Table, patch.Index, patch.Field, kv.Key, kv.Value));
+            }
+            foreach (CollectorCell cell in Collector.GameCells)
+                if (!patched.Contains(cell.Table + "\n" + cell.Changer)) cells.Add(cell);
+            List<string> problems = CrmDocumentValidator.CheckCollector(tables, cells, "per-player game._OverrideTables");
+            if (problems.Count > 0)
+            {
+                problem = problems[0];
+                return JsonWithout(omitStoreItems, out omitted);
+            }
+            Dictionary<string, object> mirror = PlayerMirrorTables;
+            if (mirror != null) CopyChild(CopyChild(game, "_ServerConfig"), "default")["_OverrideTables"] = mirror;
+            return MiniJson.Serialize(root);
+        }
+
+        /// <summary>
+        /// The cells of one patched changer: every key of the document's changer and of the patch, in ascending numeric
+        /// order; a key the collector owns (the document holds the layer's static value there, or neither has one) takes
+        /// the patch's value or goes; any other key keeps the document's value (crm.overlay wins).
+        /// </summary>
+        private static Dictionary<string, object> Patched(Dictionary<string, object> current, FieldPatch patch, Dictionary<string, object> statics)
+        {
+            var keys = new List<string>();
+            if (current != null) keys.AddRange(current.Keys);
+            foreach (string key in patch.Cells.Keys)
+                if (current == null || !current.ContainsKey(key)) keys.Add(key);
+            keys.Sort(CompareKeys);
+            var result = new Dictionary<string, object>(StringComparer.Ordinal);
+            foreach (string key in keys)
+            {
+                object inDocument = null, inLayer;
+                bool documentHas = current != null && current.TryGetValue(key, out inDocument);
+                bool layerHas = statics.TryGetValue(LayerKey(patch.Table, patch.Changer, key), out inLayer);
+                bool ours = documentHas ? layerHas && JsonValue.DeepEquals(inDocument, inLayer) : !layerHas;
+                object value;
+                if (!ours)
+                {
+                    if (documentHas) result[key] = inDocument;
+                }
+                else if (patch.Cells.TryGetValue(key, out value))
+                {
+                    result[key] = value;
+                }
+            }
+            return result;
+        }
+
+        /// <summary>Ids in ascending numeric order ("2" before "10"), anything else after them, ordinally.</summary>
+        private static int CompareKeys(string a, string b)
+        {
+            bool da = IsDigits(a), db = IsDigits(b);
+            if (da && db)
+            {
+                string ta = a.TrimStart('0'), tb = b.TrimStart('0');
+                if (ta.Length != tb.Length) return ta.Length.CompareTo(tb.Length);
+                int c = string.CompareOrdinal(ta, tb);
+                return c != 0 ? c : string.CompareOrdinal(a, b);
+            }
+            if (da != db) return da ? -1 : 1;
+            return string.CompareOrdinal(a, b);
+        }
+
+        private static bool IsDigits(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return false;
+            foreach (char ch in s)
+                if (ch < '0' || ch > '9') return false;
+            return true;
+        }
+
+        /// <summary>The layer's static values by table/changer/key (built once).</summary>
+        private Dictionary<string, object> LayerValues()
+        {
+            lock (gate)
+            {
+                if (layerValues != null) return layerValues;
+                var values = new Dictionary<string, object>(StringComparer.Ordinal);
+                if (Collector != null && Collector.Layer != null)
+                    foreach (CollectorCell cell in Collector.Layer.Game) values[LayerKey(cell.Table, cell.Changer, cell.Key)] = cell.Value;
+                layerValues = values;
+                return values;
+            }
+        }
+
+        private static string LayerKey(string table, string changer, string key)
+        {
+            return table + "\n" + changer + "\n" + key;
+        }
+
+        /// <summary>Leaves the named entries out of the <c>offline_store.prices</c> of <paramref name="root"/> (a copy of
+        /// <see cref="Root"/>), copying the store; returns how many were left out (0: root unchanged).</summary>
+        private int FilterStore(Dictionary<string, object> root, ICollection<string> items)
+        {
             var store = JsonValue.AsObject(JsonValue.Get(Root, "offline_store"));
             var prices = JsonValue.AsArray(JsonValue.Get(store, "prices"));
-            if (prices == null || items == null || items.Count == 0) return Json;
+            if (prices == null || items == null || items.Count == 0) return 0;
             var kept = new List<object>(prices.Count);
+            int omitted = 0;
             foreach (object entry in prices)
             {
                 string item = JsonValue.GetString(JsonValue.AsObject(entry), "item");
                 if (item != null && items.Contains(item)) omitted++;
                 else kept.Add(entry);
             }
-            if (omitted == 0) return Json;
+            if (omitted == 0) return 0;
             var filteredStore = new Dictionary<string, object>(store, StringComparer.Ordinal);
             filteredStore["prices"] = kept;
-            var root = new Dictionary<string, object>(Root, StringComparer.Ordinal);
             root["offline_store"] = filteredStore;
-            return MiniJson.Serialize(root);
+            return omitted;
+        }
+
+        /// <summary>A shallow copy of the object at <paramref name="key"/> (a new object when there is none), stored in
+        /// <paramref name="parent"/>, which must itself be a copy.</summary>
+        private static Dictionary<string, object> CopyChild(Dictionary<string, object> parent, string key)
+        {
+            object value;
+            var child = parent.TryGetValue(key, out value) ? value as Dictionary<string, object> : null;
+            var copy = child == null ? new Dictionary<string, object>(StringComparer.Ordinal) : new Dictionary<string, object>(child, StringComparer.Ordinal);
+            parent[key] = copy;
+            return copy;
         }
 
         public static string NormalizeSelector(string selector)
@@ -98,8 +287,9 @@ namespace McvsOffline.Server.Services.Crm
 
     /// <summary>
     /// Builds and caches the CRM document. The cache key is the effective settings plus whether the preconfiguration is
-    /// available, the live-ops schedule step and the inbox item (<see cref="CrmNewsfeed"/>), so editing settings (or the
-    /// data pack appearing after a fresh install, or a new week) yields a new document.
+    /// available, the live-ops schedule step, the inbox item (<see cref="CrmNewsfeed"/>) and the collector's phase and
+    /// content (<see cref="CollectorRuntime"/>, decided per request from the clock), so editing settings (or the data pack
+    /// appearing after a fresh install, a new week, or <c>collector.since</c> passing) yields a new document.
     /// <para>
     /// Timing matters: the TS waits only 1 s for <c>configs/users/me/game</c> on its game-server session before using
     /// its defaults (WaitForCRM, verify-C5 (a); IsDevelopment would then stay true), and the GS waits forever for a 200
@@ -113,6 +303,13 @@ namespace McvsOffline.Server.Services.Crm
         public const int PortalWaitMs = 2000;
 
         private const int PortalPollMs = 10;
+
+        /// <summary>
+        /// The collector's phase is decided this far ahead of the clock, as <see cref="LiveOpsService.Snapshot"/> decides the
+        /// events: a document served a moment before a boundary (collector.since, a season start) already announces the
+        /// next window's events, so it must already carry what those events hand out (§2.12).
+        /// </summary>
+        private const int BoundaryLeadSeconds = 2;
 
         private readonly ServerContext context;
         private readonly Log log;
@@ -128,6 +325,9 @@ namespace McvsOffline.Server.Services.Crm
         private bool retryRunning;
         private bool retried;
         private int lastRetryTick;
+        private bool sinceRead;
+        private string sinceText;
+        private DateTime? since;
 
         public CrmDocumentCache(ServerContext context, CrmPreconfiguration preconfiguration, Log log)
         {
@@ -137,6 +337,16 @@ namespace McvsOffline.Server.Services.Crm
         }
 
         public CrmPreconfiguration Preconfiguration { get { return preconfiguration; } }
+
+        /// <summary>The CRM options of the current settings (parsed again only when the settings changed).</summary>
+        public CrmOptions Options
+        {
+            get
+            {
+                string ignored;
+                return CurrentOptions(out ignored);
+            }
+        }
 
         /// <summary>Loads the preconfiguration and builds the document on a background thread. Never throws.</summary>
         public void StartWarmup()
@@ -243,17 +453,22 @@ namespace McvsOffline.Server.Services.Crm
             List<object> newsfeeds = CrmNewsfeed.Build(o, context.Features.Get<IAdminPortal>(), context.Clock.UtcNow);
             string newsKey = MiniJson.Serialize(newsfeeds);
 
+            // The collector (economy-collector.md §2.12): its phase changes with the clock (collector.since), its layer with
+            // collector.json; both are in the key. Its options are part of the settings fingerprint.
+            string collectorKey;
+            CrmCollector collector = CollectorFor(liveOps, out collectorKey);
+
             lock (gate)
             {
                 string key = optionsFingerprint + "|" + (withPre ? "pre" : "nopre") + "|" + generation + "|" + (liveOps == null ? "-" : liveOps.Key)
-                             + "|" + newsKey;
+                             + "|" + newsKey + "|" + collectorKey;
                 if (cached != null && cachedKey == key) return cached;
 
                 var content = CrmContent.Load(context.Content, log);
-                var root = CrmDocumentBuilder.Build(withPre ? preconfiguration.GetCopy() : null, content, o, log, liveOps, newsfeeds);
+                var root = CrmDocumentBuilder.Build(withPre ? preconfiguration.GetCopy() : null, content, o, log, liveOps, newsfeeds, collector);
                 var problems = CrmDocumentValidator.Validate(root);
                 foreach (string p in problems) log.Warn("CRM document: " + p);
-                cached = new CrmDocument(root, withPre, problems, context.Clock.UtcNow);
+                cached = new CrmDocument(root, withPre, problems, context.Clock.UtcNow, collector);
                 cachedKey = key;
                 var store = JsonValue.AsArray(JsonPath.Get(root, "offline_store.prices"));
                 log.Info("CRM document built: " + (store == null ? 0 : store.Count) + " offline_store items, preconfiguration "
@@ -265,9 +480,95 @@ namespace McvsOffline.Server.Services.Crm
                                   + ", expires " + TimeFormat.Iso8601(liveOps.Expiry.Value)
                                 : "")
                          + ", inbox item " + (newsfeeds.Count > 0 ? "on" : "off")
+                         + ", collector " + DescribeCollector(collector)
                          + ", " + cached.Json.Length + " chars" + (problems.Count > 0 ? ", " + problems.Count + " problem(s)" : ""));
                 return cached;
             }
+        }
+
+        private static string DescribeCollector(CrmCollector c)
+        {
+            switch (c.Phase)
+            {
+                case CollectorPhase.Active:
+                    return "active (" + c.GameCells.Count + " cells, mirror " + c.MirrorCells.Count + ", per-player mirror "
+                           + (c.PlayerMirrorTables != null ? "guard" : "static") + ")";
+                case CollectorPhase.Guard:
+                    return "guard (" + (c.Failure ?? (c.Status == null ? "" : c.Status.Reason)) + ")";
+                default:
+                    return "dormant";
+            }
+        }
+
+        /// <summary>
+        /// The collector part of the document served now, and its cache key (phase, content hash or problem). Never throws:
+        /// a runtime that fails gives the guard (the crate stays safe).
+        /// </summary>
+        private CrmCollector CollectorFor(LiveOpsSnapshot liveOps, out string key)
+        {
+            try
+            {
+                CollectorRuntime runtime = CollectorRuntime.For(context);
+                bool liveOpsOn = liveOps != null && liveOps.Expiry.HasValue;
+                CollectorStatus status = runtime.Status(context.Clock.UtcNow.AddSeconds(BoundaryLeadSeconds), liveOpsOn, CollectorSince(liveOps));
+                CollectorContent content = runtime.Content;
+                if (status.Phase == CollectorPhase.Active && content == null)
+                    status = new CollectorStatus { Phase = CollectorPhase.Guard, Reason = CollectorContent.FileName + " changed while read", Since = status.Since };
+                key = "collector:" + status.Phase + "|" + (content != null ? content.Hash : "none:" + runtime.ContentProblem);
+                return new CrmCollector
+                {
+                    Status = status,
+                    Content = status.Phase == CollectorPhase.Active ? content : null,
+                    Options = runtime.Options,
+                };
+            }
+            catch (Exception ex)
+            {
+                log.Error("CRM: the collector's state is unavailable; the document carries the guard", ex);
+                key = "collector:error";
+                return CrmCollector.GuardOnly("the collector's state is unavailable (" + ex.Message + ")");
+            }
+        }
+
+        /// <summary>
+        /// <c>collector.since</c> of liveops.json (the content override wins), or null when the block is missing or its
+        /// <c>since</c> is not a "yyyy-MM-ddTHH:mm:ssZ" time. Read here until the live-ops snapshot carries it
+        /// (<c>LiveOpsSnapshot.CollectorSince</c>, economy-collector.md §3.2, WP-E); then this returns that value.
+        /// Parsed again only when the file's text changes; a read that throws keeps the last value.
+        /// </summary>
+        private DateTime? CollectorSince(LiveOpsSnapshot liveOps)
+        {
+            string text;
+            try
+            {
+                if (!context.Content.TryReadContentText(LiveOpsCatalog.ContentName, out text)) text = null;
+            }
+            catch (Exception ex)
+            {
+                log.Warn("CRM: " + LiveOpsCatalog.ContentName + " could not be read (" + ex.Message + "); keeping collector.since as it was");
+                lock (gate) return since;
+            }
+            lock (gate)
+            {
+                if (sinceRead && string.Equals(text, sinceText, StringComparison.Ordinal)) return since;
+                sinceRead = true;
+                sinceText = text;
+                since = ParseCollectorSince(text);
+                return since;
+            }
+        }
+
+        /// <summary>The <c>collector.since</c> of a liveops.json text, or null.</summary>
+        internal static DateTime? ParseCollectorSince(string liveOpsJson)
+        {
+            object parsed;
+            if (string.IsNullOrEmpty(liveOpsJson) || !MiniJson.TryParse(liveOpsJson, out parsed)) return null;
+            string value = JsonValue.GetString(JsonValue.GetObject(parsed as Dictionary<string, object>, "collector"), "since");
+            DateTime at;
+            if (value == null || !DateTime.TryParseExact(value, "yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture,
+                                                         DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out at))
+                return null;
+            return DateTime.SpecifyKind(at, DateTimeKind.Utc);
         }
 
         private void RetryInBackground(CrmOptions o)

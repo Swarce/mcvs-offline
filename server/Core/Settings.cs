@@ -72,6 +72,11 @@ namespace McvsOffline.Server.Core
             economy["versusCoinsMultiplier"] = 1.0;
             economy["xpMultiplier"] = 1.0;
             economy["priceMultiplier"] = 1.0;
+            // The Cosmetic crate's opt-out, written so a new settings.json shows it (docs/design/economy-collector.md §4.4,
+            // O7); its other keys stay implicit (CollectorOptions holds their defaults).
+            var collector = new Dictionary<string, object>(StringComparer.Ordinal);
+            collector["enabled"] = true;
+            economy["collector"] = collector;
 
             var logging = new Dictionary<string, object>(StringComparer.Ordinal);
             logging["consoleLevel"] = "info";

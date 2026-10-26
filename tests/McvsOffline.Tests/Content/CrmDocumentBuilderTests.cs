@@ -2,6 +2,8 @@ using System.Collections.Generic;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Json;
 using McvsOffline.Server.Services.Crm;
+using McvsOffline.Server.Services.Crm.Collector;
+using McvsOffline.Server.Services.Social.LiveOps;
 using Xunit;
 
 namespace McvsOffline.Tests.Content
@@ -284,6 +286,162 @@ namespace McvsOffline.Tests.Content
         public void RewardIdsAreCheckedAgainstTheClientsRewardTypes(string id, bool known)
         {
             Assert.Equal(known, CrmDocumentValidator.IsKnownRewardId(id));
+        }
+
+        // ------------------------------------------------------------------------------------------ collector (§2.8)
+
+        private static CrmCollector Part(CollectorPhase phase)
+        {
+            return new CrmCollector
+            {
+                Status = new CollectorStatus { Phase = phase, Reason = "test" },
+                Content = phase == CollectorPhase.Active ? CollectorPlanTests.Shipped() : null,
+                Options = new CollectorOptions(),
+            };
+        }
+
+        [Fact]
+        public void SetCellWritesOneSetCellWithHashForDots()
+        {
+            var tables = new Dictionary<string, object>();
+            CrmDocumentBuilder.SetCell(tables, "MCVS_Meta", "LootCrates", "Id", "RewardChance.2", "Crate_Event_Special", 0L);
+            CrmDocumentBuilder.SetCell(tables, "MCVS_Meta", "LootCrates", "Id", "LocId", "Crate_Event_Special", "Crate.Cosmetic_Crate");
+            CrmDocumentBuilder.SetCell(tables, "MCVS_Meta", "Crate_Event_Special", "Id", "Weight.1", "1", 7);   // an int is widened
+            Assert.Equal("{\"MCVS_Meta\":{\"LootCrates\":{\"Id@RewardChance#2\":{\"Crate_Event_Special\":0},\"Id@LocId\":{\"Crate_Event_Special\":\"Crate.Cosmetic_Crate\"}},"
+                         + "\"Crate_Event_Special\":{\"Id@Weight#1\":{\"1\":7}}}}", MiniJson.Serialize(tables));
+            Assert.IsType<long>(At(tables, "MCVS_Meta.Crate_Event_Special.Id@Weight#1.1"));
+
+            // A SET replaces whatever the cell holds (one operation per cell): a MUL from an earlier layer too.
+            ((Dictionary<string, object>)At(tables, "MCVS_Meta.Crate_Event_Special.Id@Weight#1"))["1"] = "*2";
+            CrmDocumentBuilder.SetCell(tables, "MCVS_Meta", "Crate_Event_Special", "Id", "Weight.1", "1", 3L);
+            Assert.Equal(3L, At(tables, "MCVS_Meta.Crate_Event_Special.Id@Weight#1.1"));
+
+            foreach (object bad in new object[] { "", null, 2.5, 2.0, true, double.NaN })
+                Assert.Throws<System.ArgumentException>(() => CrmDocumentBuilder.SetCell(tables, "MCVS_Meta", "LootCrates", "Id", "CratesCount", "x", bad));
+            Assert.Throws<System.ArgumentException>(() => CrmDocumentBuilder.SetCell(tables, "MCVS_Meta", "LootCrates", "Id@X", "CratesCount", "x", 1L));
+            Assert.Throws<System.ArgumentException>(() => CrmDocumentBuilder.SetCell(tables, "MCVS_Meta", "LootCrates", "Id", "CratesCount", "", 1L));
+            Assert.Null(At(tables, "MCVS_Meta.LootCrates.Id@CratesCount"));
+        }
+
+        /// <summary>Dormant writes nothing (byte-identical to a build without the collector); Guard writes the 5 guard
+        /// cells into both trees; Active writes the layer (mirror without the true cells) after the live-ops cells.</summary>
+        [Fact]
+        public void CollectorPartWritesNothingTheGuardOrTheLayer()
+        {
+            LiveOpsSnapshot snapshot = CollectorPlanTests.Snapshot(CollectorPlanTests.Week147);
+            string without = MiniJson.Serialize(CrmDocumentBuilder.Build(Pre(), Content(), new CrmOptions(), Log.Null, snapshot, null));
+
+            CrmCollector dormant = Part(CollectorPhase.Dormant);
+            Assert.Equal(without, MiniJson.Serialize(CrmDocumentBuilder.Build(Pre(), Content(), new CrmOptions(), Log.Null, snapshot, null, dormant)));
+            Assert.Equal(CollectorPhase.Dormant, dormant.Phase);
+            Assert.Empty(dormant.GameCells);
+
+            CrmCollector guard = Part(CollectorPhase.Guard);
+            var doc = CrmDocumentBuilder.Build(Pre(), Content(), new CrmOptions(), Log.Null, snapshot, null, guard);
+            Assert.Equal(CollectorPhase.Guard, guard.Phase);
+            Assert.Null(guard.Failure);
+            foreach (string tree in new[] { "game._OverrideTables", "game._ServerConfig.default._OverrideTables" })
+            {
+                Assert.Equal("{\"Id@Type\":{\"1\":\"VersusCoins\"},\"Id@Subtype\":{\"1\":\"Tiers4\"},\"Id@Weight#1\":{\"1\":1}}",
+                             MiniJson.Serialize(At(doc, tree + ".MCVS_Meta.Crate_Event_Special")));
+                Assert.Equal("{\"Id@LocId\":{\"Crate_Event_Special\":\"Crate.Cosmetic_Crate\"},\"Id@RewardChance#2\":{\"Crate_Event_Special\":0}}",
+                             MiniJson.Serialize(At(doc, tree + ".MCVS_Meta.LootCrates")));
+                Assert.Equal("7", At(doc, tree + ".MCVS_Meta.MercsList.Id@TrialDays.3"));   // the preconfiguration's cells stay
+            }
+            Assert.Empty(CrmDocumentValidator.Validate(doc));
+
+            CrmCollector active = Part(CollectorPhase.Active);
+            doc = CrmDocumentBuilder.Build(Pre(), Content(), new CrmOptions(), Log.Null, snapshot, null, active);
+            Assert.Equal(CollectorPhase.Active, active.Phase);
+            Assert.Same(active.Layer.Game, active.GameCells);
+            Assert.Equal(510, active.GameCells.Count);
+            Assert.Equal(365, active.MirrorCells.Count);
+            Assert.Equal("true", At(doc, "game._OverrideTables.MCVS_Meta.KillsignatureAvatars.ID@Unlockable.225"));
+            Assert.Null(At(doc, "game._ServerConfig.default._OverrideTables.MCVS_Meta.KillsignatureAvatars.ID@Unlockable.225"));
+            Assert.Equal("false", At(doc, "game._ServerConfig.default._OverrideTables.MCVS_Meta.KillsignatureAvatars.ID@Unlockable.598"));
+            Assert.Null(At(doc, "game._ServerConfig.default._OverrideTables.MCVS_Meta.KillsignatureBackgrounds"));
+            Assert.Equal(5L, At(doc, "game._OverrideTables.MCVS_Meta.LootCrates.Id@CratesCount.Crate_Event_Special"));
+            Assert.Equal("KillSignature_Avatar_264", At(doc, "game._OverrideTables.MCVS_Meta.Crate_Gold_FirstPlace.Id@BundledRewards.1"));
+            Assert.Empty(CrmDocumentValidator.Validate(doc));
+            // The per-player mirror: the preconfiguration's cells and the guard, nothing else of the collector.
+            Assert.Equal("{\"MercsList\":{\"Id@TrialDays\":{\"3\":\"7\"}},\"Crate_Event_Special\":{\"Id@Type\":{\"1\":\"VersusCoins\"},"
+                         + "\"Id@Subtype\":{\"1\":\"Tiers4\"},\"Id@Weight#1\":{\"1\":1}},\"LootCrates\":{\"Id@LocId\":{\"Crate_Event_Special\":"
+                         + "\"Crate.Cosmetic_Crate\"},\"Id@RewardChance#2\":{\"Crate_Event_Special\":0}}}",
+                         MiniJson.Serialize(active.PlayerMirrorTables["MCVS_Meta"]));
+        }
+
+        /// <summary>A cell an overlay puts into <c>_ServerConfig.default._OverrideTables</c> itself stays in the mirror (the
+        /// mirror pass lets it win), and one that breaks the crate there replaces the layer by the guard in both trees.</summary>
+        [Fact]
+        public void TheMirrorKeepsExplicitCellsAndIsChecked()
+        {
+            LiveOpsSnapshot snapshot = CollectorPlanTests.Snapshot(CollectorPlanTests.Week147);
+            var o = new CrmOptions
+            {
+                Overlay = MiniJson.ParseObject(@"{""game"":{""_ServerConfig"":{""default"":{""_OverrideTables"":{""MCVS_Meta"":{
+                    ""KillsignatureAvatars"":{""ID@Unlockable"":{""225"":""true""}}}}}}}}"),
+            };
+            CrmCollector active = Part(CollectorPhase.Active);
+            var doc = CrmDocumentBuilder.Build(null, Content(), o, Log.Null, snapshot, null, active);
+            Assert.Equal(CollectorPhase.Active, active.Phase);
+            Assert.Equal("true", At(doc, "game._ServerConfig.default._OverrideTables.MCVS_Meta.KillsignatureAvatars.ID@Unlockable.225"));
+            Assert.Null(At(doc, "game._ServerConfig.default._OverrideTables.MCVS_Meta.KillsignatureAvatars.ID@Unlockable.226"));
+
+            o.Overlay = MiniJson.ParseObject(@"{""game"":{""_ServerConfig"":{""default"":{""_OverrideTables"":{""MCVS_Meta"":{
+                ""Crate_Event_Special"":{""Id@Type"":{""2"":""""}}}}}}}}");
+            active = Part(CollectorPhase.Active);
+            var logs = new MemoryLogSink();
+            var logger = new Logger();
+            logger.AddSink(logs);
+            doc = CrmDocumentBuilder.Build(null, Content(), o, logger.For("crm"), snapshot, null, active);
+            Assert.Equal(CollectorPhase.Guard, active.Phase);
+            Assert.Contains("game._ServerConfig.default._OverrideTables.MCVS_Meta.Crate_Event_Special", active.Failure);
+            Assert.True(logs.Contains("CRM: collector layer replaced by the guard: "));
+            foreach (string tree in new[] { "game._OverrideTables", "game._ServerConfig.default._OverrideTables" })
+            {
+                Assert.Equal("{\"Id@Type\":{\"1\":\"VersusCoins\"},\"Id@Subtype\":{\"1\":\"Tiers4\"},\"Id@Weight#1\":{\"1\":1}}",
+                             MiniJson.Serialize(At(doc, tree + ".MCVS_Meta.Crate_Event_Special")));
+                Assert.Equal("{\"Id@LocId\":{\"Crate_Event_Special\":\"Crate.Cosmetic_Crate\"},\"Id@RewardChance#2\":{\"Crate_Event_Special\":0}}",
+                             MiniJson.Serialize(At(doc, tree + ".MCVS_Meta.LootCrates")));   // no tier crate retargeted
+                Assert.Null(At(doc, tree + ".MCVS_Meta.Crate_Gold_FirstPlace"));
+                Assert.Null(At(doc, tree + ".MCVS_Meta.KillsignatureAvatars"));
+            }
+            Assert.Null(active.PlayerMirrorTables);
+        }
+
+        [Fact]
+        public void CheckCollectorFindsWhatWouldThrowOnTheClient()
+        {
+            Dictionary<string, object> Tables(string crate) => MiniJson.ParseObject("{\"MCVS_Meta\":{\"Crate_Event_Special\":" + crate + "}}");
+            var guard = CollectorGuard.Cells;
+
+            Assert.Empty(CrmDocumentValidator.CheckCollector(Tables(@"{""Id@Type"":{""1"":""VersusCoins""},""Id@Subtype"":{""1"":""Tiers4""},""Id@Weight#1"":{""1"":1}}"),
+                                                             guard, "t"));
+            // A weight without a type (NullReferenceException in the TS's table refill).
+            Assert.Contains("row 2 has a weight but no Id@Type",
+                            Assert.Single(CrmDocumentValidator.CheckCollector(Tables(
+                                @"{""Id@Type"":{""1"":""VersusCoins""},""Id@Subtype"":{""1"":""Tiers4""},""Id@Weight#1"":{""1"":1},""Id@Weight#2"":{""2"":0}}"), guard, "t")));
+            // A sound row with weight (KeyNotFoundException in every preview), and one without weight (fine).
+            Assert.Contains("cannot be previewed",
+                            Assert.Single(CrmDocumentValidator.CheckCollector(Tables(
+                                @"{""Id@Type"":{""1"":""VersusCoins"",""2"":""KillSignature""},""Id@Subtype"":{""1"":""Tiers4"",""2"":""Sound""},
+                                  ""Id@Subtype2"":{""2"":""2""},""Id@Weight#1"":{""1"":1,""2"":5}}"), guard, "t")));
+            Assert.Empty(CrmDocumentValidator.CheckCollector(Tables(
+                @"{""Id@Type"":{""1"":""VersusCoins"",""2"":""KillSignature""},""Id@Subtype"":{""1"":""Tiers4"",""2"":""Sound""},
+                  ""Id@Subtype2"":{""2"":""2""},""Id@Weight#1"":{""1"":1,""2"":0}}"), guard, "t"));
+            // Nothing drawable (an empty crate throws on claim); the table missing altogether.
+            Assert.Contains("no row with Weight#1 > 0", Assert.Single(CrmDocumentValidator.CheckCollector(Tables(
+                @"{""Id@Type"":{""1"":""VersusCoins""},""Id@Subtype"":{""1"":""Tiers4""},""Id@Weight#1"":{""1"":0}}"), guard, "t")));
+            Assert.Contains("no row with Weight#1 > 0", Assert.Single(CrmDocumentValidator.CheckCollector(new Dictionary<string, object>(), guard, "t")));
+            // A collector cell an overlay made empty, fractional or a bool; a weight that is an operation.
+            foreach (string bad in new[] { @"""""", "1.5", "true" })
+                Assert.Contains("must be a non-empty string or an integer", string.Join("\n", CrmDocumentValidator.CheckCollector(Tables(
+                    @"{""Id@Type"":{""1"":""VersusCoins""},""Id@Subtype"":{""1"":" + bad + @"},""Id@Weight#1"":{""1"":1}}"), guard, "t")));
+            Assert.Contains("Id@Weight#1 is not a number", string.Join("\n", CrmDocumentValidator.CheckCollector(Tables(
+                @"{""Id@Type"":{""1"":""VersusCoins""},""Id@Subtype"":{""1"":""Tiers4""},""Id@Weight#1"":{""1"":""*2""}}"), null, "t")));
+            // A numeric-looking string weight is what the client parses: fine.
+            Assert.Empty(CrmDocumentValidator.CheckCollector(Tables(
+                @"{""Id@Type"":{""1"":""VersusCoins""},""Id@Subtype"":{""1"":""Tiers4""},""Id@Weight#1"":{""1"":""3""}}"), null, "t"));
         }
 
         [Fact]

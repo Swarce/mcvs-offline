@@ -7,6 +7,7 @@ using McvsOffline.Server.Core.Content;
 using McvsOffline.Server.Core.Http;
 using McvsOffline.Server.Core.Json;
 using McvsOffline.Server.Services.Crm;
+using McvsOffline.Server.Services.Crm.Collector;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -167,6 +168,59 @@ namespace McvsOffline.Tests.Content
             var doc = CrmService.MinimalDocument(false, true);
             Assert.Empty(CrmDocumentValidator.Validate(doc));
             Assert.Equal(1L, JsonPath.Get(doc, "game._ServerConfig.default.Matchmaking.MinPlayers"));
+        }
+
+        /// <summary>
+        /// The minimal document always carries the collector's guard in both trees (economy-collector.md §2.8): a Cosmetic
+        /// crate claimed while it is served pays VersusCoins instead of throwing.
+        /// </summary>
+        [Fact]
+        public void MinimalDocumentCarriesTheGuard()
+        {
+            var doc = CrmService.MinimalDocument(true, false);
+            foreach (string tree in new[] { "game._OverrideTables", "game._ServerConfig.default._OverrideTables" })
+            {
+                var tables = (Dictionary<string, object>)JsonPath.Get(doc, tree);
+                foreach (CollectorCell cell in CollectorGuard.Cells)
+                    Assert.True(JsonValue.DeepEquals(cell.Value, JsonPath.Get(tables, "MCVS_Meta." + cell.Table + "." + cell.Changer + "." + cell.Key)), tree + " " + cell);
+                Assert.Empty(CrmDocumentValidator.CheckCollector(tables, CollectorGuard.Cells, tree));
+                Assert.Equal(2, ((Dictionary<string, object>)JsonPath.Get(tables, "MCVS_Meta")).Count);
+            }
+        }
+
+        /// <summary>
+        /// A content override that disappears between the provider's File.Exists and its read (a tester or the settings
+        /// page replacing the file) is a missing override, never a FileNotFoundException: the built-in content is served.
+        /// Reproduced exactly with a dangling symbolic link, which File.Exists reports as present on Unix.
+        /// </summary>
+        [Fact]
+        public void AContentOverrideThatVanishesWhileReadIsMissing()
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                output.WriteLine("symbolic links need privileges on Windows: skipped");
+                return;
+            }
+            using var dir = new TempDir();
+            string overrides = dir.Combine("data", "content");
+            Directory.CreateDirectory(overrides);
+            File.CreateSymbolicLink(Path.Combine(overrides, CrmContent.OfflineStoreFile), dir.Combine("gone.json"));
+            File.CreateSymbolicLink(Path.Combine(overrides, "only-an-override.json"), dir.Combine("gone2.json"));
+            Assert.True(File.Exists(Path.Combine(overrides, CrmContent.OfflineStoreFile)));   // what the provider checks first
+            Assert.Throws<FileNotFoundException>(() => File.ReadAllBytes(Path.Combine(overrides, CrmContent.OfflineStoreFile)));
+
+            var provider = new ContentProvider(null, overrides, Log.Null);
+            Assert.True(provider.TryReadContentText(CrmContent.OfflineStoreFile, out string text));
+            Assert.True(new ContentProvider(null, null, Log.Null).TryReadContentText(CrmContent.OfflineStoreFile, out string builtIn));
+            Assert.Equal(builtIn, text);
+            Assert.False(provider.TryReadContent("only-an-override.json", out byte[] data));
+            Assert.Null(data);
+
+            // And through the server: the CRM document is built from the built-in catalogue.
+            using var server = ContentTestSupport.CreateServer(dir.Combine("data"));
+            var response = ContentTestSupport.Get(server, "/configs/users/me");
+            Assert.Equal(200, response.StatusCode);
+            Assert.True(((List<object>)JsonPath.Get(ContentTestSupport.JsonObject(response), "offline_store.prices")).Count > 1000);
         }
 
         /// <summary>

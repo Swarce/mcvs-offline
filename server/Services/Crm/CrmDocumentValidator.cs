@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Json;
+using McvsOffline.Server.Services.Crm.Collector;
 
 namespace McvsOffline.Server.Services.Crm
 {
@@ -474,6 +475,127 @@ namespace McvsOffline.Server.Services.Crm
                 removed++;
             }
             return removed;
+        }
+
+        /// <summary>
+        /// The collector's invariants on one <c>_OverrideTables</c> tree of the merged document (crm.overlay included;
+        /// docs/design/economy-collector.md §2.8), for the cells the collector wrote into it (<paramref name="cells"/>: its
+        /// layer or the guard):
+        /// <list type="bullet">
+        /// <item>every collector cell still there is a non-empty string or an integral number (CRMTableCell throws on "",
+        /// the typed readers re-read weights and counts as integers);</item>
+        /// <item>every <c>Crate_Event_Special</c> row holding a <c>Weight#N</c> cell also holds a non-empty <c>Id@Type</c>
+        /// (the shipped rows have none: <c>CrateRewards.FillDataWithTableImpl</c> would throw a NullReferenceException in
+        /// the TS's table refill);</item>
+        /// <item>every row with <c>Weight#1 &gt; 0</c> passes the preview-safety rule (§2.3.1,
+        /// <see cref="CollectorContent.RowProblem"/>);</item>
+        /// <item>at least one row has <c>Weight#1 &gt; 0</c> (an empty content table throws on claim, §0.3.6).</item>
+        /// </list>
+        /// Returns the problems, each prefixed with <paramref name="where"/>; empty when the tree is fine.
+        /// </summary>
+        public static List<string> CheckCollector(Dictionary<string, object> tables, IEnumerable<CollectorCell> cells, string where)
+        {
+            var problems = new List<string>();
+            var db = JsonValue.AsObject(JsonValue.Get(tables, CollectorPlan.Database));
+            if (cells != null)
+            {
+                foreach (CollectorCell cell in cells)
+                {
+                    var changer = JsonValue.AsObject(JsonValue.Get(JsonValue.AsObject(JsonValue.Get(db, cell.Table)), cell.Changer));
+                    object value;
+                    if (changer == null || !changer.TryGetValue(cell.Key, out value)) continue;
+                    if (!IsCellValue(value))
+                        problems.Add(where + "." + CollectorPlan.Database + "." + cell.Table + "." + cell.Changer + "." + cell.Key
+                                     + " must be a non-empty string or an integer (it is " + Describe(value) + ")");
+                }
+            }
+
+            var crate = JsonValue.AsObject(JsonValue.Get(db, CollectorGuard.CrateTable));
+            var rows = new List<string>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var weighted = new HashSet<string>(StringComparer.Ordinal);
+            if (crate != null)
+            {
+                foreach (var field in crate)
+                {
+                    var cellsOfField = field.Value as Dictionary<string, object>;
+                    if (cellsOfField == null) continue;
+                    bool weight = field.Key.StartsWith("Id@Weight#", StringComparison.Ordinal);
+                    foreach (string row in cellsOfField.Keys)
+                    {
+                        if (seen.Add(row)) rows.Add(row);
+                        if (weight) weighted.Add(row);
+                    }
+                }
+            }
+            string at = where + "." + CollectorPlan.Database + "." + CollectorGuard.CrateTable;
+            int drawable = 0;
+            foreach (string row in rows)
+            {
+                string type = CrateText(crate, "Id@Type", row);
+                if (weighted.Contains(row) && string.IsNullOrEmpty(type))
+                {
+                    problems.Add(at + " row " + row + " has a weight but no Id@Type (the TS's table refill would throw)");
+                    continue;
+                }
+                object w;
+                var weights = JsonValue.AsObject(JsonValue.Get(crate, "Id@Weight#1"));
+                if (weights == null || !weights.TryGetValue(row, out w) || w == null) continue;
+                double? weight = WeightOf(w);
+                if (!weight.HasValue)
+                {
+                    problems.Add(at + " row " + row + ": Id@Weight#1 is not a number (" + Describe(w) + ")");
+                    continue;
+                }
+                if (weight.Value <= 0) continue;
+                string rowProblem = CollectorContent.RowProblem(type, CrateText(crate, "Id@Subtype", row), CrateText(crate, "Id@Subtype2", row),
+                                                                CrateText(crate, "Id@BundledRewards", row));
+                if (rowProblem != null) problems.Add(at + " row " + row + ": " + rowProblem);
+                else drawable++;
+            }
+            if (drawable == 0) problems.Add(at + " has no row with Weight#1 > 0 (an empty crate throws when it is claimed)");
+            return problems;
+        }
+
+        /// <summary>A cell value the collector may leave in a document: a non-empty string or an integral number.</summary>
+        private static bool IsCellValue(object value)
+        {
+            string s = value as string;
+            if (s != null) return s.Length > 0;
+            if (value is bool || !JsonValue.IsNumber(value)) return false;
+            if (value is long || value is int) return true;
+            double? d = JsonValue.AsDouble(value);
+            return d.HasValue && !double.IsNaN(d.Value) && !double.IsInfinity(d.Value) && Math.Floor(d.Value) == d.Value;
+        }
+
+        /// <summary>A content-table cell as the client's typed reader sees it (numbers by their invariant text); null when absent.</summary>
+        private static string CrateText(Dictionary<string, object> crate, string field, string row)
+        {
+            var cells = JsonValue.AsObject(JsonValue.Get(crate, field));
+            object value;
+            if (cells == null || !cells.TryGetValue(row, out value) || value == null || value is bool) return null;
+            string text = JsonValue.AsString(value);
+            return string.IsNullOrEmpty(text) ? null : text;
+        }
+
+        /// <summary>A weight cell as <c>float.Parse(cell.ToString(), Invariant)</c> reads it; null for anything else (an
+        /// operation such as "*2", a bool).</summary>
+        private static double? WeightOf(object value)
+        {
+            if (value is bool) return null;
+            if (JsonValue.IsNumber(value)) return JsonValue.AsDouble(value);
+            double d;
+            string s = value as string;
+            if (s != null && double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out d)) return d;
+            return null;
+        }
+
+        private static string Describe(object value)
+        {
+            if (value == null) return "null";
+            if (value is string) return "\"" + value + "\"";
+            if (value is bool) return (bool)value ? "true" : "false";
+            return JsonValue.AsString(value) ?? value.GetType().Name;
         }
 
         /// <summary>Why OP/PointCutAction would throw on this entry, or null when it is fine.</summary>
