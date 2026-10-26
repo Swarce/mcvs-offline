@@ -32,10 +32,11 @@ namespace McvsOffline.Server.Services.Crm
     /// the first request after the game-profile dump was read (<see cref="StorageService.GameProfileReadTopic"/>: the TS
     /// reads it at login and in every ReloadProfileAsync), never on a save: the fetch right after that read is the forced
     /// refresh, which applies the document anyway, and the fetch after each save gets the same text (cached per document
-    /// and read), which the TS recognises (StandardCrm.Data.Equals) without applying it again. An account whose dump was
-    /// not read since the server started gets the static document: so does a server World's <c>mcvsGameServer</c>
-    /// session (the <c>game:</c> super credential has no game profile, §2.9), so the GS and the TS's server Worlds install
-    /// the static mirror.
+    /// and read), which the TS recognises (StandardCrm.Data.Equals) without applying it again. The collector's cells need
+    /// a read since the server started; the store filter does not: before the first read after a restart it filters by
+    /// the dump on disk, taken once at that read count, exactly as before the collector existed (O7, §2.9.1). A server
+    /// World's <c>mcvsGameServer</c> session (the <c>game:</c> super credential has no game profile, §2.9) gets the
+    /// static document, so the GS and the TS's server Worlds install the static mirror.
     /// </para>
     /// Anything unexpected in the dump falls back part by part: unreadable avatars or backgrounds leave the store
     /// complete, as before; an unknown part takes the static assumptions in the collector's cells. Never throws.
@@ -91,8 +92,8 @@ namespace McvsOffline.Server.Services.Crm
         /// <summary>
         /// The full document's JSON for <paramref name="accountId"/>: <see cref="CrmDocument.Json"/>, filtered by the owned
         /// signatures when <paramref name="omitOwned"/>, with the collector's per-player cells when the document carries
-        /// the collector layer. The static text when neither applies, for an account whose dump was not read since the
-        /// server started, and on any failure.
+        /// the collector layer and the dump was read since the server started. The static text when neither applies, for
+        /// an account without a dump, and on any failure.
         /// </summary>
         public string JsonFor(CrmDocument doc, string accountId, bool omitOwned)
         {
@@ -103,11 +104,13 @@ namespace McvsOffline.Server.Services.Crm
             {
                 PlayerState player = Current(accountId, active, omitOwned);
                 if (player == null || player.Inventory == null) return doc.Json;
+                // Before the first read after a restart: the store filter alone (the static layer, the static mirror).
+                bool cells = active && player.Read > 0;
                 lock (player)
                 {
                     if (player.Json == null || !ReferenceEquals(player.Document, doc) || player.Omit != omitOwned)
                     {
-                        player.Json = Make(doc, accountId, player, omitOwned, active);
+                        player.Json = Make(doc, accountId, player, omitOwned, cells);
                         player.Document = doc;
                         player.Omit = omitOwned;
                     }
@@ -204,14 +207,19 @@ namespace McvsOffline.Server.Services.Crm
         private PlayerState Current(string accountId, bool active, bool omitOwned)
         {
             long read;
+            bool mercs;
             lock (gate)
             {
-                if (!reads.TryGetValue(accountId, out read) || read == 0) return null;
+                reads.TryGetValue(accountId, out read);
+                // The collector's cells wait for a read since the server started (§2.9); the store filter does not (O7:
+                // as before the collector, the dump on disk is taken once per read count, 0 included).
+                if (read == 0 && !omitOwned) return null;
+                mercs = active && read > 0;
                 PlayerState cached;
                 // A read that skipped the agent list (the collector was not active) is read again once it is.
-                if (players.TryGetValue(accountId, out cached) && cached.Read == read && (!active || cached.MercsParsed)) return cached;
+                if (players.TryGetValue(accountId, out cached) && cached.Read == read && (!mercs || cached.MercsParsed)) return cached;
             }
-            PlayerState state = Load(accountId, active, omitOwned);
+            PlayerState state = Load(accountId, mercs, omitOwned);
             state.Read = read;
             lock (gate) players[accountId] = state;
             return state;

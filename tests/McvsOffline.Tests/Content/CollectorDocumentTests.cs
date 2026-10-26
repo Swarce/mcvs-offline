@@ -364,6 +364,73 @@ namespace McvsOffline.Tests.Content
             Assert.Contains(" Unlockable cells, parts known avatars|backgrounds|sounds|mercs", line);
         }
 
+        /// <summary>
+        /// O7, §2.9.1: the store filter does not wait for a profile read. After a restart the player's first fetch, before
+        /// the TS reads the dump, gets the store filtered by the dump on disk, as before the collector existed: the golden
+        /// per-player text (collector off or dormant). While the collector is active that fetch gets the filtered store
+        /// with the static game tree (the collector's cells wait for the read); after the read, the player's cells.
+        /// </summary>
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void StoreFilterBeforeTheFirstReadAfterARestart(bool active)
+        {
+            DateTime day = active ? ActiveDay : GoldenScenarios.FirstDay + GoldenScenarios.TimeOfDay;
+            string user = "golden-" + GoldenScenarios.UnlockAll;
+            string account, afterRead, dataDir;
+            var first = new GoldenRun(day) { KeepDataDir = true };
+            try
+            {
+                using (first)
+                {
+                    if (!active) first.Set("economy.collector.enabled", false);
+                    string token = first.NewPlayer(user);
+                    account = first.Context.Tokens.Resolve(token).AccountId;
+                    first.SaveGameProfile(token, GoldenScenarios.UnlockAllDump());
+                    first.ReadGameProfile(token);
+                    afterRead = first.Get("/configs/users/me", token).BodyText;
+                    dataDir = first.DataDir;
+                }
+
+                using (var second = new GoldenRun(day, dataDir))
+                {
+                    if (!active) second.Set("economy.collector.enabled", false);
+                    string token = second.NewPlayer(user);
+                    Assert.Equal(account, second.Context.Tokens.Resolve(token).AccountId);
+                    string stat = second.Get("/configs/users/me", null).BodyText;
+                    string beforeRead = second.Get("/configs/users/me", token).BodyText;
+                    Assert.NotEqual(stat, beforeRead);
+                    Assert.True(second.Logs.Contains("CRM: offline_store for " + account + " leaves out "));
+                    if (!active)
+                    {
+                        Assert.Equal(afterRead, beforeRead);
+                        var golden = new GoldenOutput
+                        {
+                            Name = GoldenScenarios.NameOf(true, GoldenScenarios.FirstDay, GoldenScenarios.Player, GoldenScenarios.UnlockAll),
+                            Kind = GoldenScenarios.Player,
+                            Day = GoldenScenarios.FirstDay,
+                            Text = beforeRead,
+                        };
+                        Assert.Empty(GoldenScenarios.Mismatches(new[] { golden }));
+                    }
+                    else
+                    {
+                        var player = MiniJson.ParseObject(beforeRead);
+                        Assert.Equal(MiniJson.Serialize(MiniJson.ParseObject(afterRead)["offline_store"]), MiniJson.Serialize(player["offline_store"]));
+                        Assert.Equal(MiniJson.Serialize(MiniJson.ParseObject(stat)["game"]), MiniJson.Serialize(player["game"]));
+                        Assert.Equal(0, CollectorLines(second, account));
+                        second.ReadGameProfile(token);
+                        Assert.Equal(afterRead, second.Get("/configs/users/me", token).BodyText);
+                        Assert.Equal(1, CollectorLines(second, account));
+                    }
+                }
+            }
+            finally
+            {
+                first.DeleteDataDir();
+            }
+        }
+
         /// <summary>§2.6: owned avatars and backgrounds get no Unlockable cell in the per-player document (true window and
         /// Kayac false cells alike); the static document has them all.</summary>
         [Fact]

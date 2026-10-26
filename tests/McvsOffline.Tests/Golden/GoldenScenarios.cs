@@ -431,13 +431,24 @@ namespace McvsOffline.Tests.Golden
 
         private const string GameProfile = "/profiles/me/myprofile/_mcvs.gameProfile";
 
-        private readonly TempDir dir = new TempDir();
+        /// <summary>The temporary directory this run owns (null when it runs on another run's data directory).</summary>
+        private readonly TempDir dir;
 
         public GoldenRun(DateTime startUtc)
+            : this(startUtc, null)
         {
+        }
+
+        /// <summary>
+        /// A run on <paramref name="dataDir"/> (null: a new temporary one, deleted with the run): a restart of the server
+        /// of another run, which must have been disposed with <see cref="KeepDataDir"/> set.
+        /// </summary>
+        public GoldenRun(DateTime startUtc, string dataDir)
+        {
+            if (dataDir == null) dir = new TempDir();
             Clock = new ManualClock(startUtc);
             Logs = new MemoryLogSink();
-            DataDir = dir.Combine("data");
+            DataDir = dataDir ?? dir.Combine("data");
             var options = new ServerOptions
             {
                 DataDir = DataDir,
@@ -463,6 +474,10 @@ namespace McvsOffline.Tests.Golden
         public MemoryLogSink Logs { get; private set; }
 
         public string DataDir { get; private set; }
+
+        /// <summary>Dispose leaves <see cref="DataDir"/> for a restart (<see cref="GoldenRun(DateTime, string)"/>); the
+        /// restarted run's owner deletes it (<see cref="DeleteDataDir"/>).</summary>
+        public bool KeepDataDir { get; set; }
 
         public void Set(string setting, object value)
         {
@@ -517,7 +532,13 @@ namespace McvsOffline.Tests.Golden
         public void Dispose()
         {
             Server.Dispose();
-            dir.Dispose();
+            if (dir != null && !KeepDataDir) dir.Dispose();
+        }
+
+        /// <summary>Deletes the temporary directory of a run disposed with <see cref="KeepDataDir"/>.</summary>
+        public void DeleteDataDir()
+        {
+            if (dir != null) dir.Dispose();
         }
     }
 }
