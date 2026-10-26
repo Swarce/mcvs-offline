@@ -21,6 +21,10 @@ namespace McvsOffline.Embed.Tests.Embedded
     {
         private readonly ITestOutputHelper output;
 
+        // Held for the whole test: a collectible context whose object the GC finalizes starts unloading, and the parser
+        // loads Gameloft.Util lazily through it (FileLoadException "AssemblyLoadContext is unloading" under GC pressure).
+        private GameContext context;
+
         public RealArgumentsParserTests(ITestOutputHelper output)
         {
             this.output = output;
@@ -52,6 +56,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.Equal("Online", Field(parsed, "LogCategoryFilter")); // the player's own line survives
             Assert.Equal(lanMode ? "0.0.0.0" : null, Field(parsed, "LocalAnubisHost"));
             Assert.Null(Field(parsed, "Credential")); // no -Credential: the anonymous credential comes from native
+            GC.KeepAlive(context);
         }
 
         private static object Field(object instance, string name) => instance.GetType().GetField(name).GetValue(instance);
@@ -68,7 +73,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                 output.WriteLine("Gameloft.Engine.dll not found in MCVS_REFS (" + dir + "): skipped");
                 return null;
             }
-            var context = new GameContext(dir);
+            context = new GameContext(dir);
             return context.LoadFromAssemblyPath(engine).GetType("Gameloft.Engine.GameApplication+Arguments", true);
         }
 

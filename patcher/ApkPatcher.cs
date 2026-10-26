@@ -59,6 +59,7 @@ namespace McvsOffline.Patcher
         {
             new BootstrapHookPatch(), new HeadlessGamePatch(), new HeadlessEnginePatch(), new PhysicsPatch(), new NativeOnlinePatch(),
             new WaitsPatch(), new GeoPatch(), new BotTilePatch(), new FinderPatch(), new LanPatch(), new StorePatch(), new SignaturesPatch(),
+            new DebloatEnginePatch(),
         };
 
         public static PatchReport Run(PatcherOptions options, Action<string> log)
@@ -83,6 +84,7 @@ namespace McvsOffline.Patcher
             if (!options.SkipServerReferenceCheck) CheckServerAssembly(serverBytes, options.ServerDll);
 
             List<IlPatch> patches = SelectPatches(options.Patches, !options.TestOnlyHookIsMandatory);
+            if (options.TestOnlyDebloatWithoutIl) patches.RemoveAll(p => p is DebloatEnginePatch);
             var modifiedAssemblies = new Dictionary<string, byte[]>(StringComparer.Ordinal);
             string resolverDir = Path.Combine(Path.GetTempPath(), "mcvs-patcher-" + Guid.NewGuid().ToString("N"));
             try

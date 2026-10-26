@@ -195,6 +195,7 @@ namespace McvsOffline.Embed.Tests.Patcher
                 Force = true,
                 SkipServerReferenceCheck = true,
                 TestOnlyHookIsMandatory = true,
+                TestOnlyDebloatWithoutIl = true,
             };
             return ApkPatcher.Run(options, s => output.WriteLine(s));
         }

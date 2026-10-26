@@ -116,7 +116,7 @@ namespace McvsOffline
         internal static readonly IlPatch[] DefaultGamePatches =
         {
             new HeadlessGamePatch(), new HeadlessEnginePatch(), new PhysicsPatch(), new NativeOnlinePatch(), new WaitsPatch(), new BotTilePatch(), new FinderPatch(),
-            new StorePatch(), new SignaturesPatch(),
+            new StorePatch(), new SignaturesPatch(), new DebloatEnginePatch(),
         };
 
         [Fact]
@@ -360,6 +360,7 @@ namespace McvsOffline
             Assert.Contains("IL fingerprint", Assert.Throws<PatchException>(() => PatchReal(dir, server, null, new WaitsPatch())).Message);
             Assert.Throws<PatchException>(() => PatchReal(dir, server, null, new StorePatch()));
             Assert.Contains("IL fingerprint", Assert.Throws<PatchException>(() => PatchReal(dir, server, null, new SignaturesPatch())).Message);
+            Assert.Contains("IL fingerprint", Assert.Throws<PatchException>(() => PatchReal(dir, server, null, new DebloatEnginePatch())).Message);
 
             // A different Init_private body (ldarg.2 -> ldarg.1) is refused, and so is a server without GameHooks.
             string changed = TestEnvironment.NewTempDir("changed");

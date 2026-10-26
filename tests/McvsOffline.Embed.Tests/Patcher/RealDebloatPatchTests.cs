@@ -242,8 +242,7 @@ namespace McvsOffline.Embed.Tests.Patcher
             if (refs == null) return;
             Dictionary<string, byte[]> images = Patched(refs, out byte[] serverImage);
             // Alone, and in the patcher's run of every default Game.dll / Gameloft.Engine.dll patch (debloat last).
-            Dictionary<string, byte[]> all = RealGamePatchTests.PatchReal(refs, serverImage, null,
-                RealGamePatchTests.DefaultGamePatches.Concat(new IlPatch[] { new DebloatEnginePatch() }).ToArray());
+            Dictionary<string, byte[]> all = RealGamePatchTests.PatchReal(refs, serverImage, null, RealGamePatchTests.DefaultGamePatches);
             foreach (Dictionary<string, byte[]> set in new[] { images, all })
             {
                 using (var game = new GameContext(refs, set, serverImage))

@@ -97,6 +97,12 @@ namespace McvsOffline.Patcher
         /// <summary>Tests only: apply only the hook as mandatory patch (synthetic APKs have no Game.dll or Gameloft.Engine.dll).</summary>
         internal bool TestOnlyHookIsMandatory { get; set; }
 
+        /// <summary>
+        /// Tests only: "debloat" changes the manifest and the files but not Gameloft.Engine.dll (synthetic APKs have no real
+        /// engine to fingerprint).
+        /// </summary>
+        internal bool TestOnlyDebloatWithoutIl { get; set; }
+
         /// <summary>Tests only: accept a server assembly built for net8 (look-alike fixtures cannot reference the game BCL).</summary>
         internal bool SkipServerReferenceCheck { get; set; }
 

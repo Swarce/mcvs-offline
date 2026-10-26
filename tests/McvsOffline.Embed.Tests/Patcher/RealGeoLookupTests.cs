@@ -70,6 +70,7 @@ namespace McvsOffline.Embed.Tests.Patcher
                 var lookup = (Task<string>)geo.GetMethod("GetRegion").Invoke(instance, new object[] { IPAddress.Parse("192.168.1.30"), CancellationToken.None });
                 Assert.Same(lookup, await Task.WhenAny(lookup, Task.Delay(10000)));
                 Assert.Equal("US", await lookup);
+                GC.KeepAlive(loader);   // a finalized collectible context starts unloading (see RealArgumentsParserTests)
             }
             finally
             {
