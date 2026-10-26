@@ -158,8 +158,7 @@ namespace McvsOffline.Patcher
                 "                          debloat  remove the manifest declarations of SDK parts dead offline (ad screens, GCM\n" +
                 "                                   push, install-referrer and boot receivers, Crashlytics/Facebook init providers,\n" +
                 "                                   location/legacy permissions) and drop the Crashlytics/Fabric files\n" +
-                "                          adminpage  Settings > Account: an 'MCVS Offline' button that opens the offline\n" +
-                "                                   settings page\n" +
+                "                          adminpage  Settings > Account: an 'MCVS Offline' button that opens the offline settings page\n" +
                 "                          adminlink  the 'MCVS Offline' inbox message opens the settings page (without it the\n" +
                 "                                   message shows a view-only page)\n" +
                 "                          forum    Settings > Forum opens the settings page (not in the default set)\n" +
