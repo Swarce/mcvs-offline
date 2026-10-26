@@ -81,6 +81,13 @@ namespace McvsOffline.Embedded.Diagnostics
             ReportAtMs = reportAtMs != null && reportAtMs.Length > 0 ? reportAtMs : DefaultReportAtMs;
         }
 
+        /// <summary>
+        /// Routine lines that are not problems (the game thread's tid, a lease's "paused: ..." and "resumed"): EmbeddedHost logs them
+        /// at INFO, because WARN lines are the settings page's "recent problems" and every page open would add two. Null: they go
+        /// to the report callback with the rest. Set before <see cref="Start"/>.
+        /// </summary>
+        public Action<string> Notice { get; set; }
+
         public int GameTid { get { return gameTid; } }
 
         public int Beats { get { return beats; } }
@@ -197,7 +204,7 @@ namespace McvsOffline.Embedded.Diagnostics
                     if (!announced && gameTid != 0)
                     {
                         announced = true;
-                        report("[watchdog] game thread is tid " + gameTid.ToString(CultureInfo.InvariantCulture) + " '" + gameThreadName + "'");
+                        Note("[watchdog] game thread is tid " + gameTid.ToString(CultureInfo.InvariantCulture) + " '" + gameThreadName + "'");
                     }
                     if (!otherBeatReported && otherBeatTid != 0)
                     {
@@ -213,7 +220,7 @@ namespace McvsOffline.Embedded.Diagnostics
                         if (!pauseReported)
                         {
                             pauseReported = true;
-                            report("[watchdog] paused: " + pauseText);
+                            Note("[watchdog] paused: " + pauseText);
                         }
                         lastBeat = Environment.TickCount;
                         stallReports = 0;
@@ -223,7 +230,7 @@ namespace McvsOffline.Embedded.Diagnostics
                     {
                         pauseReported = false;
                         lastBeat = Environment.TickCount;   // the lease ended: the next stall is measured from here
-                        report("[watchdog] resumed");
+                        Note("[watchdog] resumed");
                     }
 
                     double total = totalTimeField == null ? -2 : (double)totalTimeField.GetValue(app);
@@ -256,6 +263,13 @@ namespace McvsOffline.Embedded.Diagnostics
                     try { Thread.Sleep(10000); } catch (Exception) { }
                 }
             }
+        }
+
+        private void Note(string line)
+        {
+            Action<string> notice = Notice;
+            if (notice != null) notice(line);
+            else report(line);
         }
 
         /// <summary>The thread dump runs on its own thread: it may block (a runtime lock held by the stalled thread).</summary>

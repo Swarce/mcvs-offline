@@ -311,7 +311,8 @@ namespace McvsOffline.Embedded.Admin
                 if (text.Length > MaxShareTextChars) text = text.Substring(0, MaxShareTextChars);
                 Lease(ShareLeaseMs, ShareLeaseReason);
                 AdminShareResult result = platform.ShareText(subject ?? "MCVS Offline", text) ?? AdminShareResult.None("The text could not be shared.");
-                if (!result.Ok) Lease(PageLeaseMs, PageLeaseReason);
+                // Not Ok but "text": the sheet was started and may still open (the UI thread ran late), so the share lease stays.
+                if (!result.Ok && result.Method != "text") Lease(PageLeaseMs, PageLeaseReason);
                 return result;
             }
             catch (Exception ex)
@@ -453,6 +454,7 @@ namespace McvsOffline.Embedded.Admin
                 platform.QuitInGameBrowser();
                 Sleep(QuitBrowserWaitMs);
             }
+            // False means it never runs (a call the UI thread had not started is withdrawn): only one restart path goes ahead.
             if (!platform.ExitViaGame(relaunch))
             {
                 log.Warn("admin: the game's restart is not available; using the host's restart");

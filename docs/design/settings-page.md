@@ -1229,7 +1229,9 @@ scan during the rewrite records 0. Change, Android 11+ only (the mirror's existi
    over JNI (no permission needed; it clears `IS_PENDING` and sets `_size`). One call per copy cycle with all changed
    paths.
 3. Also mirror the rotated `.1` files once per rotation, `threaddump-*.txt`, `exception-*.txt` and `exit-*-anr.txt`
-   (as `.txt` copies; crash and exception copies are redacted, §5.4); `unknown-endpoints.jsonl` as `.jsonl.txt`.
+   (as `.txt` copies; crash and exception copies are redacted, §5.4); `unknown-endpoints.jsonl` as `.jsonl.txt`. Like the
+   logs, each is copied again while its size or time changes: a thread dump is written for up to 10 s, an ANR trace (up to
+   8 MB) streams in on the exit-reasons thread, so a copy taken by an early cycle would stay truncated.
 4. Pruning: keep 5 sessions as today, and additionally at most 20 `crash-*`/`threaddump-*`/`exception-*` copies (oldest
    by name; today crash copies are never pruned because `Prune` only groups names with `name[8] == '-'`).
 5. Leftover `*.tmp` from a killed copy are deleted at the next start.
@@ -1548,7 +1550,8 @@ public void PauseFor(int ms, string reason);
 ```
 
 In `Run`, while `Environment.TickCount - pausedUntil < 0` the loop behaves as for `suspendUpdateInBackground` (sets
-`lastBeat = now`, no snapshot, no dump) and logs once `[watchdog] paused: <reason>` and once `[watchdog] resumed`.
+`lastBeat = now`, no snapshot, no dump) and logs once `[watchdog] paused: <reason>` and once `[watchdog] resumed`, at
+INFO (the host logger's WARN lines are the Status screen's recent problems; stall snapshots stay WARN).
 `AdminHost` calls `PauseFor(45000, "MCVS Offline page open")` on every open and every `PageAlive()` (the page pings every
 10 s, at once when it becomes visible again, and every API call counts). Before starting a chooser it calls
 `PauseFor(600000, "share target")`: a share target in its own task sends the game to the background, where the game
@@ -1562,7 +1565,11 @@ MediaProvider even while the game is frozen (an advantage over a FileProvider, w
 All calls through `Android.Runtime.JNIEnv` (the trimmed Mono.Android has no `Intent` constructors; `JNIEnv` is
 complete; `JNIEnv.FindClass` uses the app class loader, so it works from server threads). Context:
 `Android.App.Application.Context.Handle`; activity: `com/gameloft/android/GLUtils/SUtils.getActivity()`; UI thread:
-`new Android.OS.Handler(Android.OS.Looper.MainLooper).Post(Action)`.
+`new Android.OS.Handler(Android.OS.Looper.MainLooper).Post(Action)`. Every wait for the UI thread is bounded (`ShareText`
+and `CopyToClipboard` 0.8 s + 0.1 s, within the one-second contract; the chooser 3 s; the game's restart 2 s), and an
+action the UI thread has not started by then is withdrawn and never runs (`UiCall`): no sheet opens and no copy lands
+after the page was told it failed. One that started but has not ended is reported as such: `CopyToClipboard` false
+(unknown), `ShareText` `Ok` false with `Method` `text` (the sheet may still open; the share lease stays).
 
 | Android | `ShareFile` |
 |---|---|
@@ -1673,7 +1680,9 @@ unit-tested with a recording fake `IAdminHost`; timings in `ExitTimings`):
   (`MainActivity.java:147-157`): `AlarmManager.set(RTC, now + 900, PendingIntent.getActivity(this, 0, new
   Intent(getIntent()), 32768))` and `Process.killProcess(myPid())` (`:107-115`). The task has no other activity, so
   Android re-creates nothing; the alarm starts the next process. If the process is still alive 3 s later (e.g.
-  `MainActivity.d` was null or not resumed), fall through to `host`.
+  `MainActivity.d` was null or not resumed), fall through to `host`. If the UI thread has not started `d.a(true)` within
+  2 s, the call is withdrawn and `host` runs at once instead: the host's restart never starts next to a game restart
+  that can still run (only the 3 s fallback follows one that did).
 * `host` — on the UI thread, in this order: `AlarmManager.set(RTC, now + 1000, PendingIntent.getActivity(context,
   0x4D435653, launchIntent, FLAG_CANCEL_CURRENT | (sdk ≥ 23 ? FLAG_IMMUTABLE : 0)))` with
   `getLaunchIntentForPackage(getPackageName())` + `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_CLEAR_TASK`; then
@@ -2113,7 +2122,11 @@ exception; watchdog: with `PauseFor` active and no beats there is no STALL repor
 has every capability false and `ShareFile` returns `none`; `PageAlive` extends the lease; `Exit` with a recording fake
 platform: `game` → [`IsInGameBrowserOpen`, `ExitViaGame(true)`], browser still open → `QuitInGameBrowser` first, a
 `game` path that "survives" 3 s → `ExitViaHost(true)`; `none` → false and no marker written; the ledger keeps the newest 5
-per kind and drops missing rows; host `RecentProblems` returns host WARN lines; crash files are redacted.
+per kind and drops missing rows; host `RecentProblems` returns host WARN lines (not the watchdog's `paused`/`resumed`,
+which are INFO); crash files are redacted; `UiCall`: a call the UI thread did not start within the wait is withdrawn and
+never runs, also when the UI thread takes it just as the wait ends, and a `game` restart withdrawn that way is followed by
+exactly one `ExitViaHost`, while one already running is not; the mirror replaces each copy with a new file (a hard link
+to the old copy keeps the old text) and copies a dump or ANR trace again while it grows.
 `RealGameReflectionTests` (MCVS_REFS): every member `GameReflection` resolves exists with the expected signature in the
 real `Gameloft.Engine.dll`/`Game.dll` (`GameApplication.Instance/World/Context`, `World.Browser`, `World.Authentication`,
 `AuthenticationComponent.AnonymousCredential` and its string conversion, `World.EnumerateActiveComponents(Type,

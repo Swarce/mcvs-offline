@@ -155,6 +155,80 @@ namespace McvsOffline.Embed.Tests.Embedded
             }
         }
 
+        /// <summary>
+        /// Review of WP5: a text share the UI thread started but had not finished within the wait may still open its sheet, so the
+        /// share lease stays; one that never runs (withdrawn) or failed goes back to the page's lease.
+        /// </summary>
+        [Fact]
+        public void ATextShareStillOpeningKeepsTheShareLease()
+        {
+            using (McvsServer server = AdminFixtures.CreateServer(TestEnvironment.NewTempDir("adminhost-sharetext")))
+            {
+                var watchdog = new GameThreadWatchdog(null, null, null);
+                var platform = new RecordingAdminPlatform { Sdk = 34 };
+                var host = new AdminHost(server.Context, platform, new GameReflection(), null) { Watchdog = () => watchdog };
+                string reason;
+
+                platform.TextResult = AndroidShare.TextShareResult(UiCall.Pending);
+                AdminShareResult result = host.ShareText("MCVS Offline report", "text");
+                Assert.False(result.Ok);
+                Assert.Equal("text", result.Method);
+                Assert.True(watchdog.IsPaused(out reason));
+                Assert.Equal(AdminHost.ShareLeaseReason, reason);
+
+                platform.TextResult = AndroidShare.TextShareResult(UiCall.Withdrawn);
+                Assert.Equal("none", host.ShareText("MCVS Offline report", "text").Method);
+                Assert.True(watchdog.IsPaused(out reason));
+                Assert.Equal(AdminHost.PageLeaseReason, reason);
+
+                platform.TextResult = AndroidShare.TextShareResult(UiCall.Done);
+                Assert.True(host.ShareText("MCVS Offline report", "text").Ok);
+                Assert.True(watchdog.IsPaused(out reason));
+                Assert.Equal(AdminHost.ShareLeaseReason, reason);
+            }
+        }
+
+        /// <summary>
+        /// Review of WP5: the problem sink (WARN and up) is the page's "recent problems"; the watchdog's pause and resume around every
+        /// page open, close and share, and its tid line, are INFO, while stall snapshots stay WARN.
+        /// </summary>
+        [Fact]
+        public void TheWatchdogsPauseAndResumeAreNotProblems()
+        {
+            string root = TestEnvironment.NewTempDir("adminhost-watchdog-lines");
+            AdminHooks.Host = null;
+            EmbeddedHost host = EmbeddedHost.Start(new DirectoryPlatform(root, false), new EmbeddedHostOptions
+            {
+                Port = TestEnvironment.FreePort(),
+                Watchdog = true,
+                StatusIntervalMs = 0,
+            });
+            try
+            {
+                Assert.True(host.WaitForServer(30000));
+                GameThreadWatchdog watchdog = host.Watchdog;
+                Assert.NotNull(watchdog);
+                Assert.NotNull(watchdog.Notice);
+                watchdog.Notice("[watchdog] game thread is tid 4242 'UnityMain'");
+                watchdog.Notice("[watchdog] paused: " + AdminHost.PageLeaseReason);
+                watchdog.Notice("[watchdog] resumed");
+                List<string> problems = host.AdminHost.RecentProblems(100);
+                Assert.DoesNotContain(problems, p => p.Contains("paused: ") || p.Contains("resumed") || p.Contains("tid 4242"));
+                Assert.True(host.FlushLogs(10000));
+                string log = File.ReadAllText(host.Paths.BootstrapLog);
+                Assert.Contains("INFO  [watchdog] paused: MCVS Offline page open", log);
+                Assert.Contains("INFO  [watchdog] resumed", log);
+                Assert.Contains("INFO  [watchdog] game thread is tid 4242 'UnityMain'", log);
+                Assert.Equal("x", EmbeddedHost.WithoutTag("[watchdog] x", "[watchdog] "));
+                Assert.Equal("[boot] x", EmbeddedHost.WithoutTag("[boot] x", "[watchdog] "));
+            }
+            finally
+            {
+                host.Server?.Dispose();
+                AdminHooks.Host = null;
+            }
+        }
+
         [Fact]
         public void WaitForGameLoopAndRequestGameSaveRunOnTheGameThread()
         {
@@ -351,6 +425,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             ExitViaHostResult = true;
             JniResult = true;
             ShareResult = new AdminShareResult { Ok = true, Method = "sheet", PublicPath = "Download/MCVS-Offline/x", Message = "ok" };
+            TextResult = new AdminShareResult { Ok = true, Method = "text" };
             Missing = new List<string>();
             Calls = new SynchronizedList();
         }
@@ -362,6 +437,11 @@ namespace McvsOffline.Embed.Tests.Embedded
         public bool ExitViaHostResult { get; set; }
         public bool JniResult { get; set; }
         public AdminShareResult ShareResult { get; set; }
+        public AdminShareResult TextResult { get; set; }
+
+        /// <summary>When set, ExitViaGame's result (after the call is recorded): e.g. the restart posted to a UI thread through UiCall.</summary>
+        public Func<bool, bool> ExitViaGameHook { get; set; }
+
         public List<string> Missing { get; set; }
         public SynchronizedList Calls { get; private set; }
 
@@ -407,7 +487,7 @@ namespace McvsOffline.Embed.Tests.Embedded
         public AdminShareResult ShareText(string subject, string text)
         {
             Calls.Add("ShareText:" + subject);
-            return new AdminShareResult { Ok = true, Method = "text" };
+            return TextResult;
         }
 
         public bool CopyToClipboard(string label, string text)
@@ -424,7 +504,8 @@ namespace McvsOffline.Embed.Tests.Embedded
         public bool ExitViaGame(bool relaunch)
         {
             Calls.Add("ExitViaGame:" + relaunch);
-            return ExitViaGameResult;
+            Func<bool, bool> hook = ExitViaGameHook;
+            return hook != null ? hook(relaunch) : ExitViaGameResult;
         }
 
         public bool ExitViaHost(bool relaunch)

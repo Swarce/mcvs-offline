@@ -30,7 +30,12 @@ namespace McvsOffline.Embedded.Android
         private const int Rtc = 1;
         private const int UiWaitMs = 2000;
 
-        /// <summary>MainActivity.d.a(relaunch) on the UI thread. False: no MainActivity (or the members are missing), or it failed.</summary>
+        /// <summary>
+        /// MainActivity.d.a(relaunch) on the UI thread. True: it ran, or it is running (started within the 2 s wait; AdminHost's
+        /// 3 s fallback covers a process that stays alive). False, and it never runs: no MainActivity (or the members are
+        /// missing), it threw, or the UI thread had not started it within the wait (withdrawn, so the host's restart that
+        /// AdminHost starts next is the only one).
+        /// </summary>
         public static bool ViaGame(bool relaunch, Action<string, Exception> warn)
         {
             if (!AndroidJni.Has(AndroidJni.MainActivityInstance) || !AndroidJni.Has(AndroidJni.MainActivityRestart)) return false;
@@ -50,7 +55,8 @@ namespace McvsOffline.Embedded.Android
                     AndroidJni.Delete(activity);
                 }
             }, UiWaitMs, ex => warn("admin: the game's restart (MainActivity.a) failed", ex));
-            return result == AndroidJni.UiDone;
+            if (result == AndroidJni.UiWithdrawn) warn("admin: the UI thread did not start the game's restart within 2 s; withdrawn", null);
+            return UiCall.InEffect(result);
         }
 
         /// <summary>

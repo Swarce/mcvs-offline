@@ -25,8 +25,11 @@ namespace McvsOffline.Embedded.Android
     /// (libc rename), and one media scan per copy cycle (<c>MediaScannerConnection.scanFile</c>, no permission needed) clears
     /// <c>IS_PENDING</c> and records the real size. Besides the current logs it mirrors their rotated <c>.1</c> files (once per
     /// rotation), <c>unknown-endpoints.jsonl</c> (as <c>.jsonl.txt</c>), and this session's <c>threaddump-*</c>,
-    /// <c>exception-*</c> and <c>exit-*-anr</c> files (crash and exception files are redacted when written). It keeps 5 sessions
-    /// and at most 20 crash/thread-dump/exception/exit copies, and deletes leftover <c>*.tmp</c> files of a killed copy.
+    /// <c>exception-*</c> and <c>exit-*-anr</c> files (crash and exception files are redacted when written). Every file is copied
+    /// again while its size or time changes: a thread dump is written for up to 10 s after it is created and an ANR trace (up to
+    /// 8 MB) is streamed in by the exit-reasons thread while the first cycles run, so a copy taken early would stay truncated.
+    /// It keeps 5 sessions and at most 20 crash/thread-dump/exception/exit copies, and deletes leftover <c>*.tmp</c> files of a
+    /// killed copy.
     /// </para>
     /// </summary>
     internal sealed class PublicMirror
@@ -34,6 +37,7 @@ namespace McvsOffline.Embedded.Android
         public const string FolderName = "MCVS-Offline";
         private const long TailBytes = 2L * 1024 * 1024;
         private const long DiagnosticBytes = 1024 * 1024;
+        private const long CrashBytes = 256 * 1024;
         private const int KeepSessions = 5;
         public const int KeepDiagnostics = 20;
         private const int IntervalMs = 30000;
@@ -111,8 +115,8 @@ namespace McvsOffline.Embedded.Android
             {
                 Monitor.TryEnter(gate, ref taken);
                 if (!taken) return;
-                Copy(path, Path.Combine(directory, Path.GetFileName(path)), 256 * 1024);
-                copied["diag:" + Path.GetFileName(path)] = "crash";
+                string name = Path.GetFileName(path);
+                CopyIfChanged(path, name.EndsWith(".txt", StringComparison.Ordinal) ? name : name + ".txt", CrashBytes);
                 CopyAll();
             }
             catch (Exception)
@@ -200,14 +204,11 @@ namespace McvsOffline.Embedded.Android
                 {
                     string name = Path.GetFileName(file);
                     if (!IsSessionDiagnostic(name)) continue;
-                    string key = "diag:" + name;
-                    if (copied.ContainsKey(key)) continue;
-                    var info = new FileInfo(file);
                     // This session's files only: older ones were mirrored by their own session (and may have been pruned since).
-                    if (info.LastWriteTimeUtc < sessionStartUtc.AddMinutes(-10)) continue;
-                    string dest = name.EndsWith(".txt", StringComparison.Ordinal) ? name : name + ".txt";
-                    Copy(file, Path.Combine(directory, dest), DiagnosticBytes);
-                    copied[key] = "once";
+                    if (!copied.ContainsKey(file) && new FileInfo(file).LastWriteTimeUtc < sessionStartUtc.AddMinutes(-10)) continue;
+                    // Again while it is being written (size or time changed); a finished file is not copied again, so the copies
+                    // the pruning removed stay removed.
+                    CopyIfChanged(file, name.EndsWith(".txt", StringComparison.Ordinal) ? name : name + ".txt", DiagnosticBytes);
                 }
             }
             if (changed.Count > 0)

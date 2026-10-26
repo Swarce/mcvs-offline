@@ -528,6 +528,12 @@ namespace McvsOffline.Embedded
             }
         }
 
+        /// <summary>"[watchdog] x" → "x": the logger's category says it already.</summary>
+        internal static string WithoutTag(string line, string tag)
+        {
+            return line != null && line.StartsWith(tag, StringComparison.Ordinal) ? line.Substring(tag.Length) : line;
+        }
+
         private void StartDiagnostics(EmbeddedHostOptions options)
         {
             try
@@ -546,11 +552,14 @@ namespace McvsOffline.Embedded
                         string logsDir = Paths.LogsDir;
                         threadDump = (tid, comm) => ThreadDump.Capture(tid, ThreadDump.Related(tid, comm),
                             Path.Combine(logsDir, "threaddump-" + DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + ".txt"),
-                            10000, s => dumpLog.Warn(s.StartsWith("[threaddump] ", StringComparison.Ordinal) ? s.Substring(13) : s));
+                            10000, s => dumpLog.Warn(WithoutTag(s, "[threaddump] ")));
                     }
-                    Watchdog = new GameThreadWatchdog(() => Boot.Describe(),
-                                                      s => watchdogLog.Warn(s.StartsWith("[watchdog] ", StringComparison.Ordinal) ? s.Substring(11) : s),
-                                                      javaStacks, 1000, null, threadDump);
+                    // Stall snapshots at WARN (the page's "recent problems"); the tid and the page's pause/resume at INFO.
+                    Watchdog = new GameThreadWatchdog(() => Boot.Describe(), s => watchdogLog.Warn(WithoutTag(s, "[watchdog] ")),
+                                                      javaStacks, 1000, null, threadDump)
+                    {
+                        Notice = s => watchdogLog.Info(WithoutTag(s, "[watchdog] ")),
+                    };
                     Watchdog.Start();
                 }
             }

@@ -97,16 +97,25 @@ namespace McvsOffline.Embedded
         /// <summary>Copies path into Download/MCVS-Offline/displayName and, unless subject is null, starts the share chooser.</summary>
         AdminShareResult ShareFile(string path, string mimeType, string displayName, string subject, string text);
 
-        /// <summary>The game's own SUtils.shareInfo(subject, text, title) on the UI thread.</summary>
+        /// <summary>
+        /// The game's own SUtils.shareInfo(subject, text, title) on the UI thread, within a second: Ok "text" once it ran, Ok false
+        /// with Method "text" when it started but had not ended (the sheet may still open), "none" when it never runs.
+        /// </summary>
         AdminShareResult ShareText(string subject, string text);
 
-        /// <summary>ClipboardManager.setPrimaryClip(ClipData.newPlainText(label, text)) on the UI thread.</summary>
+        /// <summary>
+        /// ClipboardManager.setPrimaryClip(ClipData.newPlainText(label, text)) on the UI thread, within a second. True once it ran;
+        /// false otherwise (a copy the UI thread had not started is withdrawn).
+        /// </summary>
         bool CopyToClipboard(string label, string text);
 
         /// <summary>Toast.makeText(context, text, LENGTH_LONG).show() on the UI thread.</summary>
         void ShowToast(string text);
 
-        /// <summary>MainActivity.d.a(relaunch) on the UI thread (§8.8). False: no MainActivity, or the call failed.</summary>
+        /// <summary>
+        /// MainActivity.d.a(relaunch) on the UI thread (§8.8). True: it ran or is running. False: it never runs (no MainActivity,
+        /// it threw, or the UI thread had not started it within 2 s and it was withdrawn), so the host's restart may follow at once.
+        /// </summary>
         bool ExitViaGame(bool relaunch);
 
         /// <summary>Relaunch alarm (when relaunch), finishAndRemoveTask, killProcess 200 ms later, on the UI thread (§8.8).</summary>

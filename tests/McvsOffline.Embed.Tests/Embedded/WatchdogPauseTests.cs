@@ -102,6 +102,37 @@ namespace McvsOffline.Embed.Tests.Embedded
             }
         }
 
+        /// <summary>
+        /// Review of WP5: the pause and resume lines (and the tid line) go to the notice channel, which EmbeddedHost logs at INFO;
+        /// the stall snapshots stay on the report channel (WARN: the settings page's "recent problems").
+        /// </summary>
+        [Fact]
+        public void PauseAndResumeAreNoticesAndStallsAreReports()
+        {
+            var reports = new ConcurrentQueue<string>();
+            var notices = new ConcurrentQueue<string>();
+            PausedGame3.Instance = new PausedGame3();
+            var watchdog = new GameThreadWatchdog(null, s => reports.Enqueue(s), null, 50, new[] { 300 }, null)
+            {
+                Notice = s => notices.Enqueue(s),
+            };
+            Assert.True(watchdog.Bind(typeof(PausedGame3)));
+            watchdog.PauseFor(400, "MCVS Offline page open");
+            watchdog.Start();
+            try
+            {
+                Assert.True(SpinWait.SpinUntil(() => notices.Contains("[watchdog] resumed"), 5000));
+                Assert.True(SpinWait.SpinUntil(() => reports.Any(r => r.Contains("STALL")), 5000));
+                Assert.Equal(new[] { "[watchdog] paused: MCVS Offline page open", "[watchdog] resumed" }, notices.ToArray());
+                Assert.DoesNotContain(reports, r => r.Contains("paused") || r.Contains("resumed"));
+            }
+            finally
+            {
+                watchdog.Stop();
+                PausedGame3.Instance = null;
+            }
+        }
+
         /// <summary>The members the watchdog reads from Gameloft.Engine.GameApplication.</summary>
         private sealed class PausedGame
         {
@@ -113,6 +144,13 @@ namespace McvsOffline.Embed.Tests.Embedded
         private sealed class PausedGame2
         {
             public static PausedGame2 Instance { get; set; }
+
+            public QueueContext Context { get; } = new QueueContext();
+        }
+
+        private sealed class PausedGame3
+        {
+            public static PausedGame3 Instance { get; set; }
 
             public QueueContext Context { get; } = new QueueContext();
         }

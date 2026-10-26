@@ -1,13 +1,15 @@
 // Host: embedded - owner group: EMBED (hosts/embedded, patcher/)
-// Android only: compiled into the embedded DLL (MCVS_EMBEDDED), never into the net8 build.
-#if MCVS_EMBEDDED
+// The JNI calls are Android only (MCVS_EMBEDDED); the outcomes of the bounded UI-thread waits are platform-independent
+// (compiled into the net8 tests).
 using System;
+using McvsOffline.Server.Services.Admin;
+#if MCVS_EMBEDDED
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Android.Runtime;
-using McvsOffline.Server.Services.Admin;
+#endif
 
 namespace McvsOffline.Embedded.Android
 {
@@ -26,12 +28,41 @@ namespace McvsOffline.Embedded.Android
     /// <item>Text: the game's own <c>SUtils.shareInfo(subject, text, title)</c>; clipboard: <c>ClipData.newPlainText</c> →
     /// <c>ClipboardManager.setPrimaryClip</c>; toast: <c>Toast.makeText(context, text, LENGTH_LONG).show()</c>; each on the UI thread.</item>
     /// </list>
-    /// Every method deletes its JNI local references, catches everything and returns a failure result.
+    /// Every method deletes its JNI local references, catches everything and returns a failure result. The UI-thread waits are
+    /// bounded (the chooser 3 s, text and clipboard <see cref="QuickUiWaitMs"/>); what the UI thread has not started by then is
+    /// withdrawn (<see cref="UiCall"/>), so no sheet opens and no copy lands after the page was told it failed.
     /// </summary>
     internal static class AndroidShare
     {
         public const string RelativePath = "Download/MCVS-Offline/";
+
+        /// <summary>
+        /// ShareText and CopyToClipboard: IAdminHost members other than ShareFile, WaitForGameLoop and Exit return within a second,
+        /// so at most 800 ms plus <see cref="UiCall.StartedGraceMs"/>; a call the UI thread has not started by then is withdrawn.
+        /// </summary>
+        public const int QuickUiWaitMs = 800;
+
+        /// <summary>The share result of SUtils.shareInfo on the UI thread (<see cref="UiCall"/> outcome).</summary>
+        public static AdminShareResult TextShareResult(int outcome)
+        {
+            if (outcome == UiCall.Done) return new AdminShareResult { Ok = true, Method = "text", Message = "Choose an app." };
+            // Started, not ended in time: it runs to its end on the UI thread, the sheet may still open (the share lease stays).
+            if (outcome == UiCall.Pending)
+                return new AdminShareResult { Ok = false, Method = "text", Message = "The share sheet is slow to open; it may still appear." };
+            if (outcome == UiCall.Withdrawn) return AdminShareResult.None("The game is busy, so the share sheet did not open. Try again.");
+            return AdminShareResult.None("The share sheet did not open.");
+        }
+
+        /// <summary>The clipboard copy's outcome: true only once it ran (not ended in time is unknown, so false).</summary>
+        public static bool ClipboardResult(int outcome)
+        {
+            return outcome == UiCall.Done;
+        }
+
+#if MCVS_EMBEDDED
         private const int FlagGrantReadUriPermission = 1;
+
+        /// <summary>The chooser of ShareFile (IAdminHost allows ShareFile 10 s).</summary>
         private const int UiWaitMs = 3000;
         private static int strictModeRelaxed;
 
@@ -376,7 +407,8 @@ namespace McvsOffline.Embedded.Android
                         AndroidJni.DeleteGlobal(target);   // the UI thread owns it from here
                     }
                 }, UiWaitMs, ex => warn("admin: starting the share chooser failed", ex));
-                if (result == AndroidJni.UiNotPosted) AndroidJni.DeleteGlobal(global);
+                // Never run (not posted, or withdrawn after the wait): the global reference is still ours.
+                if (result == AndroidJni.UiNotPosted || result == AndroidJni.UiWithdrawn) AndroidJni.DeleteGlobal(global);
                 return result == AndroidJni.UiDone;
             }
             finally
@@ -395,7 +427,11 @@ namespace McvsOffline.Embedded.Android
 
         // ------------------------------------------------------------------ text, clipboard, toast
 
-        /// <summary>The game's own SUtils.shareInfo(subject, text, title) on the UI thread.</summary>
+        /// <summary>
+        /// The game's own SUtils.shareInfo(subject, text, title) on the UI thread, within <see cref="QuickUiWaitMs"/>: Ok "text"
+        /// once it ran; "none" when it failed or never runs (withdrawn); Ok false with Method "text" when it started but had not
+        /// ended in time (the share sheet may still open).
+        /// </summary>
         public static AdminShareResult ShareText(string subject, string text, Action<string, Exception> warn)
         {
             int result = AndroidJni.RunOnUiThread(() =>
@@ -411,12 +447,15 @@ namespace McvsOffline.Embedded.Android
                     AndroidJni.Delete(t);
                     AndroidJni.Delete(s);
                 }
-            }, UiWaitMs, ex => warn("admin: sharing a text failed", ex));
-            if (result != AndroidJni.UiDone) return AdminShareResult.None("The share sheet did not open.");
-            return new AdminShareResult { Ok = true, Method = "text", Message = "Choose an app." };
+            }, QuickUiWaitMs, ex => warn("admin: sharing a text failed", ex));
+            return TextShareResult(result);
         }
 
-        /// <summary>ClipboardManager.setPrimaryClip(ClipData.newPlainText(label, text)) on the UI thread.</summary>
+        /// <summary>
+        /// ClipboardManager.setPrimaryClip(ClipData.newPlainText(label, text)) on the UI thread, within <see cref="QuickUiWaitMs"/>.
+        /// True once it ran; false when it failed, never runs (withdrawn) or had not ended in time (unknown: the page then asks the
+        /// player to copy by hand).
+        /// </summary>
         public static bool CopyToClipboard(string label, string text, Action<string, Exception> warn)
         {
             int result = AndroidJni.RunOnUiThread(() =>
@@ -437,8 +476,8 @@ namespace McvsOffline.Embedded.Android
                     AndroidJni.Delete(name);
                     AndroidJni.Delete(service);
                 }
-            }, UiWaitMs, ex => warn("admin: copying to the clipboard failed", ex));
-            return result == AndroidJni.UiDone;
+            }, QuickUiWaitMs, ex => warn("admin: copying to the clipboard failed", ex));
+            return ClipboardResult(result);
         }
 
         /// <summary>Toast.makeText(context, text, LENGTH_LONG).show() on the UI thread; does not wait.</summary>
@@ -465,6 +504,6 @@ namespace McvsOffline.Embedded.Android
             [DllImport("libc", SetLastError = true)]
             public static extern IntPtr write(int fd, byte[] buffer, IntPtr count);
         }
+#endif
     }
 }
-#endif

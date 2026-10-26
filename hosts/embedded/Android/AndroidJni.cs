@@ -433,22 +433,26 @@ namespace McvsOffline.Embedded.Android
         }
 
         /// <summary>The action was not posted (it will never run).</summary>
-        public const int UiNotPosted = -1;
+        public const int UiNotPosted = UiCall.NotPosted;
 
-        /// <summary>Posted, but it did not finish within the wait (or no wait was asked for).</summary>
-        public const int UiPending = 0;
+        /// <summary>Posted without a wait (it runs when the UI thread gets to it), or it started and had not ended within the wait.</summary>
+        public const int UiPending = UiCall.Pending;
 
         /// <summary>It ran without an exception.</summary>
-        public const int UiDone = 1;
+        public const int UiDone = UiCall.Done;
 
         /// <summary>It ran and threw (reported through the failure callback).</summary>
-        public const int UiFailed = 2;
+        public const int UiFailed = UiCall.Failed;
+
+        /// <summary>The UI thread had not started it when the wait ended: withdrawn, it will never run.</summary>
+        public const int UiWithdrawn = UiCall.Withdrawn;
 
         /// <summary>
         /// Runs <paramref name="action"/> on the UI thread (the main looper's Handler). With <paramref name="waitMs"/> &gt; 0 waits up
-        /// to that long for it. Returns <see cref="UiNotPosted"/>, <see cref="UiPending"/>, <see cref="UiDone"/> or
-        /// <see cref="UiFailed"/>. JNI local references belong to one thread: the action makes its own (or uses global references
-        /// made for it, which it then deletes).
+        /// to that long for it and withdraws it when the UI thread has not started it by then (<see cref="UiCall"/>): nothing runs
+        /// late behind the caller's back. Returns <see cref="UiNotPosted"/>, <see cref="UiPending"/>, <see cref="UiDone"/>,
+        /// <see cref="UiFailed"/> or <see cref="UiWithdrawn"/>. JNI local references belong to one thread: the action makes its own
+        /// (or uses global references made for it, which it then deletes; the caller deletes them when it never runs).
         /// </summary>
         public static int RunOnUiThread(Action action, int waitMs, Action<Exception> failed)
         {
@@ -460,34 +464,9 @@ namespace McvsOffline.Embedded.Android
                     if (uiHandler == null) uiHandler = new global::Android.OS.Handler(global::Android.OS.Looper.MainLooper);
                     handler = uiHandler;
                 }
-                var done = new ManualResetEvent(false);
-                int outcome = UiPending;
-                bool posted = handler.Post(() =>
-                {
-                    try
-                    {
-                        action();
-                        outcome = UiDone;
-                    }
-                    catch (Exception ex)
-                    {
-                        outcome = UiFailed;
-                        try
-                        {
-                            if (failed != null) failed(ex);
-                        }
-                        catch (Exception)
-                        {
-                        }
-                    }
-                    finally
-                    {
-                        done.Set();
-                    }
-                });
-                if (!posted) return UiNotPosted;
-                if (waitMs <= 0) return UiPending;
-                return done.WaitOne(waitMs, false) ? outcome : UiPending;
+                var call = new UiCall(action, failed);
+                if (!handler.Post(call.Run)) return UiNotPosted;
+                return call.Wait(waitMs);
             }
             catch (Exception ex)
             {
