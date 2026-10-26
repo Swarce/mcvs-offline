@@ -78,9 +78,10 @@ namespace McvsOffline.Tests.Content
         }
 
         /// <summary>
-        /// The collector active (live ops on, defaults, from since): every output is the golden one outside the collector's
-        /// own field changers, so the store filter (the unlock-all player's offline_store), the events and every other cell
-        /// are byte-identical; the per-player documents carry their own cells.
+        /// The collector active (live ops on, defaults, from since): every document is the golden one outside the collector's
+        /// own field changers, so the store filter (the unlock-all player's offline_store) and every other cell are
+        /// byte-identical; the per-player documents carry their own cells. Events are golden before since and carry the
+        /// crate from since (their exact text is LiveOpsTests.LiveOpsCollectorOffMatchesGolden's).
         /// </summary>
         [Fact]
         public void StoreFilterUnchangedWithCollector()
@@ -99,9 +100,12 @@ namespace McvsOffline.Tests.Content
                 string stat = byName[GoldenScenarios.NameOf(true, o.Day, GoldenScenarios.Static, null)].Text;
                 Assert.NotEqual(stat, o.Text);
             }
-            Assert.Empty(GoldenScenarios.Mismatches(on, o => IsDocument(o) && o.Day >= Since
-                                                                ? Strip(o, (t, c, k) => changers.Contains(t + "\n" + c))
-                                                                : o.Text));
+            List<GoldenOutput> crateEvents = on.Where(o => o.Day >= Since && !IsDocument(o)).ToList();
+            Assert.NotEmpty(crateEvents);
+            foreach (GoldenOutput o in crateEvents) Assert.True(o.Text.Contains("Crate_Event_Special"), o.Name + ": the crate");
+            Assert.Empty(GoldenScenarios.Mismatches(on.Except(crateEvents), o => IsDocument(o) && o.Day >= Since
+                                                                                ? Strip(o, (t, c, k) => changers.Contains(t + "\n" + c))
+                                                                                : o.Text));
         }
 
         // ------------------------------------------------------------------------------------------ never an empty crate
@@ -576,34 +580,64 @@ namespace McvsOffline.Tests.Content
         }
 
         /// <summary>
-        /// collector.since as the CRM reads it from liveops.json until the live-ops snapshot carries it (WP-E): the shipped
-        /// block gives the compiled-in ShippedSince; a missing block or a since in another form gives none (the guard then
-        /// starts at ShippedSince).
+        /// collector.since comes from the live-ops snapshot (D5: the value live ops decide the crates with): the shipped
+        /// block gives the compiled-in ShippedSince; an override that moves it a week later gives the guard in the first
+        /// week and the layer in the next; a refused block gives none (the guard from ShippedSince, and no crate in any
+        /// event); with live ops off the since is still read, so the guard starts at an earlier override's since.
         /// </summary>
         [Fact]
-        public void CollectorSinceComesFromLiveOpsJson()
+        public void CollectorSinceComesFromLiveOpsSnapshot()
         {
             Assert.True(new ContentProvider(null, null, Log.Null).TryReadContentText(LiveOpsCatalog.ContentName, out string shipped));
-            DateTime? since = CrmDocumentCache.ParseCollectorSince(shipped);
-            Assert.Equal(CollectorGuard.ShippedSince, since);
-            Assert.Equal(DateTimeKind.Utc, since.Value.Kind);
-            foreach (string text in new[] { null, "", "{", "{}", "{\"collector\":{}}", "{\"collector\":{\"since\":\"2026-11-09\"}}",
-                                            "{\"collector\":{\"since\":\"2026-11-09T00:00:00+01:00\"}}", "{\"collector\":{\"since\":20261109}}" })
-                Assert.Null(CrmDocumentCache.ParseCollectorSince(text));
-            Assert.Equal(new DateTime(2026, 11, 16, 0, 0, 0, DateTimeKind.Utc),
-                         CrmDocumentCache.ParseCollectorSince("{\"collector\":{\"since\":\"2026-11-16T00:00:00Z\"}}"));
+            using (var run = new GoldenRun(ActiveDay))
+            {
+                Assert.Equal(CollectorGuard.ShippedSince, LiveOpsService.For(run.Context).Snapshot(ActiveDay).CollectorSince);
+                CrmDocument document = run.Context.Features.Get<CrmDocumentCache>().Get(0);
+                Assert.Equal(CollectorPhase.Active, document.CollectorPhase);
+                Assert.Equal(CollectorGuard.ShippedSince, document.Collector.Status.Since);
+            }
 
-            // An override that moves since a week later: the first week after the shipped since is the guard (live ops on,
-            // before since, after guardSince), the next one the layer.
-            using var run = new GoldenRun(ActiveDay);
-            var liveOps = MiniJson.ParseObject(shipped);
-            ((Dictionary<string, object>)liveOps["collector"])["since"] = "2026-11-16T00:00:00Z";
-            run.OverrideContent(LiveOpsCatalog.ContentName, MiniJson.Serialize(liveOps));
-            CrmDocumentCache cache = run.Context.Features.Get<CrmDocumentCache>();
-            Assert.Equal(CollectorPhase.Guard, cache.Get(0).CollectorPhase);
-            Assert.Contains("before collector.since 2026-11-16", cache.Get(0).Collector.Status.Reason);
-            run.Clock.UtcNow = ActiveDay.AddDays(7);
-            Assert.Equal(CollectorPhase.Active, cache.Get(0).CollectorPhase);
+            using (var run = new GoldenRun(ActiveDay))
+            {
+                run.OverrideContent(LiveOpsCatalog.ContentName, WithSince(shipped, "2026-11-16T00:00:00Z"));
+                CrmDocumentCache cache = run.Context.Features.Get<CrmDocumentCache>();
+                Assert.Equal(CollectorPhase.Guard, cache.Get(0).CollectorPhase);
+                Assert.Contains("before collector.since 2026-11-16", cache.Get(0).Collector.Status.Reason);
+                run.Clock.UtcNow = ActiveDay.AddDays(7);
+                Assert.Equal(CollectorPhase.Active, cache.Get(0).CollectorPhase);
+            }
+
+            using (var run = new GoldenRun(ActiveDay))
+            {
+                run.OverrideContent(LiveOpsCatalog.ContentName, WithSince(shipped, "next Monday"));
+                Assert.Null(LiveOpsService.For(run.Context).Snapshot(ActiveDay).CollectorSince);
+                CrmDocument document = run.Context.Features.Get<CrmDocumentCache>().Get(0);
+                Assert.Equal(CollectorPhase.Guard, document.CollectorPhase);
+                Assert.Contains("no collector.since", document.Collector.Status.Reason);
+                LiveOpsService liveOps = LiveOpsService.For(run.Context);
+                foreach (string id in liveOps.Snapshot(ActiveDay).EventIds)
+                {
+                    Dictionary<string, object> e = liveOps.FindEvent(id, "en", ActiveDay);
+                    if (e != null) Assert.DoesNotContain("Crate_Event_Special", MiniJson.Serialize(e));
+                }
+            }
+
+            using (var run = new GoldenRun(DormantDay))
+            {
+                run.Set("liveops.enabled", false);
+                run.OverrideContent(LiveOpsCatalog.ContentName, WithSince(shipped, "2026-11-02T00:00:00Z"));
+                CrmDocument document = run.Context.Features.Get<CrmDocumentCache>().Get(0);
+                Assert.Equal(CollectorPhase.Guard, document.CollectorPhase);
+                Assert.Equal("live ops are off", document.Collector.Status.Reason);
+                Assert.Equal(new DateTime(2026, 11, 2, 0, 0, 0, DateTimeKind.Utc), document.Collector.Status.Since);
+            }
+        }
+
+        private static string WithSince(string liveOpsJson, string since)
+        {
+            var liveOps = MiniJson.ParseObject(liveOpsJson);
+            ((Dictionary<string, object>)liveOps["collector"])["since"] = since;
+            return MiniJson.Serialize(liveOps);
         }
 
         // ------------------------------------------------------------------------------------------ helpers

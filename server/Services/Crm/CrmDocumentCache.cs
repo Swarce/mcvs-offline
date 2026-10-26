@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Threading;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Json;
@@ -325,9 +324,6 @@ namespace McvsOffline.Server.Services.Crm
         private bool retryRunning;
         private bool retried;
         private int lastRetryTick;
-        private bool sinceRead;
-        private string sinceText;
-        private DateTime? since;
 
         public CrmDocumentCache(ServerContext context, CrmPreconfiguration preconfiguration, Log log)
         {
@@ -509,8 +505,12 @@ namespace McvsOffline.Server.Services.Crm
             try
             {
                 CollectorRuntime runtime = CollectorRuntime.For(context);
-                bool liveOpsOn = liveOps != null && liveOps.Expiry.HasValue;
-                CollectorStatus status = runtime.Status(context.Clock.UtcNow.AddSeconds(BoundaryLeadSeconds), liveOpsOn, CollectorSince(liveOps));
+                // since comes from the live-ops snapshot (set whether or not live ops are on), the same value live ops
+                // decide the crates with (CratesInWindow), so the layer starts exactly where the crates do (D5). Without a
+                // snapshot it is unknown: never Active, and the guard from ShippedSince.
+                bool liveOpsOn = liveOps != null && liveOps.On;
+                DateTime? since = liveOps == null ? null : liveOps.CollectorSince;
+                CollectorStatus status = runtime.Status(context.Clock.UtcNow.AddSeconds(BoundaryLeadSeconds), liveOpsOn, since);
                 CollectorContent content = runtime.Content;
                 if (status.Phase == CollectorPhase.Active && content == null)
                     status = new CollectorStatus { Phase = CollectorPhase.Guard, Reason = CollectorContent.FileName + " changed while read", Since = status.Since };
@@ -528,47 +528,6 @@ namespace McvsOffline.Server.Services.Crm
                 key = "collector:error";
                 return CrmCollector.GuardOnly("the collector's state is unavailable (" + ex.Message + ")");
             }
-        }
-
-        /// <summary>
-        /// <c>collector.since</c> of liveops.json (the content override wins), or null when the block is missing or its
-        /// <c>since</c> is not a "yyyy-MM-ddTHH:mm:ssZ" time. Read here until the live-ops snapshot carries it
-        /// (<c>LiveOpsSnapshot.CollectorSince</c>, economy-collector.md §3.2, WP-E); then this returns that value.
-        /// Parsed again only when the file's text changes; a read that throws keeps the last value.
-        /// </summary>
-        private DateTime? CollectorSince(LiveOpsSnapshot liveOps)
-        {
-            string text;
-            try
-            {
-                if (!context.Content.TryReadContentText(LiveOpsCatalog.ContentName, out text)) text = null;
-            }
-            catch (Exception ex)
-            {
-                log.Warn("CRM: " + LiveOpsCatalog.ContentName + " could not be read (" + ex.Message + "); keeping collector.since as it was");
-                lock (gate) return since;
-            }
-            lock (gate)
-            {
-                if (sinceRead && string.Equals(text, sinceText, StringComparison.Ordinal)) return since;
-                sinceRead = true;
-                sinceText = text;
-                since = ParseCollectorSince(text);
-                return since;
-            }
-        }
-
-        /// <summary>The <c>collector.since</c> of a liveops.json text, or null.</summary>
-        internal static DateTime? ParseCollectorSince(string liveOpsJson)
-        {
-            object parsed;
-            if (string.IsNullOrEmpty(liveOpsJson) || !MiniJson.TryParse(liveOpsJson, out parsed)) return null;
-            string value = JsonValue.GetString(JsonValue.GetObject(parsed as Dictionary<string, object>, "collector"), "since");
-            DateTime at;
-            if (value == null || !DateTime.TryParseExact(value, "yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture,
-                                                         DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out at))
-                return null;
-            return DateTime.SpecifyKind(at, DateTimeKind.Utc);
         }
 
         private void RetryInBackground(CrmOptions o)
