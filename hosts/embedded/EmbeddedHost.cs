@@ -639,6 +639,7 @@ namespace McvsOffline.Embedded
                     FileLog = true,
                     BootTrace = Boot,
                     FileLogOptions = LogFileOptions(),
+                    ClientCapabilities = GamePatchProbe.Detect(Logger.For("game")),
                 };
                 // Sinks are thread-safe, so the server shares the platform sink (logcat) with the bootstrap logger.
                 if (systemSink != null) serverOptions.ExtraSinks.Add(systemSink);
