@@ -4,6 +4,7 @@ using System.IO;
 using System.Text;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Content;
+using McvsOffline.Server.Core.Http;
 using McvsOffline.Server.Core.Json;
 using McvsOffline.Server.Services.Crm;
 using Xunit;
@@ -95,7 +96,11 @@ namespace McvsOffline.Tests.Content
             Directory.CreateDirectory(dir.Combine("data", "content"));
             File.WriteAllText(dir.Combine("data", "content", "offline_store.json"),
                 @"{""prices"":[{""item"":""UnlockMerc_2"",""quantity"":1,""billing_methods"":[{""price"":[{""currency"":""VersusCoins"",""price"":10}],""replaced_price"":[]}]}]}");
-            Assert.Equal(200, ContentTestSupport.Post(server, "/_mcvs/crm/reload", "").StatusCode);
+            // Like every write under /_mcvs, the reload needs the CSRF header (design §5.2 rule 4).
+            Assert.Equal(403, ContentTestSupport.Post(server, "/_mcvs/crm/reload", "").StatusCode);
+            var reload = HttpRequest.Create("POST", "/_mcvs/crm/reload", "");
+            reload.Headers.Add("X-MCVS", "1");
+            Assert.Equal(200, server.Handle(reload).StatusCode);
             var doc = ContentTestSupport.JsonObject(ContentTestSupport.Get(server, "/configs/users/me"));
             var prices = (List<object>)JsonPath.Get(doc, "offline_store.prices");
             Assert.Single(prices);

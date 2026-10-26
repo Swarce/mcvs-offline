@@ -72,6 +72,25 @@ namespace McvsOffline.Server.Core
         /// <summary>The port actually listened on (set when the HTTP server starts).</summary>
         public int Port { get; internal set; }
 
+        /// <summary>
+        /// The server logger's WARN and ERROR entries since boot (bounded; created by <c>McvsServer.Create</c> before
+        /// settings.json is loaded, so its problems are included). The settings page's status "recent problems". Null for a
+        /// context built without <c>McvsServer.Create</c>.
+        /// </summary>
+        public MemoryLogSink Problems { get; internal set; }
+
+        /// <summary>
+        /// Set by the admin module: true when a <c>mcvs_s</c> cookie value names a live settings-page session. Used by the
+        /// header-time body limit (<see cref="LocalAccessGate.BodyLimit"/>); null: no session is ever valid.
+        /// </summary>
+        public Func<string, bool> IsValidAdminSession { get; set; }
+
+        /// <summary>
+        /// Set by the admin module: the body limit of an admin route (method, decoded path such as
+        /// "/_mcvs/api/v1/settings"), or ≤ 0 when unknown (then 1 KiB applies).
+        /// </summary>
+        public Func<string, string, long> AdminRouteBodyLimit { get; set; }
+
         /// <summary>Signalled when the server is stopping (long-running handlers should return).</summary>
         public WaitHandle StopSignal { get { return stopSignal; } }
 

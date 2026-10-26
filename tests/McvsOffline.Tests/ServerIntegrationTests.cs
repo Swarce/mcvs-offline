@@ -51,6 +51,14 @@ namespace McvsOffline.Tests
 
                 var status = MiniJson.ParseObject(await http.GetStringAsync(baseUrl + "_mcvs/status"));
                 Assert.Equal(server.Context.InstanceId, status["instance"]);
+                Assert.Equal("***", JsonPath.Get(status, "settings.superPassword"));
+
+                // Diagnostics only answer this device's own names (design §5.2): a rebinding page's Host gets a 404.
+                var rebound = new HttpRequestMessage(HttpMethod.Get, baseUrl + "_mcvs/status");
+                rebound.Headers.Host = "evil.example:" + server.Port;
+                Assert.Equal(404, (int)(await http.SendAsync(rebound)).StatusCode);
+                var crmReload = await http.PostAsync(baseUrl + "_mcvs/crm/reload", new StringContent(""));
+                Assert.Equal(403, (int)crmReload.StatusCode);
 
                 var routes = MiniJson.ParseArray(await http.GetStringAsync(baseUrl + "_mcvs/routes"));
                 Assert.True(routes.Count >= 3);

@@ -58,6 +58,12 @@ namespace McvsOffline.Server.Core
         /// </summary>
         public bool IsFallback { get; private set; }
 
+        /// <summary>
+        /// Why <see cref="IsFallback"/> is set: the read error, or the JSON parser's message (with its offset); null
+        /// otherwise.
+        /// </summary>
+        public string LoadError { get; private set; }
+
         /// <summary>The default document. Order here is the order a fresh settings.json is written in.</summary>
         public static Dictionary<string, object> CreateDefaults()
         {
@@ -108,14 +114,24 @@ namespace McvsOffline.Server.Core
             catch (Exception ex)
             {
                 log.Error("cannot read " + full + "; using defaults (the file is left unchanged)", ex);
-                return Fallback(doc, full, log);
+                return Fallback(doc, full, log, ex.Message);
             }
 
             bool writeBack = text == null; // only a missing file is created
             if (text != null)
             {
-                object parsed;
-                if (MiniJson.TryParse(text, out parsed) && parsed is Dictionary<string, object>)
+                object parsed = null;
+                string error = null;
+                try
+                {
+                    parsed = MiniJson.Parse(text);
+                    if (!(parsed is Dictionary<string, object>)) error = "the file is not a JSON object";
+                }
+                catch (JsonParseException ex)
+                {
+                    error = ex.Message;
+                }
+                if (error == null)
                 {
                     var fileDoc = (Dictionary<string, object>)parsed;
                     writeBack = HasMissingKeys(doc, fileDoc);
@@ -123,8 +139,8 @@ namespace McvsOffline.Server.Core
                 }
                 else
                 {
-                    log.Error(full + " is not a valid JSON object; using defaults (the file is left unchanged: fix it and restart)");
-                    return Fallback(doc, full, log);
+                    log.Error(full + " is not a valid JSON object (" + error + "); using defaults (the file is left unchanged: fix it and restart)");
+                    return Fallback(doc, full, log, error);
                 }
             }
 
@@ -144,12 +160,68 @@ namespace McvsOffline.Server.Core
             return settings;
         }
 
-        private static Settings Fallback(Dictionary<string, object> defaults, string full, Log log)
+        private static Settings Fallback(Dictionary<string, object> defaults, string full, Log log, string error)
         {
             var fallback = new Settings(defaults, full);
             fallback.IsFallback = true;
+            fallback.LoadError = error;
             fallback.Validate(log);
             return fallback;
+        }
+
+        /// <summary>
+        /// The settings page's repair of an unreadable file (design §4.4): renames <see cref="FilePath"/> to
+        /// "settings.json.broken-&lt;yyyyMMddTHHmmssZ&gt;" next to it (a missing file is not an error), clears
+        /// <see cref="IsFallback"/> and saves the in-memory document (the defaults). Returns the path the broken file was
+        /// moved to, or null when there was no file any more. Throws <see cref="InvalidOperationException"/> unless this
+        /// instance is a fallback backed by a file; I/O errors propagate (nothing is changed then). Thread-safe.
+        /// </summary>
+        public string MoveAsideAndReset(DateTime nowUtc)
+        {
+            lock (gate)
+            {
+                if (FilePath == null) throw new InvalidOperationException("settings are not backed by a file");
+                if (!IsFallback) throw new InvalidOperationException(FilePath + " is readable; nothing to repair");
+                string movedTo = null;
+                if (File.Exists(FilePath))
+                {
+                    string stamp = nowUtc.ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'", System.Globalization.CultureInfo.InvariantCulture);
+                    movedTo = FilePath + ".broken-" + stamp;
+                    for (int n = 2; File.Exists(movedTo); n++)
+                        movedTo = FilePath + ".broken-" + stamp + "-" + n.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    FileSystem.Rename(FilePath, movedTo);
+                }
+                IsFallback = false;
+                LoadError = null;
+                Save();
+                return movedTo;
+            }
+        }
+
+        /// <summary>
+        /// Sets several persisted values and saves them in one step: when <see cref="Save"/> throws, every value is put
+        /// back as it was (also keys that did not exist) and the exception propagates. Thread-safe.
+        /// </summary>
+        public void SetAndSave(IDictionary<string, object> changes)
+        {
+            if (changes == null) throw new ArgumentNullException("changes");
+            lock (gate)
+            {
+                Dictionary<string, object> before = JsonValue.DeepCloneObject(values);
+                try
+                {
+                    foreach (var kv in changes) JsonPath.Set(values, kv.Key, JsonValue.DeepClone(kv.Value));
+                    effective = null;
+                    Save();
+                }
+                catch
+                {
+                    values.Clear();
+                    foreach (var kv in before) values[kv.Key] = kv.Value;
+                    effective = null;
+                    throw;
+                }
+            }
         }
 
         /// <summary>
