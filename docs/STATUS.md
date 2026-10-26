@@ -1,10 +1,10 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-Last updated for build 8 (October 2026), after device test 6 (Samsung Galaxy S22, Android 16; see "Build 8", "Build 7"
-and "Device test 6" below).
+Last updated for build 9 (October 2026), before its device test (device test 8; see "Build 9" below). Earlier: device
+tests 6 and 7 on a Samsung Galaxy S22, Android 16 ("Build 8", "Build 7", "Device test 6").
 
-**Summary:** the Federation server is complete for the offline single-player goals and passes 739 tests, including a
+**Summary:** the Federation server is complete for the offline single-player goals and passes 1,343 tests, including a
 conformance harness that runs the game's own client libraries against it. Device test 1 put the player build (patcher +
 embedded host) on a phone for the first time and found two blockers (a stall with the internet on, a crash of the headless
 TS World). Build 2 fixed both: in device test 2 the whole boot chain up to the TS handshake ran, and the TS World loaded its
@@ -17,7 +17,61 @@ copied `Data/` folder and the avatar editor freezing after unlock-all. Build 5 a
 **Device test 5: live ops and the copied-data install work**; leaving the firing range took ~11 s on "connecting to the
 server". Build 6 makes the CRM document the game reloads there ~78% smaller for an unlock-all profile: **in device test 6
 the return to the menu was fast**, and a thread dump finally caught the kill-signature screen freeze, which build 7 patches;
-**device test 7 (builds 7 and 8): the signature screen is fast and the debloated build works.**
+**device test 7 (builds 7 and 8): the signature screen is fast and the debloated build works.** Build 9 adds the
+in-game MCVS Offline page: settings, saves (also from one phone to another) and logs, without a PC.
+
+## Build 9 (October 2026): the MCVS Offline page
+
+The settings and diagnostics page of [design/settings-page.md](design/settings-page.md), in the game's own browser
+(player guide: [PLAYER-SETUP.md](PLAYER-SETUP.md) section 7). `McvsVersion.Build` is `9`.
+
+* **Screens**: Status (versions, the player and the game's last save, host state, recent problems, storage use);
+  Settings (an allowlist of `settings.json` keys rendered from the server's schema, each marked Now / After the next
+  match / After a restart, presets, a backup before risky changes, a repair panel for a broken file); Saves (backups in
+  four pools, export as a `.txt` file or as `MCVS-SAVE:1` transfer text in parts of 60,000/3,900/1,900 characters,
+  import by paste or from `McvsOffline/import/`, staged and applied at the next start before the port opens, then on
+  probation with an automatic revert, Undo and "Play this account on this phone"); Logs (filtered tails, a deflated zip
+  ≤ 8 MiB built first and then shared, a text report); Actions (Save the game now, Restart through the game's own
+  restart path after a save, where the files are) and About. One self-contained ES5 page for 250–330 CSS px of height.
+* **Opening it**: new default patches `adminpage` (Settings › Account › MCVS Offline) and `adminlink` (the button of
+  the new "MCVS Offline" inbox message, a CRM `newsfeeds` item with a fixed link), the redeem code `MCVSOFFLINE`, and
+  the optional `forum`.
+* **Security**: one-time tickets (120 s) only in the URL fragment handed to the game's WebView, an `HttpOnly;
+  SameSite=Strict` session cookie, a Host check on **every** route while bound to loopback (DNS rebinding;
+  `security.hostCheck`), `X-MCVS: 1` on every `_mcvs` write (`curl -X POST -H 'X-MCVS: 1' ...`), a 1 KiB body limit
+  at header time without a session, one log redaction for every logger. Nothing secret is ever written to a file.
+* **Host** (`hosts/embedded/Admin`, `Android`): the share sheet through MediaStore Downloads on Android 10+ (`file://`
+  before), clipboard, toast, the game's own save (`ForceSaveProfile`) and restart (`MainActivity.a(true)`, host
+  fallback), the watchdog paused while the page is open, one JNI table checked against `android.jar` and the APK's dex.
+  The public log mirror now writes temp files, renames them into place and asks for a media scan (the 0-byte uploads).
+* **Checked**: `scripts/build.sh` with `MCVS_REFS`, `MCVS_REQUIRE_EMBEDDED=1`, `MCVS_REQUIRE_REAL_CLIENT=1` and
+  `MCVS_REQUIRE_NODE=1`: **McvsOffline.Tests 1071/1071, McvsOffline.Embed.Tests 272/272, 0 skipped**. Among them: the page in node against its fixtures and against a live
+  server (every screen, a settings change with the Back guard, an export pasted back, re-creation, view mode, ES5 parse
+  with acorn); end-to-end tests over a socket (ticket → cookie → settings → CRM, the Host check, the early 413, an import
+  from another phone applied at the next start and confirmed by the game's save); the three hook patches on the real
+  1.17.32 assemblies (fingerprints, IL, executed against recording hooks with a differential, JIT, ILVerify) and
+  against the real embedded DLL; `targetSdkVersion` 29 after every default patch.
+
+### What to check in device test 8 (build 9)
+
+Details and what to record for each: design §12 (C1–C20).
+
+1. The "MCVS Offline" inbox message appears; its button opens the page (C1, C2).
+2. Settings › Account › MCVS Offline opens it; Status › player › source is `game` (C6).
+3. Redeem code `MCVSOFFLINE`: the page opens over "code does not exist"; a second try within 30 s is ignored (C7).
+4. The session survives the browser's Refresh and a dark-mode switch; then `admin.openVia` `jni` and `post` (C3, C18).
+5. No watchdog STALL or thread dump while the page stays open 2 minutes; time back to a responsive menu (C5).
+6. Settings: VersusCoins ×2 pays double after the next match; `devMenu` makes a `presettings` backup; a broken
+   `settings.json` shows the repair panel (C9).
+7. Copy: which clipboard path works; a 60,000-character part pastes intact (C10).
+8. Saves: Save the game now; back up and delete; export to Gmail, Telegram, Discord, Drive; the transfer size of an
+   unlock-all profile; import on a second phone (switch), probation clears after reaching the menu, Undo; `adb push`
+   into `import/`; can Samsung My Files write `import/`? (C11)
+9. Restart from Actions: does the game come back by itself, one process and one boot? Then `admin.restartVia=host` (C12).
+10. Logs: the zip's size, arrives non-empty in the apps; Downloads › MCVS-Offline sizes right, `is_pending=0` (C13).
+11. Chrome: `/_mcvs/status` loads, `/_mcvs/ui/` is view-only (C14). LAN mode: `/_mcvs/*` from another device is 404 (C16).
+12. Regression: boot, matches, shop, signatures, saves, codes as in build 8, and no `gate: refused Host` in `server.log` (C17).
+13. Layout at 130 % and 200 % font size and with the keyboard open; Status › host › `missingJni` empty (C18, C19).
 
 ## Build 8 (October 2026): 'debloat', dead SDK pieces removed
 
@@ -646,7 +700,8 @@ Superseded by the device-test-3 sequence above (steps 1-8 are what device test 2
 | LIVE OPS | Weekly division seasons (17 division events, 100-entry season boards with rivals that grow and freeze), daily missions, weekly events, weekly modifier as CRM table overrides, CRM `expiry` for the client's refresh, culture-safe dates | `server/Services/Social/LiveOps`, `server/Services/Leaderboards/SeasonRivals.cs`, `tools/content-gen/liveops_tuning.json` | [LIVEOPS.md](LIVEOPS.md), [misc.md](protocol/misc.md) |
 | Unlocks | `settings.unlockAll` through the inventory ledger (starts only once the game profile and the inventory section are stored, waits for the player's alert stream, backup, ordered batches with the merc unlock re-checked before each, `set_profile` alerts) | `server/Services/Unlocks` | [unlocks.md](protocol/unlocks.md) |
 | EMBED | In-game bootstrap (game root via the game's own Java helpers, `args.txt` managed block with `-DataCenter`, device id, logcat, server thread); diagnostics (crash reporter, self-reporting log files, boot trace, game-thread watchdog with managed and native thread dump, game-log bridge, phone-readable copy, exit reasons); patcher (hook, headless, headless-engine, physics, nativeonline, waits, geo, bottile, finder, lan; `res/raw/args.txt` for `--game-log`; vendor-wide manifest permission renamed into the package namespace; AOT strip; ABI selection (every ABI by default, `--abi arm64-v8a` for 64-bit only); signatures (build 7); debloat (build 8: 44 dead manifest elements, Crashlytics/Fabric files, SDK start-up calls); raw zip rewrite; v1/v2/v3 signing); installer-data restore (saved CDN index, journal and preferences, size-only index for a complete `Data/`, background CRC pass, installer monitor) | `hosts/embedded`, `patcher` | [PLAYER-SETUP.md](PLAYER-SETUP.md), [INSTALL-OFFLINE.md](INSTALL-OFFLINE.md) |
-| Hosts | Standalone net8 console host; embedded DLL compiled against the game's trimmed Mono BCL (ILVerify-clean) | `hosts/standalone`, `server/McvsOffline.Server.Embedded.csproj` | [DEV-LOOP.md](DEV-LOOP.md) |
+| ADMIN | The in-game settings page (build 9): `LocalAccessGate` on every route, tickets and sessions, header-time body limits, log redaction; settings allowlist and schema, status, save-then-exit; backups in four pools, save bundle and transfer text, staged operations with probation; logs tail, zip and share; the page; the Android host side (share sheet, clipboard, restart, JNI table, mirror fix) and the `adminpage`/`adminlink`/`forum` patches | `server/Core/Http`, `server/Services/Admin`, `server/Content/admin`, `hosts/embedded/Admin`, `patcher/Patches` | [design/settings-page.md](design/settings-page.md), [PLAYER-SETUP.md](PLAYER-SETUP.md) |
+| Hosts | Standalone net8 console host (prints the settings page's link at start); embedded DLL compiled against the game's trimmed Mono BCL (ILVerify-clean) | `hosts/standalone`, `server/McvsOffline.Server.Embedded.csproj` | [DEV-LOOP.md](DEV-LOOP.md) |
 
 ### How it was checked
 
