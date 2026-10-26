@@ -772,18 +772,26 @@ namespace McvsOffline.Server.Services.Admin.Saves
             if (change == null || JsonValue.GetString(change, "source") != "http") return;
             string account = JsonValue.GetString(change, "account");
             if (account == null) return;
-            lock (gate)
+            try
             {
-                Dictionary<string, object> p = probation.Load();
-                if (p == null || JsonValue.GetString(p, "target") != account) return;
-                string id = JsonValue.GetString(p, "id");
-                probation.Delete();
-                UpdateHistory(id, entry =>
+                lock (gate)
                 {
-                    entry["result"] = "confirmed";
-                    entry["confirmedAt"] = TimeFormat.Iso8601Millis(Now);
-                });
-                log.Info("admin: " + id + " confirmed: the game saved " + account);
+                    Dictionary<string, object> p = probation.Load();
+                    if (p == null || JsonValue.GetString(p, "target") != account) return;
+                    string id = JsonValue.GetString(p, "id");
+                    probation.Delete();
+                    UpdateHistory(id, entry =>
+                    {
+                        entry["result"] = "confirmed";
+                        entry["confirmedAt"] = TimeFormat.Iso8601Millis(Now);
+                    });
+                    log.Info("admin: " + id + " confirmed: the game saved " + account);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Runs on the thread of the game's save: never fail it.
+                log.Warn("admin: confirming the probation failed", ex);
             }
         }
 

@@ -108,6 +108,16 @@ namespace McvsOffline.Tests.Admin
             });
         }
 
+        /// <summary>A game-profile dump with random content (incompressible enough to need several Discord-sized parts).</summary>
+        public static string BigDump(int items = 300, int seed = 1)
+        {
+            var rng = new Random(seed);
+            var sb = new System.Text.StringBuilder("{\"@version\":\"0.1\",\"$default\":{\"/Profile\":{\"@type\":\"Game.PlayerProfileComponent\",\"Items\":[");
+            for (int i = 0; i < items; i++) sb.Append(i == 0 ? "" : ",").Append('"').Append(rng.Next().ToString("x8")).Append(rng.Next().ToString("x8")).Append('"');
+            sb.Append("]}}}");
+            return sb.ToString();
+        }
+
         public string ProfileFile(string accountId) => File.Exists(Store.PathFor(accountId)) ? File.ReadAllText(Store.PathFor(accountId)) : null;
 
         public List<Dictionary<string, object>> History()

@@ -395,7 +395,7 @@ namespace McvsOffline.Server.Services.Admin.Saves
             }
 
             string chunk = data.ToString();
-            if (chunk.Length == 0 || Hex(Crc32.Compute(Encoding.ASCII.GetBytes(chunk))) != fields[6])
+            if (chunk.Length == 0 || chunk.Length > DataChars(bytes) || Hex(Crc32.Compute(Encoding.ASCII.GetBytes(chunk))) != fields[6])
             {
                 Reject(rejected, set, k, Damaged);
                 return null;
@@ -415,13 +415,16 @@ namespace McvsOffline.Server.Services.Admin.Saves
         {
             if (parts == null || parts.Count == 0) throw new TransferException("no parts");
             TransferPart first = parts[0];
+            long expected = DataChars(first.Bytes);
             var data = new StringBuilder();
             for (int i = 0; i < parts.Count; i++)
             {
                 if (parts[i].Number != i + 1 || !parts[i].SameExport(first) || first.Total != parts.Count)
                     throw new TransferException("the parts do not form one complete export");
+                if (data.Length + parts[i].Data.Length > expected) throw new TransferException("the parts hold more data than the export");
                 data.Append(parts[i].Data);
             }
+            if (data.Length != expected) throw new TransferException("the parts hold less data than the export");
             int remainder = data.Length % 4;
             if (remainder == 1) throw new TransferException("the data has an impossible length");
             if (remainder == 2) data.Append("==");
@@ -453,6 +456,12 @@ namespace McvsOffline.Server.Services.Admin.Saves
         }
 
         // ------------------------------------------------------------------ helpers
+
+        /// <summary>Base64 characters (without padding) of a binary stream of <paramref name="bytes"/> bytes.</summary>
+        public static long DataChars(long bytes)
+        {
+            return (bytes * 4 + 2) / 3;
+        }
 
         public static string Hex(uint crc)
         {

@@ -140,6 +140,12 @@ namespace McvsOffline.Server.Services.Admin.Saves
                         outcome.Rejected.Add(new TransferRejection(part.Set, part.Number, SaveTransfer.OtherExport));
                         continue;
                     }
+                    if (meta != null && StoredChars(part.Set, meta.Total, part.Number) + part.Data.Length > SaveTransfer.DataChars(part.Bytes))
+                    {
+                        // More data than the export holds: parts of a different cut of the same set.
+                        outcome.Rejected.Add(new TransferRejection(part.Set, part.Number, SaveTransfer.OtherExport));
+                        continue;
+                    }
                     string dir = Path.Combine(folder, SetPrefix + part.Set);
                     if (AdminFiles.IsLink(dir)) throw new IOException("refusing to use " + dir + ": it is a symbolic link");
                     Directory.CreateDirectory(dir);
@@ -257,6 +263,19 @@ namespace McvsOffline.Server.Services.Admin.Saves
                 });
             }
             return parts;
+        }
+
+        /// <summary>Data characters stored for a set, without part <paramref name="except"/> (which a paste may replace).</summary>
+        private long StoredChars(string set, int total, int except)
+        {
+            long chars = 0;
+            for (int k = 1; k <= total; k++)
+            {
+                if (k == except) continue;
+                string path = PartPath(set, k);
+                if (File.Exists(path)) chars += new FileInfo(path).Length;
+            }
+            return chars;
         }
 
         private string PartPath(string set, int number)
