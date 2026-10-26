@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Json;
+using McvsOffline.Server.Services.Crm.Collector;
 
 namespace McvsOffline.Server.Services.Social.LiveOps
 {
@@ -37,6 +39,26 @@ namespace McvsOffline.Server.Services.Social.LiveOps
         public double Factor;
     }
 
+    /// <summary>
+    /// The liveops.json <c>collector</c> block (docs/design/economy-collector.md §3.2): the Cosmetic crates the daily
+    /// bonus, each weekly milestone tier and the weekly final hand out on top of today's rewards, in every window that
+    /// starts at or after <see cref="Since"/> while <see cref="CollectorRuntime.CratesInWindow"/> allows it (D5).
+    /// </summary>
+    public sealed class LiveOpsCollectorRewards
+    {
+        /// <summary>The content date the crates (and the CRM layer) start at, UTC.</summary>
+        public DateTime Since;
+
+        /// <summary>Appended to the daily "complete all" bonus.</summary>
+        public List<LiveOpsReward> DailyBonus = new List<LiveOpsReward>();
+
+        /// <summary>One list per weekly milestone tier (as many as <c>weeklyEvents.milestoneRewards</c>), each appended to its tier.</summary>
+        public List<List<LiveOpsReward>> WeeklyMilestones = new List<List<LiveOpsReward>>();
+
+        /// <summary>Appended to the weekly final, after the season's event crate.</summary>
+        public List<LiveOpsReward> WeeklyFinal = new List<LiveOpsReward>();
+    }
+
     public sealed class LiveOpsModifier
     {
         public string Id;
@@ -51,6 +73,13 @@ namespace McvsOffline.Server.Services.Social.LiveOps
     public sealed class LiveOpsCatalog
     {
         public const string ContentName = "liveops.json";
+
+        /// <summary>The keys of the <c>collector</c> block, all required (keys starting with "_" are comments).</summary>
+        public static readonly string[] CollectorKeys = { "since", "dailyBonus", "weeklyMilestones", "weeklyFinal" };
+
+        /// <summary>The plain currencies the <c>collector</c> block may hand out besides the Cosmetic crate (content-gen
+        /// <c>LIVEOPS_CURRENCIES</c>, GM/&lt;Type&gt;RewardItem.cs).</summary>
+        public static readonly string[] CollectorCurrencies = { "VersusCoins", "Credits", "UpgradeTokens", "HardCurrency" };
 
         public int Revision = 1;
         public string WeeklyBanner = "", WeeklyMenu = "", DailyBanner = "", DailyMenu = "";
@@ -88,6 +117,13 @@ namespace McvsOffline.Server.Services.Social.LiveOps
 
         public LiveOpsCells SeasonRewards;
 
+        /// <summary>The <c>collector</c> block, or null when it is absent or broken (<see cref="CollectorProblem"/>). A
+        /// broken block is logged and costs only the Cosmetic crate: the rest of live ops runs as without it.</summary>
+        public LiveOpsCollectorRewards Collector;
+
+        /// <summary>Why <see cref="Collector"/> is null ("no collector block", or the refusal); null when it is set.</summary>
+        public string CollectorProblem = "no collector block";
+
         /// <summary>The source text's hash: part of every event revision and of the CRM cache key.</summary>
         public string Hash = "";
 
@@ -121,6 +157,7 @@ namespace McvsOffline.Server.Services.Social.LiveOps
             if (string.IsNullOrEmpty(text) || !MiniJson.TryParse(text, out parsed) || !(parsed is Dictionary<string, object>))
             {
                 if (log != null) log.Error(ContentName + " is missing or not a JSON object: live ops are off");
+                c.CollectorProblem = ContentName + " is missing or not a JSON object";
                 return c;
             }
             var root = (Dictionary<string, object>)parsed;
@@ -246,9 +283,145 @@ namespace McvsOffline.Server.Services.Social.LiveOps
             catch (Exception ex)
             {
                 if (log != null) log.Error(ContentName + " could not be read: live ops are off", ex);
-                return new LiveOpsCatalog();
+                return new LiveOpsCatalog { CollectorProblem = ContentName + " could not be read" };
             }
+
+            // A step of its own: a broken block costs the Cosmetic crate, never the rest of live ops.
+            string problem;
+            try
+            {
+                c.Collector = ParseCollector(root, c.WeeklyMilestoneRewards.Count, out problem);
+            }
+            catch (Exception ex)
+            {
+                c.Collector = null;
+                problem = ex.GetType().Name + ": " + ex.Message;
+            }
+            c.CollectorProblem = c.Collector == null ? problem : null;
+            if (c.Collector == null && JsonValue.Get(root, "collector") != null && log != null)
+                log.Error(ContentName + ": collector block refused (" + problem + "); live ops run without the Cosmetic crate");
             return c;
+        }
+
+        /// <summary>
+        /// The <c>collector</c> block (economy-collector.md §3.2), checked like content-gen checks it: exactly the keys
+        /// <see cref="CollectorKeys"/>; <c>since</c> an ISO 8601 time; <c>weeklyMilestones</c> one list per weekly
+        /// milestone tier (<paramref name="milestoneTiers"/>); every reward an <c>{item, quantity}</c> object with a
+        /// positive integer quantity and an item that is a currency (<see cref="CollectorCurrencies"/>) or the Cosmetic
+        /// crate (<see cref="CollectorGuard.CrateId"/>); any list may be empty, but the crate is handed out at least once.
+        /// Null with <paramref name="problem"/> when the block is absent (or null) or breaks a rule.
+        /// </summary>
+        public static LiveOpsCollectorRewards ParseCollector(Dictionary<string, object> root, int milestoneTiers, out string problem)
+        {
+            object value = JsonValue.Get(root, "collector");
+            if (value == null)
+            {
+                problem = "no collector block";
+                return null;
+            }
+            var block = value as Dictionary<string, object>;
+            if (block == null)
+            {
+                problem = "collector is not an object";
+                return null;
+            }
+            var unknown = new List<string>();
+            foreach (string key in block.Keys)
+                if (!key.StartsWith("_", StringComparison.Ordinal) && Array.IndexOf(CollectorKeys, key) < 0) unknown.Add(key);
+            var missing = new List<string>();
+            foreach (string key in CollectorKeys)
+                if (!block.ContainsKey(key)) missing.Add(key);
+            if (unknown.Count > 0 || missing.Count > 0)
+            {
+                // A misspelt key must not silently drop its crates.
+                problem = "collector needs exactly the keys " + string.Join(", ", CollectorKeys) + " (unknown: "
+                          + (unknown.Count > 0 ? string.Join(", ", unknown.ToArray()) : "-") + ", missing: "
+                          + (missing.Count > 0 ? string.Join(", ", missing.ToArray()) : "-") + ")";
+                return null;
+            }
+
+            var rewards = new LiveOpsCollectorRewards();
+            string since = block["since"] as string;
+            DateTime parsed;
+            if (string.IsNullOrEmpty(since) || !TimeFormat.TryParse(since, out parsed))
+            {
+                problem = "collector.since " + MiniJson.Serialize(block["since"]) + " is not an ISO 8601 time";
+                return null;
+            }
+            rewards.Since = parsed;
+
+            rewards.DailyBonus = CollectorRewards(block["dailyBonus"], "collector.dailyBonus", out problem);
+            if (rewards.DailyBonus == null) return null;
+            var tiers = block["weeklyMilestones"] as List<object>;
+            if (tiers == null || tiers.Count != milestoneTiers)
+            {
+                problem = "collector.weeklyMilestones needs one reward list per weekly milestone tier ("
+                          + milestoneTiers.ToString(CultureInfo.InvariantCulture) + ")";
+                return null;
+            }
+            for (int i = 0; i < tiers.Count; i++)
+            {
+                List<LiveOpsReward> tier = CollectorRewards(tiers[i], "collector.weeklyMilestones[" + i.ToString(CultureInfo.InvariantCulture) + "]",
+                                                            out problem);
+                if (tier == null) return null;
+                rewards.WeeklyMilestones.Add(tier);
+            }
+            rewards.WeeklyFinal = CollectorRewards(block["weeklyFinal"], "collector.weeklyFinal", out problem);
+            if (rewards.WeeklyFinal == null) return null;
+
+            bool crate = HasCrate(rewards.DailyBonus) || HasCrate(rewards.WeeklyFinal);
+            foreach (List<LiveOpsReward> tier in rewards.WeeklyMilestones) crate |= HasCrate(tier);
+            if (!crate)
+            {
+                problem = "collector hands out no " + CollectorGuard.CrateId;
+                return null;
+            }
+            problem = null;
+            return rewards;
+        }
+
+        /// <summary>A list of the block: null with <paramref name="problem"/> at the first reward that breaks a rule.</summary>
+        private static List<LiveOpsReward> CollectorRewards(object value, string where, out string problem)
+        {
+            var list = value as List<object>;
+            if (list == null)
+            {
+                problem = where + " must be a list of rewards";
+                return null;
+            }
+            var rewards = new List<LiveOpsReward>();
+            foreach (object v in list)
+            {
+                var r = v as Dictionary<string, object>;
+                string item = r == null ? null : JsonValue.Get(r, "item") as string;
+                object q = r == null ? null : JsonValue.Get(r, "quantity");
+                long? quantity = q is string || q is bool ? null : JsonValue.AsLong(q);
+                if (string.IsNullOrEmpty(item))
+                {
+                    problem = where + ": a reward must be an {item, quantity} object";
+                    return null;
+                }
+                if (!quantity.HasValue || quantity.Value <= 0 || quantity.Value > 1000000)
+                {
+                    problem = where + ": the quantity of " + item + " must be a positive integer";
+                    return null;
+                }
+                if (!string.Equals(item, CollectorGuard.CrateId, StringComparison.Ordinal) && Array.IndexOf(CollectorCurrencies, item) < 0)
+                {
+                    problem = where + ": " + item + " is neither a currency nor " + CollectorGuard.CrateId;
+                    return null;
+                }
+                rewards.Add(new LiveOpsReward { Item = item, Quantity = (int)quantity.Value });
+            }
+            problem = null;
+            return rewards;
+        }
+
+        private static bool HasCrate(List<LiveOpsReward> rewards)
+        {
+            foreach (LiveOpsReward r in rewards)
+                if (string.Equals(r.Item, CollectorGuard.CrateId, StringComparison.Ordinal)) return true;
+            return false;
         }
 
         private static LiveOpsCells Cells(Dictionary<string, object> o, double? factor)
