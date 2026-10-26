@@ -25,13 +25,14 @@ Done items are struck through. Device-test history and open risks are in [STATUS
 
 | Priority | Item |
 |---|---|
+| High | **Settings and diagnostics page** served by the embedded server: game options without editing settings.json, save backup/restore/export/import, logs viewable and shareable from the phone (the log uploads keep arriving as 0 bytes). In progress. |
+| High | **Economy polish**: progression paths (reward tracks, crates, live-ops rewards) for the ~1,600 items that never had an unlock source; tuned from play. In progress. |
+| Next | **Steam PC version**: try the same server and patches on the Steam build, which ships the same .NET assemblies and data (needs the Steam files from the owner's PC). |
 | Low | **Signature screen, half-unlocked profiles** (only if someone reports a hitch; ~0.5–0.9 s estimated, not seen in device test 7): build the avatar list once per screen refresh in `GameOfflineStore.GetKillSignItemObject` too. |
 
 ## Later
 
-- **Release polish**: quieter logging by default for player builds (the `--game-log fatal` option exists; the default is still `all` for testing); a settings page served by the embedded server (`http://127.0.0.1:51780/`) for toggles, save backup/restore and logs; ready-to-use patcher builds for Windows/macOS/Linux; player guide; testing on more devices.
-- **Economy**: progression paths (reward tracks, crates) for the ~1,600 items that never had an unlock source; tuning from play.
+- **Release polish**: quieter logging by default for player builds (the `--game-log fatal` option exists; the default is still `all` for testing); ready-to-use patcher builds for Windows/macOS/Linux; player guide; testing on more devices.
 - **M3 LAN multiplayer** (experimental groundwork in: the optional `lan` patches and the server's LAN mode): host's Game Server reaches each guest's profile on the guest's own embedded server; LAN discovery.
 - **M4 Internet multiplayer**: overlay VPN guide first (Tailscale/ZeroTier), then an optional relay; host-leaves handling.
 - **M5 Preservation extras** (`tools/cdn-mirror` and the offline install from copied data are done): mirror all 121 CDN builds while the CDN lives; missing maps from older builds (Barrage, Bridge, Downtown, Gym); archive the remaining online assets (news/event images); fully CDN-independent installs.
-- **Steam PC version**: try the same server and patches on the Steam build, which ships the same .NET assemblies and data.
