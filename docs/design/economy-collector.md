@@ -1,6 +1,6 @@
 # Design: the Cosmetic crate ("economy collector")
 
-Status: **design, revised after review round 2, ready to implement** (October 2026, `main-dev` `e4bff79`). Roadmap item
+Status: **design, revised after review round 2, ready to implement; owner set 5 items per crate (O3)** (October 2026, `main-dev` `e4bff79`). Roadmap item
 "economy polish". This document is the contract between the work packages in §6: anything another package relies on
 (content file schemas, CRM cells, C# signatures, settings keys, test names) is fixed here. Change it only through the
 integrator (WP-I). §0.4 lists what changed in round 2 and why.
@@ -20,11 +20,11 @@ round 2 in `collector/rev/`: `pools2.py`, `pace2.py`, `cells2.py`, `cells-{game,
 |---|---|
 | O1 | One server-defined **Cosmetic crate** built from the unused `Crate_Event_Special` (its `LootCrates` row and its 100-row content table, filled with CRM `_OverrideTables` SET cells). No IL patch. |
 | O2 | Sources: the daily-mission bonus, the weekly-event milestones and final, the division season rewards of ranks 4–30. |
-| O3 | `economy.collector.itemsPerCrate`, default **3**, runtime setting, 1–10. |
+| O3 | `economy.collector.itemsPerCrate`, default **5** (owner, after the pace table of §4.3; first answer was 3), runtime setting, 1–10. |
 | O4 | Random crate only (no choice shop now). |
 | O5 | Pools: the base no-source set (avatars, backgrounds, sounds 2–5, the 16 skins, the 12 hidden jerseys) **plus** the VIP-only camo and jersey pools **plus** explicit rows for Witch (17) and Bli-P (21). **Kayac/Kayac2 emblems are not in the crate** (they stay VersusCoins-only). |
 | O6 | Season rewards: ranks 4–30 get 1–4 Cosmetic crates by division band; 1st–3rd keep their HardCurrency and additionally get that season's emblem (`BundledRewards`); ranks 31+ unchanged. |
-| O7 | Everything opt-out with `economy.collector.enabled=false`, which restores today's behaviour. See D9: from `since` on, "today's behaviour" is met **behaviourally** (5 guard cells on a crate nothing hands out), not byte for byte. **Owner confirmation requested.** |
+| O7 | Everything opt-out with `economy.collector.enabled=false`, which restores today's behaviour. See D9: from `since` on, "today's behaviour" is met **behaviourally** (5 guard cells on a crate nothing hands out), not byte for byte. Owner informed with the N = 5 decision. |
 | O8 | Weights must deliver the no-source items at a good pace despite the large VIP pool. |
 
 ### 0.2 Design decisions taken here
@@ -709,28 +709,30 @@ weights refreshed once per play day (the conservative case); carriers deliver av
 |---:|---|---|---|
 | 1 | 91 w / 1,029 w (19.7 y) | 39 w / 437 w (8.4 y) | 36 w / 402 w (7.7 y) |
 | 2 | 46 w / 515 w (9.9 y) | 20 w / 219 w (4.2 y) | 18 w / 201 w (3.9 y) |
-| **3 (default)** | **31 w (7.1 mo) / 344 w (6.6 y)** | **13 w (3.0 mo) / 146 w (2.8 y)** | **12 w (2.8 mo) / 134 w (2.6 y)** |
+| 3 | 31 w (7.1 mo) / 344 w (6.6 y) | 13 w (3.0 mo) / 146 w (2.8 y) | 12 w (2.8 mo) / 134 w (2.6 y) |
 | 4 | 23 w (5.2 mo) / 258 w (4.9 y) | 10 w (2.3 mo) / 110 w (2.1 y) | 9 w (2.1 mo) / 101 w (1.9 y) |
-| 5 | 19 w (4.3 mo) / 206 w (4.0 y) | 8 w (1.8 mo) / 88 w (1.7 y) | 7.6 w (1.7 mo) / 81 w (1.6 y) |
+| **5 (default)** | **19 w (4.3 mo) / 206 w (4.0 y)** | **8 w (1.8 mo) / 88 w (1.7 y)** | **7.5 w (1.7 mo) / 81 w (1.6 y)** |
 | 10 | 10 w (2.3 mo) / 104 w (2.0 y) | 4 w (0.9 mo) / 44 w (10.1 mo) | 4 w (0.9 mo) / 41 w (9.4 mo) |
 
-* **Base set at 3**: ~3 months regular/dedicated, ~7 months casual (N = 4 brings casual to 5.2 months).
+* **Base set at 5 (default)**: ~2 months regular/dedicated, ~4.3 months casual; everything ~1.7 years regular
+  (10 seeds at N = 5 confirm 8.0 / 88.0 weeks regular, 7.5 / 81.0 dedicated, 18.7 / 206.4 casual).
 * **Everything in ~6 months (26 weeks) from crates alone** needs N ≈ **16.8 (regular), 15.4 (dedicated), 39.6
   (casual)**, all outside 1–10; at the cap of 10: 10.1 months regular, 9.4 months dedicated, 2.0 years casual. The VC
   shop's camo/jersey 10-packs remain the main path to the paid tier (a regular player earning 17–21k VC a week clears
   it in ~22 weeks spending everything there). If the owner wants crates alone to reach 6 months, raise the range to 20
   (`maxSeasonItems` then 80) or add crates to the weekly event; reveals of > 10 items are plain lists (§4.4).
-* `baseShare` 0.5 / 0.9 moves the regular base set to 19 / 11 weeks; "everything" is unchanged (146 weeks).
-* Agents (2 units each): Witch and Bli-P arrive in weeks ~5–9 for a regular player at N = 3 (4 units: ~3–5). After an
-  agent is won its row keeps weight until the next profile read: with 2 units a second hit on that agent in the rest
-  of a 36-draw batch has ~7.6 % probability (4 units: ~15 %) and pays 40 random gear pieces (documented windfall).
+* `baseShare` 0.5 / 0.9 moves the regular base set to 12 / 7 weeks at N = 5; "everything" is unchanged (88 weeks).
+* Agents (2 units each): Witch and Bli-P arrive in weeks ~1–7 for a regular player at N = 5 (median ~3; 4 units: ~1–5).
+  After an agent is won its row keeps weight until the next profile read: with 2 units a second hit on that agent in
+  the rest of a 60-draw batch (the 36-draw batch of N = 3 scaled) has ~12 % probability (4 units: ~24 %) and pays 40
+  random gear pieces (documented windfall).
 
 ### 4.4 Settings (`settings.json`, `"economy": {"collector": {…}}`)
 
 | Key | Default | Range | Effect | Applies |
 |---|---|---|---|---|
 | `enabled` | `true` | bool | `false`: phase `Guard` from `since` (5 cells), events as before | next CRM fetch; running and kept-alive windows from `since` replaced once (§3.3) |
-| `itemsPerCrate` | 3 | 1–10 | `CratesCount` of the Cosmetic crate; tier crates `band × N` | next CRM fetch, also for crates already in the inbox |
+| `itemsPerCrate` | 5 | 1–10 | `CratesCount` of the Cosmetic crate; tier crates `band × N` | next CRM fetch, also for crates already in the inbox |
 | `baseShare` | 0.75 | 0–1 | share of draws for the no-source tier while both tiers have items | next per-player document |
 | `weights` | `{"avatars":1,"backgrounds":1,"sounds":1,"skins":1,"hiddenJerseys":1,"agents":2,"camos":1,"jerseys":1}` | each 0–100 (0 removes the category; `agents` = units per agent) | §4.1 | same |
 | `seasonCrates` | `[1,1,2,2,3,3,4]` | 7 ints 0–10 (Starter…Master; 0 = today's tier crate) | §2.4 | next season evaluation |
@@ -744,15 +746,16 @@ Parsed only by `CollectorOptions.FromSettings` (WP-C); out-of-range values are c
 (`settings: economy.collector.<key> …`). `Settings.CreateDefaults` writes `economy.collector.enabled: true` so the
 opt-out is discoverable in a new settings.json (WP-D); the other keys stay implicit. The settings snapshot is part of
 the CRM cache key. The lottery animates a claim only when its item count is ≤ `MaxRewardsInAnimation` (MCVS_Meta row 1:
-**10**; `PlayerProfileComponent.NotifyCrateReceived` counts bonus items too): at N = 3 the daily crate (3–4 items with a
-carrier) and the weekly final (6–8) animate; a season crate of band ≥ 4 (12+) or any claim over 10 shows the plain
-reward list (shipped behaviour for large claims). The table is not changed.
+**10**; `PlayerProfileComponent.NotifyCrateReceived` counts bonus items too): at N = 5 the daily crate (5–6 items with a
+carrier), a band 1–2 season crate (5 / 10) and a weekly final without a carrier (10) animate; a weekly final with a
+carrier (11–12), a season crate of band ≥ 3 (15+) or any claim over 10 shows the plain reward list (shipped behaviour for
+large claims). The table is not changed.
 
 ## 5. Edge cases
 
 ### 5.1 Unlock-all and complete profiles
 
-Every unit is 0 → only row 39 has weight: each item pays 70 VC (210 VC for the daily crate at N = 3). The preview lists
+Every unit is 0 → only row 39 has weight: each item pays 70 VC (350 VC for the daily crate at N = 5). The preview lists
 the VersusCoins row; `CrateRewardItem.IsAvailable` (any row available, weight not considered) stays true. Per-player
 cells: 39 weights + 21 emblem cells + 0 Unlockable cells. Note: `UNLOCKALL` does not include the VIP-only pools
 (`UNLOCKPAID` does), so an unlock-all profile still has the paid tier.
@@ -953,13 +956,13 @@ content.md (per-player collector cells, mirror policy, `_mcvs/collector`); STATU
 ## 7. Device checks
 
 1. **Fresh profile**, collector on, right after login and again right after a match: open the daily missions and the
-   weekly event screen. The "COSMETIC CRATE" reward shows its image, "CONTAINS 3 ITEM(S)" and a preview (≤ 33 entries;
+   weekly event screen. The "COSMETIC CRATE" reward shows its image, "CONTAINS 5 ITEM(S)" and a preview (≤ 33 entries;
    one random-emblem entry for rows 1 and 3–6; one agent entry). A profile owning some no-source skins: they are absent
    from the preview (proves the per-player layer reached the client and the TS). **Time the weekly screen opening**
    with the collector off, on with a fresh profile, on with a complete profile (target ≤ +0.5 s; else §8 fallback).
 2. Claim the daily bonus (Contracts + Cosmetic): the reveal animates (≤ 10 items, `MaxRewardsInAnimation`); force a
    carrier draw (`weights` everything 0 but `sounds`): emblem + sound revealed, no exception in the log.
-3. Weekly final (HC + event crate + 2 Cosmetic crates): 6–8 items animate.
+3. Weekly final (HC + event crate + 2 Cosmetic crates): 10 items animate; with a carrier (11–12) the plain list.
 4. `itemsPerCrate` 10: weekly final (20 items) and a Master rank-4 season crate (40) show the plain reward list (no
    lottery), every item listed; time it.
 5. Random avatar/background reveals show the concrete emblem; 50 avatar draws contain no Kayac id (382–384, 443–531,
@@ -967,7 +970,7 @@ content.md (per-player collector cells, mirror policy, `_mcvs/collector`); STATU
 6. A hidden jersey (e.g. USSR) from the crate appears in that agent's jersey list and can be equipped.
 7. Witch or Bli-P from the crate: agent unlocked, unlock flow plays; its skins then appear in the preview.
 8. Season end (set `liveops.seasonStart` to the next hour): rank 4–30 inbox "DIVISION REWARD" with a Cosmetic crate of
-   band × 3 items; rank 1–3: HC + a ★★★/★★/★ emblem the player did not own + gear.
+   band × 5 items; rank 1–3: HC + a ★★★/★★/★ emblem the player did not own + gear.
 9. Unlock-all + `UNLOCKPAID` profile: crates pay 70 VC per item; no "unavailable" state on milestones.
 10. Return-to-menu "connecting to the server" time with the collector on vs off, fresh and unlock-all profiles (target
     ≤ +0.3 s); match start time on vs off (target ≤ +0.1 s); the server log shows the collector line once per return.
