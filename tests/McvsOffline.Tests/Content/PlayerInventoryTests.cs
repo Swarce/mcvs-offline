@@ -104,13 +104,20 @@ namespace McvsOffline.Tests.Content
             Assert.True(inventory.SoundsKnown);
         }
 
-        /// <summary>The store filter depends on the avatar and background lists only: malformed sounds or agents change nothing.</summary>
+        /// <summary>
+        /// The store filter depends on the avatar and background lists only: malformed sounds or agents change nothing.
+        /// The fixtures are the dumps of the store filter's tests (CrmOwnedStoreItemsTests, including the two saves of its
+        /// HTTP-level test) with the names that filter takes from them.
+        /// </summary>
         [Fact]
         public void StoreNamesIgnoreOtherParts()
         {
             var fixtures = new Dictionary<string, string[]>
             {
                 [SignatureDump] = SignatureDumpNames,
+                [SavedDump("[\"1\",\"2\"]", "[\"3\"]")] = new[] { "KillSignature_Avatar_1", "KillSignature_Avatar_2", "KillSignature_Background_3" },
+                [SavedDump("[\"1\",\"2\",\"3\"]", "[\"3\"]")]
+                    = new[] { "KillSignature_Avatar_1", "KillSignature_Avatar_2", "KillSignature_Avatar_3", "KillSignature_Background_3" },
                 ["{\"$default\":{\"/Profile\":{\"Version\":57}}}"] = new string[0],
                 ["{\"a\":{\"KillSignatureAvatars\":[\"1\"]},\"b\":{\"KillSignatureAvatars\":[\"2\"]}}"] = new string[0],
                 ["{\"KillSignatureAvatars\":[{\"@value\":\"1\"}]}"] = new string[0],
@@ -129,6 +136,7 @@ namespace McvsOffline.Tests.Content
                 "\"Mercs\":{\"Id\":\"2\"}",
                 "\"Mercs\":[{\"Id\":\"2\",}]",
                 "\"Squads\":[{\"Mercs\":[\"2\"]}],\"Mercs\":[{\"Id\":\"2\"}]",
+                "\"Mercs\":[{\"Id\":\"1\"}]",
             };
             foreach (var fixture in fixtures)
             {
@@ -221,7 +229,7 @@ namespace McvsOffline.Tests.Content
             Assert.Equal(new[] { 1 }, Sorted(other.Mercs.Keys));
         }
 
-        /// <summary>A squad member that the agent list holds must read unlocked, or the reading of the list is wrong.</summary>
+        /// <summary>A squad agent that the agent list holds must read unlocked, or the reading of the list is wrong.</summary>
         [Fact]
         public void SquadAgentReadingLockedMakesTheAgentsUnknown()
         {
@@ -233,17 +241,31 @@ namespace McvsOffline.Tests.Content
             Assert.True(locked.AvatarsKnown && locked.BackgroundsKnown && locked.SoundsKnown);
             Assert.Equal(new[] { "KillSignature_Avatar_7" }, Sorted(locked.OwnedStoreNames()));
 
+            var member = PlayerInventory.Scan(Profile("\"Mercs\":[{\"Id\":\"1\",\"Locked\":false},{\"Id\":\"5\",\"Locked\":true}],\"Squads\":[{\"Mercs\":[\"1\",\"5\"]}]"), true);
+            Assert.False(member.MercsKnown);
+            Assert.Equal("squad agent 5 reads locked: unexpected Mercs shape", member.Problems[PlayerInventory.MercsPart]);
+
             var unlocked = PlayerInventory.Scan(Profile("\"Mercs\":[{\"Id\":\"1\",\"Locked\":false},{\"Id\":\"2\"}],\"Squads\":[{\"Mercs\":[\"1\"]}]"), true);
             Assert.True(unlocked.MercsKnown);
             Assert.False(unlocked.Mercs[2].Unlocked);
 
-            // A squad member the list does not hold, and a Squads value the guard cannot read, say nothing.
+            // A dump the TS wrote has no Squads (no PlayerProfileComponent property): the starting agent stands in for
+            // DefaultProfile.tx's squad, also when the element leaves Locked out (the ShortDef default, true).
+            foreach (string agentOne in new[] { "{\"Id\":\"1\",\"Locked\":true}", "{\"Id\":1}" })
+            {
+                var written = PlayerInventory.Scan(Profile("\"Mercs\":[{\"Id\":\"0\"}," + agentOne + ",{\"Id\":\"2\",\"Locked\":false}]"), true);
+                Assert.False(written.MercsKnown);
+                Assert.Empty(written.Mercs);
+                Assert.Equal("squad agent 1 reads locked: unexpected Mercs shape", written.Problems[PlayerInventory.MercsPart]);
+            }
+
+            // A squad agent the list does not hold, and a Squads value the guard cannot read, add nothing.
             var absent = PlayerInventory.Scan(Profile("\"Mercs\":[{\"Id\":\"2\"}],\"Squads\":[{\"Mercs\":[\"1\",3]},7,{\"Mercs\":{}}]"), true);
             Assert.True(absent.MercsKnown);
             Assert.True(absent.Mercs[1].Unlocked);
-            var unreadable = PlayerInventory.Scan(Profile("\"Mercs\":[{\"Id\":\"1\",\"Locked\":true}],\"Squads\":\"1\""), true);
+            var unreadable = PlayerInventory.Scan(Profile("\"Mercs\":[{\"Id\":\"1\",\"Locked\":false},{\"Id\":\"2\",\"Locked\":true}],\"Squads\":\"2\""), true);
             Assert.True(unreadable.MercsKnown);
-            Assert.False(unreadable.Mercs[1].Unlocked);
+            Assert.False(unreadable.Mercs[2].Unlocked);
         }
 
         [Fact]
@@ -417,6 +439,13 @@ namespace McvsOffline.Tests.Content
             Assert.Equal(skins, Sorted(merc.Skins));
             Assert.Equal(camos, Sorted(merc.Camos));
             Assert.Equal(accessories, Sorted(merc.Accessories));
+        }
+
+        /// <summary>The dump CrmOwnedStoreItemsTests saves through the HTTP storage route (its Save helper).</summary>
+        private static string SavedDump(string avatars, string backgrounds)
+        {
+            return "{\"@version\":\"0.1\",\"$default\":{\"/Profile\":{\"@type\":\"Game.PlayerProfileComponent\",\"KillSignatureAvatars\":"
+                   + avatars + ",\"KillSignatureBackgrounds\":" + backgrounds + "}}}";
         }
 
         /// <summary>A dump whose <c>/Profile</c> holds <paramref name="members"/>.</summary>

@@ -239,13 +239,18 @@ namespace McvsOffline.Server.Services.Crm
         }
 
         /// <summary>
-        /// Plausibility guard: a squad member that the agent list holds must read unlocked; if it does not, our reading of
-        /// the list is wrong. <c>Squads</c> is in DefaultProfile.tx (<c>[{"Mercs":["1"]}]</c>) but is no property of
-        /// PlayerProfileComponent in 1.17.32 (the engine's ErrorHandler skips it on load), so a dump the TS wrote has none
-        /// and the guard only speaks for template-shaped dumps. An unreadable <c>Squads</c> says nothing about the agents.
+        /// Plausibility guard: a squad agent that the agent list holds must read unlocked; if it does not, our reading of
+        /// the list is wrong. The squad agents are those of <c>Squads[].Mercs</c> (DefaultProfile.tx:
+        /// <c>[{"Mercs":["1"]}]</c>) and always the starting agent. <c>Squads</c> is no property of PlayerProfileComponent
+        /// in 1.17.32 (the engine's ErrorHandler skips it on load), so a dump the TS wrote has none; there the starting
+        /// agent, DefaultProfile.tx's squad, stands in: the TS unlocks it when it loads the profile
+        /// (OnProfileLoaded → LoadStartingInventory, GM/PlayerProfileComponent.cs:2964-2967, 5541-5572) and only cheats
+        /// lock an agent again. An unreadable <c>Squads</c> adds no agent.
         /// </summary>
         private static string CheckSquads(string dump, Dictionary<int, MercState> mercs)
         {
+            MercState starting;
+            if (mercs.TryGetValue(StartingAgent, out starting) && !starting.Unlocked) return SquadAgentLocked(StartingAgent);
             // The common case, a dump the TS wrote, is decided without walking the profile again.
             if (dump.IndexOf("\"Squads\"", StringComparison.Ordinal) < 0) return null;
             int start, length;
@@ -262,11 +267,15 @@ namespace McvsOffline.Server.Services.Crm
                 {
                     int id;
                     MercState state;
-                    if (TryId(member, out id) && mercs.TryGetValue(id, out state) && !state.Unlocked)
-                        return "squad agent " + Text(id) + " reads locked: unexpected Mercs shape";
+                    if (TryId(member, out id) && mercs.TryGetValue(id, out state) && !state.Unlocked) return SquadAgentLocked(id);
                 }
             }
             return null;
+        }
+
+        private static string SquadAgentLocked(int id)
+        {
+            return "squad agent " + Text(id) + " reads locked: unexpected Mercs shape";
         }
 
         /// <summary>
