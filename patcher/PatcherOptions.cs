@@ -34,9 +34,9 @@ namespace McvsOffline.Patcher
     public sealed class PatcherOptions
     {
         /// <summary>Optional patches applied when --patch is not given.</summary>
-        public static readonly string[] DefaultPatches = { "nativeonline", "waits", "geo", "bottile", "finder", "store" };
+        public static readonly string[] DefaultPatches = { "nativeonline", "waits", "geo", "bottile", "finder", "store", "signatures" };
 
-        public static readonly string[] OptionalPatches = { "nativeonline", "waits", "geo", "bottile", "finder", "lan", "store" };
+        public static readonly string[] OptionalPatches = { "nativeonline", "waits", "geo", "bottile", "finder", "lan", "store", "signatures" };
 
         /// <summary>
         /// Patches applied whatever --patch says: the server hook and the fixes the in-process TS/GS Worlds need (headless-World
