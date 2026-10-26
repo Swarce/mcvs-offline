@@ -152,9 +152,15 @@ namespace McvsOffline.Embed.Tests.Embedded
                 string reason;
                 Assert.False(env.Watchdog.IsPaused(out reason));
 
+                // The fragment's screen and result travel with the ticket (the server redirects to #s=..&r=..).
                 Assert.True(PageOpener.SplitTicket("http://127.0.0.1:1/_mcvs/ui/#t=abc&s=saves&r=nosave", out string target, out string form));
                 Assert.Equal("http://127.0.0.1:1/_mcvs/ui", target);
+                Assert.Equal("t=abc&s=saves&r=nosave", form);
+                Assert.True(PageOpener.SplitTicket("http://127.0.0.1:1/_mcvs/ui/#t=abc&s=logs", out target, out form));
+                Assert.Equal("t=abc&s=logs", form);
+                Assert.True(PageOpener.SplitTicket("http://127.0.0.1:1/_mcvs/ui/#t=abc&news&x=1", out target, out form));
                 Assert.Equal("t=abc", form);
+                Assert.False(PageOpener.SplitTicket("http://127.0.0.1:1/_mcvs/ui/#t=&s=saves", out target, out form));
                 Assert.False(PageOpener.SplitTicket("http://127.0.0.1:1/_mcvs/ui/#news", out target, out form));
             }
         }

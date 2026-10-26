@@ -16,7 +16,7 @@ namespace McvsOffline.Embedded.Admin
     /// <item>By <c>admin.openVia</c> (server settings, read per open): <c>auto</c> = <c>World.Browser.OpenUrl(url, true)</c> when
     /// the native browser is initialised, else JNI <c>InGameBrowser.SetParameters("EN")</c> + <c>OpenURL(url, true)</c>;
     /// <c>game</c> and <c>jni</c> only that path; <c>post</c> = JNI <c>OpenURLWithPostData("http://127.0.0.1:&lt;port&gt;/_mcvs/ui",
-    /// "t=&lt;ticket&gt;")</c> (the WebView's form POST; the server answers 303 with the cookie).</item>
+    /// "t=&lt;ticket&gt;[&amp;s=&lt;screen&gt;][&amp;r=nosave]")</c> (the WebView's form POST; the server answers 303 with the cookie).</item>
     /// </list>
     /// Every open starts the watchdog lease and logs <c>admin: page opened (trigger account, via game|jni|post)</c>; the URL
     /// (it carries the ticket) is never logged. Nothing here throws, and the game thread never waits.
@@ -154,7 +154,12 @@ namespace McvsOffline.Embedded.Admin
             return platform.OpenInGameBrowserWithPostData(target, form);
         }
 
-        /// <summary>"http://127.0.0.1:51780/_mcvs/ui/#t=&lt;32 hex&gt;&amp;s=saves" → "http://127.0.0.1:51780/_mcvs/ui" and "t=&lt;32 hex&gt;".</summary>
+        /// <summary>
+        /// "http://127.0.0.1:51780/_mcvs/ui/#t=&lt;32 hex&gt;&amp;s=saves&amp;r=nosave" → "http://127.0.0.1:51780/_mcvs/ui" and
+        /// "t=&lt;32 hex&gt;&amp;s=saves&amp;r=nosave": the ticket and the fragment's screen (s=) and result (r=) fields as form
+        /// data (the server checks them as the page checks the fragment and hands them back in its redirect, so a reopen after
+        /// "Save the game now" lands on its screen with its toast in post mode too).
+        /// </summary>
         internal static bool SplitTicket(string url, out string target, out string form)
         {
             target = null;
@@ -162,12 +167,17 @@ namespace McvsOffline.Embedded.Admin
             if (url == null) return false;
             int hash = url.IndexOf("#t=", StringComparison.Ordinal);
             if (hash <= 0) return false;
-            int start = hash + 3;
-            int end = url.IndexOf('&', start);
-            string ticket = end < 0 ? url.Substring(start) : url.Substring(start, end - start);
+            string[] fields = url.Substring(hash + 1).Split('&');
+            string ticket = fields[0].Substring(2);
             if (ticket.Length == 0) return false;
+            var data = new System.Text.StringBuilder("t=").Append(ticket);
+            for (int i = 1; i < fields.Length; i++)
+            {
+                if (fields[i].StartsWith("s=", StringComparison.Ordinal) || fields[i].StartsWith("r=", StringComparison.Ordinal))
+                    data.Append('&').Append(fields[i]);
+            }
             target = url.Substring(0, hash).TrimEnd('/');
-            form = "t=" + ticket;
+            form = data.ToString();
             return true;
         }
     }

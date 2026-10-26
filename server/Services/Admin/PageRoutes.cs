@@ -84,9 +84,11 @@ namespace McvsOffline.Server.Services.Admin
         }
 
         /// <summary>
-        /// <c>admin.openVia=post</c>: the game's WebView posts <c>t=&lt;ticket&gt;</c>; the answer is always a 303 to
-        /// <c>GET /_mcvs/ui/</c> (a Refresh then reloads with the cookie instead of re-posting a used ticket), with a new
-        /// session cookie for a valid ticket and without one otherwise.
+        /// <c>admin.openVia=post</c>: the game's WebView posts <c>t=&lt;ticket&gt;</c>, optionally with the page URL's
+        /// <c>s=&lt;screen&gt;</c> and <c>r=nosave</c>; the answer is always a 303 to <c>GET /_mcvs/ui/</c> (a Refresh then
+        /// reloads with the cookie instead of re-posting a used ticket), with a new session cookie for a valid ticket and
+        /// without one otherwise. Valid <c>s</c>/<c>r</c> values come back as the redirect's fragment (<c>#s=saves&amp;r=nosave</c>),
+        /// so the page opens on that screen with its toast as it does from the fragment of a ticket URL.
         /// </summary>
         private HttpResponse PostMode(HttpRequest request)
         {
@@ -95,24 +97,42 @@ namespace McvsOffline.Server.Services.Admin
                 return AdminJson.Error(HttpStatus.NotFound, "not_found", "Not found.");
             if (request.Body.Length > 1024) return AdminJson.TooLarge(1024);
 
-            string ticket = request.IsFormBody ? request.Form.Get("t") : null;
+            ParamCollection form = request.IsFormBody ? request.Form : null;
+            string ticket = form == null ? null : form.Get("t");
+            string location = PageLocation(form);
             string trigger;
             if (ticket != null && security.TryConsumeTicket(ticket, out trigger))
             {
                 AdminSession session = Open(trigger, request);
-                return Redirect(AdminSecurity.SetCookie(session));
+                return Redirect(location, AdminSecurity.SetCookie(session));
             }
-            if (security.SessionOf(request, true) != null) return Redirect(null);
+            if (security.SessionOf(request, true) != null) return Redirect(location, null);
             if (!security.Limiter.Allow(AdminSecurity.TicketFailureBucket, AdminSecurity.TicketFailuresPerMinute))
                 return TicketsRateLimited();
             api.Log.Info("admin: page opened with an invalid or used ticket (post mode)");
-            return Redirect(null);
+            return Redirect(location, null);
         }
 
-        private static HttpResponse Redirect(string setCookie)
+        /// <summary>
+        /// "/_mcvs/ui/", plus "#s=&lt;screen&gt;" and "&amp;r=nosave" for the form's fields that pass the page's own fragment
+        /// checks (§2.5: one of the six screen names; exactly "nosave"). Anything else is left out.
+        /// </summary>
+        internal static string PageLocation(ParamCollection form)
+        {
+            const string page = "/_mcvs/ui/";
+            if (form == null) return page;
+            string screen = form.Get("s");
+            string result = form.Get("r");
+            string fragment = "";
+            if (AdminPortal.IsScreen(screen)) fragment = "s=" + screen;
+            if (string.Equals(result, "nosave", StringComparison.Ordinal)) fragment += (fragment.Length == 0 ? "" : "&") + "r=nosave";
+            return fragment.Length == 0 ? page : page + "#" + fragment;
+        }
+
+        private static HttpResponse Redirect(string location, string setCookie)
         {
             HttpResponse response = HttpResponse.Empty(AdminJson.SeeOther);
-            response.Headers.Set("Location", "/_mcvs/ui/");
+            response.Headers.Set("Location", location);
             if (setCookie != null) response.Headers.Set("Set-Cookie", setCookie);
             return AdminJson.WithApiHeaders(response);
         }
