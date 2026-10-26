@@ -4,7 +4,10 @@
     "against the player's decoded catalogue (crates, design-table fields, loc tables, image assets) and writes",
     "server/Content/liveops.json. Design and settings: docs/LIVEOPS.md. Text is never copied: titles are the game's",
     "own localization ids (<table>.<id>, e.g. menu.Tle01Name from Localization/menu_<lang>.json).",
-    "Bump 'revision' when a change must replace events players already hold (it is part of every event's _version)."
+    "Bump 'revision' when a change must replace events players already hold (it is part of every event's _version).",
+    "'collector': the Cosmetic crates added to the daily bonus, each weekly milestone tier and the weekly final in every",
+    "window from 'since' on (docs/design/economy-collector.md section 3). Do not bump 'revision' for it: set 'since' to the",
+    "first Monday 00:00 UTC at least 7 days after the build is published (content-gen warns otherwise)."
   ],
   "revision": 1,
   "images": {
@@ -93,5 +96,13 @@
          "fields": ["VictoryAmount", "DefeatAmount", "MVPAmount", "DailyCap"], "factor": 1.25}]}
     ]
   },
-  "seasonRewards": {"table": "PVPDivisionRewards", "index": "Rank", "fieldPrefix": "Division"}
+  "seasonRewards": {"table": "PVPDivisionRewards", "index": "Rank", "fieldPrefix": "Division"},
+  "collector": {
+    "since": "2026-11-09T00:00:00Z",
+    "dailyBonus": [{"item": "Crate_Event_Special", "quantity": 1}],
+    "weeklyMilestones": [[{"item": "Crate_Event_Special", "quantity": 1}],
+                         [{"item": "Crate_Event_Special", "quantity": 1}],
+                         [{"item": "Crate_Event_Special", "quantity": 1}]],
+    "weeklyFinal": [{"item": "Crate_Event_Special", "quantity": 2}]
+  }
 }
