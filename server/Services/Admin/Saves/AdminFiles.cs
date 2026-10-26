@@ -171,6 +171,25 @@ namespace McvsOffline.Server.Services.Admin.Saves
             }
         }
 
+        /// <summary>The first <paramref name="maxBytes"/> bytes of a file (or all of a smaller one).</summary>
+        public static byte[] ReadHead(string path, int maxBytes)
+        {
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            {
+                var buffer = new byte[maxBytes];
+                int read = 0;
+                while (read < buffer.Length)
+                {
+                    int n = stream.Read(buffer, read, buffer.Length - read);
+                    if (n <= 0) break;
+                    read += n;
+                }
+                var result = new byte[read];
+                Buffer.BlockCopy(buffer, 0, result, 0, read);
+                return result;
+            }
+        }
+
         /// <summary>UTF-8 text (invalid bytes become U+FFFD), without a BOM.</summary>
         public static string Utf8(byte[] bytes, int offset, int count)
         {
