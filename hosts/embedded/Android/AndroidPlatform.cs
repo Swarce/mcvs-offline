@@ -2,12 +2,14 @@
 // Android only: compiled into the embedded DLL (MCVS_EMBEDDED), never into the net8 build.
 #if MCVS_EMBEDDED
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Android.Runtime;
 using McvsOffline.Embedded.Diagnostics;
 using McvsOffline.Server.Core;
+using McvsOffline.Server.Services.Admin;
 
 namespace McvsOffline.Embedded.Android
 {
@@ -29,8 +31,13 @@ namespace McvsOffline.Embedded.Android
     /// installer, the native engine and the server agree on one folder from the very first launch. On current devices
     /// it is the same folder the installer would pick.
     /// </para>
+    /// <para>
+    /// The settings page's device side (<see cref="IAdminPlatform"/>, design §8.2, §8.6): the in-game browser, the share sheet,
+    /// clipboard and toasts, the restart, free space, all through the one JNI table of <see cref="AndroidJni"/>
+    /// (<see cref="AndroidShare"/>, <see cref="AndroidExit"/>).
+    /// </para>
     /// </summary>
-    internal sealed class AndroidPlatform : IEmbeddedPlatform, IPlatformDiagnostics, IInstallerPlatform
+    internal sealed class AndroidPlatform : IEmbeddedPlatform, IPlatformDiagnostics, IInstallerPlatform, IAdminPlatform
     {
         public const string PackageName = "com.gameloft.android.ANMP.GloftMVHM";
         private const string PreferencesName = "MainActivityPrefs";   // GameInstaller.mPreferencesName
@@ -198,11 +205,19 @@ namespace McvsOffline.Embedded.Android
         public void StartBackground(EmbeddedHost host)
         {
             Log log = host.Logger.For("diag");
+            adminLog = host.Logger.For("android");
+            if (host.Paths != null) ledger = new MediaStoreLedger(host.Paths.DataDir);
             if (host.Settings.GetBool("diagnostics.publicLogCopy", true))
             {
                 try
                 {
-                    var mirror = new PublicMirror(host.LogFiles, s => log.Info(s));
+                    var mirror = new PublicMirror(host.LogFiles, host.Paths.LogsDir, s => log.Info(s))
+                    {
+                        SdkInt = AndroidDiagnostics.SdkInt,
+                        DownloadsDir = AndroidDiagnostics.DownloadsDir,
+                        Scan = ScanFiles,
+                    };
+                    host.MirrorStatus = mirror.Describe;
                     mirror.Start();
                     CrashReporter.Mirror = mirror.CopyCrashFile;
                 }
@@ -210,6 +225,10 @@ namespace McvsOffline.Embedded.Android
                 {
                     log.Warn("[mirror] not started", ex);
                 }
+            }
+            else
+            {
+                host.MirrorStatus = () => "off (diagnostics.publicLogCopy is false)";
             }
             var exits = new Thread(() =>
             {
@@ -227,6 +246,251 @@ namespace McvsOffline.Embedded.Android
             exits.IsBackground = true;
             exits.Name = "mcvs-exit-reasons";
             exits.Start();
+        }
+
+        // ------------------------------------------------------------------ IAdminPlatform
+
+        private volatile Log adminLog;
+        private volatile MediaStoreLedger ledger;
+
+        private void Warn(string message, Exception ex)
+        {
+            try
+            {
+                Log log = adminLog;
+                if (log != null) log.Warn(message, ex);
+                else SelfLog.Write(SelfLog.Warn, message + ": " + (ex == null ? "" : ex.GetType().Name + ": " + ex.Message));
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        public int SdkInt
+        {
+            get
+            {
+                AndroidJni.Resolve();
+                return AndroidJni.SdkInt;
+            }
+        }
+
+        public List<string> MissingJniMembers()
+        {
+            return AndroidJni.Resolve();
+        }
+
+        public bool OpenInGameBrowserJni(string url)
+        {
+            return OpenInGameBrowser(url, null);
+        }
+
+        public bool OpenInGameBrowserWithPostData(string url, string postData)
+        {
+            return postData != null && OpenInGameBrowser(url, postData);
+        }
+
+        /// <summary>
+        /// InGameBrowser.SetParameters("EN") (without it onCreate closes the activity at once, "NotItitialized") then OpenURL(url,
+        /// true) or OpenURLWithPostData(url, postData) (InGameBrowser.java:113-138, 373-406). Any thread: they only start the
+        /// activity. The URL carries the page ticket: never logged.
+        /// </summary>
+        private bool OpenInGameBrowser(string url, string postData)
+        {
+            if (string.IsNullOrEmpty(url)) return false;
+            if (!AndroidJni.Has(AndroidJni.IgbSetParameters) || !AndroidJni.Has(postData == null ? AndroidJni.IgbOpenUrl : AndroidJni.IgbOpenWithPost)) return false;
+            IntPtr language = IntPtr.Zero, target = IntPtr.Zero, form = IntPtr.Zero;
+            try
+            {
+                language = AndroidJni.Str("EN");
+                target = AndroidJni.Str(url);
+                AndroidJni.CallStaticVoid(AndroidJni.IgbSetParameters, new JValue(language));
+                if (postData == null)
+                {
+                    AndroidJni.CallStaticVoid(AndroidJni.IgbOpenUrl, new JValue(target), new JValue(true));
+                }
+                else
+                {
+                    form = AndroidJni.Str(postData);
+                    AndroidJni.CallStaticVoid(AndroidJni.IgbOpenWithPost, new JValue(target), new JValue(form));
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Warn("admin: InGameBrowser could not be opened over JNI", ex);
+                return false;
+            }
+            finally
+            {
+                AndroidJni.Delete(form);
+                AndroidJni.Delete(target);
+                AndroidJni.Delete(language);
+            }
+        }
+
+        public bool IsInGameBrowserOpen()
+        {
+            try
+            {
+                return AndroidJni.Has(AndroidJni.IgbShown) && AndroidJni.GetStaticBool(AndroidJni.IgbShown);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        public bool QuitInGameBrowser()
+        {
+            try
+            {
+                if (!IsInGameBrowserOpen() || !AndroidJni.Has(AndroidJni.IgbQuit)) return false;
+                // QuitIGB posts to the browser's own view when called off the UI thread (InGameBrowser.java:118-128).
+                AndroidJni.CallStaticVoid(AndroidJni.IgbQuit);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Warn("admin: InGameBrowser.QuitIGB failed", ex);
+                return false;
+            }
+        }
+
+        public AdminShareResult ShareFile(string path, string mimeType, string displayName, string subject, string text)
+        {
+            try
+            {
+                MediaStoreLedger l = ledger;
+                if (l == null && EmbeddedHost.Current != null && EmbeddedHost.Current.Paths != null)
+                    l = ledger = new MediaStoreLedger(EmbeddedHost.Current.Paths.DataDir);
+                return AndroidShare.ShareFile(path, mimeType, displayName, subject, text, l, Warn);
+            }
+            catch (Exception ex)
+            {
+                Warn("admin: sharing a file failed", ex);
+                return AdminShareResult.None("The file could not be shared.");
+            }
+        }
+
+        public AdminShareResult ShareText(string subject, string text)
+        {
+            try
+            {
+                return AndroidShare.ShareText(subject, text, Warn);
+            }
+            catch (Exception ex)
+            {
+                Warn("admin: sharing a text failed", ex);
+                return AdminShareResult.None("The text could not be shared.");
+            }
+        }
+
+        public bool CopyToClipboard(string label, string text)
+        {
+            try
+            {
+                return AndroidShare.CopyToClipboard(label, text, Warn);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        public void ShowToast(string text)
+        {
+            try
+            {
+                AndroidShare.ShowToast(text, Warn);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        public bool ExitViaGame(bool relaunch)
+        {
+            try
+            {
+                return AndroidExit.ViaGame(relaunch, Warn);
+            }
+            catch (Exception ex)
+            {
+                Warn("admin: the game's restart failed", ex);
+                return false;
+            }
+        }
+
+        public bool ExitViaHost(bool relaunch)
+        {
+            try
+            {
+                return AndroidExit.ViaHost(relaunch, Warn);
+            }
+            catch (Exception ex)
+            {
+                Warn("admin: the host's restart failed", ex);
+                return false;
+            }
+        }
+
+        public string PublicDownloadsDir()
+        {
+            try
+            {
+                string downloads = AndroidDiagnostics.DownloadsDir();
+                return string.IsNullOrEmpty(downloads) ? null : Path.Combine(downloads, PublicMirror.FolderName);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>new StatFs(path).getAvailableBytes(), -1 on failure.</summary>
+        public long FreeBytes(string path)
+        {
+            if (string.IsNullOrEmpty(path) || !AndroidJni.Has(AndroidJni.StatFsNew) || !AndroidJni.Has(AndroidJni.StatFsAvailable)) return -1;
+            IntPtr jpath = IntPtr.Zero, statFs = IntPtr.Zero;
+            try
+            {
+                jpath = AndroidJni.Str(path);
+                statFs = AndroidJni.New(AndroidJni.StatFsNew, new JValue(jpath));
+                return AndroidJni.CallLong(statFs, AndroidJni.StatFsAvailable);
+            }
+            catch (Exception)
+            {
+                return -1;
+            }
+            finally
+            {
+                AndroidJni.Delete(statFs);
+                AndroidJni.Delete(jpath);
+            }
+        }
+
+        /// <summary>
+        /// The log mirror's scan (§7.5): MediaScannerConnection.scanFile(context, paths, text/plain..., null). No permission needed; it
+        /// clears IS_PENDING and records the real _size of files written through the FUSE path.
+        /// </summary>
+        private void ScanFiles(string[] paths)
+        {
+            if (paths == null || paths.Length == 0 || !AndroidJni.Has(AndroidJni.ScanFile)) return;
+            var mimes = new string[paths.Length];
+            for (int i = 0; i < mimes.Length; i++) mimes[i] = "text/plain";
+            IntPtr jpaths = IntPtr.Zero, jmimes = IntPtr.Zero;
+            try
+            {
+                jpaths = JNIEnv.NewArray(paths);
+                jmimes = JNIEnv.NewArray(mimes);
+                AndroidJni.CallStaticVoid(AndroidJni.ScanFile, new JValue(AndroidJni.AppContext()), new JValue(jpaths), new JValue(jmimes), new JValue(IntPtr.Zero));
+            }
+            finally
+            {
+                AndroidJni.Delete(jmimes);
+                AndroidJni.Delete(jpaths);
+            }
         }
 
         /// <summary>/sdcard/Android/data/&lt;package&gt;/files (EXTERNAL_STORAGE is set for every Android process).</summary>

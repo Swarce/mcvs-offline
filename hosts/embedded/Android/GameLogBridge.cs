@@ -10,6 +10,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 using Gameloft.Logs;
+using LogRedaction = McvsOffline.Server.Core.Http.LogRedaction;
 using SafeLogFile = McvsOffline.Server.Core.SafeLogFile;
 
 namespace McvsOffline.Embedded.Android
@@ -85,7 +86,8 @@ namespace McvsOffline.Embedded.Android
 
         /// <summary>
         /// Called synchronously by Gameloft.Log.AddEntry on the logging thread (mostly the game thread), which has no try/catch
-        /// around it: O(1) (an enqueue), never throws.
+        /// around it: an enqueue plus the redaction's fast path (a few ordinal searches; the game may log the URL it opens, which
+        /// can carry the settings page's one-time ticket, design §5.4), never throws.
         /// </summary>
         public void EntryAdded(Gameloft.Logs.LogEntry entry)
         {
@@ -98,7 +100,7 @@ namespace McvsOffline.Embedded.Android
                 sb.Append(entry.Time.ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture)).Append(' ')
                   .Append(entry.Level.ToString()).Append(" [").Append(entry.Category.ToString()).Append("] ").Append(message);
                 if (entry.Exception != null) sb.Append('\n').Append(entry.Exception.ToString());
-                file.AppendLine(sb.ToString());
+                file.AppendLine(LogRedaction.Redact(sb.ToString()));
             }
             catch (Exception)
             {

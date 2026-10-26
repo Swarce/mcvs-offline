@@ -26,7 +26,8 @@ namespace McvsOffline.Embedded.Android
         public override void Write(LogEntry entry)
         {
             string text = "[" + (entry.Category ?? "-") + "] " + entry.Message;
-            if (entry.Exception != null) text += "\n" + entry.Exception;
+            // The message is redacted by the logger; the exception text through the entry's redactor (design §5.4).
+            if (entry.Exception != null) text += "\n" + entry.ExceptionText();
             int priority = Priority(entry.Level);
             if (text.Length <= ChunkChars)
             {
