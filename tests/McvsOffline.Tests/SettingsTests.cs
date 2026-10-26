@@ -127,6 +127,41 @@ namespace McvsOffline.Tests
             Assert.Equal(7L, s.Get("economy"));
         }
 
+        /// <summary>
+        /// The Cosmetic crate's opt-out is discoverable (docs/design/economy-collector.md §4.4, O7): a new settings.json has
+        /// <c>economy.collector.enabled: true</c> and nothing else of the collector; an existing file gets it added and keeps
+        /// its own collector keys; the plain opt-out (<c>"collector": false</c>) is kept and read as off.
+        /// </summary>
+        [Fact]
+        public void CreateDefaultsHasCollectorEnabled()
+        {
+            Dictionary<string, object> defaults = Settings.CreateDefaults();
+            Assert.Equal(true, JsonPath.Get(defaults, "economy.collector.enabled"));
+            Assert.Single((Dictionary<string, object>)JsonPath.Get(defaults, "economy.collector"));
+            Assert.True(McvsOffline.Server.Services.Crm.Collector.CollectorOptions.FromSettings(new Settings(), null).Enabled);
+
+            using var dir = new TempDir();
+            string path = dir.Combine("settings.json");
+            Settings.Load(path, null);
+            Assert.Equal(true, JsonPath.Get(MiniJson.ParseObject(File.ReadAllText(path)), "economy.collector.enabled"));
+
+            File.WriteAllText(path, "{\"economy\":{\"xpMultiplier\":2,\"collector\":{\"itemsPerCrate\":3}}}");
+            var s = Settings.Load(path, null);
+            var written = MiniJson.ParseObject(File.ReadAllText(path));
+            Assert.Equal(true, JsonPath.Get(written, "economy.collector.enabled"));
+            Assert.Equal(3L, JsonPath.Get(written, "economy.collector.itemsPerCrate"));
+            Assert.Equal(2L, JsonPath.Get(written, "economy.xpMultiplier"));
+            Assert.Equal(3, McvsOffline.Server.Services.Crm.Collector.CollectorOptions.FromSettings(s, null).ItemsPerCrate);
+
+            foreach (string optOut in new[] { "{\"economy\":{\"collector\":false}}", "{\"economy\":{\"collector\":{\"enabled\":false}}}" })
+            {
+                File.WriteAllText(path, optOut);
+                s = Settings.Load(path, null);
+                Assert.False(McvsOffline.Server.Services.Crm.Collector.CollectorOptions.FromSettings(s, null).Enabled, optOut);
+                Assert.DoesNotContain("\"enabled\":true", File.ReadAllText(path).Replace(" ", ""));
+            }
+        }
+
         [Fact]
         public void ValuesThatWouldBreakCmdArgsFallBackToDefaults()
         {
