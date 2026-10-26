@@ -105,6 +105,7 @@ namespace McvsOffline.Server.Core.Accounts
         private readonly Dictionary<string, TokenInfo> byToken = new Dictionary<string, TokenInfo>(StringComparer.Ordinal);
         private readonly Dictionary<string, string> byGrant = new Dictionary<string, string>(StringComparer.Ordinal);
         private readonly List<string> order = new List<string>();
+        private TokenInfo lastDirectAnonymous;
 
         public TokenService(string path, string issuer, IClock clock, Log log, int capacity = 4096)
         {
@@ -123,6 +124,20 @@ namespace McvsOffline.Server.Core.Accounts
         public int Count
         {
             get { lock (gate) return byToken.Count; }
+        }
+
+        /// <summary>
+        /// The last grant issued (or re-issued) in this process directly to an "anonymous:" credential, i.e. without an
+        /// actor: the player's own login, never an on-behalf token of the game server or a "game:" grant. A copy with its
+        /// ClientId and DeviceId; null until the first such grant. The settings page uses it to find the current player
+        /// (design §6.6, source "session").
+        /// </summary>
+        public TokenInfo LastDirectAnonymous
+        {
+            get
+            {
+                lock (gate) return lastDirectAnonymous == null ? null : lastDirectAnonymous.Clone();
+            }
         }
 
         /// <summary>The issuer part of a token, or null if it is not in "issuer.random" form.</summary>
@@ -176,6 +191,7 @@ namespace McvsOffline.Server.Core.Accounts
                         info.DeviceId = deviceId;
                         SaveUnlocked();
                     }
+                    RememberDirectAnonymous(info);
                     // Echo the scopes in the order of this request.
                     var echo = info.Clone();
                     echo.Scopes = scopeList;
@@ -194,8 +210,42 @@ namespace McvsOffline.Server.Core.Accounts
                 Add(info, grant);
                 while (order.Count > capacity) Evict(order[0]);
                 SaveUnlocked();
+                RememberDirectAnonymous(info);
                 return info.Clone();
             }
+        }
+
+        /// <summary>
+        /// Removes every persisted grant whose subject is <paramref name="credential"/> (ordinal), on every account and
+        /// with or without an actor, and saves tokens.json. Returns how many were removed. Used after the credential is
+        /// relinked to another account: its old tokens would still name the old account (design §6.4 step 7).
+        /// </summary>
+        public int RevokeCredential(string credential)
+        {
+            if (string.IsNullOrEmpty(credential)) return 0;
+            lock (gate)
+            {
+                var revoke = new List<string>();
+                foreach (string token in order)
+                {
+                    if (string.Equals(byToken[token].Credential, credential, StringComparison.Ordinal)) revoke.Add(token);
+                }
+                foreach (string token in revoke) Evict(token);
+                if (revoke.Count > 0)
+                {
+                    SaveUnlocked();
+                    log.Info("revoked " + revoke.Count + " token(s) of " + credential);
+                }
+                return revoke.Count;
+            }
+        }
+
+        /// <summary>Caller holds <see cref="gate"/>.</summary>
+        private void RememberDirectAnonymous(TokenInfo info)
+        {
+            if (!string.IsNullOrEmpty(info.Actor) || info.Credential == null) return;
+            if (!info.Credential.StartsWith("anonymous:", StringComparison.Ordinal)) return;
+            lastDirectAnonymous = info.Clone();
         }
 
         /// <summary>The token's record, or null if this server does not know it.</summary>
