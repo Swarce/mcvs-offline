@@ -43,6 +43,9 @@ namespace McvsOffline.Tests.Content
         private static Dictionary<string, object> Doc(McvsServer server) =>
             ContentTestSupport.JsonObject(ContentTestSupport.Get(server, "/configs/users/me"));
 
+        /// <summary>Every module but the admin modules (admin, admin-logs, admin-saves).</summary>
+        private static bool WithoutAdmin(string module) => !module.StartsWith("admin", StringComparison.Ordinal);
+
         /// <summary>The composed server with a fake portal (and a fake host) instead of the admin module's.</summary>
         private static McvsServer ServerWithPortal(TempDir dir, FakeAdminPortal portal, IClock clock, MemoryLogSink logs = null)
         {
@@ -55,7 +58,7 @@ namespace McvsOffline.Tests.Content
                 Clock = clock,
                 RegisterServices = (r, c) =>
                 {
-                    ServiceRegistry.RegisterAll(r, c);
+                    ServiceRegistry.RegisterAll(r, c, WithoutAdmin);
                     c.Features.Set<IAdminPortal>(portal);
                     c.Features.Set<IAdminHost>(new FakeAdminHost());
                 },
@@ -346,7 +349,7 @@ namespace McvsOffline.Tests.Content
             var options = new ServerOptions
             {
                 DataDir = dir.Combine("data"), Port = AdminTestClient.DefaultPort, ConsoleLog = false, FileLog = false,
-                Clock = new ManualClock(Wednesday), RegisterServices = ServiceRegistry.RegisterAll,
+                Clock = new ManualClock(Wednesday), RegisterServices = (r, c) => ServiceRegistry.RegisterAll(r, c, WithoutAdmin),
             };
             options.ExtraSinks.Add(logs);
             var watch = System.Diagnostics.Stopwatch.StartNew();
