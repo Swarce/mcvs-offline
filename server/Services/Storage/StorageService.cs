@@ -21,10 +21,16 @@ namespace McvsOffline.Server.Services.Storage
     /// </para>
     /// Features provided to other modules: <see cref="IProfileAccess"/> (read/write profiles, the IAP inventory
     /// grant channel) and <see cref="LocalProfileStore"/>. Events: <see cref="LocalProfileStore.ChangedTopic"/>,
-    /// <see cref="ProfileAccess.LedgerTopic"/>.
+    /// <see cref="ProfileAccess.LedgerTopic"/>, <see cref="GameProfileReadTopic"/>.
     /// </summary>
     public static class StorageService
     {
+        /// <summary>
+        /// Published when a client GETs a game-profile dump (<c>_mcvs.gameProfile</c>): {account, selector, status}. The
+        /// TS reads it only when it (re)loads the player: at login and in ReloadProfileAsync on every return to the menu.
+        /// </summary>
+        public const string GameProfileReadTopic = "storage.gameprofile.read";
+
         /// <summary>Registers this module's routes. Called once at startup by <see cref="ServiceRegistry"/>.</summary>
         public static void Register(Router router, ServerContext context)
         {

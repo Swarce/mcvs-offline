@@ -126,6 +126,22 @@ Recommended extra IL patches (all optional, patcher flags):
 - `store` (default, device test 3): `KillSignatureRewardItem.GetAvailableId` no longer dereferences its null list for
   sounds (unowned sound -> its id, random/other -> null), and the `GameUnifiedStoreComponent.SelectItems` availability
   filter runs in try/catch (an item that throws is skipped and reported through `GameHooks.StoreItemException`).
+- `signatures` (default, build 7): `PlayerProfileComponent.GetSignatureAssetsList` looks owned/new ids up in a
+  `HashSet<string>` (lists of more than 16 ids) instead of `List.Contains` per table row, and
+  `GameOfflineStore.GetKillSignItems` builds the avatar/background list once per call instead of once per owned item
+  (the kill-signature screen froze for minutes after unlock-all).
+- `debloat` (default, build 8): third-party SDK pieces that are dead offline, without touching any game feature.
+  Manifest (`patcher/Manifest/ManifestDebloat.cs`, binary-XML element removal in `BinaryXml`): 44 exact elements go
+  (the 20 ad activities, dead Facebook/Google Sign-In/AppInvite/AppLinks/GMP activities, GCM receiver/service/permissions,
+  install-referrer and boot/network/ApplicationSetUp receivers, the Crashlytics and Facebook init providers,
+  `io.fabric.ApiKey`, the location and maxSdk-18 storage permissions, `<library moat-mobile-app-kit>`); every target must
+  match exactly once or nothing is written. Files: `lib/*/libcrashlytics.so`, `fabric/*.properties`,
+  `assets/crashlytics-build.properties`. Gameloft.Engine (`DebloatEnginePatch`): `Crashlytics.Start` returns at once;
+  no push-token request (`ShouldRegister` false; `RegisterForRemoteNotifications` keeps only its local-alarm purge);
+  Facebook and Play Games are not initialised at menu start (`SocialLib_private.Init` -> NotSent like an unsupported
+  Sns; a login tap fails one frame later through `GameApplication.Context`, like a failed login). Kept on purpose: the
+  IAP code, KeyProvider, local push and `RECEIVE_BOOT_COMPLETED`, FacebookActivity and the app-id meta-data, Google
+  Analytics, VIBRATE/BILLING, all dex code and Bind*.dll.
 - `lan`: P1 Finder prefix `"*"`, P2 cache a real `PublicHost` at `LocalAnubisManager.Start`, P3
   `ClientSettings.LocalAnubisFinderHost = Args.RemoteIp ?? PublicHost` (verify-C6).
 

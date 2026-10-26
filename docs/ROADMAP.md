@@ -14,21 +14,25 @@ Done items are struck through. Device-test history and open risks are in [STATUS
 - ~~**Live-ops** ([LIVEOPS.md](LIVEOPS.md)): weekly division seasons, weekly modifier rotation, daily missions and weekly events, generated from the clock, working offline (confirmed in device test 5).~~ ✅
 - ~~**Install from copied data** ([INSTALL-OFFLINE.md](INSTALL-OFFLINE.md)): a copied `Data/` folder or a `files/` backup is accepted without Gameloft's CDN (confirmed in device test 5).~~ ✅
 - ~~**ABIs**: 32-bit kept by default; `--abi arm64-v8a` gives a 64-bit-only APK.~~ ✅
+- ~~**Firing-range exit lag**: the CRM document leaves owned kill signatures out (build 6; fast in device test 6).~~ ✅
+- ~~**Avatar editor freeze** after unlock-all: caught in a thread dump in device test 6 (managed code, not the Flash VM); the `signatures` patch builds the list once per screen and looks ids up in sets (build 7, ×380 on net8).~~ ✅ (confirmed in device test 7)
+- ~~**Unlock-all reward-popup stalls** (18–27 s per batch in device test 5): the same list builder; below a second per batch with build 7.~~ ✅ (the level jump to ~46 itself is the game's own behaviour: every new mod gives XP)
+- ~~**Server write speed / load times**: saves and the return to the menu are fast since build 6 (the CRM refetch after every save is ~78% smaller for unlock-all profiles; confirmed in device tests 6 and 7).~~ ✅
+- ~~**Patcher tooling**: `--game-log fatal` for quiet player builds, `--abi`, `--dry-run`, fingerprint-verified IL patches.~~ ✅
+- ~~**Debloat** (build 8): 44 dead manifest elements (ad screens, GCM push, Crashlytics/Facebook start-up providers, dead receivers, location permission), the Crashlytics/Fabric files, and no Crashlytics, push-token, Play Games or Facebook start at boot.~~ ✅ (confirmed in device test 7)
 
 ## Next
 
 | Priority | Item |
 |---|---|
-| Medium | **Firing-range exit lag**: leaving the firing range sits on "please wait, connecting to the server" with extreme lag and takes a long time to return to the menu (normal matches only stutter briefly on the results screen). Tackle after the next device test, using its logcat and server logs. Fix only if safe. |
-| Low | **Server write speed**: faster profile saves and storage writes (currently usable). |
-| Low | **Avatar editor hang** with ~1,500 owned avatars: investigated in build 5, not patched (the work is in the UI's Flash VM, no managed hot spot); needs a thread dump of the freeze to decide on a fix. |
-| Low | Level jump to ~46 and save lag while unlock-all grants every mod (known game behaviour: each new mod gives XP). |
+| High | **Settings and diagnostics page** served by the embedded server: game options without editing settings.json, save backup/restore/export/import, logs viewable and shareable from the phone (the log uploads keep arriving as 0 bytes). In progress. |
+| High | **Economy polish**: progression paths (reward tracks, crates, live-ops rewards) for the ~1,600 items that never had an unlock source; tuned from play. In progress. |
+| Next | **Steam PC version**: try the same server and patches on the Steam build, which ships the same .NET assemblies and data (needs the Steam files from the owner's PC). |
+| Low | **Signature screen, half-unlocked profiles** (only if someone reports a hitch; ~0.5–0.9 s estimated, not seen in device test 7): build the avatar list once per screen refresh in `GameOfflineStore.GetKillSignItemObject` too. |
 
 ## Later
 
-- **Release polish**: quieter logging for player builds (`--game-log fatal`); a settings page served by the embedded server (`http://127.0.0.1:51780/`) for toggles, save backup/restore and logs; ready-to-use patcher builds for Windows/macOS/Linux; player guide; testing on more devices.
-- **Economy**: progression paths (reward tracks, crates) for the ~1,600 items that never had an unlock source; tuning from play.
-- **M3 LAN multiplayer**: `lan` patches; host's Game Server reaches each guest's profile on the guest's own embedded server; LAN discovery.
+- **Release polish**: quieter logging by default for player builds (the `--game-log fatal` option exists; the default is still `all` for testing); ready-to-use patcher builds for Windows/macOS/Linux; player guide; testing on more devices.
+- **M3 LAN multiplayer** (experimental groundwork in: the optional `lan` patches and the server's LAN mode): host's Game Server reaches each guest's profile on the guest's own embedded server; LAN discovery.
 - **M4 Internet multiplayer**: overlay VPN guide first (Tailscale/ZeroTier), then an optional relay; host-leaves handling.
-- **M5 Preservation extras**: mirror all 121 CDN builds while the CDN lives; missing maps from older builds (Barrage, Bridge, Downtown, Gym); archive the remaining online assets (news/event images); fully CDN-independent installs.
-- **Steam PC version**: try the same server and patches on the Steam build, which ships the same .NET assemblies and data.
+- **M5 Preservation extras** (`tools/cdn-mirror` and the offline install from copied data are done): mirror all 121 CDN builds while the CDN lives; missing maps from older builds (Barrage, Bridge, Downtown, Gym); archive the remaining online assets (news/event images); fully CDN-independent installs.

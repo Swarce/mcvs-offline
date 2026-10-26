@@ -137,12 +137,16 @@ namespace McvsOffline.Embed.Tests.Patcher
             }
         }
 
-        /// <summary>A small APK-shaped zip with the look-alike NicePlaySDK and the entry kinds the patcher handles.</summary>
-        private static byte[] SyntheticApk()
+        /// <summary>
+        /// A small APK-shaped zip with the look-alike NicePlaySDK and the entry kinds the patcher handles; with
+        /// <paramref name="debloatLike"/> its manifest has every debloat target and it holds the Crashlytics/Fabric files.
+        /// </summary>
+        private static byte[] SyntheticApk(bool debloatLike = false, string withoutEntry = null)
         {
+            AxmlWriter.Element manifest = debloatLike ? ManifestDebloatTests.DebloatLikeManifest() : AxmlWriter.GameLikeManifest();
             var entries = new List<ZipEntry>
             {
-                ZipEntry.CreateDeflated("AndroidManifest.xml", AxmlWriter.Write(AxmlWriter.GameLikeManifest()), null),
+                ZipEntry.CreateDeflated("AndroidManifest.xml", AxmlWriter.Write(manifest), null),
                 ZipEntry.CreateDeflated("META-INF/MANIFEST.MF", Encoding.ASCII.GetBytes("Manifest-Version: 1.0\r\n\r\n"), null),
                 ZipEntry.CreateDeflated("META-INF/GAMELOFT.SF", Encoding.ASCII.GetBytes("old"), null),
                 ZipEntry.CreateDeflated("META-INF/GAMELOFT.RSA", new byte[] { 1, 2, 3 }, null),
@@ -157,13 +161,24 @@ namespace McvsOffline.Embed.Tests.Patcher
                 ZipEntry.CreateStored("res/raw/args.txt", Encoding.ASCII.GetBytes(KnownBuild.RawArgsOriginal), null),
                 ZipEntry.CreateStored("resources.arsc", new byte[517], null),
             };
+            if (debloatLike)
+            {
+                foreach (string name in ApkPatcher.DebloatDroppedEntries.Keys)
+                {
+                    byte[] data = Encoding.ASCII.GetBytes("# " + name + "\n");
+                    entries.Add(name.EndsWith(".so", StringComparison.Ordinal) ? ZipEntry.CreateDeflated(name, new byte[1500], null) : ZipEntry.CreateDeflated(name, data, null));
+                }
+                entries.Add(ZipEntry.CreateDeflated("fabric/README.txt", Encoding.ASCII.GetBytes("not a properties file"), null));   // not a debloat kind
+            }
+            entries.RemoveAll(e => e.Name == withoutEntry);
             return ZipArchiveWriter.Write(entries);
         }
 
-        private PatchReport RunSynthetic(string dir, SignerChoice signer, out string outApk, SortedSet<string> abis = null, bool allAbis = false)
+        private PatchReport RunSynthetic(string dir, SignerChoice signer, out string outApk, SortedSet<string> abis = null, bool allAbis = false,
+                                         string patches = "none", byte[] apkBytes = null)
         {
             string apk = Path.Combine(dir, "in.apk");
-            File.WriteAllBytes(apk, SyntheticApk());
+            File.WriteAllBytes(apk, apkBytes ?? SyntheticApk());
             string server = Path.Combine(dir, "McvsOffline.Server.dll");
             File.WriteAllBytes(server, Fixtures.Server());
             outApk = Path.Combine(dir, "out", "offline.apk");
@@ -172,7 +187,7 @@ namespace McvsOffline.Embed.Tests.Patcher
                 InputApk = apk,
                 ServerDll = server,
                 OutputApk = outApk,
-                Patches = PatcherOptions.ParsePatchList("none"),
+                Patches = PatcherOptions.ParsePatchList(patches),
                 Keystore = Path.Combine(dir, "key.p12"),
                 BuildToolsDir = Tools().ApkSigner != null ? Path.GetDirectoryName(Tools().ApkSigner) : null,
                 Signer = signer,
@@ -180,6 +195,7 @@ namespace McvsOffline.Embed.Tests.Patcher
                 Force = true,
                 SkipServerReferenceCheck = true,
                 TestOnlyHookIsMandatory = true,
+                TestOnlyDebloatWithoutIl = true,
             };
             return ApkPatcher.Run(options, s => output.WriteLine(s));
         }
@@ -259,6 +275,89 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Equal(KnownBuild.RawArgsAllLevels, Encoding.ASCII.GetString(rawArgs.GetData()));
             Assert.Contains(report.Notes, n => n.StartsWith("res/raw/args.txt: ", StringComparison.Ordinal));
             Assert.Equal(ZipEntry.MethodStored, result.Find("assemblies/NicePlaySDK.dll").Method);
+        }
+
+        [Fact]
+        public void DebloatRemovesTheManifestTargetsAndTheCrashlyticsFiles()
+        {
+            string dir = TestEnvironment.NewTempDir("debloat");
+            PatchReport report = RunSynthetic(dir, SignerChoice.BuiltIn, out string outApk, allAbis: true, patches: "debloat",
+                                              apkBytes: SyntheticApk(debloatLike: true));
+            ZipArchiveReader.Archive input = ZipArchiveReader.Read(Path.Combine(dir, "in.apk"));
+            ZipArchiveReader.Archive result = ZipArchiveReader.Read(File.ReadAllBytes(outApk));
+
+            // The files: gone from every ABI and reported one by one (like the ABI drops) plus one note; anything else stays.
+            foreach (string name in ApkPatcher.DebloatDroppedEntries.Keys)
+            {
+                Assert.Null(result.Find(name));
+                Assert.Contains(name + " (" + ApkPatcher.DebloatDroppedEntries[name] + "; debloat)", report.Removed);
+            }
+            Assert.Equal(input.Find("fabric/README.txt").RawData, result.Find("fabric/README.txt").RawData);
+            Assert.Contains("debloat: dropped 9 Crashlytics/Fabric files nothing loads offline (2 lib/<abi>/libcrashlytics.so, 7 Fabric/Crashlytics .properties)", report.Notes);
+
+            // The manifest: the permission rename plus the debloat, still DEFLATED, one note per removed element.
+            Assert.Contains("AndroidManifest.xml", report.Modified);
+            Assert.Equal(ZipEntry.MethodDeflated, result.Find("AndroidManifest.xml").Method);
+            Assert.Equal(ManifestDebloat.Apply(ManifestPatch.Apply(input.Find("AndroidManifest.xml").GetData(), null), null), result.Find("AndroidManifest.xml").GetData());
+            Assert.Equal(ManifestDebloat.Targets.Count, report.Notes.Count(n => n.StartsWith("manifest: removed <", StringComparison.Ordinal)));
+            var removed = new HashSet<string>(report.Removed.Select(r => r.Split(' ')[0]));
+            Assert.All(input.Entries.Where(e => !removed.Contains(e.Name)), e => Assert.NotNull(result.Find(e.Name)));
+
+            BuildTools tools = Tools();
+            if (tools.ApkSigner == null)
+            {
+                output.WriteLine("apksigner not found (set MCVS_BUILD_TOOLS): signature not verified");
+                return;
+            }
+            Assert.Contains("Verified using v2 scheme (APK Signature Scheme v2): true", ExternalApkSigner.Verify(tools.ApkSigner, outApk));
+        }
+
+        [Fact]
+        public void DebloatWritesNothingForAnApkItWasNotVerifiedOn()
+        {
+            // Not the 1.17.32 manifest (the files are all there): refused, nothing written.
+            string dir = TestEnvironment.NewTempDir("debloat-manifest");
+            byte[] plainManifest = SyntheticApk(debloatLike: true);
+            var entries = ZipArchiveReader.Read(plainManifest).Entries.Select(e => e.Name == "AndroidManifest.xml"
+                ? ZipEntry.CreateDeflated(e.Name, AxmlWriter.Write(AxmlWriter.GameLikeManifest()), null) : e).ToList();
+            var ex = Assert.Throws<InvalidDataException>(() => RunSynthetic(dir, SignerChoice.BuiltIn, out string outApk, patches: "debloat",
+                                                                            apkBytes: ZipArchiveWriter.Write(entries)));
+            Assert.Contains("is not the verified 1.17.32 manifest", ex.Message);
+            Assert.False(File.Exists(Path.Combine(dir, "out", "offline.apk")));
+
+            // A Crashlytics/Fabric file missing, or one more of those kinds: another build, refused.
+            string missing = TestEnvironment.NewTempDir("debloat-missing");
+            ex = Assert.Throws<InvalidDataException>(() => RunSynthetic(missing, SignerChoice.BuiltIn, out _, patches: "debloat",
+                                                                        apkBytes: SyntheticApk(debloatLike: true, withoutEntry: "fabric/com.crashlytics.sdk.android.beta.properties")));
+            Assert.Contains("not the verified 1.17.32 set, nothing was written: missing fabric/com.crashlytics.sdk.android.beta.properties", ex.Message);
+            string extra = TestEnvironment.NewTempDir("debloat-extra");
+            var more = ZipArchiveReader.Read(SyntheticApk(debloatLike: true)).Entries.ToList();
+            more.Add(ZipEntry.CreateDeflated("lib/x86/libcrashlytics.so", new byte[10], null));
+            ex = Assert.Throws<InvalidDataException>(() => RunSynthetic(extra, SignerChoice.BuiltIn, out _, patches: "debloat", apkBytes: ZipArchiveWriter.Write(more)));
+            Assert.Contains("unexpected lib/x86/libcrashlytics.so", ex.Message);
+
+            // Without debloat the same APKs patch fine and keep those files.
+            PatchReport plain = RunSynthetic(TestEnvironment.NewTempDir("debloat-off"), SignerChoice.BuiltIn, out string kept, allAbis: true,
+                                             apkBytes: SyntheticApk(debloatLike: true));
+            Assert.All(ApkPatcher.DebloatDroppedEntries.Keys, name => Assert.NotNull(ZipArchiveReader.Read(File.ReadAllBytes(kept)).Find(name)));
+            Assert.DoesNotContain(plain.Notes, n => n.StartsWith("manifest: removed", StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void DebloatEntryKinds()
+        {
+            Assert.True(ApkPatcher.IsDebloatEntry("lib/arm64-v8a/libcrashlytics.so"));
+            Assert.True(ApkPatcher.IsDebloatEntry("lib/x86/libcrashlytics.so"));
+            Assert.True(ApkPatcher.IsDebloatEntry("fabric/io.fabric.sdk.android.fabric.properties"));
+            Assert.True(ApkPatcher.IsDebloatEntry("assets/crashlytics-build.properties"));
+            Assert.False(ApkPatcher.IsDebloatEntry("lib/arm64-v8a/sub/libcrashlytics.so"));
+            Assert.False(ApkPatcher.IsDebloatEntry("lib/libcrashlytics.so"));
+            Assert.False(ApkPatcher.IsDebloatEntry("fabric/sub/x.properties"));
+            Assert.False(ApkPatcher.IsDebloatEntry("fabric/README.txt"));
+            Assert.False(ApkPatcher.IsDebloatEntry("assets/other.properties"));
+            Assert.False(ApkPatcher.IsDebloatEntry("lib/arm64-v8a/libaot-BindCrashlytics.dll.so"));
+            Assert.Equal(9, ApkPatcher.DebloatDroppedEntries.Count);
+            Assert.All(ApkPatcher.DebloatDroppedEntries.Keys, k => Assert.True(ApkPatcher.IsDebloatEntry(k), k));
         }
 
         [Fact]
@@ -353,7 +452,7 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Equal(SignerChoice.BuiltIn, o.Signer);
             Assert.Equal(AotStripMode.All, o.StripAot);
             PatcherOptions defaults = McvsOffline.Patcher.Program.Parse(new[] { "--apk", "a", "--server", "s", "--out", "o" });
-            Assert.Equal(new[] { "bottile", "finder", "geo", "nativeonline", "store", "waits" }, defaults.Patches);
+            Assert.Equal(new[] { "bottile", "debloat", "finder", "geo", "nativeonline", "signatures", "store", "waits" }, defaults.Patches);
             Assert.Equal(GameLogMode.All, defaults.GameLog);
             Assert.Equal(GameLogMode.Fatal, McvsOffline.Patcher.Program.Parse(new[] { "--apk", "a", "--server", "s", "--out", "o", "--game-log", "fatal" }).GameLog);
             Assert.Throws<ArgumentException>(() => McvsOffline.Patcher.Program.Parse(new[] { "--apk", "a", "--server", "s", "--out", "o", "--game-log", "debug" }));

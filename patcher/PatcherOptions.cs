@@ -33,10 +33,13 @@ namespace McvsOffline.Patcher
 
     public sealed class PatcherOptions
     {
-        /// <summary>Optional patches applied when --patch is not given.</summary>
-        public static readonly string[] DefaultPatches = { "nativeonline", "waits", "geo", "bottile", "finder", "store" };
+        /// <summary>
+        /// Optional patches applied when --patch is not given. "debloat" is not only IL: it also removes dead SDK components
+        /// from the manifest (Manifest.ManifestDebloat) and drops the Crashlytics/Fabric files (ApkPatcher.DebloatDroppedEntries).
+        /// </summary>
+        public static readonly string[] DefaultPatches = { "nativeonline", "waits", "geo", "bottile", "finder", "store", "signatures", "debloat" };
 
-        public static readonly string[] OptionalPatches = { "nativeonline", "waits", "geo", "bottile", "finder", "lan", "store" };
+        public static readonly string[] OptionalPatches = { "nativeonline", "waits", "geo", "bottile", "finder", "lan", "store", "signatures", "debloat" };
 
         /// <summary>
         /// Patches applied whatever --patch says: the server hook and the fixes the in-process TS/GS Worlds need (headless-World
@@ -93,6 +96,12 @@ namespace McvsOffline.Patcher
 
         /// <summary>Tests only: apply only the hook as mandatory patch (synthetic APKs have no Game.dll or Gameloft.Engine.dll).</summary>
         internal bool TestOnlyHookIsMandatory { get; set; }
+
+        /// <summary>
+        /// Tests only: "debloat" changes the manifest and the files but not Gameloft.Engine.dll (synthetic APKs have no real
+        /// engine to fingerprint).
+        /// </summary>
+        internal bool TestOnlyDebloatWithoutIl { get; set; }
 
         /// <summary>Tests only: accept a server assembly built for net8 (look-alike fixtures cannot reference the game BCL).</summary>
         internal bool SkipServerReferenceCheck { get; set; }

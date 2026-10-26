@@ -116,7 +116,7 @@ namespace McvsOffline
         internal static readonly IlPatch[] DefaultGamePatches =
         {
             new HeadlessGamePatch(), new HeadlessEnginePatch(), new PhysicsPatch(), new NativeOnlinePatch(), new WaitsPatch(), new BotTilePatch(), new FinderPatch(),
-            new StorePatch(),
+            new StorePatch(), new SignaturesPatch(), new DebloatEnginePatch(),
         };
 
         [Fact]
@@ -328,6 +328,7 @@ namespace McvsOffline
                     ("Game", "Game.KillSignatureRewardItem", "GetAvailableId"),
                     ("Game", "Game.GameUnifiedStoreComponent+<>c__DisplayClass25_0", "<SelectItems>b__8"),
                     ("Game", "Game.McvsStoreSafety", "Report"), ("Game", "Game.McvsStoreSafety", "Forward"),
+                    ("Game", "Game.PlayerProfileComponent", "GetSignatureAssetsList"), ("Game", "Game.GameOfflineStore", "GetKillSignItems"),
                 };
                 foreach (var (assembly, type, name) in sites)
                 {
@@ -358,6 +359,8 @@ namespace McvsOffline
             Assert.Throws<PatchException>(() => PatchReal(dir, server, null, new PhysicsPatch()));
             Assert.Contains("IL fingerprint", Assert.Throws<PatchException>(() => PatchReal(dir, server, null, new WaitsPatch())).Message);
             Assert.Throws<PatchException>(() => PatchReal(dir, server, null, new StorePatch()));
+            Assert.Contains("IL fingerprint", Assert.Throws<PatchException>(() => PatchReal(dir, server, null, new SignaturesPatch())).Message);
+            Assert.Contains("already patched", Assert.Throws<PatchException>(() => PatchReal(dir, server, null, new DebloatEnginePatch())).Message);   // its helper type is there
 
             // A different Init_private body (ldarg.2 -> ldarg.1) is refused, and so is a server without GameHooks.
             string changed = TestEnvironment.NewTempDir("changed");

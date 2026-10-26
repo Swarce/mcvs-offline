@@ -1,7 +1,8 @@
 // Module: Crm - owner group: CONTENT (Crm, Matchmaker, Assets + server/Content + tools/content-gen)
 // CRM (Hestia) configuration: the complete config document the TS/GS read.
 // Protocol: ARCHITECTURE §3 'CRM'; verify-C2 §1.7; verify-C4 §3.2-3.4; verify-C5 (a)(b)(d); report 04 §5; docs/protocol/content.md
-//   GET configs/users/me                  complete document (player's Config/crmpreconfiguration.json + our overlay)
+//   GET configs/users/me                  complete document (player's Config/crmpreconfiguration.json + our overlay),
+//                                         without the caller's owned kill signatures (CrmOwnedStoreItems)
 //   GET configs/users/me/{*selector}      the sub-tree at a selector: "game" (GS/TS game-server session; the GS waits
 //                                         forever without a 200), "game.CrashlyticsParams.Enable" (TS handshake),
 //                                         "iap" (native IAP lib, report 04 §5.1)
@@ -13,6 +14,8 @@ using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Http;
 using McvsOffline.Server.Core.Json;
 using McvsOffline.Server.Core.Routing;
+using McvsOffline.Server.Services.Misc;
+using McvsOffline.Server.Services.Storage;
 
 namespace McvsOffline.Server.Services.Crm
 {
@@ -34,14 +37,16 @@ namespace McvsOffline.Server.Services.Crm
             var log = context.Logger.For("crm");
             var cache = new CrmDocumentCache(context, new CrmPreconfiguration(), log);
             context.Features.Set(cache);
+            var owned = new CrmOwnedStoreItems(context, log);
+            context.Events.Subscribe(StorageService.GameProfileReadTopic, owned.OnGameProfileRead);
 
-            router.Get("configs/users/me", "crm.config", request => Config(context, cache, log, request, null));
+            router.Get("configs/users/me", "crm.config", request => Config(context, cache, owned, log, request, null));
             router.Get("configs/users/me/{*selector}", "crm.config.selector",
-                       request => Config(context, cache, log, request, request.RouteValue("selector")));
+                       request => Config(context, cache, owned, log, request, request.RouteValue("selector")));
             // Hestia also addresses users explicitly; the game only uses "me", but answer the same document.
-            router.Get("configs/users/{user}", "crm.config.user", request => Config(context, cache, log, request, null));
+            router.Get("configs/users/{user}", "crm.config.user", request => Config(context, cache, null, log, request, null));
             router.Get("configs/users/{user}/{*selector}", "crm.config.user.selector",
-                       request => Config(context, cache, log, request, request.RouteValue("selector")));
+                       request => Config(context, cache, null, log, request, request.RouteValue("selector")));
 
             router.Get("_mcvs/crm", "crm.debug", request => Diagnostics(cache));
             router.Post("_mcvs/crm/reload", "crm.reload", request =>
@@ -53,7 +58,8 @@ namespace McvsOffline.Server.Services.Crm
             cache.StartWarmup();
         }
 
-        private static HttpResponse Config(ServerContext context, CrmDocumentCache cache, Log log, HttpRequest request, string selector)
+        private static HttpResponse Config(ServerContext context, CrmDocumentCache cache, CrmOwnedStoreItems owned, Log log,
+                                           HttpRequest request, string selector)
         {
             string path = CrmDocument.NormalizeSelector(selector);
             try
@@ -65,6 +71,11 @@ namespace McvsOffline.Server.Services.Crm
                 string json;
                 if (doc.TryGetSelectorJson(path, out json))
                 {
+                    if (path.Length == 0 && owned != null && context.Settings.GetBool("crm.omitOwnedSignatures", true))
+                    {
+                        Caller caller = Fed.TryGetCaller(context, request);
+                        if (caller != null) json = owned.JsonFor(doc, caller.AccountId);
+                    }
                     log.Debug("configs" + (path.Length == 0 ? "" : " selector '" + path + "'") + ": " + json.Length + " chars");
                     return HttpResponse.RawJson(json);
                 }

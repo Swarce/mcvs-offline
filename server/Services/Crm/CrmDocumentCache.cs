@@ -64,6 +64,31 @@ namespace McvsOffline.Server.Services.Crm
             }
         }
 
+        /// <summary>
+        /// <see cref="Json"/> without the <c>offline_store.prices</c> entries whose <c>item</c> is in
+        /// <paramref name="items"/> (<see cref="CrmOwnedStoreItems"/>); the same text when none matches.
+        /// </summary>
+        public string JsonWithout(ICollection<string> items, out int omitted)
+        {
+            omitted = 0;
+            var store = JsonValue.AsObject(JsonValue.Get(Root, "offline_store"));
+            var prices = JsonValue.AsArray(JsonValue.Get(store, "prices"));
+            if (prices == null || items == null || items.Count == 0) return Json;
+            var kept = new List<object>(prices.Count);
+            foreach (object entry in prices)
+            {
+                string item = JsonValue.GetString(JsonValue.AsObject(entry), "item");
+                if (item != null && items.Contains(item)) omitted++;
+                else kept.Add(entry);
+            }
+            if (omitted == 0) return Json;
+            var filteredStore = new Dictionary<string, object>(store, StringComparer.Ordinal);
+            filteredStore["prices"] = kept;
+            var root = new Dictionary<string, object>(Root, StringComparer.Ordinal);
+            root["offline_store"] = filteredStore;
+            return MiniJson.Serialize(root);
+        }
+
         public static string NormalizeSelector(string selector)
         {
             return (selector ?? "").Replace('/', '.').Trim('.');
