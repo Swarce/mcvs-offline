@@ -58,6 +58,12 @@ namespace McvsOffline.Server
 
         /// <summary>Options of the server.log file (fallback directory, start-up size report); null: defaults.</summary>
         public SafeLogFileOptions FileLogOptions { get; set; }
+
+        /// <summary>
+        /// What the host knows about the game client (the embedded host probes the loaded Game.dll); registered in
+        /// <c>context.Features</c>. null: unknown (the standalone host cannot see the client).
+        /// </summary>
+        public ClientCapabilities ClientCapabilities { get; set; }
     }
 
     /// <summary>
@@ -158,6 +164,12 @@ namespace McvsOffline.Server
 
             var context = new ServerContext(dataDir, settings, logger, options.Clock, content);
             context.Problems = problems;
+            ClientCapabilities client = options.ClientCapabilities ?? new ClientCapabilities();
+            context.Features.Set(client);
+            if (client.StorePatch == false)
+                log.Warn("client: Game.dll lacks the patcher's 'store' patch (left out with --patches): the collector stays off");
+            else
+                log.Info("client: 'store' patch " + (client.StorePatch == true ? "present" : "unknown (assumed present)"));
             var requestLogger = new RequestLogger(logger, Path.Combine(dataDir, "logs", "unknown-endpoints.jsonl"),
                                                   () => settings.LogBodyLimit);
             var router = new Router(requestLogger);

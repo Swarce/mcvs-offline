@@ -7,6 +7,7 @@ using McvsOffline.Server.Core.Content;
 using McvsOffline.Server.Core.Json;
 using McvsOffline.Server.Services.Assets;
 using McvsOffline.Server.Services.Crm;
+using McvsOffline.Server.Services.Crm.Collector;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -175,6 +176,103 @@ namespace McvsOffline.Tests.Content
             var manifest = Load("manifest.json");
             foreach (object f in (List<object>)manifest["files"])
                 Assert.True(Provider.TryReadContent((string)JsonPath.Get(f, "name"), out _), (string)JsonPath.Get(f, "name"));
+        }
+
+        /// <summary>collector.json: the Cosmetic crate's content file (docs/design/economy-collector.md §3.4).</summary>
+        [Fact]
+        public void CollectorContentHasTheDesignedShape()
+        {
+            var collector = Load("collector.json");
+            Assert.Equal(new[] { "format", "crate", "rows", "avatars", "backgrounds", "sounds", "camos", "jerseys", "season", "levels", "summary" },
+                         collector.Keys);
+            Assert.Equal(new[] { "id", "table", "locId", "image" }, ((Dictionary<string, object>)collector["crate"]).Keys);
+            // The crate and table the compiled-in guard covers (CollectorContent refuses any other, §2.8).
+            Assert.Equal(CollectorGuard.CrateId, JsonPath.Get(collector, "crate.id"));
+            Assert.Equal(CollectorGuard.CrateTable, JsonPath.Get(collector, "crate.table"));
+            Assert.Equal(CollectorGuard.LocId, JsonPath.Get(collector, "crate.locId"));
+            Assert.Equal(new[] { "base", "drawable", "unlock", "lock", "kayac", "reserved" }, ((Dictionary<string, object>)collector["avatars"]).Keys);
+            Assert.Equal(new[] { "base", "drawable", "unlock" }, ((Dictionary<string, object>)collector["backgrounds"]).Keys);
+            Assert.Equal(new[] { "tiers", "divisionTier", "retarget", "placement", "emblems" }, ((Dictionary<string, object>)collector["season"]).Keys);
+
+            // The 39 rows of §2.3, ids 1..39, in category order; sounds only as bundles on random-avatar carriers (D8).
+            var rows = (List<object>)collector["rows"];
+            Assert.Equal(39, rows.Count);
+            var categories = new List<string>();
+            for (int i = 0; i < rows.Count; i++)
+            {
+                var row = (Dictionary<string, object>)rows[i];
+                Assert.Equal((long)(i + 1), row["id"]);
+                string category = (string)row["category"];
+                if (categories.Count == 0 || categories[categories.Count - 1] != category) categories.Add(category);
+                Assert.NotEqual("Sound", row["subtype"]);
+                if (row.ContainsKey("bundle"))
+                {
+                    Assert.Equal("sounds", category);
+                    Assert.Equal(new object[] { "KillSignature", "Avatar", "Random" }, new[] { row["type"], row["subtype"], row["subtype2"] });
+                    Assert.Equal("KillSignature_Sound_" + row["item"], row["bundle"]);
+                }
+            }
+            Assert.Equal(new[] { "avatars", "backgrounds", "sounds", "skins", "hiddenJerseys", "agents", "camos", "jerseys", "exhausted" },
+                         categories);
+            Assert.Equal("VersusCoins", JsonPath.Get(collector, "rows.38.type"));
+            Assert.Equal("Tiers4", JsonPath.Get(collector, "rows.38.subtype"));
+
+            Assert.Equal(21, ((Dictionary<string, object>)collector["camos"]).Count);
+            Assert.Equal(7, ((List<object>)JsonPath.Get(collector, "season.tiers")).Count);
+            Assert.Equal(17, ((List<object>)JsonPath.Get(collector, "season.divisionTier")).Count);
+            Assert.Equal(12, ((List<object>)JsonPath.Get(collector, "season.emblems")).Count);
+            Assert.Equal("2-50", collector["levels"]);
+            Assert.Equal(596L, JsonPath.Get(collector, "summary.baseItems"));
+            Assert.Equal(665L, JsonPath.Get(collector, "summary.baseTier"));
+            Assert.Equal(9365L, JsonPath.Get(collector, "summary.paidPairs"));
+            Assert.Equal(5624L, JsonPath.Get(collector, "summary.vipOnlyPairs"));
+            Assert.Equal(1064L, JsonPath.Get(collector, "summary.kayacAvatars"));
+
+            bool listed = false;
+            foreach (object f in (List<object>)Load("manifest.json")["files"])
+                if ((string)JsonPath.Get(f, "name") == "collector.json") { listed = true; Assert.Equal(39L, JsonPath.Get(f, "entries")); }
+            Assert.True(listed, "manifest.json does not list collector.json");
+        }
+
+        /// <summary>The liveops.json collector block hands out the collector's crate from a season start on (§3.2).</summary>
+        [Fact]
+        public void LiveOpsCollectorBlockHandsOutTheCollectorCrate()
+        {
+            var liveops = Load("liveops.json");
+            var block = (Dictionary<string, object>)liveops["collector"];
+            Assert.Equal(new[] { "since", "dailyBonus", "weeklyMilestones", "weeklyFinal" }, block.Keys);
+
+            string since = (string)block["since"];
+            DateTime start = DateTime.ParseExact(since, "yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture,
+                                                 System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal);
+            Assert.Equal(DayOfWeek.Monday, start.DayOfWeek);
+            Assert.Equal(TimeSpan.Zero, start.TimeOfDay);
+            Assert.Equal(0, (start - new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)).Ticks % TimeSpan.FromDays(7).Ticks);
+            // CollectorGuard.ShippedSince is compiled in (§2.12): the guard starts there even without this block.
+            Assert.Equal(CollectorGuard.ShippedSince, start);
+
+            var milestones = (List<object>)block["weeklyMilestones"];
+            Assert.Equal(((List<object>)JsonPath.Get(liveops, "weeklyEvents.milestoneRewards")).Count, milestones.Count);
+            var lists = new List<object> { block["dailyBonus"], block["weeklyFinal"] };
+            lists.AddRange(milestones);
+            string crate = (string)JsonPath.Get(Load("collector.json"), "crate.id");
+            Assert.Equal(CollectorGuard.CrateId, crate);
+            int crates = 0;
+            foreach (object list in lists)
+            {
+                // A list may be empty: that part gets no crate (the content-only fallback of §8).
+                foreach (object reward in (List<object>)list)
+                {
+                    string item = (string)JsonPath.Get(reward, "item");
+                    Assert.True((long)JsonPath.Get(reward, "quantity") > 0);
+                    if (item.StartsWith("Crate_", StringComparison.Ordinal))
+                    {
+                        Assert.Equal(crate, item);
+                        crates++;
+                    }
+                }
+            }
+            Assert.True(crates > 0, "the liveops.json collector block hands out no " + crate);
         }
 
         [Fact]
