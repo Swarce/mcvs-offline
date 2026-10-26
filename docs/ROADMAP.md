@@ -25,7 +25,7 @@ Done items are struck through. Device-test history and open risks are in [STATUS
 
 | Priority | Item |
 |---|---|
-| High | **Settings and diagnostics page** served by the embedded server: game options without editing settings.json, save backup/restore/export/import, logs viewable and shareable from the phone (the log uploads keep arriving as 0 bytes). In progress. |
+| High | **Settings and diagnostics page** served by the embedded server: game options without editing settings.json, save backup/restore/export/import, logs viewable and shareable from the phone (the log uploads keep arriving as 0 bytes). **Implemented in build 9** ([design/settings-page.md](design/settings-page.md)); awaiting its device test (STATUS.md, "Build 9"). |
 | High | **Economy polish**: progression paths (reward tracks, crates, live-ops rewards) for the ~1,600 items that never had an unlock source; tuned from play. In progress. |
 | Next | **Steam PC version**: try the same server and patches on the Steam build, which ships the same .NET assemblies and data (needs the Steam files from the owner's PC). |
 | Low | **Signature screen, half-unlocked profiles** (only if someone reports a hitch; ~0.5–0.9 s estimated, not seen in device test 7): build the avatar list once per screen refresh in `GameOfflineStore.GetKillSignItemObject` too. |
