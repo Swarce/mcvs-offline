@@ -1,9 +1,11 @@
 # Design: the "MCVS Offline" settings and diagnostics page
 
-Status: **design, revision 2, ready to implement** (October 2026, after build 8 / device test 7 and two design
-reviews). Roadmap item "Settings and diagnostics page" ([ROADMAP.md](../ROADMAP.md)). This document is the contract
-between the work packages in §10: anything another package relies on (routes, JSON shapes, C# signatures, DOM ids, file
-layouts, text formats, IL fingerprints) is fixed here. Change it only through the integrator (§10.1).
+Status: **implemented in build 9, awaiting its device test** (§12). Designed as revision 2 (October 2026, after
+build 8 / device test 7 and two design reviews); the sections below are updated to what was built, and "As built" lists
+every change against revision 2. Roadmap item "Settings and diagnostics page" ([ROADMAP.md](../ROADMAP.md)). This
+document is the contract between the work packages in §10: anything another package relies on (routes, JSON shapes, C#
+signatures, DOM ids, file layouts, text formats, IL fingerprints) is fixed here. Change it only through the integrator
+(§10.1).
 
 Evidence: the research notes `polish-research.md` (sections *server-surface* and *android-ui*) and the code as of
 `main-dev` `e4bff79`. Decompiled game code is quoted by file and line from `/home/user/mcvs-work/decompiled*`. IL
@@ -33,6 +35,23 @@ Not taken: "accept restart only while `PageAlive` was seen in the last 15 s". It
 the news ticket; with no multi-use ticket left, a session exists only in the game's own WebView, and the restart request
 itself is a `PageAlive`. "Never evict a ticket session in favour of another": every session now comes from a one-time
 ticket only the WebView receives (§5.3).
+
+## As built (build 9): changes against revision 2
+
+Found while implementing and reviewing the packages and at the integration (WP8). The sections named are updated.
+
+| Change | Why | Section |
+|---|---|---|
+| The redeem code needs **no** access token; a token that is present must be the current player's. New checks: no `Origin`, `Referer` or `Sec-Fetch-*` header, and a `User-Agent` with the game's `(<client id>; ` comment for the client id in the path. | The game's coupon request has no token (`AssetsApi` builds it without scopes; `FedRequestMessage` adds a token only to scoped requests), and without the header checks any web page on the phone could send the GET (an `<img>`, a no-cors fetch). | §9.5, §5.5, §10.8 |
+| The CRM warm-up waits up to 2 s for `IAdminPortal` while `crm.newsfeedLink` is on (requests do not wait). | The portal registers after the CRM module; without a data pack the warm-up built its document first and the TS's first request rebuilt it inside its 1 s `WaitForCRM`. | §9.1 |
+| Probation only for an operation after which the phone's login opens the target: a `replace`, or a switch or relink that moved the login. Not `restore-other`, a skipped relink or any undo. History entries carry `"probation": true/false`; results are `applied`, `failed`, `confirmed`, `reverted`, `superseded`. | A save of an account the phone does not load never comes, so a correct operation would be reverted two starts later; an undo's revert would redo the operation. | §6.4, §6.5 |
+| `<id>.payload.json` also for restores and undos (the backup text, copied at staging); the stage-time backup's pruning spares the backup being restored; relink objects are `{credential, from, to}`; a resumed apply reads the relink outcome back from the accounts. | Pool rotation could delete the backup a staged restore needs before the restart. | §6.4 |
+| 413 `too_large` of an export carries `details: {limit, unit: "parts"\|"bytes", partChars}`; 409 `busy` / `restarting` from every saves route that takes an account lock while a save-now or restart runs; the validation result adds `errorCodes` (e.g. `current_player_unknown`), `message`, `set`, `rejected`; separate rate-limit buckets (export 6/min, logs zip 6/min, logs share and text report 6/min, paste 30/min). | The page needs the details to offer larger parts; a request blocked on the account lock held by a restart would hang its connection. | §4.1, §4.6, §5.3 |
+| A raw profile file (pasted, or from the import folder) is held to the bundle's 12 MiB profile limit. Exports and zips are pruned by write time and never the file just written. | Export names start with the alias, so names do not sort by time. | §6.1, §4.6, §7.2 |
+| `storage.backups.keep` caps only `auto`; the interval check (`IsDue`) counts only `auto` backups. | Other pools must not delay the next automatic backup. | §6.3 |
+| Post mode keeps the URL's screen and result: the host posts `t=<ticket>[&s=<screen>][&r=nosave]`, the server redirects to `/_mcvs/ui/#s=…&r=…` (values checked as the page checks a fragment). | The reopen after "Save the game now" landed on Status without its "did not save" toast. | §5.3, §8.3 |
+| Host details: UI-thread calls are bounded and withdrawn when not started in time (`UiCall`); thread dumps and ANR traces are mirrored again while they grow; the watchdog's `paused`/`resumed` lines are INFO. | Review of WP5. | §7.5, §8.5, §8.6, §8.8 |
+| Integration: `ServiceRegistry.RegisterAll(router, context, include)` registers a subset of the modules (tests); the standalone console prints the page URL; `TokenService.RevokeCredential` logs the masked credential (`Credential.Mask`, the form of `AdminApi.MaskCredential`); `HttpStatus` has 303, 415 and 429. | | §8.9, §8.10, §10.9 |
 
 ## 0. Decisions already taken (not reopened here) and invariants
 
@@ -338,8 +357,8 @@ A preset only fills the controls; Save writes them.
 | 403 | `csrf` (missing `X-MCVS`, bad `Origin`, cross-site `Sec-Fetch-Site`, non-JSON write; the single exemption is §5.2 rule 4). The "never 403" rule of PROTOCOL.md is about Federation routes the game calls; the game never calls `/_mcvs/*`. |
 | 404 | `not_found` (also every gate refusal, so the routes stay invisible) |
 | 405 | `method_not_allowed` (incl. every `OPTIONS` under `/_mcvs/`) |
-| 409 | `settings_fallback`, `file_changed`, `staged_exists`, `current_player_unknown`, `newer_save`, `busy`, `restarting`, `manual_full`, `nothing_to_undo`, `no_game_profile` |
-| 413 | `too_large` (`details.limit`) |
+| 409 | `settings_fallback`, `file_changed`, `staged_exists`, `current_player_unknown`, `newer_save`, `busy`, `restarting`, `manual_full`, `nothing_to_undo`, `no_game_profile`. While a save-now or restart sequence runs, every saves route that takes an account lock answers `busy` (saving) or `restarting` |
+| 413 | `too_large` (`details.limit`; an export adds `details.unit` `"parts"` (more than 999 parts of `details.partChars`) or `"bytes"` (more than the transfer text can carry)) |
 | 415 | `unsupported_media_type` |
 | 429 | `rate_limited` (`details.retryAfterSeconds`) |
 | 500 | `internal` (logged with the route name, never with the body), `save_failed` |
@@ -354,7 +373,7 @@ Package = who implements the route.
 | Method | Path | Route name | S | Limit | Uses | Package |
 |---|---|---|---|---|---|---|
 | GET | `/_mcvs/ui`, `/_mcvs/ui/`, `/_mcvs/ui/index.html` | `admin.ui` | – | – | `BuiltInContent.All["admin/index.html"]` | WP2 |
-| POST | `/_mcvs/ui` (form `t=<ticket>`, only with `admin.openVia=post`) | `admin.ui.post` | ticket | 1 KiB | `AdminSecurity` | WP2 |
+| POST | `/_mcvs/ui` (form `t=<ticket>[&s=<screen>][&r=nosave]`, only with `admin.openVia=post`) | `admin.ui.post` | ticket | 1 KiB | `AdminSecurity` | WP2 |
 | POST | `session` | `admin.session.open` | ticket | 1 KiB | `AdminSecurity` | WP2 |
 | DELETE | `session` | `admin.session.close` | S | 1 KiB | | WP2 |
 | GET | `ping` | `admin.ping` | optional | – | `IAdminHost.PageAlive` | WP2 |
@@ -609,7 +628,7 @@ an account that is not the current one and has a game profile (409 `no_game_prof
 * builds the bundle (§6.1) and, for `format: transfer` (default), the transfer text (§6.2) with parts of `partChars`
   (one of 60000, 3900, 1900);
 * `share`/`downloads`: writes `<data>/admin/exports/mcvs-save-<name>-<yyyyMMdd-HHmm>.txt` (transfer) or `.json` (the
-  bundle; for PC tools) (newest 5 kept), then `IAdminHost.ShareFile(path, "text/plain"|"application/json", fileName,
+  bundle; for PC tools) (newest 5 by write time kept, never the file just written), then `IAdminHost.ShareFile(path, "text/plain"|"application/json", fileName,
   "MCVS Offline save", "My MCVS Offline save (" + alias + "). Import it in MCVS Offline › Saves › Import.")`;
   `downloads` → the same call with `subject == null` ("copy only"; 501 unless `capabilities.saveToDownloads`);
 * `text`: no file; the parts are returned;
@@ -617,6 +636,9 @@ an account that is not the current one and has a game profile (409 `no_game_prof
   "method": "d", "chars": 107020, "parts": 2, "partChars": 60000, "texts": ["MCVS-SAVE:1:...~", "..."]|null},
   "share": {"ok": true, "method": "sheet", "publicPath": "Download/MCVS-Offline/mcvs-save-....txt", "message": "..."}|null}`.
   `texts` is filled only for `target: text`. The page shows the size, the number of parts and "Copy part k of n".
+* 413 `too_large` with `details: {"limit": 999, "unit": "parts", "partChars": 1900}` when the text needs more than 999
+  parts of that size (the page then offers larger parts or a file), or `"unit": "bytes"` when the binary stream is above
+  16 MiB (the page offers the `.json` file). Exports share the bucket `admin.export` (6 per minute).
 
 `GET saves/{account}/export?format=transfer|json` → the file as an attachment (`text/plain` or `application/json`,
 `Content-Disposition: attachment; filename="mcvs-save-<name>-<…>.txt"`) for desktop browsers and the standalone host.
@@ -646,9 +668,9 @@ or, when the set is complete (or the text was a whole bundle), the validation re
   "local": {"exists": true, "isCurrent": false, "revision": 120, "modified": "...", "hasGameProfile": true},
   "current": {"account": "0123...", "alias": "...", "level": 3, "source": "game"},
   "plans": ["switch"], "plan": "switch",
-  "errors": [],
+  "errors": [], "errorCodes": [],
   "warnings": ["This phone already has a newer save of that account (revision 950 > 900)."],
-  "canStage": true
+  "canStage": true, "set": "1a2b3c4d", "rejected": [], "message": "..."
 }
 ```
 
@@ -657,7 +679,8 @@ transfer text or a bundle/raw profile JSON).
 
 `plan`: `replace` (bundle account = current account: overwrite it), `switch` (other account: write it, then relink the
 current credential to it, §6.7). `errors` (§6.1) make `canStage` false, as does `switch` without a known current
-credential (`current_player_unknown` in `errors`). The validated upload is kept in `<data>/admin/uploads/<uploadId>.json`
+credential (its sentence in `errors`, the code `current_player_unknown` in `errorCodes`). Pastes share the bucket
+`admin.paste` (30 per minute). The validated upload is kept in `<data>/admin/uploads/<uploadId>.json`
 for 1 hour (newest 3 kept); part sets for 1 hour (newest 3 sets).
 
 `POST saves/import/stage` `{"uploadId": "...", "confirm": "<plan>", "replace": false, "allowOlder": false}` → 200
@@ -666,7 +689,9 @@ account has a higher revision than the bundle and `allowOlder` is false; 409 `st
 `current_player_unknown`.
 
 `GET saves/staged` → `{"pending": <manifest>|null, "probation": <probation>|null, "history": [<result>...]}` (newest
-10). `DELETE saves/staged` → deletes the pending manifest and its payload, 200 `{"ok": true}`.
+10; each result `{id, kind, plan, result, at, target, preBackupId, relinked, relink, probation, done, warnings, attempts,
+durationMs, message, summary, source, undoOf}`, `result` one of `applied`, `failed`, `confirmed`, `reverted`,
+`superseded`, credentials masked). `DELETE saves/staged` → deletes the pending manifest and its payload, 200 `{"ok": true}`.
 
 `POST saves/staged/undo` `{"confirm": "undo", "replace": false}` → stages the inverse of the newest applied operation
 (§6.7) when it is still undoable (409 `nothing_to_undo` otherwise); 200 `{"staged": <manifest>, "description": "Go back
@@ -699,7 +724,8 @@ files and dumps; redacted like everything else). Response 200:
 
 Parsing in §7.1. `POST logs/zip` `{"scope": "recent"|"all", "note": "optional, ≤ 4,000 chars"}` → builds the zip (§7.2)
 into `<data>/admin/share/`; 200 `{"file": "mcvs-logs-20261026-101500.zip", "size": 2412345, "entries": 14,
-"skipped": 3, "fits": {"discord": true, "gmail": true}}`. At most one build at a time (409 `busy`), 6 per minute.
+"skipped": 3, "fits": {"discord": true, "gmail": true}}`. At most one build at a time (409 `busy`), 6 per minute
+(bucket `admin.zip`; `logs/share` and `logs/share-text` share `admin.share`, 6 per minute).
 `POST logs/share` `{"file": "<name from logs/zip>", "target": "share"|"downloads"}` →
 `IAdminHost.ShareFile(zip, "application/zip", name, "MCVS Offline logs", note)`; 200 `{"share": {...}}`.
 `GET logs/bundle?scope=` → a fresh zip as `application/zip` attachment. `POST logs/share-text` `{"note": "..."}` → a
@@ -796,7 +822,8 @@ and session.
 
 Rate limits (sliding minute, `AdminRateLimiter`): the ticket is **validated first**, so a valid ticket always succeeds
 regardless of other traffic; only failed exchanges count (5/min; then 429 for failures only, logged once). Admin writes
-60/min, share/export/zip 6/min, paste 30/min, one save-now/restart sequence at a time. 429 carries
+60/min; separate buckets of 6/min each for exports, logs zips and logs shares (file and text report), paste 30/min; one
+save-now/restart sequence at a time. 429 carries
 `details.retryAfterSeconds`. Session eviction cannot be forced by another app: a session needs a ticket, and tickets go
 only to the WebView.
 
@@ -808,9 +835,12 @@ and the per-route body limit (413). `admin.enabled = false` → every admin rout
 connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`, `X-Frame-Options: DENY`,
 `Referrer-Policy: no-referrer`, `Cache-Control: no-store`.
 
-**`POST /_mcvs/ui`** (post mode): form `t=<32 hex>`. A valid unused ticket → mark used, create a session, `303 See Other`
-with `Location: /_mcvs/ui/` and the `Set-Cookie`. A used/unknown ticket with a valid cookie → `303` without a new
-session. Otherwise `303` without a cookie (the page then shows `#banner-nosession`). Redirecting makes the history entry a
+**`POST /_mcvs/ui`** (post mode): form `t=<32 hex>`, optionally `s=<screen>` and `r=nosave` (the minted URL's fragment
+fields). A valid unused ticket → mark used, create a session, `303 See Other` with `Location: /_mcvs/ui/` and the
+`Set-Cookie`. A used/unknown ticket with a valid cookie → `303` without a new session. Otherwise `303` without a cookie
+(the page then shows `#banner-nosession`). The `Location` carries the valid `s`/`r` fields as its fragment
+(`/_mcvs/ui/#s=saves&r=nosave`; `s` one of the six screen names, `r` exactly `nosave`, anything else left out), so the
+page boots on that screen with its toast as from a ticket URL. Redirecting makes the history entry a
 GET: the browser's Refresh button reloads it with the cookie instead of re-POSTing a used ticket (the default
 `WebViewClient.onFormResubmission` refuses to resend, which would show an error page).
 
@@ -843,7 +873,8 @@ GET: the browser's Refresh button reloads it with the cookie instead of re-POSTi
 * `_mcvs/storage/profiles/{account}?raw=1` and the other read-only diagnostics stay readable by local apps; they hold no
   secret (I2).
 * A local app can fire the redeem trigger (§9.5) at most once per 30 s and only while no browser is open: the worst case
-  is the game's browser showing our page, with a ticket only the WebView receives.
+  is the game's browser showing our page, with a ticket only the WebView receives. A web page cannot: a browser's request
+  carries `Origin`, `Referer` or `Sec-Fetch-*`, and a page cannot give a no-cors request the game's `User-Agent`.
 * A local app that wins the race to consume a one-time ticket before the WebView would need the ticket first: it is
   only in the game's memory, the Intent extra to the game's own activity and possibly native logcat (needs `READ_LOGS`).
 * In post mode the ticket is in a form body for ≤ 120 s; no other process sees it.
@@ -892,7 +923,7 @@ Warnings (shown, staging allowed): the other `ProfileFile.Parse` warnings; a loc
 revision (staging then needs `allowOlder`); an alias that is not `AliasRegistry.IsWellFormed` or belongs to another
 local account (ignored); `created` in the future. A raw profile file (`format: mcvs-offline/seshat-profile`, from the
 import folder or pasted whole) becomes a bundle with that text, the envelope's `account` (same id check), no messages;
-the same checks apply.
+the same checks apply, the 12 MiB profile limit included (an import file may be up to 16 MiB, but its profile may not).
 
 The summary always shows `hasGameProfile`, level and revision of the save and of the local copy, and staging requires
 the confirmation that names the plan (§4.6).
@@ -993,6 +1024,9 @@ Changes:
   for an unknown or non-manual id. `LocalProfileStore.ReadBackupText(string accountId, string id)` (public).
 * Lowering `keep` deletes the oldest automatic backups beyond it at the next automatic backup (the page's confirmation
   says so). `docs/protocol/storage.md` ("keep 0 disables backups") is updated by WP8.
+* As built: `keep` caps only the `auto` pool, and the interval check (`ProfileBackups.IsDue`) looks at the newest `auto`
+  backup only, so an import, a settings backup or a manual one never delays the next automatic backup. `Create` and
+  `Prune` take an optional `spare` id that the prune leaves alone (§6.4: the backup a staged restore copies).
 
 ### 6.4 Staged operations (`StagedOperations.cs`, WP3)
 
@@ -1007,7 +1041,8 @@ Files under `<data>/admin/staged/`:
 
 ```
 pending.json                         the one pending operation (manifest)
-<id>.payload.json                    bundle (import) as validated
+<id>.payload.json                    bundle (import) as validated; for a restore or an undo, the text of the backup it
+                                     writes, copied at staging (pool rotation can no longer take it before the restart)
 probation.json                       the applied operation waiting for the game's first save (§6.5)
 history/<id>.json                    results, newest 20 kept
 history/<id>/messages/<t>.json       the inbox documents an import replaced
@@ -1019,7 +1054,7 @@ Manifest:
 {"id": "20261026T101500123Z-import", "kind": "import", "plan": "switch", "created": "...",
  "attempts": 0, "done": [],
  "target": "fedcba9876543210fedcba98",
- "relink": {"credential": "anonymous:<full name>", "from": "0123456789abcdef01234567"},
+ "relink": {"credential": "anonymous:<full name>", "from": "0123456789abcdef01234567", "to": "fedcba9876543210fedcba98"},
  "payload": "<id>.payload.json", "payloadCrc32": "1a2b3c4d",
  "restoreBackupId": null,
  "stageBackup": {"id": "20261026T101500123Z-r120-preimport", "fileCrc32": "77aa0011"},
@@ -1031,7 +1066,8 @@ Manifest:
 **Staging** (`StagedOperations.Stage`): one pending operation at a time (409 `staged_exists` unless `replace`, which
 deletes the old one and its payload). Write the payload (imports), then `pending.json` (both with `AtomicFile`), then take
 a `system` backup of the target's current file (`preimport`/`prerestore`; none for `relink`) and record its id and the
-CRC of the text it copied in `stageBackup`, so the player has a restore point before the restart. Log
+CRC of the text it copied in `stageBackup`, so the player has a restore point before the restart (as built, a staged
+restore's backup passes the backup being restored as `spare`, so the pool's prune cannot delete it). Log
 `admin: staged import <id> for account <target> (relink anonymous:a1b2…f9e8 from <from>)`. `relink.credential` is the
 current player's credential (§6.6, source `game` or `session`); `relink.from` its owner at staging.
 
@@ -1063,10 +1099,16 @@ in the middle resumes where it stopped:
    Accounts.Find(credential)`: owner == target → nothing to do; owner == `relink.from` → `LinkCredential(target,
    credential)` and `Tokens.RevokeCredential(credential)` (drops the persisted grants of that credential on every
    account); otherwise skip with the warning "the phone's login changed since staging; not relinked". Logged:
-   `admin: credential anonymous:a1b2…f9e8 now opens account <target> (was <from>)`.
-8. Step `probation`: write `probation.json` (§6.5).
-9. History `{"id", "kind", "plan", "result": "applied", "at", "target", "preBackupId", "relinked", "done", "warnings",
-   "durationMs"}`, delete `pending.json` and the payload. INFO `admin: staged import <id> applied to <target> in 412 ms`.
+   `admin: credential anonymous:a1b2…f9e8 now opens account <target> (was <from>)` (the token service's own line,
+   `revoked N token(s) of anonymous:a1b2…f9e8`, is masked the same way). A resumed apply whose `done` already lists the
+   relink step reads the outcome back from the accounts (whether the credential opens the target) instead of assuming it.
+8. Step `probation`: an older probation is marked `superseded`; `probation.json` is written only when the phone's login
+   opens the target after the apply and the operation changed what it loads there: a `replace`, or a switch or relink
+   whose relink moved the login (§6.5). Otherwise any old file is deleted.
+9. History `{"id", "kind", "plan", "result": "applied", "at", "target", "preBackupId", "relinked", "relink",
+   "probation": true|false, "done", "warnings", "attempts", "durationMs", "message", "summary", "source", "undoOf"}`,
+   delete `pending.json` and the payload. INFO `admin: staged import <id> applied to <target> in 412 ms`. A validation
+   failure or giving up writes `result: "failed"`.
 
 An I/O exception in steps 4–8: ERROR log naming the step; the manifest stays, and the next start resumes at the first
 step not in `done` (after at most 3 attempts it gives up, and the history lists what was done). The relink comes after
@@ -1084,15 +1126,22 @@ An applied operation can produce a profile the game cannot load (another version
 TS then shows an error or retries, the menu is never reached, and the page (opened from the menu) is out of reach. So:
 
 ```json
-{"id": "<operation id>", "kind": "import", "target": "...", "appliedAt": "...", "startsWithoutSave": 1,
- "lastStartAt": "...", "preBackupId": "...", "relink": {"credential": "anonymous:…", "from": "..."}}
+{"id": "<operation id>", "kind": "import", "plan": "switch", "target": "...", "appliedAt": "...", "startsWithoutSave": 1,
+ "lastStartAt": "...", "preBackupId": "...", "relink": {"credential": "anonymous:…", "from": "...", "to": "..."} | null,
+ "summary": {...}}
 ```
 
-* Written by apply step 8 with `startsWithoutSave = 1`.
+* Written by apply step 8 with `startsWithoutSave = 1`, **only** for an operation after which the phone's login opens
+  the target and loads something new there: a `replace`, or a switch or relink that moved the login. Not for
+  `restore-other` (the phone does not load that account), a switch whose relink was skipped (the login did not move), or
+  any undo (it goes back to what the phone played before; its revert would redo the operation). For those no save of the
+  target would come, and a correct operation would be reverted two starts later.
 * **Cleared** when a `storage.profile.changed` event with source `http` for `target` arrives (`SavesService`
   subscribes at `Register`): every TS login saves the profile right after loading it (`GameServerComponent.TakeProfileLock`
   → `SaveProfile`, docs/research/03-progression-storage.md §6 step 7), so a start that reaches the TS handshake with this
-  profile clears it within seconds. History gets `confirmed`.
+  profile clears it within seconds. History gets `confirmed`. (The event is published only for a write that changes the
+  stored profile; the game posts its dump only when it changed (`ProfileSection.IsModified`), and each save dumps before
+  `UpdateLoginStats` stamps `LastLoginDate`, so the TS's login save is a change.)
 * At each start (apply step 1) an existing probation gets `startsWithoutSave += 1` and `lastStartAt = now`, except a
   start less than 10 s after `lastStartAt` (a double start of one restart, §8.8: not a real attempt; a crash loop takes
   longer per start, the game boots for ~10–20 s before the TS loads the profile). When it reaches **3** (the apply start
@@ -1102,6 +1151,7 @@ TS then shows an error or retries, the menu is never reached, and the page (open
   credential)` and revoke. History `reverted`, WARN `admin: <id> reverted: the game did not load this save in 3 starts`,
   `#banner-probation` on the next page open. A pending operation is applied after the revert.
 * Applying a new operation while a probation is pending marks the older one `superseded` in history.
+* The history results are therefore `applied` (then `confirmed`, `reverted` or `superseded`), or `failed`.
 
 ### 6.6 Who is "the current player" (`CurrentPlayer`, WP2)
 
@@ -1170,7 +1220,8 @@ Read the last `min(size, 1 MiB)` bytes with `FileShare.ReadWrite`; if the window
 * server/bootstrap: `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z (TRACE|DEBUG|INFO |WARN |ERROR|     ) \[([^\]]*)\] `
   (`LogEntry.Format`), or
 * game.log: `^\d{2}:\d{2}:\d{2}\.\d{3} (\w+) \[([^\]]*)\] ` (`GameLogBridge`; levels mapped `Fatal/Error → ERROR`,
-  `Warning → WARN`, `Info → INFO`, `Debug/Verbose → DEBUG`),
+  `Warning → WARN`, `Info → INFO`, `Debug/Verbose → DEBUG`; the entry's `t` is then the game's clock as written,
+  `HH:mm:ss.fff` without a date, which the page shows as it is),
 
 and continues over the following lines that match neither (exceptions, multi-line messages). Lines before the first
 entry form one entry with level `?`. Filter by `min` (level `?` always shown) and `q`, return the last `lines`
@@ -1179,7 +1230,8 @@ Every message goes through `LogRedaction.Redact` (files written by older builds)
 
 ### 7.2 The logs zip (`LogsZip.cs` + `ZipWriter.cs`, WP3)
 
-* Name `mcvs-logs-<yyyyMMdd-HHmmss>.zip` (phone local time), written to `<data>/admin/share/` (newest 3 kept). Built by
+* Name `mcvs-logs-<yyyyMMdd-HHmmss>.zip` (phone local time), written to `<data>/admin/share/` (newest 3 by write time
+  kept, never the zip just built). Built by
   `POST logs/zip`; shared by `POST logs/share` (the page shows the size in between).
 * `ZipWriter`: for each entry take a snapshot (read the tail into a byte array), compute `Crc32.Compute` over the
   uncompressed bytes, compress with `DeflateStream` into a `MemoryStream` (method 8; method 0 when
@@ -1410,7 +1462,10 @@ public static class AdminJson
 
 `AdminApi.Get/Post/Delete` prefix the template with `Prefix`, register the route's body limit for the header-time check
 (§5.2 rule 5), run the session/CSRF/size/`admin.enabled`/restarting checks and only then the handler; a handler exception
-becomes 500 `internal` (logged by the router without body).
+becomes 500 `internal` (logged by the router without body). As built, `AdminApi` also has `DefaultBodyLimit` (1 KiB),
+`Enabled`, `ExitState` (`idle`, `saving`, `restarting`; the saves routes answer 409 while it is not idle),
+`RateLimited(bucket, perMinute)` (the 429 answer), `SetStatusSection(name, provider)` (admin-saves adds `staged` to
+`GET status`) and `MaskCredential` (`Credential.Mask` in Core: first and last 4 characters of the user name).
 
 `McvsOffline.AdminHooks` (WP5, `hosts/embedded/Admin/AdminHooks.cs`; the patch contract of §9.2 and §9.3):
 
@@ -1518,8 +1573,8 @@ and deletes `logs/restart-requested.txt` and logs `[boot] previous exit: restart
     `adminlink` prefix sees this URL but passes it through (it carries a ticket, so it is not the marker).
   * `game`: only the managed path; `jni`: only the JNI path.
   * `post`: JNI `InGameBrowser.SetParameters("EN")` then `InGameBrowser.OpenURLWithPostData("http://127.0.0.1:<port>/_mcvs/ui",
-    "t=<ticket>")` (the ticket is taken from the minted URL's fragment; without `SetParameters` `onCreate` closes the
-    activity with `NotItitialized`, `InGameBrowser.java:134-138`). `WebView.postUrl` sends it as a browser-initiated
+    "t=<ticket>[&s=<screen>][&r=nosave]")` (ticket, screen and result are taken from the minted URL's fragment, §5.3;
+    without `SetParameters` `onCreate` closes the activity with `NotItitialized`, `InGameBrowser.java:134-138`). `WebView.postUrl` sends it as a browser-initiated
     `application/x-www-form-urlencoded` POST; the server answers `303` with the cookie (§5.3). For a WebView/native path
     that loses fragments (device check C3).
 * JNI path: `com/gameloft/ingamebrowser/InGameBrowser.SetParameters(Ljava/lang/String;)V` with `"EN"`, then
@@ -1703,8 +1758,11 @@ from `done` within its 3 attempts (§6.4), and probation does not count a start 
    args.txt, host logger redactor, JNI table; thread `mcvs-embedded-start`.
 2. `RunServer` → `McvsServer.Create`: server settings, logger redactor, `ServerContext` (accounts.json, tokens.json),
    core routes, `ServiceRegistry.RegisterAll`: … `storage` (creates `LocalProfileStore`; reads no profile) … `crm`
-   (warm-up thread loads only the preconfiguration) … `unlocks`, **`admin`** (security, portal, `GameSaveTracker`, boot
-   settings snapshot), **`admin-logs`**, **`admin-saves`** (last: probation, then `StagedOperations.ApplyPending`).
+   (warm-up thread loads only the preconfiguration, then waits up to 2 s for the portal, §9.1) … `unlocks`, **`admin`**
+   (security, portal, `GameSaveTracker`, boot settings snapshot), **`admin-logs`**, **`admin-saves`** (last: probation,
+   then `StagedOperations.ApplyPending`). As built in `ServiceRegistry.RegisterAll`; a second registration of an admin
+   module is ignored, and the overload `RegisterAll(router, context, include)` leaves modules out (tests: a server
+   without the admin modules).
 3. Host: `Features.Set<IAdminHost>(adminHost)`, then `created.Start()` → the port opens. Until here the game could not
    reach the server, so it never saw the pre-import state.
 4. Host diagnostics (watchdog, mirror with the new scan logic, restart marker).
@@ -1749,7 +1807,12 @@ Document shape added at the top level of the CRM document:
 ]
 ```
 
-* `redirect` is `IAdminPortal.PageMarkerUrl`: fixed per port, **no secret** (I2). `GET configs/users/me` answers any
+* `redirect` is `IAdminPortal.PageMarkerUrl`: fixed per port, **no secret** (I2). The marker contains the port the server
+  listens on; the cache key includes it, so a document built before `Start` (port 0 in tests) is rebuilt.
+* The warm-up thread waits up to 2 s (`CrmDocumentCache.PortalWaitMs`) for `IAdminPortal` while `crm.newsfeedLink` is on:
+  the admin module registers after the CRM module, and without a data pack the warm-up would otherwise build its
+  document before the portal exists, leaving the TS's first request to rebuild it inside its 1 s `WaitForCRM`. Requests
+  never wait for the portal; without the admin module the document is built without the item after the 2 s. `GET configs/users/me` answers any
   caller without a token, LAN guests included, so nothing in this document may be a credential.
 * `timestamp`: Monday 00:00 UTC of the current week (changes at most weekly, always younger than 30 days). `end_date`
   is omitted. Whether a changed timestamp marks the message new again is device check C1.
@@ -1879,9 +1942,14 @@ Id `forum`, in `OptionalPatches` only. The label stays "Forum".
 
 `AssetsService.Coupon`, before the `assets.couponsEnabled` check: if `admin.redeemCode` is non-empty and
 `CouponCatalog.Normalize(code)` equals it, the request opens the page only when **all** hold: the request is from
-loopback; it carries a token that resolves to the current player's account (`AdminApi.CurrentPlayer().AccountId`; the
-menu server's on-behalf token for the player); `IAdminHost.Describe().BrowserOpen` is false; the last honoured trigger is
-more than 30 s ago. Then `context.Features.Get<IAdminPortal>()?.OpenPage(AdminTriggers.Redeem, null)`. Either way the
+loopback; it looks like the game's own request: no `Origin`, `Referer` or `Sec-Fetch-*` header (a browser adds them; any
+web page on the phone could otherwise send this GET as an `<img>` or a no-cors fetch) and a `User-Agent` that contains
+the game's `(<client id>; ` comment for the client id in the path (`OP/FedRequestMessage.cs:137-142`; a page cannot set
+the `User-Agent` of a no-cors request, which also covers old WebViews without `Sec-Fetch-*`); an access token, **if
+any**, resolves to the current player's account (`AdminApi.CurrentPlayer().AccountId`) — as built, the game's coupon
+request carries **no** token (`AssetsApi` builds it without scopes and `FedRequestMessage` adds a token only to scoped
+requests), so none is required; `IAdminHost.Describe().BrowserOpen` is false; the last honoured trigger is more than
+30 s ago. Then `context.Features.Get<IAdminPortal>()?.OpenPage(AdminTriggers.Redeem, null)`. Either way the
 answer is **404** `coupon does not exist` (nothing is claimed; with 200 the game would mark the code claimed and add an
 empty inbox message) and the log says `coupon '<code>': opens the MCVS Offline page (requested|ignored: <reason>)`. The
 game shows "code does not exist" behind the browser; acceptable for a power-user fallback. The request comes from the
@@ -2187,9 +2255,10 @@ Tests: unit/HTTP via `McvsServer.Handle` (with a fake `IAdminPortal` and fake `I
 the timestamp is Monday 00:00 UTC of the current week (fake clock across a week boundary: the cache rebuilds);
 `crm.newsfeedLink=false`, a disabled portal and no portal give `"newsfeeds": []`; an overlay `newsfeeds` entry is kept and
 one with our `news_id` replaced; toggling the setting rebuilds the cached document; `/_mcvs/crm` diagnostics still work.
-Redeem: `GET coupons/<cid>/mcvsoffline` with the current player's on-behalf token → 404 and `OpenPage("redeem")` called
-once, also when `assets.couponsEnabled=false`; a second request within 30 s, a token of another account, no token, a
-non-loopback caller or `BrowserOpen=true` → 404 without a call (logged `ignored: <reason>`); empty `admin.redeemCode` →
+Redeem: `GET coupons/<cid>/mcvsoffline` as the game sends it (no token, its `User-Agent`), and with the current player's
+token → 404 and `OpenPage("redeem")` called once, also when `assets.couponsEnabled=false`; the real client's redemption
+opens it too; a second request within 30 s, a token of another account, an `Origin`/`Referer`/`Sec-Fetch-*` header,
+another `User-Agent`, a non-loopback caller or `BrowserOpen=true` → 404 without a call (logged `ignored: <reason>`); empty `admin.redeemCode` →
 normal 404 without a call; other codes unchanged. Real client (MCVS_REFS) — the real `Gameloft.OnlinePlatform.dll`
 `NewsFeedData` built from our `newsfeeds` token (through its Newtonsoft from MCVS_REFS) gives one item with our id,
 title, body, redirect and `CreationDate` = timestamp; the real `Game.dll` `new InboxMessage(NewsFeedItem, DateTime)` gives
@@ -2223,6 +2292,15 @@ methods with exactly the signatures `AdminPagePatch` and `AdminLinkPatch` import
 patches succeeds against it). Full suite (`scripts/build.sh` with `MCVS_REFS`, `MCVS_REQUIRE_EMBEDDED=1`,
 `MCVS_REQUIRE_REAL_CLIENT=1`), APK build with the same key, `--dry-run`, then the device test of §12.
 
+As built: `AdminEndToEndTests` (servers composed by `ServiceRegistry` alone, raw HTTP/1.1 on a free port) and
+`AdminHooksContractTests` (the hooks compiled from `hosts/embedded` are used as the server of the real `adminpage`,
+`adminlink` and `forum` patches, whose imports must be exactly the three methods; then the same against the embedded
+DLL). The temporary pass-through `AdminHooks` of the patcher tests (`MCVS_ADMINHOOKS_STAND_IN`) is gone. The page
+smoke against a live server registers through `ServiceRegistry` and, with `MCVS_REQUIRE_NODE=1`, never skips. Loose ends
+closed at the integration: post mode's `s`/`r` (§5.3), the masked revoke log line (§6.4), the page showing game.log's
+own clock as it is, offering larger parts or a file after an export 413 and reading a not-ok text share right, and the
+303/415/429 reason phrases in `HttpStatus`.
+
 ## 11. Test plan summary
 
 1. **Unit** (net8, `tests/McvsOffline.Tests`, `tests/McvsOffline.Embed.Tests`): gate (incl. the post exemption and the
@@ -2250,11 +2328,11 @@ Record `adb logcat -s McvsOffline mono-stdout`, keep `server.log`, and screensho
 |---|---|---|
 | C1 | Inbox: a message "MCVS Offline" from "MCVS" appears after reaching the menu. | Button style and text for a link-only message; expiry text; whether it can be pinned/deleted; after a restart and after a CRM refresh (return from a match): is it flagged new again? (Also after the weekly timestamp change, if the test spans a Monday.) |
 | C2 | Tap its button (build with `adminlink`). | The in-game browser opens `http://127.0.0.1:51780/_mcvs/ui/` (cleartext to 127.0.0.1 works); `server.log`: `admin: page opened (trigger news, via …)` and `admin: session opened (trigger news, <User-Agent>)`. Record the WebView version (About screen). If a build without `adminlink` is at hand: the view-only page with `#banner-viewmode`. |
-| C3 | Fragment, cookie and the fallbacks. | The session works on the first load (the ticket survived the native `OpenURL` path) and after the toolbar Refresh (cookie kept). **Then deliberately** set `admin.openVia` to `jni`, restart, open, use, close, open again; the same with `post` (303 then the page; Refresh keeps working). For each: no native crash on close, the second open works (the `k` flag was reset), game sound state afterwards. Record in STATUS. |
+| C3 | Fragment, cookie and the fallbacks. | The session works on the first load (the ticket survived the native `OpenURL` path) and after the toolbar Refresh (cookie kept). **Then deliberately** set `admin.openVia` to `jni`, restart, open, use, close, open again; the same with `post` (303 then the page; Refresh keeps working; "Save the game now" reopens on Saves, with "The game did not save" when it did not). For each: no native crash on close, the second open works (the `k` flag was reset), game sound state afterwards. Record in STATUS. |
 | C4 | `IsInGameBrowserInitialized` offline. | Status › host › browser = `initialized`; `server.log` shows `marketing_site/redir/ingamenews.php?action=checkNews` or not. |
 | C5 | Watchdog. | No `[watchdog] STALL` and no thread dump while the page is open (≥ 2 min), `[watchdog] paused`/`resumed` lines; time from Close to a responsive menu (GL context resume). |
 | C6 | Settings › Account. | The "MCVS Offline" button shows with the typed label (or a raw key?) and a sensible icon (`Settings.png`; alternatives `settings_gameplay.png`, `redeemCode.png`); tapping opens the page (`trigger account`). Facebook/Google/Redeem/Recover buttons unchanged. Status › player › source = `game`. |
-| C7 | Redeem code `MCVSOFFLINE`. | The page opens; the "code does not exist" popup behind it; nothing claimed; a second try within 30 s is ignored (logged). |
+| C7 | Redeem code `MCVSOFFLINE`. | The page opens; the "code does not exist" popup behind it; nothing claimed; a second try within 30 s is ignored (logged). `server.log` shows `coupon 'MCVSOFFLINE': opens the MCVS Offline page (requested)` for the game's request (no token, the game's User-Agent). |
 | C8 | Forum (if patched with `--patch default,forum`). | The page opens. |
 | C9 | Settings writes. | VersusCoins ×2: after the next match the win pays double; a `restart` key shows the banner; Restart applies it. Enabling `devMenu` creates a `presettings` backup (Saves). Edit `settings.json` to a syntax error, start: the repair panel (file text with `superPassword` masked); repair; restart: defaults plus host keys. |
 | C10 | Copy. | Which of `navigator.clipboard`, `execCommand`, host clipboard worked (shown in the toast); a 60,000-character part copies and pastes intact. |
