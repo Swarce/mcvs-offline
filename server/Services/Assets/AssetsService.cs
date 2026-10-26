@@ -2,6 +2,8 @@
 // Iris assets and coupons (requests carry no token).
 // Protocol: report 02 §9; report 04 §10-11; report 10 §5; verify-C5 (b); docs/protocol/content.md
 //   GET  coupons/{clientId}/{code}   -> [{"type":"UnlockMerc_2","quantity":1}, ...]; 404 = "coupon does not exist"
+//                                       admin.redeemCode (MCVSOFFLINE) opens the settings page, always 404 (design
+//                                       docs/design/settings-page.md §9.5)
 //   GET  assets/{clientId}           -> [{name, hash, size}] of <data>/assets (usually [])
 //   GET  assets/{clientId}/{name}[/metadata[/{attr}]|/url]   local file (Range supported) or 404
 
@@ -13,6 +15,8 @@ using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Http;
 using McvsOffline.Server.Core.Json;
 using McvsOffline.Server.Core.Routing;
+using McvsOffline.Server.Services.Admin;
+using McvsOffline.Server.Services.Auth;
 
 namespace McvsOffline.Server.Services.Assets
 {
@@ -24,15 +28,17 @@ namespace McvsOffline.Server.Services.Assets
         {
             var log = context.Logger.For("assets");
             var assets = new LocalAssets(context.GetDataPath("assets"));
+            var pageCode = new PageCode(context, log);
 
-            router.Get("coupons/{clientId}/{code}", "assets.coupon", request => Coupon(context, log, request));
+            router.Get("coupons/{clientId}/{code}", "assets.coupon", request => Coupon(context, pageCode, log, request));
             router.Get("assets/{clientId}", "assets.list", request => HttpResponse.Json(assets.List()));
             router.Get("assets/{clientId}/{*name}", "assets.get", request => Asset(context, assets, log, request));
         }
 
-        private static HttpResponse Coupon(ServerContext context, Log log, HttpRequest request)
+        private static HttpResponse Coupon(ServerContext context, PageCode pageCode, Log log, HttpRequest request)
         {
             string code = request.RouteValue("code") ?? "";
+            if (pageCode.Matches(code)) return pageCode.Redeem(code, request);
             if (!context.Settings.GetBool("assets.couponsEnabled", true))
             {
                 log.Info("coupon '" + code + "' refused: coupons are disabled (assets.couponsEnabled=false)");
@@ -116,6 +122,107 @@ namespace McvsOffline.Server.Services.Assets
                     .WithHeader("Accept-Ranges", "bytes");
             }
             return HttpResponse.Bytes(data, contentType).WithHeader("Accept-Ranges", "bytes");
+        }
+
+        /// <summary>
+        /// The hidden redeem code that opens the settings page (design docs/design/settings-page.md §9.5):
+        /// <c>admin.redeemCode</c> (default MCVSOFFLINE, empty: off), checked before <c>assets.couponsEnabled</c>. The
+        /// answer is always 404 "coupon does not exist": after a 200 the game would mark the code claimed and put an empty
+        /// message into the inbox (EN/AssetsComponent.cs RedeemCoupon, GM/PlayerProfileComponent.cs PushCouponDataToInbox);
+        /// after a 404 it shows "code does not exist" (behind the browser) and claims nothing.
+        /// <para>
+        /// The page opens only when every check holds: the admin portal is there and enabled; the request comes from this
+        /// phone (loopback; a LAN guest's menu server never opens our browser); an access token, when the request carries
+        /// one, belongs to the current player; a host can open the in-game browser and it is not open already; and the
+        /// last opening by this code is more than 30 s ago. The game's own request carries no access token: redemption
+        /// runs on the menu server (EN/AssetsComponent.cs:170-195, RedeemCouponRemote → RedeemCoupon), and
+        /// <c>AssetsApi.GetRedeemCouponRequest</c> builds a FedRequestMessage without scopes, to which
+        /// <c>FedRequestMessage.PrepareToSend</c> adds no <c>access_token</c> (OP/AssetsApi.cs:39-43,
+        /// OP/FedRequestMessage.cs:96-99,163-171). A local app could fire the code too, at most every 30 s and only while
+        /// no browser is open: the worst case is our page in the game's browser, whose ticket only the WebView receives
+        /// (§5.5).
+        /// </para>
+        /// The request arrives on a connection thread; <see cref="IAdminPortal.OpenPage"/> posts to the game thread.
+        /// </summary>
+        private sealed class PageCode
+        {
+            public const string DefaultCode = "MCVSOFFLINE";
+            public const int MinIntervalSeconds = 30;
+
+            private readonly ServerContext context;
+            private readonly Log log;
+            private readonly object gate = new object();
+            private DateTime? lastOpened;
+
+            public PageCode(ServerContext context, Log log)
+            {
+                this.context = context;
+                this.log = log;
+            }
+
+            /// <summary>True when <paramref name="code"/> is the page code (read on every request: a <c>live</c> setting).</summary>
+            public bool Matches(string code)
+            {
+                string pageCode = CouponCatalog.Normalize(context.Settings.GetString("admin.redeemCode", DefaultCode));
+                return pageCode.Length > 0 && string.Equals(CouponCatalog.Normalize(code), pageCode, StringComparison.Ordinal);
+            }
+
+            public HttpResponse Redeem(string code, HttpRequest request)
+            {
+                string refused;
+                try
+                {
+                    refused = Open(request);
+                }
+                catch (Exception ex)
+                {
+                    log.Error("coupon '" + code + "': opening the MCVS Offline page failed", ex);
+                    refused = "error";
+                }
+                log.Info("coupon '" + code + "': opens the MCVS Offline page (" + (refused == null ? "requested" : "ignored: " + refused) + ")");
+                return HttpResponse.Error(HttpStatus.NotFound, "coupon does not exist");
+            }
+
+            /// <summary>Asks the portal to open the page; null when it did, else why not.</summary>
+            private string Open(HttpRequest request)
+            {
+                IAdminPortal portal = context.Features.Get<IAdminPortal>();
+                if (portal == null) return "the settings page is not part of this server";
+                if (!portal.Enabled) return "the settings page is turned off (admin.enabled)";
+                if (!LocalAccessGate.IsLoopback(request.RemoteEndPoint)) return "not from this phone";
+                string tokenProblem = CheckToken(request);
+                if (tokenProblem != null) return tokenProblem;
+                IAdminHost host = context.Features.Get<IAdminHost>();
+                if (host == null) return "no in-game browser here";
+                AdminHostInfo info = host.Describe();
+                if (info != null && info.BrowserOpen) return "the in-game browser is already open";
+
+                DateTime now = context.Clock.UtcNow;
+                lock (gate)
+                {
+                    // A clock that went back counts as elapsed: the code must not stay blocked until it catches up.
+                    TimeSpan since = lastOpened.HasValue ? now - lastOpened.Value : TimeSpan.MaxValue;
+                    if (since >= TimeSpan.Zero && since < TimeSpan.FromSeconds(MinIntervalSeconds))
+                        return "opened less than " + MinIntervalSeconds + " s ago";
+                    lastOpened = now;
+                }
+                return portal.OpenPage(AdminTriggers.Redeem, null) ? null : "the in-game browser could not be opened";
+            }
+
+            /// <summary>Null when the request carries no access token or one of the current player's; else why not.</summary>
+            private string CheckToken(HttpRequest request)
+            {
+                IAuthenticator auth = context.Features.Get<IAuthenticator>();
+                string token = auth != null ? auth.GetAccessToken(request) : request.Param("access_token");
+                if (string.IsNullOrEmpty(token)) return null; // the game's request (see above)
+                AuthIdentity who = auth == null ? null : auth.Resolve(token);
+                if (who == null) return "unknown access token";
+                AdminApi api = context.Features.Get<AdminApi>();
+                CurrentPlayer current = api == null ? null : api.CurrentPlayer();
+                if (current == null || string.IsNullOrEmpty(current.AccountId)) return "the current player is unknown";
+                if (!string.Equals(current.AccountId, who.AccountId, StringComparison.Ordinal)) return "the access token is another account's";
+                return null;
+            }
         }
     }
 }
