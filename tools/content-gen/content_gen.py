@@ -992,7 +992,13 @@ def build_liveops_collector(block, milestone_tiers, rewards, now):
                              for i, m in enumerate(milestones)],
         "weeklyFinal": rewards(block["weeklyFinal"], "collector.weeklyFinal", allow_empty=True),
     }
-    if now is not None and since < now + SINCE_MARGIN:
+    if now is not None and since <= now:
+        # A rebuild after the release: since must stay (moving it replaces the running events, §3.3, and must match
+        # the compiled-in CollectorGuard.ShippedSince).
+        warn("liveops: collector.since %s is not after this build (%s): keep it when rebuilding a released build; for a "
+             "first release set collector.since to the first Monday at least 7 days after the build is published"
+             % (out["since"], now.strftime("%Y-%m-%d")))
+    elif now is not None and since < now + SINCE_MARGIN:
         warn("liveops: collector.since %s is less than 7 days after this build (%s): set collector.since to the first "
              "Monday at least 7 days after the build is published" % (out["since"], now.strftime("%Y-%m-%d")))
     return out

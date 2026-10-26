@@ -21,8 +21,10 @@ python3 -I tools/content-gen/test_content_gen.py
 `tools/content-gen/collector_tuning.json`; `--out` to `server/Content`.
 
 Warnings (printed, exit code 0): `collector.since` in `liveops_tuning.json` is less than 7 days after the generation
-time. Set it to the first Monday 00:00 UTC at least 7 days after the build is published; never bump `revision` for the
-collector (docs/design/economy-collector.md §3.3).
+time. For a first release set it to the first Monday 00:00 UTC at least 7 days after the build is published; never bump
+`revision` for the collector (docs/design/economy-collector.md §3.3). Once `since` is not after the generation time the
+warning says so instead: right for a rebuild of a released build, where `since` must stay as it is (moving it replaces
+the running events of every window in between and must match the compiled-in `CollectorGuard.ShippedSince`).
 
 ## Inputs
 

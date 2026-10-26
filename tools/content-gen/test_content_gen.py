@@ -567,6 +567,11 @@ class GeneratorTests(unittest.TestCase):
         self.assertEqual(found["mercs"], {"UnlockMerc_2"})
         self.assertEqual(found["camos"], {"WeaponCamo_1_9"})
         self.assertIn("gearSlots", found)
+        # an unlock group naming an id the catalogue does not know (the two would have drifted apart)
+        next(g for g in unlocks["groups"] if g["id"] == "signatures")["items"].append("KillSignature_Avatar_{99}")
+        with self.assertRaises(cg.ContentError) as raised:
+            cg._find_nosource(cat, unlocks)
+        self.assertIn("released KillSignature_Avatar_99 has no catalogue entry", str(raised.exception))
 
     def test_collector_sets_follow_the_rules(self):
         col = self.outputs()["collector.json"]
@@ -651,6 +656,8 @@ class GeneratorTests(unittest.TestCase):
                     {"type": "MercSkin", "subtype": "2", "subtype2": "5", "bundle": "KillSignature_Sound_2"},
                     dict(ok, bundle="WeaponCamo_1_2"),
                     {"type": "WeaponCamo", "subtype": "1", "subtype2": "2"},
+                    {"type": "UnlockMerc", "subtype": "17", "subtype2": "1"},
+                    {"type": "VersusCoins", "subtype": "Tiers4", "subtype2": "Random"},
                     {"type": "Gear", "subtype": "Random"}, {"type": "Nope", "subtype": "x"}):
             self.assertIsNotNone(cg.collector_row_problem(row), row)
 
@@ -673,12 +680,15 @@ class GeneratorTests(unittest.TestCase):
         self.assert_document_error(lambda d: d["avatars"].update(base=d["avatars"]["base"] + ",13"), "in both base and reserved")
         self.assert_document_error(lambda d: d["avatars"].update(unlock="2,3,12,16"), "unknown or unreleased")
         self.assert_document_error(lambda d: d["avatars"].update(unlock="2,5,12,16"), "Unlockable=false")
+        self.assert_document_error(lambda d: d["avatars"].update(unlock="2,12-13,16"), "Unlockable=false")   # 13: not base
         self.assert_document_error(lambda d: d["avatars"].update(lock="7"), "released Kayac avatars")
         self.assert_document_error(lambda d: d["backgrounds"].update(unlock="2-3"), "Unlockable=false")
+        self.assert_document_error(lambda d: d["backgrounds"].update(unlock="2,5"), "Unlockable=false")      # 5: not base
         self.assert_document_error(lambda d: d.update(rows=[]), "0 crate rows")
         self.assert_document_error(lambda d: d["avatars"].update(kayac=d["avatars"]["kayac"] + ",99"), "avatars.kayac holds unknown")
         self.assert_document_error(lambda d: d["backgrounds"].update(drawable="1,3-4,9"), "backgrounds.drawable holds unknown")
         self.assert_document_error(lambda d: d["avatars"].update(drawable="1,5-6,13"), "in both drawable and reserved")
+        self.assert_document_error(lambda d: d["avatars"].update(drawable="1,5-7"), "avatars 7 in both drawable and kayac")
 
     def test_collector_rejects_bad_inputs(self):
         def second_weight(design):
@@ -687,8 +697,28 @@ class GeneratorTests(unittest.TestCase):
         def gear_first(design):
             design["Crate_Starter_ThirdPlace"]["Rows"][0][1] = "Gear_Random_1_Random"
 
-        def kayac_jersey_visible(design):
+        # MercAccessories row of jersey 4: [Id, LocId, MercId, VisibleInShop, IsKayac]
+        def hidden_jersey_visible(design):
             design["MercAccessories"]["Rows"][3][3] = "true"
+
+        def hidden_jersey_kayac(design):
+            design["MercAccessories"]["Rows"][3][4] = "true"
+
+        def hidden_jersey_agent(design):
+            design["MercAccessories"]["Rows"][3][2] = 2
+
+        def short_content_table(design):
+            design["Crate_Event_Special"]["Rows"] = design["Crate_Event_Special"]["Rows"][:5]   # 10 collector rows
+
+        def placement_row_2(design):
+            # the only weighted row is a HardCurrency one, but row 2: the CRM cells write row 1's bundle
+            design["Crate_Starter_FirstPlace"]["Rows"] = [[1, "Gear_Random_1_Random", None, None, None, 0, 0, 0, None],
+                                                          [2, "HardCurrency", None, None, None, 1000, 0, 60, None]]
+
+        def unreleased_emblem(design):
+            # season_rewards/I_1.png now belongs to avatar 3, which is in the tables but was never released
+            rows = dict((r[0], r) for r in design["KillsignatureAvatars"]["Rows"])
+            rows[3][1], rows[13][1] = rows[13][1], rows[3][1]
 
         def tier_crate_missing(design):
             design["LootCrates"]["Rows"] = [r for r in design["LootCrates"]["Rows"] if r[0] != "Crate_Bronze_11To20Place"]
@@ -715,10 +745,17 @@ class GeneratorTests(unittest.TestCase):
         self.assert_error(lambda t: t["season"].update(numerals=["I", "III"]), text="season_rewards/III.png")
         self.assert_error(mutate_design=typed_row, text="already holds rewards")
         self.assert_error(mutate_design=camo_pool, text="camo pool")
-        self.assert_error(mutate_design=kayac_jersey_visible, text="hidden jersey 4")
+        self.assert_error(mutate_design=hidden_jersey_visible, text="hidden jersey 4 must exist")
+        self.assert_error(mutate_design=hidden_jersey_kayac, text="hidden jersey 4 must exist")
+        self.assert_error(mutate_design=hidden_jersey_agent, text="hidden jersey 4 must exist")
+        self.assert_error(mutate_design=short_content_table, text="row 6: ids must run 1..n over existing rows of Crate_Event_Special")
+        self.assert_error(mutate_design=placement_row_2, text="Crate_Starter_FirstPlace row 1 must be the only Weight.1 row")
+        self.assert_error(mutate_design=unreleased_emblem,
+                          text="season emblem Menus/assets/png/profile/season_rewards/I_1.png does not resolve to one released")
         self.assert_error(lambda t: t.update(sounds=[1]), text="sound 1")                  # the starting sound
         self.assert_error(lambda t: t.update(skins=[[2, 4]]), text="skin 2/4")              # Locked
         self.assert_error(lambda t: t.update(agents=[1]), text="agent 1")                   # has a source
+        self.assert_error(lambda t: t.update(agents=[3]), text="agent 3")                   # not displayed
         self.assert_error(lambda t: t.update(hiddenJerseys=[1]), text="hidden jersey 1")    # visible
         self.assert_error(lambda t: t["kayac"].update(extra=[99]), text="kayac.extra")
         self.assert_error(lambda t: t.update(exhausted="VersusCoins_Tiers9"), text="VersusCoins_Tiers9")
@@ -759,6 +796,7 @@ class GeneratorTests(unittest.TestCase):
                           text="backgrounds 2 have no KillsignatureBackgrounds row")
         self.assert_error(mutate_design=drop_row("CamosListPerWeapon", 2), text="agent 2: no CamosListPerWeapon row for its weapon SR01")
         self.assert_error(lambda t: t.update(skins=[[1, 1]]), text="skin 1/1 is not a released no-source skin")   # default
+        self.assert_error(mutate_design=drop_row("KillsignatureSounds", 2), text="sound 2 is not a released no-source sound")
         self.assert_error(lambda t: t.update(hiddenJerseys=[1]), jersey_hidden_in_tables,
                           text="hidden jersey 1 is not a released no-source jersey")
         self.assert_error(mutate_design=agent_jersey, text="jersey 3 is agent-specific")
@@ -809,6 +847,7 @@ class GeneratorTests(unittest.TestCase):
         self.assert_error(mutate_liveops=block(dailyBonus=[{"item": "Crate_Contracts", "quantity": 1}]),
                           text="not the collector's crate")
         self.assert_error(mutate_liveops=block(since="2030-02-30T00:00:00Z"), text="not a valid date")
+        self.assert_error(mutate_liveops=lambda t: t.update(collector=[collector_block()]), text="collector must be an object")
         # a misspelt or missing key would silently drop its crates
         self.assert_error(mutate_liveops=block(weeklyfinal=crate), text="unknown: weeklyfinal")
 
@@ -828,18 +867,29 @@ class GeneratorTests(unittest.TestCase):
         self.assertEqual(block["dailyBonus"], [])
         self.assertEqual(block["weeklyMilestones"], [[], [], [{"item": "Crate_Event_Special", "quantity": 2}]])
         self.assertEqual(block["weeklyFinal"], [{"item": "Crate_Event_Special", "quantity": 2}])
+        # only the collector's lists may be empty: the other reward lists still need a reward
+        tuning["dailyQuests"]["bonus"]["rewards"] = []
+        self.write_liveops(tuning)
+        with self.assertRaises(cg.ContentError) as raised:
+            self.generate()
+        self.assertIn("dailyQuests.bonus: no rewards", str(raised.exception))
 
     def test_since_warning(self):
         tuning = sample_liveops()
         tuning["collector"] = collector_block(since="2030-01-07T00:00:00Z")
         self.write_liveops(tuning)
-        for now, warned in ((datetime.datetime(2029, 12, 31, tzinfo=UTC), False),       # exactly 7 days ahead
-                            (datetime.datetime(2029, 12, 31, 0, 0, 1, tzinfo=UTC), True),
-                            (datetime.datetime(2030, 2, 1, tzinfo=UTC), True)):         # already past
+        soon, past = "less than 7 days after this build", "not after this build"
+        for now, warning in ((datetime.datetime(2029, 12, 31, tzinfo=UTC), None),       # exactly 7 days ahead
+                             (datetime.datetime(2029, 12, 31, 0, 0, 1, tzinfo=UTC), soon),
+                             (datetime.datetime(2030, 1, 6, 23, 59, 59, tzinfo=UTC), soon),
+                             (datetime.datetime(2030, 1, 7, tzinfo=UTC), past),           # starts with the build
+                             (datetime.datetime(2030, 2, 1, tzinfo=UTC), past)):          # a rebuild after the release
             err = io.StringIO()
             with contextlib.redirect_stderr(err):
                 self.generate(now)
-            self.assertEqual("collector.since 2030-01-07T00:00:00Z" in err.getvalue(), warned, now)
+            self.assertEqual("collector.since 2030-01-07T00:00:00Z" in err.getvalue(), warning is not None, now)
+            for text in (soon, past):
+                self.assertEqual(text in err.getvalue(), text == warning, now)
 
 
 @unittest.skipUnless(os.path.exists(os.path.join(DECODED, "_catalog.json")), "no decoded data pack")
