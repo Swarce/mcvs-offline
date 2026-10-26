@@ -15,7 +15,9 @@ using Mono.Cecil.Cil;
 using Xunit;
 using Xunit.Abstractions;
 using GameContext = McvsOffline.Embed.Tests.Patcher.RealGamePatchTests.GameContext;
+using MethodAttributes = Mono.Cecil.MethodAttributes;
 using OpCodes = Mono.Cecil.Cil.OpCodes;
+using TypeAttributes = Mono.Cecil.TypeAttributes;
 
 namespace McvsOffline.Embed.Tests.Patcher
 {
@@ -72,17 +74,22 @@ namespace McvsOffline.Embed.Tests.Patcher
             }
         }
 
-        /// <summary>The ten patched methods: (type, name, parameter count).</summary>
+        /// <summary>The nine patched methods: (type, name, parameter count).</summary>
         private static readonly (string Type, string Name, int Parameters)[] PatchedMethods =
         {
             (DebloatEnginePatch.CrashlyticsType, "Start", 0), (DebloatEnginePatch.CrashlyticsType, "Start_Native", 0),
             (DebloatEnginePatch.CrashlyticsType, "Native_Start", 0),
             (DebloatEnginePatch.NotificationType, "ShouldRegister", 0),
-            (DebloatEnginePatch.NotificationSystemType, "Register", 0), (DebloatEnginePatch.NotificationSystemType, "RegisterForRemoteNotifications", 0),
+            (DebloatEnginePatch.NotificationSystemType, "RegisterForRemoteNotifications", 0),
             (DebloatEnginePatch.NotificationSystemType, "RegisterAsync", 1),
             (DebloatEnginePatch.SocialLibType, "Init", 3), (DebloatEnginePatch.SocialLibType, "Login", 2),
             (DebloatEnginePatch.SocialLibType, "TriggerAutoLogin", 2),
         };
+
+        /// <summary>The type the patch adds, and its three methods: (name, parameter count).</summary>
+        private const string Helper = "Gameloft.Engine." + DebloatEnginePatch.HelperType;
+
+        private static readonly (string Name, int Parameters)[] HelperMethods = { ("Post", 2), ("Fail", 1), ("FailLater", 0) };
 
         private static MethodDefinition Find(ModuleDefinition module, string type, string name, int parameters)
         {
@@ -107,7 +114,7 @@ namespace McvsOffline.Embed.Tests.Patcher
                 string[] expected =
                 {
                     DebloatEnginePatch.StartFingerprint, DebloatEnginePatch.StartNativeFingerprint, DebloatEnginePatch.NativeStartFingerprint,
-                    DebloatEnginePatch.ShouldRegisterFingerprint, DebloatEnginePatch.RegisterFingerprint, DebloatEnginePatch.RegisterForRemoteFingerprint,
+                    DebloatEnginePatch.ShouldRegisterFingerprint, DebloatEnginePatch.RegisterForRemoteFingerprint,
                     DebloatEnginePatch.RegisterAsyncFingerprint, DebloatEnginePatch.InitFingerprint, DebloatEnginePatch.LoginFingerprint,
                     DebloatEnginePatch.TriggerAutoLoginFingerprint,
                 };
@@ -116,6 +123,14 @@ namespace McvsOffline.Embed.Tests.Patcher
                     var (type, name, n) = PatchedMethods[i];
                     Assert.Equal(expected[i], IlPatch.Fingerprint(Find(module, type, name, n)));
                 }
+                // Unchanged methods the changes call or rely on: Register() (-> RegisterForRemoteNotifications()), the managed
+                // CancelAllLocalNotifications(), RegisterAsync's lambda (this.Register()) and GameSynchronizationContext.Post.
+                TypeDefinition system = module.GetType(DebloatEnginePatch.NotificationSystemType);
+                Assert.Equal(DebloatEnginePatch.RegisterFingerprint, IlPatch.Fingerprint(Find(module, DebloatEnginePatch.NotificationSystemType, "Register", 0)));
+                Assert.Equal(DebloatEnginePatch.CancelAllFingerprint, IlPatch.Fingerprint(Find(module, DebloatEnginePatch.NotificationSystemType, "CancelAllLocalNotifications", 0)));
+                Assert.Equal(DebloatEnginePatch.RegisterLambdaFingerprint, IlPatch.Fingerprint(system.Methods.Single(m => m.Name.StartsWith("<RegisterAsync>b__"))));
+                Assert.Equal(DebloatEnginePatch.ContextPostFingerprint, IlPatch.Fingerprint(Find(module, DebloatEnginePatch.GameContextType, "Post", 2)));
+                Assert.Null(module.GetType(Helper));
                 Assert.Equal(DebloatEnginePatch.RegisterAsyncBodyFingerprint, IlPatch.Fingerprint(MoveNext(Find(module, DebloatEnginePatch.NotificationSystemType, "RegisterAsync", 1))));
                 Assert.Equal(DebloatEnginePatch.RegisterRemoteBodyFingerprint,
                              IlPatch.Fingerprint(MoveNext(Find(module, DebloatEnginePatch.NotificationType, "RegisterForRemoteNotificationsAsync", 1))));
@@ -163,19 +178,32 @@ namespace McvsOffline.Embed.Tests.Patcher
                                 Assert.Equal(OpCodes.Ldc_I4_0, code[0].OpCode);
                                 prologue = 1;
                                 break;
+                            case "RegisterForRemoteNotifications":
+                                // ldarg.0; callvirt CancelAllLocalNotifications(); ret
+                                Assert.Equal(new[] { Code.Ldarg_0, Code.Callvirt }, code.Take(2).Select(i => i.OpCode.Code));
+                                Assert.Equal("System.Void " + DebloatEnginePatch.NotificationSystemType + "::CancelAllLocalNotifications()", ((MethodReference)code[1].Operand).FullName);
+                                prologue = 2;
+                                break;
                             case "RegisterAsync":
-                                Assert.Equal(OpCodes.Call, code[0].OpCode);
-                                var completed = (MethodReference)code[0].Operand;
+                                // ldarg.0; ldftn <RegisterAsync>b__15_0; newobj SendOrPostCallback; ldnull; call McvsDebloat.Post; pop;
+                                // call Task.get_CompletedTask(); ret
+                                Assert.Equal(new[] { Code.Ldarg_0, Code.Ldftn, Code.Newobj, Code.Ldnull, Code.Call, Code.Pop, Code.Call }, code.Take(7).Select(i => i.OpCode.Code));
+                                MethodDefinition lambda = ((MethodReference)code[1].Operand).Resolve();
+                                Assert.StartsWith("<RegisterAsync>b__", lambda.Name);
+                                Assert.Equal(DebloatEnginePatch.NotificationSystemType, lambda.DeclaringType.FullName);
+                                Assert.Equal(DebloatEnginePatch.RegisterLambdaFingerprint, IlPatch.Fingerprint(lambda));
+                                Assert.Equal("System.Void System.Threading.SendOrPostCallback::.ctor(System.Object,System.IntPtr)", ((MethodReference)code[2].Operand).FullName);
+                                FromTheGamesCorlib((MethodReference)code[2].Operand, refs);
+                                Assert.Equal("System.Boolean " + Helper + "::Post(System.Threading.SendOrPostCallback,System.Object)", ((MethodReference)code[4].Operand).FullName);
+                                var completed = (MethodReference)code[6].Operand;
                                 Assert.Equal("System.Threading.Tasks.Task System.Threading.Tasks.Task::get_CompletedTask()", completed.FullName);
                                 FromTheGamesCorlib(completed, refs);
-                                prologue = 1;
+                                prologue = 7;
                                 break;
                             case "Init":
-                            case "Login":
-                            case "TriggerAutoLogin":
                                 // ldarg.1; ldc.i4.0 (Facebook); beq.s SKIP; ldarg.1; ldc.i4.2 (GooglePlayGames); bne.un.s ORIG;
-                                // SKIP: ldc.i4 NotSent|Failed; call Task.FromResult<SnsResult>; ret; ORIG: the shipped stub
-                                Assert.Equal(new[] { Code.Ldarg_1, Code.Ldc_I4_0, Code.Beq_S, Code.Ldarg_1, Code.Ldc_I4_2, Code.Bne_Un_S, name == "Init" ? Code.Ldc_I4_1 : Code.Ldc_I4_3, Code.Call },
+                                // SKIP: ldc.i4.1 (NotSent); call Task.FromResult<SnsResult>; ret; ORIG: the shipped stub
+                                Assert.Equal(new[] { Code.Ldarg_1, Code.Ldc_I4_0, Code.Beq_S, Code.Ldarg_1, Code.Ldc_I4_2, Code.Bne_Un_S, Code.Ldc_I4_1, Code.Call },
                                              code.Take(8).Select(i => i.OpCode.Code));
                                 Assert.Same(code[6], code[2].Operand);
                                 Assert.Same(code[9], code[5].Operand);
@@ -186,6 +214,18 @@ namespace McvsOffline.Embed.Tests.Patcher
                                 Assert.Equal("System.Threading.Tasks.Task`1<!!0>", fromResult.ElementMethod.ReturnType.FullName);
                                 FromTheGamesCorlib(fromResult.ElementMethod, refs);
                                 prologue = 8;
+                                break;
+                            case "Login":
+                            case "TriggerAutoLogin":
+                                // ldarg.1; ldc.i4.0 (Facebook); beq.s SKIP; ldarg.1; ldc.i4.2 (GooglePlayGames); bne.un.s ORIG;
+                                // SKIP: call McvsDebloat.FailLater(); ret; ORIG: the shipped stub
+                                Assert.Equal(new[] { Code.Ldarg_1, Code.Ldc_I4_0, Code.Beq_S, Code.Ldarg_1, Code.Ldc_I4_2, Code.Bne_Un_S, Code.Call },
+                                             code.Take(7).Select(i => i.OpCode.Code));
+                                Assert.Same(code[6], code[2].Operand);
+                                Assert.Same(code[8], code[5].Operand);
+                                Assert.Equal("System.Threading.Tasks.Task`1<" + DebloatEnginePatch.SnsResultType + "> " + Helper + "::FailLater()",
+                                             ((MethodReference)code[6].Operand).FullName);
+                                prologue = 7;
                                 break;
                             default:
                                 prologue = 0;
@@ -199,18 +239,77 @@ namespace McvsOffline.Embed.Tests.Patcher
                         Assert.Equal(before.Attributes, after.Attributes);
                     }
 
-                    // Nothing else in the assembly changed: same types and members, and every other body has its shipped fingerprint.
+                    HelperHasTheExpectedShape(module.GetType(Helper), refs);
+
+                    // Nothing else in the assembly changed: the same types and members but the helper type, and every other body
+                    // has its shipped fingerprint.
                     var patchedNames = PatchedMethods.Select(p => Find(original, p.Type, p.Name, p.Parameters).FullName).OrderBy(k => k, StringComparer.Ordinal).ToList();
                     List<(string Name, string Body)> Bodies(ModuleDefinition m) =>
-                        m.GetTypes().SelectMany(t => t.Methods).Where(x => x.HasBody).Select(x => (x.FullName, IlPatch.Fingerprint(x))).ToList();
+                        m.GetTypes().Where(t => t.FullName != Helper).SelectMany(t => t.Methods).Where(x => x.HasBody).Select(x => (x.FullName, IlPatch.Fingerprint(x))).ToList();
                     List<(string Name, string Body)> was = Bodies(original), now = Bodies(module);
                     Assert.Equal(was.Select(b => b.Name), now.Select(b => b.Name));
                     Assert.Equal(patchedNames, was.Zip(now, (a, b) => (a.Name, Changed: a.Body != b.Body)).Where(x => x.Changed).Select(x => x.Name)
                                                   .OrderBy(k => k, StringComparer.Ordinal));
                     Assert.Equal(original.GetTypes().Select(t => t.FullName + "/" + t.Fields.Count + "/" + t.Methods.Count),
-                                 module.GetTypes().Select(t => t.FullName + "/" + t.Fields.Count + "/" + t.Methods.Count));
+                                 module.GetTypes().Where(t => t.FullName != Helper).Select(t => t.FullName + "/" + t.Fields.Count + "/" + t.Methods.Count));
+                    Assert.Equal(original.Types.Count + 1, module.Types.Count);
                     Assert.Equal(original.AssemblyReferences.Select(a => a.FullName), module.AssemblyReferences.Select(a => a.FullName));
-                    output.WriteLine(now.Count + " method bodies compared, " + patchedNames.Count + " changed");
+                    output.WriteLine(now.Count + " method bodies compared, " + patchedNames.Count + " changed, " + HelperMethods.Length + " added");
+                }
+            }
+        }
+
+        /// <summary>
+        /// The added <c>Gameloft.Engine.McvsDebloat</c>: a static internal class of three methods, instruction for instruction, every
+        /// BCL member it uses from the game's own mscorlib and every engine member the shipped one.
+        /// </summary>
+        private static void HelperHasTheExpectedShape(TypeDefinition helper, string refs)
+        {
+            Assert.NotNull(helper);
+            Assert.Equal(TypeAttributes.NotPublic | TypeAttributes.Abstract | TypeAttributes.Sealed | TypeAttributes.BeforeFieldInit, helper.Attributes);
+            Assert.Equal("System.Object", helper.BaseType.FullName);
+            Assert.Empty(helper.Fields);
+            Assert.Empty(helper.NestedTypes);
+            Assert.Equal(HelperMethods.Select(m => m.Name).OrderBy(x => x), helper.Methods.Select(m => m.Name).OrderBy(x => x));
+            string tcs = "System.Threading.Tasks.TaskCompletionSource`1<" + DebloatEnginePatch.SnsResultType + ">";
+            var expected = new Dictionary<string, (string Signature, string[] Code)>
+            {
+                ["Post"] = ("System.Boolean " + Helper + "::Post(System.Threading.SendOrPostCallback,System.Object)", new[]
+                {
+                    "call " + DebloatEnginePatch.ApplicationType + " " + DebloatEnginePatch.ApplicationType + "::get_Instance()", "dup", "brtrue.s -> callvirt",
+                    "pop", "ldc.i4.0", "ret",
+                    "callvirt " + DebloatEnginePatch.GameContextType + " " + DebloatEnginePatch.ApplicationType + "::get_Context()", "dup", "brtrue.s -> ldarg.0",
+                    "pop", "ldc.i4.0", "ret",
+                    "ldarg.0", "ldarg.1", "callvirt System.Void System.Threading.SynchronizationContext::Post(System.Threading.SendOrPostCallback,System.Object)",
+                    "ldc.i4.1", "ret",
+                }),
+                ["Fail"] = ("System.Void " + Helper + "::Fail(System.Object)", new[]
+                {
+                    "ldarg.0", "castclass " + tcs, "ldc.i4.3", "callvirt System.Boolean " + tcs + "::TrySetResult(!0)", "pop", "ret",
+                }),
+                ["FailLater"] = ("System.Threading.Tasks.Task`1<" + DebloatEnginePatch.SnsResultType + "> " + Helper + "::FailLater()", new[]
+                {
+                    "newobj System.Void " + tcs + "::.ctor()", "stloc.0", "ldnull", "ldftn System.Void " + Helper + "::Fail(System.Object)",
+                    "newobj System.Void System.Threading.SendOrPostCallback::.ctor(System.Object,System.IntPtr)", "ldloc.0",
+                    "call System.Boolean " + Helper + "::Post(System.Threading.SendOrPostCallback,System.Object)", "brtrue.s -> ldloc.0",
+                    "ldloc.0", "call System.Void " + Helper + "::Fail(System.Object)",
+                    "ldloc.0", "callvirt System.Threading.Tasks.Task`1<!0> " + tcs + "::get_Task()", "ret",
+                }),
+            };
+            foreach (MethodDefinition m in helper.Methods)
+            {
+                Assert.True(m.IsStatic, m.FullName);
+                Assert.Equal(m.Name == "Fail" ? MethodAttributes.Private : MethodAttributes.Assembly, m.Attributes & MethodAttributes.MemberAccessMask);
+                Assert.Equal(expected[m.Name].Signature, m.FullName);
+                Assert.Equal(expected[m.Name].Code, m.Body.Instructions.Select(i => Text(i).TrimEnd()));
+                Assert.Empty(m.Body.ExceptionHandlers);
+                Assert.Equal(m.Name == "FailLater" ? new[] { tcs } : new string[0], m.Body.Variables.Select(v => v.VariableType.FullName));
+                foreach (MethodReference r in m.Body.Instructions.Select(i => i.Operand).OfType<MethodReference>())
+                {
+                    MethodDefinition resolved = r.Resolve();
+                    Assert.NotNull(resolved);
+                    if (r.DeclaringType.Namespace.StartsWith("System", StringComparison.Ordinal)) FromTheGamesCorlib(r, refs);
+                    else Assert.Equal("Gameloft.Engine", resolved.Module.Assembly.Name.Name);
                 }
             }
         }
@@ -248,19 +347,27 @@ namespace McvsOffline.Embed.Tests.Patcher
                 using (var game = new GameContext(refs, set, serverImage))
                 {
                     Assembly engine = game.Get("Gameloft.Engine");
-                    foreach (var (type, name, n) in PatchedMethods)
+                    foreach (var (type, name, n) in PatchedMethods.Concat(HelperMethods.Select(h => (Helper, h.Name, h.Parameters))))
                     {
                         MethodInfo m = engine.GetType(type, true).GetMethods(Any | BindingFlags.DeclaredOnly).Single(x => x.Name == name && x.GetParameters().Length == n);
                         RuntimeHelpers.PrepareMethod(m.MethodHandle);   // InvalidProgramException on bad IL
                     }
                 }
             }
-            output.WriteLine("JIT ok: " + PatchedMethods.Length + " methods, alone and with the default patches");
+            output.WriteLine("JIT ok: " + PatchedMethods.Length + " patched and " + HelperMethods.Length + " added methods, alone and with the default patches");
 
-            // Patched once: the fingerprints no longer match.
+            // Patched once: refused (the helper type is there), and with it renamed the fingerprints no longer match.
             string dir = TestEnvironment.NewTempDir("debloat-repatch");
             foreach (string f in Directory.GetFiles(refs, "*.dll")) File.Copy(f, Path.Combine(dir, Path.GetFileName(f)));
             File.WriteAllBytes(Path.Combine(dir, Engine), images[Engine]);
+            Assert.Contains("already patched", Assert.Throws<PatchException>(() => RealGamePatchTests.PatchReal(dir, serverImage, null, new DebloatEnginePatch())).Message);
+            using (var resolver = new DefaultAssemblyResolver())
+            using (var module = ModuleDefinition.ReadModule(new MemoryStream(images[Engine]), new ReaderParameters { InMemory = true, AssemblyResolver = resolver }))
+            {
+                resolver.AddSearchDirectory(refs);
+                module.GetType(Helper).Name = DebloatEnginePatch.HelperType + "Renamed";
+                module.Write(Path.Combine(dir, Engine));
+            }
             Assert.Contains("IL fingerprint", Assert.Throws<PatchException>(() => RealGamePatchTests.PatchReal(dir, serverImage, null, new DebloatEnginePatch())).Message);
 
             // One changed instruction in a body the patch only relies on (InitSocial's loop) is refused too.
@@ -321,19 +428,22 @@ namespace McvsOffline.Embed.Tests.Patcher
                 }
             }
 
-            // The ten patched methods (ILVerify matches the patterns against "[Assembly]Namespace.Type.Method"): no finding.
+            // The nine patched methods and the three added ones (ILVerify matches the patterns against
+            // "[Assembly]Namespace.Type.Method"): no finding.
             var includes = new List<string>
             {
                 "-i", @"\]Gameloft\.Engine\.Crashlytics\.(Start|Start_Native|Native_Start)$", "-i", @"\]Gameloft\.Engine\.NotificationComponent\.ShouldRegister$",
-                "-i", @"\]Gameloft\.Engine\.NativeNotificationSystem\.(Register|RegisterForRemoteNotifications|RegisterAsync)$",
-                "-i", @"\]Gameloft\.Engine\.SocialLib_private\.(Init|Login|TriggerAutoLogin)$", "--statistics",
+                "-i", @"\]Gameloft\.Engine\.NativeNotificationSystem\.(RegisterForRemoteNotifications|RegisterAsync)$",
+                "-i", @"\]Gameloft\.Engine\.SocialLib_private\.(Init|Login|TriggerAutoLogin)$",
+                "-i", @"\]Gameloft\.Engine\." + DebloatEnginePatch.HelperType + @"\.(Post|Fail|FailLater)$", "--statistics",
             };
             foreach (string file in new[] { shipped, patchedFile })
             {
                 var (exit, text) = Verify(file, includes);
                 output.WriteLine((file == patchedFile ? "patched: " : "original: ") + text.Trim());
                 Assert.True(exit == 0, "ilverify exit code " + exit + ":\n" + text);
-                Assert.Contains("Methods verified: 10", text);   // the include patterns matched all ten methods
+                // the include patterns matched all nine patched methods, and in the patched file the three added ones
+                Assert.Contains("Methods verified: " + (file == patchedFile ? PatchedMethods.Length + HelperMethods.Length : PatchedMethods.Length), text);
             }
 
             // The whole assembly: the shipped engine has findings of its own (unsafe pointer code and the like); the patched
@@ -343,7 +453,7 @@ namespace McvsOffline.Embed.Tests.Patcher
             List<string> before = Findings(Verify(shipped, new string[0]).Text), after = Findings(Verify(patchedFile, new string[0]).Text);
             output.WriteLine("whole assembly: " + before.Count + " shipped findings, " + after.Count + " after patching");
             Assert.Equal(before, after);
-            Assert.DoesNotContain(after, l => PatchedMethods.Any(m => l.Contains(m.Type + "::" + m.Name + "(")));
+            Assert.DoesNotContain(after, l => PatchedMethods.Any(m => l.Contains(m.Type + "::" + m.Name + "(")) || l.Contains(Helper + "::"));
         }
 
         // ------------------------------------------------------------------ Crashlytics
@@ -451,25 +561,24 @@ namespace McvsOffline.Embed.Tests.Patcher
                         Assert.False(task.IsCompletedSuccessfully);   // went on to the World and the connection gate
                     }
 
-                    // NativeNotificationSystem: no native registration, and RegisterAsync no longer waits for a token.
+                    // NativeNotificationSystem: Register() still reaches libnativeengine (which export: the runs against the stand-in
+                    // below), and RegisterAsync no longer waits for a token. Without a GameApplication it posts nothing.
                     object system = e.New(DebloatEnginePatch.NotificationSystemType);
                     e.Set(system, "self", new IntPtr(0x3000));
-                    var register = e.Run(system, "Register");
-                    var registerRemote = e.Run(system, "RegisterForRemoteNotifications");
+                    Assert.IsType<DllNotFoundException>(e.Run(system, "Register").Error);
+                    Assert.IsType<DllNotFoundException>(e.Run(system, "RegisterForRemoteNotifications").Error);
                     var registerAsync = (Task)e.Run(system, "RegisterAsync", CancellationToken.None).Value;
                     var cancelled = (Task)e.Run(system, "RegisterAsync", new CancellationToken(true)).Value;
                     if (isPatched)
                     {
-                        Assert.Null(register.Error);
-                        Assert.Null(registerRemote.Error);
                         Assert.Same(Task.CompletedTask, registerAsync);
                         Assert.Same(Task.CompletedTask, cancelled);
                     }
                     else
                     {
-                        Assert.IsType<DllNotFoundException>(register.Error);
-                        Assert.IsType<DllNotFoundException>(registerRemote.Error);
-                        Assert.False(registerAsync.IsCompletedSuccessfully);   // posts Register() to GameApplication's context first
+                        // GameApplication.Instance.Context.Post(...) first: no GameApplication here.
+                        Assert.IsType<NullReferenceException>(registerAsync.Exception?.InnerException);
+                        Assert.IsType<NullReferenceException>(cancelled.Exception?.InnerException);
                     }
                     Assert.Null(e.Get(system, "DeviceTokenGate"));
                 }
@@ -484,10 +593,30 @@ namespace McvsOffline.Embed.Tests.Patcher
                 {
                     object system = e.New(DebloatEnginePatch.NotificationSystemType);
                     e.Set(system, "self", new IntPtr(0x3000));
+                    // Register() -> RegisterForRemoteNotifications(): the shipped export (local-alarm purge, then the token request)
+                    // before, now exactly the managed CancelAllLocalNotifications() (the same purge, no token request).
                     NativeStub.Reset();
                     Assert.Null(e.Run(system, "Register").Error);
                     Assert.Null(e.Run(system, "RegisterForRemoteNotifications").Error);
-                    Assert.Equal(isPatched ? new int[0] : new[] { NativeStub.RegisterRemote, NativeStub.RegisterRemote }, NativeStub.Events());
+                    int native = isPatched ? NativeStub.CancelAllLocal : NativeStub.RegisterRemote;
+                    Assert.Equal(new[] { native, native }, NativeStub.Events());
+
+                    // RegisterAsync (the settings toggle) with a GameApplication: both post Register() to its Context; the shipped one
+                    // then waits on DeviceTokenGate (locked: no token), the patched one is done. The posted item runs on the next
+                    // turn of the queue, once.
+                    object queue = e.GameLoop();
+                    e.Set(system, "DeviceTokenGate", Activator.CreateInstance(e.FieldType(system, "DeviceTokenGate"), new object[] { true }));   // locked
+                    NativeStub.Reset();
+                    var toggled = (Task)e.Run(system, "RegisterAsync", CancellationToken.None).Value;
+                    Assert.Empty(NativeStub.Events());
+                    if (isPatched) Assert.Same(Task.CompletedTask, toggled);
+                    else Assert.False(toggled.IsCompleted);
+                    e.RunQueue(queue);
+                    Assert.Equal(new[] { native }, NativeStub.Events());
+                    e.RunQueue(queue);
+                    Assert.Equal(new[] { native }, NativeStub.Events());
+                    if (!isPatched) Assert.False(toggled.IsCompleted);
+                    output.WriteLine((isPatched ? "patched" : "original") + " RegisterAsync: " + toggled.Status + ", native " + native);
 
                     // Local notifications (the Scheduler's INotificationSystem calls, the settings toggle's Start/Pause) reach
                     // libnativeengine exactly as before.
@@ -521,12 +650,13 @@ namespace McvsOffline.Embed.Tests.Patcher
             if (refs == null) return;
             Dictionary<string, byte[]> images = Patched(refs, out byte[] serverImage);
 
-            // Without libnativeengine: SocialLib_private.Init answers NotSent for the two without native code; every other Sns
-            // still goes to the native Init.
+            // Without libnativeengine: SocialLib_private.Init answers NotSent for the two without native code, at once even with a
+            // game loop (Init is not driven by a UI call); every other Sns still goes to the native Init.
             foreach (bool isPatched in new[] { false, true })
             {
                 using (var e = new EngineScene(refs, isPatched ? images : new Dictionary<string, byte[]>(), serverImage, null))
                 {
+                    e.GameLoop();
                     object lib = e.SocialLib();
                     foreach (string sns in new[] { "Facebook", "GameCenter", "GooglePlayGames", "Msn", "SinaWeibo" })
                     {
@@ -580,31 +710,42 @@ namespace McvsOffline.Embed.Tests.Patcher
         }
 
         [Fact]
-        public void ALoginTapFailsAndNeverLeavesTheUiConnecting()
+        public void ALoginTapFailsAfterTheUiShowsConnecting()
         {
             string refs = Refs();
             if (refs == null) return;
             Dictionary<string, byte[]> images = Patched(refs, out byte[] serverImage);
 
-            // Without libnativeengine: Login/TriggerAutoLogin answer Failed for the two without native code.
-            foreach (bool isPatched in new[] { false, true })
+            // Without libnativeengine: Login/TriggerAutoLogin answer Failed for the two without native code: on the next turn of
+            // GameApplication.Context (not before the call has returned), at once without a GameApplication or Context.
+            foreach (string loop in new[] { "no GameApplication", "no Context", "game loop" })
             {
-                using (var e = new EngineScene(refs, isPatched ? images : new Dictionary<string, byte[]>(), serverImage, null))
+                foreach (bool isPatched in new[] { false, true })
                 {
-                    object lib = e.SocialLib();
-                    foreach (string method in new[] { "Login", "TriggerAutoLogin" })
+                    using (var e = new EngineScene(refs, isPatched ? images : new Dictionary<string, byte[]>(), serverImage, null))
                     {
-                        foreach (string sns in new[] { "Facebook", "GameCenter", "GooglePlayGames" })
+                        object queue = loop == "game loop" ? e.GameLoop() : loop == "no Context" ? e.GameLoop(false) : null;
+                        object lib = e.SocialLib();
+                        foreach (string method in new[] { "Login", "TriggerAutoLogin" })
                         {
-                            Task task = e.Result(e.Run(lib, method, e.Sns(sns), CancellationToken.None));
-                            if (isPatched && sns != "GameCenter")
+                            foreach (string sns in new[] { "Facebook", "GameCenter", "GooglePlayGames" })
                             {
-                                Assert.True(task.IsCompletedSuccessfully, method + " " + sns);
-                                Assert.Equal("Failed", e.ResultOf(task));
-                            }
-                            else
-                            {
-                                Assert.IsType<DllNotFoundException>(task.Exception?.InnerException);   // IsInitialized
+                                string what = method + " " + sns + ", " + loop;
+                                Task task = e.Result(e.Run(lib, method, e.Sns(sns), CancellationToken.None));
+                                if (isPatched && sns != "GameCenter")
+                                {
+                                    if (queue != null)
+                                    {
+                                        Assert.False(task.IsCompleted, what);
+                                        e.RunQueue(queue);
+                                    }
+                                    Assert.True(task.IsCompletedSuccessfully, what);
+                                    Assert.Equal("Failed", e.ResultOf(task));
+                                }
+                                else
+                                {
+                                    Assert.IsType<DllNotFoundException>(task.Exception?.InnerException);   // IsInitialized
+                                }
                             }
                         }
                     }
@@ -613,44 +754,75 @@ namespace McvsOffline.Embed.Tests.Patcher
 
             // SocialComponent.Login (UIComponent.NativeLogin, the account settings' Facebook and Google Play buttons) on the
             // state the patched menu start leaves: the Sns not initialised. Shipped: Connecting, then "SNS not initialized"
-            // thrown (NativeLogin swallows it) and no result event. Patched: Connecting, then Failed (the failure popup).
+            // thrown (NativeLogin swallows it) and no result event. Patched: Connecting, the call returns (the UI then shows
+            // "Connecting..."), and Failed (the failure popup, which resets the button) arrives on a later turn: of
+            // GameApplication.Context when the tap ran on its own turn ("queue"), of the World's context LoginImpl captured when
+            // it ran in a World update ("world", where a menu's Flash calls run) after the GameApplication turn posted it there;
+            // at once only without a GameApplication ("none").
             string stub = NativeStub.Library(output);
             if (stub == null) return;
-            foreach (bool needsAutoLogin in new[] { false, true })
+            foreach (string loop in new[] { "none", "queue", "world" })
             {
-                foreach (string sns in new[] { "Facebook", "GooglePlayGames", "GameCenter" })
+                foreach (bool needsAutoLogin in new[] { false, true })
                 {
-                    foreach (bool isPatched in new[] { false, true })
+                    foreach (string sns in new[] { "Facebook", "GooglePlayGames", "GameCenter" })
                     {
-                        using (var e = new EngineScene(refs, isPatched ? images : new Dictionary<string, byte[]>(), serverImage, stub))
+                        foreach (bool isPatched in new[] { false, true })
                         {
-                            e.SocialLib();
-                            object social = e.Social(true);
-                            var events = new List<string>();
-                            e.OnLogin(social, events);
-                            NativeStub.Reset();
-                            NativeStub.NeedsAutoLogin(needsAutoLogin);
-                            Task task = e.Result(e.Run(social, "Login", e.Sns(sns), CancellationToken.None));
-                            int[] native = NativeStub.Events();
-                            string what = (isPatched ? "patched" : "original") + " " + sns + (needsAutoLogin ? " (auto)" : "");
-                            output.WriteLine(what + ": " + task.Status + " " + string.Join(" ", events) + "; native " + string.Join(",", native));
-                            Assert.False((bool)e.Run(social, "IsLoggingIn", e.Sns(sns)).Value, what);
-                            int n = (int)e.Sns(sns);
-                            Assert.Contains(NativeStub.NeedsAuto + n, native);
-                            Assert.DoesNotContain(native, x => x == NativeStub.Login + n || x == NativeStub.TriggerAuto + n);   // no native login request
-                            if (isPatched && sns != "GameCenter")
+                            using (var e = new EngineScene(refs, isPatched ? images : new Dictionary<string, byte[]>(), serverImage, stub))
                             {
-                                Assert.True(task.IsCompletedSuccessfully, what);
-                                Assert.Equal("Failed", e.ResultOf(task));
-                                Assert.Equal(new[] { "Connecting/manual", "Failed/manual" }, events);
-                                Assert.DoesNotContain(NativeStub.IsInitialized + n, native);
-                                Assert.Equal(2, native.Count(x => x == NativeStub.SetGroupVolume));   // muted and unmuted again
-                            }
-                            else
-                            {
-                                Assert.Equal(TaskStatus.Faulted, task.Status);
-                                Assert.Equal("SNS not initialized", Assert.IsType<InvalidOperationException>(task.Exception.InnerException).Message);
-                                Assert.Equal(new[] { "Connecting/manual" }, events);
+                                e.SocialLib();
+                                object social = e.Social(true);
+                                var events = new List<string>();
+                                e.OnLogin(social, events);
+                                object queue = loop == "none" ? null : e.GameLoop();
+                                object world = loop == "world" ? e.NewQueue() : queue;
+                                NativeStub.Reset();
+                                NativeStub.NeedsAutoLogin(needsAutoLogin);
+                                (object, Exception) Tap() => e.Run(social, "Login", e.Sns(sns), CancellationToken.None);
+                                Task task = e.Result(world == null ? Tap() : e.Within(world, Tap));
+                                string what = (isPatched ? "patched" : "original") + " " + sns + (needsAutoLogin ? " (auto)" : "") + ", " + loop;
+                                int n = (int)e.Sns(sns);
+                                bool deferred = isPatched && sns != "GameCenter" && queue != null;
+                                if (deferred)
+                                {
+                                    // Native.Login has returned: Connecting only, still logging in, sounds muted.
+                                    Assert.False(task.IsCompleted, what);
+                                    Assert.Equal(new[] { "Connecting/manual" }, events);
+                                    Assert.True((bool)e.Run(social, "IsLoggingIn", e.Sns(sns)).Value, what);
+                                    Assert.Equal(1, NativeStub.Events().Count(x => x == NativeStub.SetGroupVolume));
+                                    e.RunQueue(queue);   // the next frame's UpdateWorlds
+                                    if (loop == "world")
+                                    {
+                                        Assert.False(task.IsCompleted, what);   // LoginImpl's continuation was posted to the World's context
+                                        Assert.Equal(new[] { "Connecting/manual" }, events);
+                                        e.RunQueue(world);   // that World's update
+                                    }
+                                }
+                                int[] native = NativeStub.Events();
+                                output.WriteLine(what + ": " + task.Status + " " + string.Join(" ", events) + "; native " + string.Join(",", native));
+                                Assert.False((bool)e.Run(social, "IsLoggingIn", e.Sns(sns)).Value, what);
+                                Assert.Contains(NativeStub.NeedsAuto + n, native);
+                                Assert.DoesNotContain(native, x => x == NativeStub.Login + n || x == NativeStub.TriggerAuto + n);   // no native login request
+                                if (isPatched && sns != "GameCenter")
+                                {
+                                    Assert.True(task.IsCompletedSuccessfully, what);
+                                    Assert.Equal("Failed", e.ResultOf(task));
+                                    Assert.Equal(new[] { "Connecting/manual", "Failed/manual" }, events);
+                                    Assert.DoesNotContain(NativeStub.IsInitialized + n, native);
+                                    Assert.Equal(2, native.Count(x => x == NativeStub.SetGroupVolume));   // muted and unmuted again
+                                }
+                                else
+                                {
+                                    Assert.Equal(TaskStatus.Faulted, task.Status);
+                                    Assert.Equal("SNS not initialized", Assert.IsType<InvalidOperationException>(task.Exception.InnerException).Message);
+                                    Assert.Equal(new[] { "Connecting/manual" }, events);
+                                }
+
+                                // Exactly once: later turns change nothing.
+                                foreach (object q in new[] { queue, world }.Where(q => q != null)) e.RunQueue(q);
+                                Assert.Equal(isPatched && sns != "GameCenter" ? 2 : 1, events.Count);
+                                Assert.Equal(native, NativeStub.Events());
                             }
                         }
                     }
@@ -730,7 +902,45 @@ namespace McvsOffline.Embed.Tests.Patcher
 
             public object Get(object target, string field) => Field(target, field).GetValue(target);
 
+            public Type FieldType(object target, string field) => Field(target, field).FieldType;
+
             public void Set(object target, string field, object value) => Field(target, field).SetValue(target, value);
+
+            /// <summary>
+            /// Installs an uninitialised <c>GameApplication</c> as <c>GameApplication.Instance</c>, with a real
+            /// <c>GameSynchronizationContext</c> as its <c>Context</c> (none with <paramref name="withContext"/> false): the game
+            /// thread's work queue, which <c>UpdateWorlds</c> runs once per frame (<see cref="RunQueue"/> here). Returns the queue.
+            /// </summary>
+            public object GameLoop(bool withContext = true)
+            {
+                Type application = Type("Gameloft.Engine.GameApplication");
+                object instance = Uninitialized(application);
+                object queue = withContext ? NewQueue() : null;
+                application.GetField("<Context>k__BackingField", Any).SetValue(instance, queue);
+                application.GetField("<Instance>k__BackingField", Any).SetValue(null, instance);
+                return queue;
+            }
+
+            /// <summary>A new GameSynchronizationContext (as each World has its own).</summary>
+            public object NewQueue() => Activator.CreateInstance(Type(DebloatEnginePatch.GameContextType));
+
+            /// <summary>One turn of a GameSynchronizationContext: every queued item runs, with the context current.</summary>
+            public void RunQueue(object queue) => Assert.Null(Run(queue, "ExecuteItems").Error);
+
+            /// <summary>Runs <paramref name="action"/> with <paramref name="current"/> as SynchronizationContext.Current (as a World's update does).</summary>
+            public T Within<T>(object current, Func<T> action)
+            {
+                SynchronizationContext saved = SynchronizationContext.Current;
+                SynchronizationContext.SetSynchronizationContext((SynchronizationContext)current);
+                try
+                {
+                    return action();
+                }
+                finally
+                {
+                    SynchronizationContext.SetSynchronizationContext(saved);
+                }
+            }
 
             /// <summary>An uninitialised SocialLib_private with a native pointer, installed as the process-wide instance.</summary>
             public object SocialLib()
