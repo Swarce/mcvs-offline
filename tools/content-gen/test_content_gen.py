@@ -523,6 +523,13 @@ class GeneratorTests(unittest.TestCase):
             json.dump([{"Id": i} for i in ids if i != "Boost"], f)
         with self.assertRaises(cg.ContentError):
             self.outputs()
+        with open(os.path.join(loc, "menu_en.json"), "w") as f:
+            json.dump([{"Id": i} for i in ids], f)
+        with open(os.path.join(loc, "Crate_en.json"), "w") as f:
+            json.dump([{"Id": "Legendary_Crate"}], f)
+        with self.assertRaises(cg.ContentError) as raised:
+            self.outputs()
+        self.assertIn("collector: crate.locId: localization id Crate.Cosmetic_Crate does not exist", str(raised.exception))
 
     def test_check_mode_reports_stale_files(self):
         out_dir = os.path.join(self.tmp, "out")
@@ -668,6 +675,10 @@ class GeneratorTests(unittest.TestCase):
         self.assert_document_error(lambda d: d["avatars"].update(unlock="2,5,12,16"), "Unlockable=false")
         self.assert_document_error(lambda d: d["avatars"].update(lock="7"), "released Kayac avatars")
         self.assert_document_error(lambda d: d["backgrounds"].update(unlock="2-3"), "Unlockable=false")
+        self.assert_document_error(lambda d: d.update(rows=[]), "0 crate rows")
+        self.assert_document_error(lambda d: d["avatars"].update(kayac=d["avatars"]["kayac"] + ",99"), "avatars.kayac holds unknown")
+        self.assert_document_error(lambda d: d["backgrounds"].update(drawable="1,3-4,9"), "backgrounds.drawable holds unknown")
+        self.assert_document_error(lambda d: d["avatars"].update(drawable="1,5-6,13"), "in both drawable and reserved")
 
     def test_collector_rejects_bad_inputs(self):
         def second_weight(design):
@@ -717,8 +728,43 @@ class GeneratorTests(unittest.TestCase):
         self.assert_error(lambda t: t["rows"].remove("exhausted"), text="rows must list")
         self.assert_error(mutate_design=lambda d: d.pop("KillsignatureSounds"), text="KillsignatureSounds")
         os.remove(os.path.join(self.tmp, "Design", "MCVS_Meta.xlsx"))
-        with self.assertRaises(cg.ContentError):
+        with self.assertRaises(cg.ContentError) as raised:
             self.generate()
+        self.assertIn("needs the design tables", str(raised.exception))
+
+    def test_collector_rejects_inconsistent_tables(self):
+        def rename_field(table, old, new):
+            def mutate(design):
+                design[table]["Fields"] = [new if f == old else f for f in design[table]["Fields"]]
+            return mutate
+
+        def drop_row(table, key):
+            def mutate(design):
+                design[table]["Rows"] = [r for r in design[table]["Rows"] if r[0] != key]
+            return mutate
+
+        def jersey_hidden_in_tables(design):
+            design["MercAccessories"]["Rows"][0][3] = "false"   # the catalogue still has jersey 1 in the VIP pool
+
+        def agent_jersey(design):
+            design["MercAccessories"]["Rows"][2][2] = 1         # visible jersey 3 only for agent 1
+
+        def extra_visible_jersey(design):
+            design["MercAccessories"]["Rows"].append([5, "jersey.E", None, "true", "false"])
+
+        self.assert_error(mutate_design=rename_field("LootCrates", "CratesCount", "Count"), text="LootCrates has no field CratesCount")
+        self.assert_error(mutate_design=rename_field("Crate_Event_Special", "Weight.1", "Weight1"), text="has no field Weight.1")
+        self.assert_error(mutate_design=drop_row("KillsignatureAvatars", 2), text="avatars 2 have no KillsignatureAvatars row")
+        self.assert_error(mutate_design=drop_row("KillsignatureBackgrounds", 2),
+                          text="backgrounds 2 have no KillsignatureBackgrounds row")
+        self.assert_error(mutate_design=drop_row("CamosListPerWeapon", 2), text="agent 2: no CamosListPerWeapon row for its weapon SR01")
+        self.assert_error(lambda t: t.update(skins=[[1, 1]]), text="skin 1/1 is not a released no-source skin")   # default
+        self.assert_error(lambda t: t.update(hiddenJerseys=[1]), jersey_hidden_in_tables,
+                          text="hidden jersey 1 is not a released no-source jersey")
+        self.assert_error(mutate_design=agent_jersey, text="jersey 3 is agent-specific")
+        self.assert_error(mutate_design=extra_visible_jersey, text="visible jersey pool differs")
+        for key, value in (("sounds", [2, 2]), ("skins", [[1, 2], [1, 2]]), ("hiddenJerseys", [4, 4]), ("agents", [2, 2])):
+            self.assert_error(lambda t: t.update({key: value}), text="%s names an item twice" % key)
 
     # ------------------------------------------------------------------------------------------ liveops collector block
 
@@ -758,9 +804,30 @@ class GeneratorTests(unittest.TestCase):
         self.assert_error(mutate_liveops=block(weeklyMilestones=[crate, crate]), text="one reward list per weekly milestone tier (3)")
         self.assert_error(mutate_liveops=block(dailyBonus=[{"item": "Crate_Nope", "quantity": 1}]), text="unknown reward")
         self.assert_error(mutate_liveops=block(weeklyFinal=[{"item": "Crate_Event_Special", "quantity": 0}]), text="positive")
-        self.assert_error(mutate_liveops=block(dailyBonus=[]), text="no rewards")
+        self.assert_error(mutate_liveops=block(weeklyFinal={"item": "Crate_Event_Special", "quantity": 2}), text="must be a list")
+        self.assert_error(mutate_liveops=block(dailyBonus=["Crate_Event_Special"]), text="{item, quantity}")
         self.assert_error(mutate_liveops=block(dailyBonus=[{"item": "Crate_Contracts", "quantity": 1}]),
                           text="not the collector's crate")
+        self.assert_error(mutate_liveops=block(since="2030-02-30T00:00:00Z"), text="not a valid date")
+        # a misspelt or missing key would silently drop its crates
+        self.assert_error(mutate_liveops=block(weeklyfinal=crate), text="unknown: weeklyfinal")
+
+        def without_final(t):
+            block()(t)
+            del t["collector"]["weeklyFinal"]
+        self.assert_error(mutate_liveops=without_final, text="missing: weeklyFinal")
+
+    def test_liveops_collector_lists_may_be_empty(self):
+        # the content-only fallback of economy-collector.md §8: crates on milestone tier 3 and the final only
+        tuning = sample_liveops()
+        tuning["collector"] = dict(collector_block(), _comment="tier 3 and the final only", dailyBonus=[],
+                                   weeklyMilestones=[[], [], [{"item": "Crate_Event_Special", "quantity": 2}]])
+        self.write_liveops(tuning)
+        block = self.outputs()["liveops.json"]["collector"]
+        self.assertEqual(list(block), ["since", "dailyBonus", "weeklyMilestones", "weeklyFinal"])   # comments dropped
+        self.assertEqual(block["dailyBonus"], [])
+        self.assertEqual(block["weeklyMilestones"], [[], [], [{"item": "Crate_Event_Special", "quantity": 2}]])
+        self.assertEqual(block["weeklyFinal"], [{"item": "Crate_Event_Special", "quantity": 2}])
 
     def test_since_warning(self):
         tuning = sample_liveops()

@@ -788,6 +788,8 @@ def check_image(cat, path, where):
 SEASON_EPOCH = datetime.datetime(2024, 1, 1, tzinfo=datetime.timezone.utc)
 # content-gen warns when collector.since is closer than this to the generation time (economy-collector.md §3.2).
 SINCE_MARGIN = datetime.timedelta(days=7)
+# The liveops.json collector block, in output order (economy-collector.md §3.2).
+COLLECTOR_BLOCK_KEYS = ("since", "dailyBonus", "weeklyMilestones", "weeklyFinal")
 
 
 def parse_since(value, where):
@@ -816,16 +818,20 @@ def build_liveops(cat, tuning, loc_tables, now=None):
     def loc(locid, where):
         return check_loc_id(loc_tables, locid, "liveops: " + where)
 
-    def rewards(items, where):
+    def rewards(items, where, allow_empty=False):
+        if not isinstance(items, list):
+            raise ContentError("liveops: %s: rewards must be a list" % where)
         out = []
         for r in items:
+            if not isinstance(r, dict):
+                raise ContentError("liveops: %s: a reward must be an {item, quantity} object" % where)
             item, qty = r.get("item"), r.get("quantity")
             if not isinstance(qty, int) or qty <= 0:
                 raise ContentError("liveops: %s: quantity of %s must be a positive integer" % (where, item))
             if item not in LIVEOPS_CURRENCIES and item not in cat.crates:
                 raise ContentError("liveops: %s: unknown reward %s" % (where, item))
             out.append({"item": item, "quantity": qty})
-        if not out:
+        if not out and not allow_empty:
             raise ContentError("liveops: %s: no rewards" % where)
         return out
 
@@ -964,17 +970,27 @@ def build_liveops(cat, tuning, loc_tables, now=None):
 def build_liveops_collector(block, milestone_tiers, rewards, now):
     """The liveops.json ``collector`` block (economy-collector.md §3.2): the Cosmetic crates the daily bonus, the weekly
     milestone tiers and the weekly final hand out in every window from ``since`` on. Carried unchanged, ``since``
-    normalised; the ``revision`` stays as it is (a bump would replace the running day and week for everybody)."""
-    since = parse_since(block.get("since"), "liveops: collector.since")
-    milestones = block.get("weeklyMilestones")
+    normalised; the ``revision`` stays as it is (a bump would replace the running day and week for everybody). A list
+    may be empty (that event part gets no crate: the content-only fallback of §8, e.g. crates on tier 3 and the final
+    only); every key must be there, so that a misspelt one cannot silently drop its crates."""
+    if not isinstance(block, dict):
+        raise ContentError("liveops: collector must be an object")
+    unknown = sorted(k for k in block if not k.startswith("_") and k not in COLLECTOR_BLOCK_KEYS)
+    missing = [k for k in COLLECTOR_BLOCK_KEYS if k not in block]
+    if unknown or missing:
+        raise ContentError("liveops: collector needs exactly the keys %s (unknown: %s, missing: %s)"
+                           % (", ".join(COLLECTOR_BLOCK_KEYS), ", ".join(unknown) or "-", ", ".join(missing) or "-"))
+    since = parse_since(block["since"], "liveops: collector.since")
+    milestones = block["weeklyMilestones"]
     if not isinstance(milestones, list) or len(milestones) != milestone_tiers:
         raise ContentError("liveops: collector.weeklyMilestones needs one reward list per weekly milestone tier (%d)"
                            % milestone_tiers)
     out = {
         "since": since.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "dailyBonus": rewards(block.get("dailyBonus") or [], "collector.dailyBonus"),
-        "weeklyMilestones": [rewards(m or [], "collector.weeklyMilestones[%d]" % i) for i, m in enumerate(milestones)],
-        "weeklyFinal": rewards(block.get("weeklyFinal") or [], "collector.weeklyFinal"),
+        "dailyBonus": rewards(block["dailyBonus"], "collector.dailyBonus", allow_empty=True),
+        "weeklyMilestones": [rewards(m, "collector.weeklyMilestones[%d]" % i, allow_empty=True)
+                             for i, m in enumerate(milestones)],
+        "weeklyFinal": rewards(block["weeklyFinal"], "collector.weeklyFinal", allow_empty=True),
     }
     if now is not None and since < now + SINCE_MARGIN:
         warn("liveops: collector.since %s is less than 7 days after this build (%s): set collector.since to the first "
@@ -1221,6 +1237,9 @@ def build_collector(cat, tuning, unlocks, loc_tables):
             raise ContentError("collector: hidden jersey %d is not a released no-source jersey" % j)
         hidden_pairs += len(released)
     agents = [int(a) for a in tuning["agents"]]
+    for name, values in (("sounds", sounds), ("skins", skins), ("hiddenJerseys", hidden), ("agents", agents)):
+        if len(set(values)) != len(values):
+            raise ContentError("collector: %s names an item twice (one row per item)" % name)
     for a in agents:
         if a not in cat.merc_ids or "UnlockMerc_%d" % a not in nosource.get("mercs", ()):
             raise ContentError("collector: agent %d is not a displayed, released no-source agent" % a)
