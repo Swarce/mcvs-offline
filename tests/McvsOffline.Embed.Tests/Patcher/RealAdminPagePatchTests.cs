@@ -164,6 +164,78 @@ namespace McvsOffline
             return component;
         }
 
+        /// <summary>
+        /// An uninitialised World of a signed-in client, enough for <c>World.Social.GetUserComponent&lt;SocialComponent&gt;()</c>
+        /// to answer non-null: Synchronization with its client enabled, Authentication with a session of fed id "fed_id:mcvs",
+        /// and Social with that user's SocialComponent ready; with <paramref name="crm"/> also a GameCrmManager without an
+        /// IapStoreComponent as CRM. Every other global component (CRM too without <paramref name="crm"/>) is null.
+        /// </summary>
+        internal static object SignedInWorld(GameContext context, bool crm)
+        {
+            Assembly engine = context.Get("Gameloft.Engine"), platform = context.Get("Gameloft.OnlinePlatform");
+            Type EngineType(string name) => engine.GetType("Gameloft.Engine." + name, true);
+            Type worldType = EngineType("World"), componentType = EngineType("Component");
+            object world = RuntimeHelpers.GetUninitializedObject(worldType);
+            var globals = new Dictionary<Type, object>();
+
+            object client = RuntimeHelpers.GetUninitializedObject(EngineType("ClientComponent"));
+            FieldInfo status = componentType.GetField("status", Any);
+            status.SetValue(client, Enum.ToObject(status.FieldType, 1));   // Component.StatusFlags.Enabled: Synchronization.IsClient
+            object synchronization = RuntimeHelpers.GetUninitializedObject(EngineType("SynchronizationComponent"));
+            EngineType("SynchronizationComponent").GetField("Client", Any).SetValue(synchronization, client);
+            globals[EngineType("SynchronizationComponent")] = synchronization;
+
+            object fedId = Activator.CreateInstance(platform.GetType("Gameloft.OnlinePlatform.Credential", true), "fed_id:mcvs");
+            Type sessionType = platform.GetType("Gameloft.OnlinePlatform.Session", true);
+            object session = RuntimeHelpers.GetUninitializedObject(sessionType);
+            sessionType.GetField("<FedId>k__BackingField", Any).SetValue(session, fedId);
+            object authentication = RuntimeHelpers.GetUninitializedObject(EngineType("AuthenticationComponent"));
+            EngineType("AuthenticationComponent").GetField("<Session>k__BackingField", Any).SetValue(authentication, session);
+            globals[EngineType("AuthenticationComponent")] = authentication;
+
+            // ManagerBase.readyComponents: fed id -> component type -> its completion source.
+            FieldInfo ready = EngineType("ManagerBase").GetField("readyComponents", Any);
+            Type perUser = ready.FieldType.GetGenericArguments()[1], source = perUser.GetGenericArguments()[1];
+            object socialReady = Activator.CreateInstance(source);
+            source.GetMethod("SetResult").Invoke(socialReady, new[] { RuntimeHelpers.GetUninitializedObject(EngineType("SocialComponent")) });
+            object socialComponents = Activator.CreateInstance(perUser);
+            perUser.GetMethod("Add").Invoke(socialComponents, new object[] { EngineType("SocialComponent"), socialReady });
+            object socialUsers = Activator.CreateInstance(ready.FieldType);
+            ready.FieldType.GetMethod("TryAdd").Invoke(socialUsers, new[] { fedId, socialComponents });
+            object social = Component(engine, EngineType("SocialManager"), world);
+            ready.SetValue(social, socialUsers);
+            globals[EngineType("SocialManager")] = social;
+
+            if (crm)
+            {
+                object manager = Component(engine, context.Get("Game").GetType("Game.GameCrmManager", true), world);
+                ready.SetValue(manager, Activator.CreateInstance(ready.FieldType));
+                globals[EngineType("CrmManager")] = manager;
+            }
+
+            Type cacheType = context.Get("Gameloft.Util").GetType("Gameloft.Util.ConcurrentCache`2", true).MakeGenericType(typeof(Type), componentType);
+            Delegate lookup = Delegate.CreateDelegate(typeof(Func<,>).MakeGenericType(typeof(Type), componentType), new GlobalComponents(globals),
+                                                      typeof(GlobalComponents).GetMethod(nameof(GlobalComponents.Get)).MakeGenericMethod(componentType));
+            worldType.GetField("globalComponents", Any).SetValue(world, Activator.CreateInstance(cacheType, lookup));
+            return world;
+        }
+
+        /// <summary>The global components of <see cref="SignedInWorld"/> by the type asked for, null for any other.</summary>
+        public sealed class GlobalComponents
+        {
+            private readonly Dictionary<Type, object> components;
+
+            public GlobalComponents(Dictionary<Type, object> components)
+            {
+                this.components = components;
+            }
+
+            public TComponent Get<TComponent>(Type type) where TComponent : class
+            {
+                return components.TryGetValue(type, out object component) ? (TComponent)component : null;
+            }
+        }
+
         /// <summary>"returned", or the type and message of what the call threw.</summary>
         internal static string Outcome(MethodInfo method, object target, params object[] arguments)
         {
@@ -310,16 +382,37 @@ namespace McvsOffline
                 Assert.Equal(2, Opens());
                 Assert.Null(hooks.GetField("LastWorld").GetValue(null));
 
-                // Every other action: no hook call and exactly the shipped outcome (differential).
-                foreach (string other in new[] { "restore_purchase", "x", "", null, "MCVS_OFFLINE", "mcvs_offline ", "showRedeem" })
+                // Every other action: no hook call and exactly the shipped outcome (differential). On the bare World and without
+                // one the shipped body fails at World.Social before it reads the action; on a signed-in client's World it reaches
+                // the action compare, and "restore_purchase" goes on to World.CRM: without a CRM that fails, with a CRM that has
+                // no IapStoreComponent it returns, as every other action does on both.
+                var arms = new[]
                 {
-                    string expected = Outcome(action0, component0, other);
-                    Assert.Equal(expected, Outcome(action, component, other));
-                    Assert.Equal(Outcome(action0, Component(engine0, profile0, null), other), Outcome(action, Component(engine, profile, null), other));
-                    output.WriteLine("action " + (other == null ? "null" : "\"" + other + "\"") + ": " + expected);
+                    (Name: "bare World", Patched: component, Shipped: component0),
+                    (Name: "no World", Patched: Component(engine, profile, null), Shipped: Component(engine0, profile0, null)),
+                    (Name: "signed in, no CRM", Patched: Component(engine, profile, SignedInWorld(game, false)), Shipped: Component(engine0, profile0, SignedInWorld(original, false))),
+                    (Name: "signed in, CRM", Patched: Component(engine, profile, SignedInWorld(game, true)), Shipped: Component(engine0, profile0, SignedInWorld(original, true))),
+                };
+                var shipped = new Dictionary<string, string>(StringComparer.Ordinal);
+                foreach (var arm in arms)
+                {
+                    foreach (string other in new[] { "restore_purchase", "x", "", null, "MCVS_OFFLINE", "mcvs_offline ", "showRedeem" })
+                    {
+                        string expected = Outcome(action0, arm.Shipped, other);
+                        Assert.Equal(expected, Outcome(action, arm.Patched, other));
+                        string name = arm.Name + ", action " + (other == null ? "null" : "\"" + other + "\"");
+                        shipped[name] = expected;
+                        output.WriteLine(name + ": " + expected);
+                    }
                 }
                 Assert.Equal(2, Opens());
                 Assert.Equal(0, hooks.GetField("ButtonCalls").GetValue(null));
+
+                // The signed-in arms told the actions apart: the shipped body read the action there and ran restore_purchase's path.
+                const string restoreWithoutCrm = "signed in, no CRM, action \"restore_purchase\"";
+                Assert.StartsWith("System.NullReferenceException", shipped[restoreWithoutCrm]);
+                Assert.All(shipped.Where(kv => kv.Key.StartsWith("signed in", StringComparison.Ordinal) && kv.Key != restoreWithoutCrm),
+                           kv => Assert.Equal("returned", kv.Value));
             }
         }
 
@@ -550,14 +643,28 @@ namespace McvsOffline
         private static string embeddedSource, embeddedWithHooks;
 
         /// <summary>
-        /// The embedded server DLL of scripts/build.sh for full patcher runs with the default patches, or null when it was not
-        /// built. While the embedded build has no McvsOffline.AdminHooks (hosts/embedded/Admin/AdminHooks.cs, settings-page WP5,
-        /// lands on its own branch), a copy with pass-through hooks of the §8.1 signatures added stands in, so 'adminpage' and
-        /// 'adminlink' are located and verified on the real APK all the same; once the build has the real hooks it is used as built.
+        /// The explicit opt-in for the pass-through hooks of <see cref="EmbeddedServer"/>: set only by the runs of settings-page
+        /// WP6's own branch (wip/admin-patcher), whose embedded build cannot have WP5's hooks yet; never by scripts/build.sh.
+        /// </summary>
+        internal const string StandInVariable = "MCVS_ADMINHOOKS_STAND_IN";
+
+        /// <summary>
+        /// The embedded server DLL of scripts/build.sh for full patcher runs with the default patches, or null (skipped) when it
+        /// was not built. The default 'adminpage' and 'adminlink' call McvsOffline.AdminHooks (hosts/embedded/Admin/AdminHooks.cs,
+        /// settings-page WP5): a build without it cannot be patched with the default options, which fails the run under
+        /// MCVS_REQUIRE_EMBEDDED=1 (skipped otherwise). Only with <see cref="StandInVariable"/>=1 does a copy with pass-through
+        /// hooks of the §8.1 signatures stand in, so WP6's branch can verify both patches on the real APK before WP5 lands. WP6
+        /// lands on main-dev with or after WP5, and WP8 deletes the stand-in.
         /// </summary>
         internal static string EmbeddedServer(ITestOutputHelper output)
         {
-            string dll = TestEnvironment.EmbeddedServerDll;
+            return EmbeddedServer(TestEnvironment.EmbeddedServerDll, Environment.GetEnvironmentVariable(StandInVariable) == "1",
+                                  Environment.GetEnvironmentVariable("MCVS_REQUIRE_EMBEDDED") == "1", output);
+        }
+
+        /// <summary><see cref="EmbeddedServer(ITestOutputHelper)"/> for <paramref name="dll"/> with the two switches given.</summary>
+        internal static string EmbeddedServer(string dll, bool standIn, bool required, ITestOutputHelper output)
+        {
             if (dll == null) return null;
             lock (EmbeddedGate)
             {
@@ -566,6 +673,13 @@ namespace McvsOffline
                 {
                     if (module.GetType(AdminPagePatch.HooksType) != null) return dll;
                 }
+                string missing = "the embedded build " + dll + " has no " + AdminPagePatch.HooksType + " (settings-page WP5): the default patches cannot be applied";
+                if (!standIn)
+                {
+                    if (required) throw new InvalidOperationException("MCVS_REQUIRE_EMBEDDED=1 but " + missing);
+                    output?.WriteLine(missing + ": skipped");
+                    return null;
+                }
                 if (embeddedWithHooks == null || embeddedSource != dll)
                 {
                     string copy = Path.Combine(TestEnvironment.NewTempDir("embedded-adminhooks"), Path.GetFileName(dll));
@@ -573,7 +687,7 @@ namespace McvsOffline
                     embeddedSource = dll;
                     embeddedWithHooks = copy;
                 }
-                output?.WriteLine("the embedded build has no " + AdminPagePatch.HooksType + " yet: using a copy with pass-through hooks (" + embeddedWithHooks + ")");
+                output?.WriteLine(StandInVariable + "=1 and " + missing + ": using a copy with pass-through hooks (" + embeddedWithHooks + ")");
                 return embeddedWithHooks;
             }
         }
@@ -613,6 +727,36 @@ namespace McvsOffline
                     return stream.ToArray();
                 }
             }
+        }
+
+        [Fact]
+        public void AnEmbeddedBuildWithoutTheHooksIsRefusedUnlessTheStandInIsAskedFor()
+        {
+            string bare = Path.Combine(TestEnvironment.NewTempDir("embedded-nohooks"), "McvsOffline.Server.dll");
+            File.WriteAllBytes(bare, FixtureCompiler.Compile("McvsOffline.Server", "namespace McvsOffline { public static class Bootstrap { public static void Init() { } } }"));
+            string message = Assert.Throws<InvalidOperationException>(() => EmbeddedServer(bare, false, true, output)).Message;
+            Assert.Contains("MCVS_REQUIRE_EMBEDDED=1 but the embedded build", message);
+            Assert.Contains("has no McvsOffline.AdminHooks", message);
+            Assert.Null(EmbeddedServer(bare, false, false, output));
+
+            // Asked for: a copy with the three pass-through hooks, the build itself untouched.
+            string copy = EmbeddedServer(bare, true, true, output);
+            Assert.NotEqual(bare, copy);
+            using (ModuleDefinition module = ModuleDefinition.ReadModule(new MemoryStream(File.ReadAllBytes(copy))))
+            {
+                Assert.Equal(new[] { "AccountMenuButtons", "OpenIfPageMarker", "OpenPage" },
+                             module.GetType(AdminPagePatch.HooksType).Methods.Select(m => m.Name).OrderBy(n => n, StringComparer.Ordinal));
+            }
+            using (ModuleDefinition module = ModuleDefinition.ReadModule(new MemoryStream(File.ReadAllBytes(bare))))
+            {
+                Assert.Null(module.GetType(AdminPagePatch.HooksType));
+            }
+
+            // A build with the hooks is used as built either way.
+            string built = Path.Combine(TestEnvironment.NewTempDir("embedded-hooks"), "McvsOffline.Server.dll");
+            File.WriteAllBytes(built, FixtureCompiler.Compile("McvsOffline.Server", HooksSource));
+            Assert.Equal(built, EmbeddedServer(built, false, true, output));
+            Assert.Equal(built, EmbeddedServer(built, true, true, output));
         }
     }
 }
