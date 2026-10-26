@@ -224,16 +224,41 @@ namespace McvsOffline.Server.Services.Admin.Saves
             return true;
         }
 
-        /// <summary>Deletes the files of <paramref name="folder"/> that <paramref name="match"/> selects beyond the newest <paramref name="keep"/> (by name, newest = largest).</summary>
-        public static void KeepNewest(string folder, Func<string, bool> match, int keep)
+        /// <summary>
+        /// Deletes the files of <paramref name="folder"/> that <paramref name="match"/> selects beyond the newest
+        /// <paramref name="keep"/>, newest by the time they were written (then by name), never <paramref name="spare"/> (the
+        /// file just written: names need not sort by time, e.g. an export's starts with the alias). The spared file counts
+        /// as one of the kept.
+        /// </summary>
+        public static void KeepNewest(string folder, Func<string, bool> match, int keep, string spare = null)
         {
-            var names = new List<string>();
+            var files = new List<KeyValuePair<string, DateTime>>();
             foreach (FileInfo f in PlainFiles(folder))
             {
-                if (match(f.Name)) names.Add(f.Name);
+                if (!match(f.Name)) continue;
+                DateTime written;
+                try
+                {
+                    written = f.LastWriteTimeUtc;
+                }
+                catch (Exception)
+                {
+                    written = DateTime.MinValue;   // unreadable: oldest
+                }
+                files.Add(new KeyValuePair<string, DateTime>(f.Name, written));
             }
-            names.Sort(StringComparer.Ordinal);
-            for (int i = 0; i < names.Count - keep; i++) DeleteQuietly(Path.Combine(folder, names[i]));
+            files.Sort((a, b) =>
+            {
+                bool aSpare = a.Key == spare, bSpare = b.Key == spare;
+                if (aSpare != bSpare) return aSpare ? -1 : 1;
+                int byTime = b.Value.CompareTo(a.Value);
+                return byTime != 0 ? byTime : string.CompareOrdinal(b.Key, a.Key);
+            });
+            for (int i = keep < 0 ? 0 : keep; i < files.Count; i++)
+            {
+                if (files[i].Key == spare) continue;
+                DeleteQuietly(Path.Combine(folder, files[i].Key));
+            }
         }
 
         public static void DeleteQuietly(string path)

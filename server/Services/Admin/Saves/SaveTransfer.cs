@@ -87,15 +87,30 @@ namespace McvsOffline.Server.Services.Admin.Saves
         public TransferException(string message, Exception inner = null) : base(message, inner) { }
     }
 
-    /// <summary>The binary stream inflates to more than <see cref="SaveTransfer.MaxInflatedBytes"/> (answered 413).</summary>
+    /// <summary>
+    /// The binary stream inflates to more than <see cref="SaveTransfer.MaxInflatedBytes"/>, or an export would need more than
+    /// <see cref="SaveTransfer.MaxParts"/> parts or a stream above <see cref="SaveTransfer.MaxBinaryBytes"/> (answered 413).
+    /// </summary>
     public sealed class TransferTooLargeException : Exception
     {
-        public TransferTooLargeException(long limit) : base("the save is larger than " + limit.ToString(CultureInfo.InvariantCulture) + " bytes")
+        public TransferTooLargeException(long limit) : this(limit, false)
+        {
+        }
+
+        /// <param name="limit">The limit exceeded: bytes, or parts when <paramref name="partCount"/>.</param>
+        /// <param name="partCount">True when the export needs more parts than the format allows.</param>
+        public TransferTooLargeException(long limit, bool partCount)
+            : base(partCount ? "the save needs more than " + limit.ToString(CultureInfo.InvariantCulture) + " parts"
+                             : "the save is larger than " + limit.ToString(CultureInfo.InvariantCulture) + " bytes")
         {
             Limit = limit;
+            IsPartCount = partCount;
         }
 
         public long Limit { get; private set; }
+
+        /// <summary>The export needs more than <see cref="SaveTransfer.MaxParts"/> parts (<see cref="Limit"/> counts parts).</summary>
+        public bool IsPartCount { get; private set; }
     }
 
     /// <summary>
@@ -224,7 +239,8 @@ namespace McvsOffline.Server.Services.Admin.Saves
 
         /// <summary>
         /// Encodes a bundle's UTF-8 bytes in parts of <paramref name="partChars"/> data characters. With
-        /// <paramref name="deflate"/> the bytes are deflated (method 'd'), unless that does not make them smaller.
+        /// <paramref name="deflate"/> the bytes are deflated (method 'd'), unless that does not make them smaller. Throws
+        /// <see cref="TransferTooLargeException"/> for a stream above 16 MiB or more than 999 parts.
         /// </summary>
         public static TransferExport Encode(byte[] bundle, int partChars, string set, bool deflate)
         {
@@ -245,7 +261,7 @@ namespace McvsOffline.Server.Services.Admin.Saves
             if (stream.Length > MaxBinaryBytes) throw new TransferTooLargeException(MaxBinaryBytes);
             string data = Convert.ToBase64String(stream).TrimEnd('=');
             int count = Math.Max(1, (data.Length + partChars - 1) / partChars);
-            if (count > MaxParts) throw new TransferTooLargeException(MaxBinaryBytes);
+            if (count > MaxParts) throw new TransferTooLargeException(MaxParts, true);
             string crc = Hex(Crc32.Compute(stream));
             string bytes = stream.Length.ToString(CultureInfo.InvariantCulture);
             var parts = new List<string>(count);

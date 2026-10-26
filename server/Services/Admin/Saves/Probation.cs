@@ -18,6 +18,8 @@ namespace McvsOffline.Server.Services.Admin.Saves
     /// <c>GameServerComponent.TakeProfileLock</c> → <c>SaveProfile</c>); counted at every start; reverted at the third start
     /// without such a save (the apply start and two more), before the port opens. A start less than 10 s after the previous
     /// one is not counted (the double start of one restart, §8.8; a real start takes 10–20 s before the TS loads the profile).
+    /// Only an operation after which the phone's login opens the target gets one (a replace, a switch or relink that moved
+    /// the login; <see cref="StagedOperations.NeedsProbation"/>): a save of an account the phone does not load never comes.
     /// </summary>
     internal sealed class Probation
     {

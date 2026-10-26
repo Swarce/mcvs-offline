@@ -334,7 +334,7 @@ namespace McvsOffline.Server.Services.Admin.Logs
             List<string> dirs = Directories(api.DescribeHost());
             LogsZipResult zip = LogsZip.Build(Path.Combine(folder, name), Files(dirs), all, StatusJson(call.Request), SettingsJson(), note,
                                               SaveTransfer.CanDeflate(log), now);
-            AdminFiles.KeepNewest(folder, IsZipName, ZipsKept);
+            AdminFiles.KeepNewest(folder, IsZipName, ZipsKept, zip.File);
             lock (notes)
             {
                 notes[zip.File] = note;

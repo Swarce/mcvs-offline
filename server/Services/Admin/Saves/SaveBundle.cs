@@ -251,6 +251,12 @@ namespace McvsOffline.Server.Services.Admin.Saves
                     Errors.Add(ErrorAccount);
                     return;
                 }
+                // The bundle's profile limit applies too (a raw file from the import folder or a transfer text may be larger).
+                if (text.Length > MaxProfileBytes || AdminFiles.Utf8Bytes(text).Length > MaxProfileBytes)
+                {
+                    Errors.Add(ErrorIncomplete);
+                    return;
+                }
                 CheckProfile(text, AccountId, true);
                 return;
             }

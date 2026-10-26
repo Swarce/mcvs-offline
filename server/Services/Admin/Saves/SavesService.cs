@@ -127,6 +127,19 @@ namespace McvsOffline.Server.Services.Admin.Saves
             get { return api.ExitState == ExitSequence.Idle; }
         }
 
+        /// <summary>
+        /// 409 restarting/busy while a save-now or restart sequence runs, else null. The routes that read or write a profile
+        /// (they take its account lock) ask first: while not idle no account lock is taken (§4.5), and step 5 of a restart
+        /// holds the current account's lock until the process ends, so such a request would block its connection thread.
+        /// </summary>
+        private HttpResponse NotIdle()
+        {
+            string state = api.ExitState;
+            if (state == ExitSequence.Idle) return null;
+            if (state == ExitSequence.Restarting) return AdminApi.Restarting();
+            return AdminJson.Error(HttpStatus.Conflict, "busy", "The game is saving. Wait a moment.");
+        }
+
         private ImportUploads Uploads
         {
             get
@@ -274,6 +287,7 @@ namespace McvsOffline.Server.Services.Admin.Saves
             HttpResponse error;
             string account = ResolveAccount(call, out error);
             if (account == null) return error;
+            if ((error = NotIdle()) != null) return error;
             string note;
             if (!OptionalString(call, "note", out note, out error)) return error;
             if (note != null && !IsNote(note)) return Invalid("note", "A note has at most 80 letters, digits, spaces, '.', '_' or '-'.");
@@ -300,6 +314,7 @@ namespace McvsOffline.Server.Services.Admin.Saves
             HttpResponse error;
             string account = ResolveAccount(call, out error);
             if (account == null) return error;
+            if ((error = NotIdle()) != null) return error;
             string id = call.Route("id");
             BackupInfo info = ProfileBackups.IsSafeId(id) ? store.Backups.Find(account, id) : null;
             if (info == null) return NotFound("There is no such backup.");
@@ -316,6 +331,7 @@ namespace McvsOffline.Server.Services.Admin.Saves
             HttpResponse error;
             string account = ResolveAccount(call, out error);
             if (account == null) return error;
+            if ((error = NotIdle()) != null) return error;
             string backupId, plan, confirm;
             bool replace;
             if (!OptionalString(call, "backup", out backupId, out error) || !OptionalString(call, "plan", out plan, out error)
@@ -352,7 +368,9 @@ namespace McvsOffline.Server.Services.Admin.Saves
                 SummaryLevel = store.BackupLevel(info),
                 SummaryRevision = info.Revision,
             };
-            return Stage(op, null, replace);
+            // The text is staged as the payload: the backup pools rotate, and the restore must not depend on this file
+            // still being there at the restart.
+            return Stage(op, text, replace);
         }
 
         private HttpResponse RelinkAccount(AdminCall call)
@@ -360,6 +378,7 @@ namespace McvsOffline.Server.Services.Admin.Saves
             HttpResponse error;
             string account = ResolveAccount(call, out error);
             if (account == null) return error;
+            if ((error = NotIdle()) != null) return error;
             string confirm;
             bool replace;
             if (!OptionalString(call, "confirm", out confirm, out error) || !OptionalBool(call, "replace", out replace, out error)) return error;
@@ -392,12 +411,18 @@ namespace McvsOffline.Server.Services.Admin.Saves
             bool replace;
             if (!OptionalString(call, "confirm", out confirm, out error) || !OptionalBool(call, "replace", out replace, out error)) return error;
             if (confirm != "undo") return Invalid("confirm", "Confirm with 'undo'.");
+            if ((error = NotIdle()) != null) return error;
             string reason;
             Dictionary<string, object> last = staged.FindUndoable(out reason);
             if (last == null) return AdminJson.Error(HttpStatus.Conflict, "nothing_to_undo", reason);
 
             string target = JsonValue.GetString(last, "target");
             string pre = JsonValue.GetString(last, "preBackupId");
+            // The pre-operation backup is staged as the payload: taking the backup before the undo may rotate it out of
+            // its pool (it is often the oldest system backup), and it can be the only copy of that progress.
+            string preText = pre == null ? null : store.ReadBackupText(target, pre);
+            if (pre != null && preText == null)
+                return AdminJson.Error(HttpStatus.Conflict, "nothing_to_undo", "The backup from before the last operation is gone.");
             RelinkPlan done = JsonValue.GetBool(last, "relinked", false) ? RelinkPlan.FromJson(JsonValue.GetObject(last, "relink"), target) : null;
             var op = new StagedOperation
             {
@@ -424,7 +449,7 @@ namespace McvsOffline.Server.Services.Admin.Saves
                 op.SummaryRevision = doc.Revision;
             }
 
-            HttpResponse response = Stage(op, null, replace);
+            HttpResponse response = Stage(op, preText, replace);
             if (response.StatusCode == HttpStatus.Ok)
             {
                 Dictionary<string, object> body = MiniJson.ParseObject(response.BodyText);
@@ -537,6 +562,7 @@ namespace McvsOffline.Server.Services.Admin.Saves
             if (!OptionalString(call, "text", out text, out error)) return error;
             if (text == null) return AdminJson.Error(HttpStatus.BadRequest, "bad_request", "Paste the copied text.");
             if (text.Length > MaxPasteChars) return AdminJson.TooLarge(MaxPasteChars);
+            if ((error = NotIdle()) != null) return error;
             if (!api.Allow(PasteBucket, PastesPerMinute)) return api.RateLimited(PasteBucket, PastesPerMinute);
             PasteOutcome outcome = Uploads.AddPaste(text);
             if (outcome.NothingFound) return Invalid("text", outcome.Message);
@@ -548,6 +574,7 @@ namespace McvsOffline.Server.Services.Admin.Saves
             HttpResponse error;
             string name;
             if (!OptionalString(call, "file", out name, out error)) return error;
+            if ((error = NotIdle()) != null) return error;
             string folder = AdminFiles.Folder(context, "import");
             FileInfo file = null;
             foreach (FileInfo f in ImportFileList(folder))
@@ -705,6 +732,7 @@ namespace McvsOffline.Server.Services.Admin.Saves
             if (!OptionalString(call, "uploadId", out uploadId, out error) || !OptionalString(call, "confirm", out confirm, out error)
                 || !OptionalBool(call, "replace", out replace, out error) || !OptionalBool(call, "allowOlder", out allowOlder, out error))
                 return error;
+            if ((error = NotIdle()) != null) return error;
             UploadRecord record = ImportUploads.IsUploadId(uploadId) ? Uploads.Load(uploadId) : null;
             if (record == null || record.Text == null) return NotFound("The checked save is no longer there (it is kept for an hour). Paste it again.");
             SaveBundle bundle = SaveBundle.Parse(record.Text, context.Clock.UtcNow);
@@ -765,14 +793,24 @@ namespace McvsOffline.Server.Services.Admin.Saves
             if (target == "share" && (host == null || info == null || !info.CanShareFile)) return NotSupported("This build cannot share files.");
             if (target == "downloads" && (host == null || info == null || !info.CanSaveToDownloads))
                 return NotSupported("This phone cannot save to Downloads from the game.");
+            if ((error = NotIdle()) != null) return error;
             if (!api.Allow(ExportBucket, ExportsPerMinute)) return api.RateLimited(ExportBucket, ExportsPerMinute);
 
             SaveBundle bundle = SaveBundle.Build(context, store, account, includeSettings);
             if (bundle == null) return NotFound("This account has no save yet.");
             string json = bundle.ToJson();
-            TransferExport export = format == "transfer"
-                ? SaveTransfer.Encode(AdminFiles.Utf8Bytes(json), (int)partChars, Ids.RandomHex(4), SaveTransfer.CanDeflate(log))
-                : null;
+            TransferExport export = null;
+            if (format == "transfer")
+            {
+                try
+                {
+                    export = SaveTransfer.Encode(AdminFiles.Utf8Bytes(json), (int)partChars, Ids.RandomHex(4), SaveTransfer.CanDeflate(log));
+                }
+                catch (TransferTooLargeException ex)
+                {
+                    return TransferTooLarge(ex, (int)partChars);
+                }
+            }
 
             var body = new Dictionary<string, object>(StringComparer.Ordinal);
             body["file"] = null;
@@ -788,7 +826,6 @@ namespace McvsOffline.Server.Services.Admin.Saves
                 string path = Path.Combine(folder, fileName);
                 byte[] bytes = AdminFiles.Utf8Bytes(content);
                 AtomicFile.WriteAllBytes(path, bytes);
-                AdminFiles.KeepNewest(folder, n => n.StartsWith("mcvs-save-", StringComparison.Ordinal), ExportsKept);
                 body["file"] = fileName;
                 body["size"] = (long)bytes.Length;
                 string who = bundle.Alias ?? account;
@@ -804,6 +841,8 @@ namespace McvsOffline.Server.Services.Admin.Saves
                     log.Warn("admin: sharing " + fileName + " failed", ex);
                     share = AdminShareResult.None("Sharing failed: " + ex.Message);
                 }
+                // Pruned once the host has the file, never the file just written (the names sort by alias first).
+                AdminFiles.KeepNewest(folder, n => n.StartsWith("mcvs-save-", StringComparison.Ordinal), ExportsKept, fileName);
                 body["share"] = ShareJson(share);
                 log.Info("admin: export of " + account + " as " + fileName + " (" + bytes.Length + " bytes, " + target + ": "
                          + (share == null ? "none" : share.Method) + ")");
@@ -823,6 +862,7 @@ namespace McvsOffline.Server.Services.Admin.Saves
             if (account == null) return error;
             string format = call.Query("format") ?? "transfer";
             if (format != "transfer" && format != "json") return Invalid("format", "format is transfer or json.");
+            if ((error = NotIdle()) != null) return error;
             if (!api.Allow(ExportBucket, ExportsPerMinute)) return api.RateLimited(ExportBucket, ExportsPerMinute);
             SaveBundle bundle = SaveBundle.Build(context, store, account, false);
             if (bundle == null) return NotFound("This account has no save yet.");
@@ -831,8 +871,16 @@ namespace McvsOffline.Server.Services.Admin.Saves
             string fileName;
             if (format == "transfer")
             {
-                TransferExport export = SaveTransfer.Encode(AdminFiles.Utf8Bytes(json), SaveTransfer.DefaultPartChars, Ids.RandomHex(4),
-                                                            SaveTransfer.CanDeflate(log));
+                TransferExport export;
+                try
+                {
+                    export = SaveTransfer.Encode(AdminFiles.Utf8Bytes(json), SaveTransfer.DefaultPartChars, Ids.RandomHex(4),
+                                                 SaveTransfer.CanDeflate(log));
+                }
+                catch (TransferTooLargeException ex)
+                {
+                    return TransferTooLarge(ex, SaveTransfer.DefaultPartChars);
+                }
                 content = SaveTransfer.FileText(export, FileHeader(bundle, export));
                 fileName = ExportFileName(bundle, ".txt");
             }
@@ -847,6 +895,24 @@ namespace McvsOffline.Server.Services.Admin.Saves
             response.Headers.Set("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
             log.Info("admin: export of " + account + " downloaded as " + fileName);
             return AdminJson.WithApiHeaders(response);
+        }
+
+        /// <summary>
+        /// 413 too_large for a save the transfer text cannot carry: more than 999 parts of the chosen size (a big save
+        /// without deflate in Discord-sized parts), or a stream above 16 MiB. details: limit, unit ("parts" or "bytes"),
+        /// partChars.
+        /// </summary>
+        private static HttpResponse TransferTooLarge(TransferTooLargeException ex, int partChars)
+        {
+            var details = new Dictionary<string, object>(StringComparer.Ordinal);
+            details["limit"] = ex.Limit;
+            details["unit"] = ex.IsPartCount ? "parts" : "bytes";
+            details["partChars"] = (long)partChars;
+            string message = ex.IsPartCount
+                ? "This save needs more than " + SaveTransfer.MaxParts.ToString(CultureInfo.InvariantCulture) + " parts of "
+                  + partChars.ToString(CultureInfo.InvariantCulture) + " characters. Choose larger parts, or share it as a file."
+                : "This save is too large to export as transfer text. Export it as a .json file.";
+            return AdminJson.Error(HttpStatus.PayloadTooLarge, "too_large", message, details);
         }
 
         private static Dictionary<string, object> TransferJson(TransferExport export, bool withTexts)

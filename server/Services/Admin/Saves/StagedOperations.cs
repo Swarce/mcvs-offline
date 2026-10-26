@@ -76,9 +76,14 @@ namespace McvsOffline.Server.Services.Admin.Saves
 
         public RelinkPlan Relink { get; set; }
 
+        /// <summary>
+        /// The CRC of &lt;id&gt;.payload.json, the text the apply writes, copied at staging: an import's bundle, or the text of
+        /// the backup a restore or an undo writes (so the backup pool's rotation cannot take it away before the restart).
+        /// Null when there is no payload (a relink, an undo that only relinks).
+        /// </summary>
         public string PayloadCrc32 { get; set; }
 
-        /// <summary>The backup of <see cref="Target"/> whose text a restore or an undo writes.</summary>
+        /// <summary>The backup of <see cref="Target"/> whose text a restore or an undo writes (its copy is the payload).</summary>
         public string RestoreBackupId { get; set; }
 
         /// <summary>The system backup taken when it was staged, and the CRC of the text it copied.</summary>
@@ -146,7 +151,7 @@ namespace McvsOffline.Server.Services.Admin.Saves
             o["done"] = done;
             o["target"] = Target;
             o["relink"] = Relink == null ? null : Relink.ToJson(mask);
-            o["payload"] = Kind == KindImport ? PayloadFile : null;
+            o["payload"] = PayloadCrc32 != null ? PayloadFile : null;
             o["payloadCrc32"] = PayloadCrc32;
             o["restoreBackupId"] = RestoreBackupId;
             if (StageBackupId == null) o["stageBackup"] = null;
@@ -221,8 +226,8 @@ namespace McvsOffline.Server.Services.Admin.Saves
     /// Imports, restores, relinks and undos are <b>staged</b> and applied at the next start, before the port opens (design
     /// §6.4, invariant I3: the running menu server holds the current profile in memory and saves it back). Files in
     /// &lt;data&gt;/admin/staged/: pending.json (the one pending operation), &lt;id&gt;.payload.json (an import's bundle as
-    /// validated), probation.json (§6.5), history/&lt;id&gt;.json (results, newest 20) and history/&lt;id&gt;/messages/
-    /// (the mailboxes an import replaced).
+    /// validated, or a copy of the backup a restore or an undo writes), probation.json (§6.5), history/&lt;id&gt;.json
+    /// (results, newest 20) and history/&lt;id&gt;/messages/ (the mailboxes an import replaced).
     /// <para>
     /// <see cref="ApplyPending"/> records every step in the manifest's <c>done</c>, so a crash in the middle resumes where it
     /// stopped; after 3 attempts it gives up. The relink comes after the profile, so a failed profile write never
@@ -340,12 +345,15 @@ namespace McvsOffline.Server.Services.Admin.Saves
 
         /// <summary>
         /// Stages <paramref name="op"/> (Kind, Plan, Target, Relink, RestoreBackupId, source and summary set by the caller):
-        /// writes the payload (imports), then pending.json, then takes a <c>system</c> backup of the target's current file
-        /// (preimport/prerestore; none for a relink) so the player has a restore point before the restart. Throws
+        /// writes the payload (an import's bundle, or the text of the backup a restore or an undo writes), then pending.json,
+        /// then takes a <c>system</c> backup of the target's current file (preimport/prerestore; none for a relink) so the
+        /// player has a restore point before the restart; that backup's pruning spares the backup being restored. Throws
         /// <see cref="StagedExistsException"/> unless <paramref name="replace"/>, which drops the pending operation first.
         /// </summary>
         public StagedOperation Stage(StagedOperation op, string payloadText, bool replace)
         {
+            if (payloadText == null && (op.Kind == StagedOperation.KindImport || op.RestoreBackupId != null))
+                throw new ArgumentException("an import, a restore and an undo that restores are staged with their payload", "payloadText");
             lock (gate)
             {
                 StagedOperation existing = LoadPending();
@@ -362,7 +370,8 @@ namespace McvsOffline.Server.Services.Admin.Saves
                 op.PreBackupId = null;
                 op.StageBackupId = null;
                 op.StageBackupCrc32 = null;
-                if (op.Kind == StagedOperation.KindImport)
+                op.PayloadCrc32 = null;
+                if (payloadText != null)
                 {
                     byte[] payload = AdminFiles.Utf8Bytes(payloadText);
                     AtomicFile.WriteAllBytes(Path.Combine(folder, op.PayloadFile), payload);
@@ -376,7 +385,7 @@ namespace McvsOffline.Server.Services.Admin.Saves
                     try
                     {
                         string copied;
-                        BackupInfo info = store.CreateBackup(op.Target, reason, out copied);
+                        BackupInfo info = store.CreateBackup(op.Target, reason, out copied, op.RestoreBackupId);
                         if (info != null)
                         {
                             op.StageBackupId = info.Id;
@@ -517,6 +526,7 @@ namespace McvsOffline.Server.Services.Admin.Saves
             }
 
             bool relinked = op.Done.Contains(StepRelink) && op.Relink != null;
+            bool onProbation = false;
             foreach (string step in Steps(op))
             {
                 if (op.Done.Contains(step)) continue;
@@ -528,7 +538,7 @@ namespace McvsOffline.Server.Services.Admin.Saves
                         case StepProfile: ApplyProfile(op, document); break;
                         case StepMessages: ApplyMessages(op, bundle); break;
                         case StepRelink: relinked = ApplyRelink(op, warnings); break;
-                        case StepProbation: ApplyProbation(op, relinked); break;
+                        case StepProbation: onProbation = ApplyProbation(op, relinked); break;
                     }
                 }
                 catch (Exception ex)
@@ -541,7 +551,7 @@ namespace McvsOffline.Server.Services.Admin.Saves
                 SavePending(op);
             }
             int duration = Environment.TickCount - started;
-            Finish(op, "applied", AppliedMessage(op), relinked, warnings, duration);
+            Finish(op, "applied", AppliedMessage(op), relinked, warnings, duration, onProbation);
             log.Info("admin: staged " + op.Kind + " " + op.Id + " applied to " + op.Target + " in " + duration + " ms");
         }
 
@@ -570,10 +580,9 @@ namespace McvsOffline.Server.Services.Admin.Saves
             {
                 case StagedOperation.KindImport:
                 {
-                    string path = Path.Combine(folder, op.PayloadFile);
-                    byte[] payload = AdminFiles.IsPlainFile(path) ? AdminFiles.ReadAtMost(path, SaveTransfer.MaxInflatedBytes) : null;
-                    if (payload == null || SaveBundle.Crc32Hex(payload) != op.PayloadCrc32) return "The staged save is damaged or missing.";
-                    bundle = SaveBundle.Parse(AdminFiles.Utf8(payload, 0, payload.Length), Now);
+                    string text = ReadPayload(op);
+                    if (text == null) return "The staged save is damaged or missing.";
+                    bundle = SaveBundle.Parse(text, Now);
                     if (!bundle.IsValid) return string.Join(" ", bundle.Errors.ToArray());
                     if (bundle.AccountId != op.Target) return "The staged save belongs to another account.";
                     document = bundle.Document;
@@ -584,8 +593,18 @@ namespace McvsOffline.Server.Services.Admin.Saves
                 {
                     if (op.RestoreBackupId == null)
                         return op.Kind == StagedOperation.KindUndo && op.Relink != null ? null : "The staged operation names no backup.";
-                    string text = store.ReadBackupText(op.Target, op.RestoreBackupId);
-                    if (text == null) return "The backup " + op.RestoreBackupId + " is gone.";
+                    // The copy taken at staging (a manifest without one, from an older build, reads the backup itself).
+                    string text;
+                    if (op.PayloadCrc32 != null)
+                    {
+                        text = ReadPayload(op);
+                        if (text == null) return "The staged copy of the backup " + op.RestoreBackupId + " is damaged or missing.";
+                    }
+                    else
+                    {
+                        text = store.ReadBackupText(op.Target, op.RestoreBackupId);
+                        if (text == null) return "The backup " + op.RestoreBackupId + " is gone.";
+                    }
                     List<string> problems = SaveBundle.ProfileProblems(text, op.Target, op.Kind == StagedOperation.KindRestore, null, out document);
                     return problems.Count == 0 ? null : string.Join(" ", problems.ToArray());
                 }
@@ -595,6 +614,16 @@ namespace McvsOffline.Server.Services.Admin.Saves
                 default:
                     return "Unknown operation '" + op.Kind + "'.";
             }
+        }
+
+        /// <summary>The payload's text when it matches the manifest's CRC; null when it is missing or damaged.</summary>
+        private string ReadPayload(StagedOperation op)
+        {
+            if (op.PayloadCrc32 == null) return null;
+            string path = Path.Combine(folder, op.PayloadFile);
+            byte[] payload = AdminFiles.IsPlainFile(path) ? AdminFiles.ReadAtMost(path, SaveTransfer.MaxInflatedBytes) : null;
+            if (payload == null || SaveBundle.Crc32Hex(payload) != op.PayloadCrc32) return null;
+            return AdminFiles.Utf8(payload, 0, payload.Length);
         }
 
         /// <summary>Step account: the target account exists (created with that exact id), with the bundle's alias when free.</summary>
@@ -630,7 +659,8 @@ namespace McvsOffline.Server.Services.Admin.Saves
                 {
                     // The TS saved after staging (or a retry after a crash): back up what is there now. The first backup
                     // stays the operation's pre-backup.
-                    BackupInfo info = store.CreateBackup(op.Target, BackupReasonOf(op) ?? "prerestore");
+                    string copied;
+                    BackupInfo info = store.CreateBackup(op.Target, BackupReasonOf(op) ?? "prerestore", out copied, op.RestoreBackupId);
                     if (op.PreBackupId == null && info != null) op.PreBackupId = info.Id;
                 }
                 SavePending(op);
@@ -695,7 +725,11 @@ namespace McvsOffline.Server.Services.Admin.Saves
             return true;
         }
 
-        private void ApplyProbation(StagedOperation op, bool relinked)
+        /// <summary>
+        /// Step probation: an older probation is superseded (§6.5), and a new one is written when the operation changed what
+        /// the phone loads at its next start (<see cref="NeedsProbation"/>). True when this operation is on probation.
+        /// </summary>
+        private bool ApplyProbation(StagedOperation op, bool relinked)
         {
             Dictionary<string, object> previous = probation.Load();
             string previousId = previous == null ? null : JsonValue.GetString(previous, "id");
@@ -707,7 +741,28 @@ namespace McvsOffline.Server.Services.Admin.Saves
                     entry["message"] = "Superseded by " + op.Kind + " " + op.Id + " before the game loaded it.";
                 });
             }
+            if (!NeedsProbation(op, relinked))
+            {
+                probation.Delete();
+                return false;
+            }
             probation.Save(Probation.For(op, relinked, Now));
+            return true;
+        }
+
+        /// <summary>
+        /// Whether the game's first save of the target can confirm the operation: only when the phone's login opens the
+        /// target after the apply and the operation changed what it loads there — a <c>replace</c> (the account the phone
+        /// plays), or a switch or relink that moved the login to the target. Not a <c>restore-other</c>, nor a switch whose
+        /// relink was skipped (the phone does not load the target, so no save of it would come and a correct operation would
+        /// be reverted two starts later), nor an undo (it takes the phone back to the account and save it played before the
+        /// operation, and its revert would redo the operation).
+        /// </summary>
+        internal static bool NeedsProbation(StagedOperation op, bool relinked)
+        {
+            if (op.Kind == StagedOperation.KindUndo) return false;
+            if (op.Relink != null) return relinked && op.Relink.To == op.Target;
+            return op.Plan == "replace";
         }
 
         // ------------------------------------------------------------------ probation (design §6.5)
@@ -830,7 +885,8 @@ namespace McvsOffline.Server.Services.Admin.Saves
         }
 
         /// <summary>Writes the history entry, deletes pending.json and the payload, prunes the history.</summary>
-        private void Finish(StagedOperation op, string result, string message, bool relinked, List<string> warnings, int durationMs)
+        private void Finish(StagedOperation op, string result, string message, bool relinked, List<string> warnings, int durationMs,
+                            bool onProbation = false)
         {
             var entry = new Dictionary<string, object>(StringComparer.Ordinal);
             entry["id"] = op.Id;
@@ -842,6 +898,7 @@ namespace McvsOffline.Server.Services.Admin.Saves
             entry["preBackupId"] = op.PreBackupId;
             entry["relinked"] = relinked;
             entry["relink"] = op.Relink == null ? null : op.Relink.ToJson(false);
+            entry["probation"] = onProbation;
             var done = new List<object>();
             foreach (string step in op.Done) done.Add(step);
             entry["done"] = done;

@@ -144,9 +144,11 @@ namespace McvsOffline.Server.Services.Storage
         /// <summary>
         /// Writes a backup of <paramref name="fileText"/> and prunes its pool (<see cref="CapOf"/>; an <c>auto</c> pool
         /// with <paramref name="autoKeep"/> ≤ 0 and the <c>manual</c> pool are never pruned). An 11th manual backup throws
-        /// <see cref="ManualBackupLimitException"/> before anything is written.
+        /// <see cref="ManualBackupLimitException"/> before anything is written. The prune never deletes
+        /// <paramref name="spare"/> (the backup a staged restore copies: taking the backup before it must not delete it).
         /// </summary>
-        public BackupInfo Create(string accountId, string fileText, long revision, string reason, DateTime nowUtc, int autoKeep)
+        public BackupInfo Create(string accountId, string fileText, long revision, string reason, DateTime nowUtc, int autoKeep,
+                                 string spare = null)
         {
             string token = SafeReason(reason);
             string pool = PoolOf(token);
@@ -161,7 +163,7 @@ namespace McvsOffline.Server.Services.Storage
                 path = System.IO.Path.Combine(dir, stem + "-" + n.ToString(CultureInfo.InvariantCulture) + Extension);
             AtomicFile.WriteAllText(path, fileText);
             if (pool == PoolAuto) lock (gate) lastAuto[accountId] = nowUtc;
-            if (pool != PoolManual && !(pool == PoolAuto && autoKeep <= 0)) Prune(accountId, pool, CapOf(pool, autoKeep));
+            if (pool != PoolManual && !(pool == PoolAuto && autoKeep <= 0)) Prune(accountId, pool, CapOf(pool, autoKeep), spare);
             return Describe(path);
         }
 
@@ -205,14 +207,17 @@ namespace McvsOffline.Server.Services.Storage
             return true;
         }
 
-        /// <summary>Deletes the oldest backups of <paramref name="pool"/> beyond <paramref name="cap"/>; never the manual pool.</summary>
-        public void Prune(string accountId, string pool, int cap)
+        /// <summary>
+        /// Deletes the oldest backups of <paramref name="pool"/> beyond <paramref name="cap"/>; never the manual pool, never
+        /// <paramref name="spare"/> (which then does not count towards the cap).
+        /// </summary>
+        public void Prune(string accountId, string pool, int cap, string spare = null)
         {
             if (pool == PoolManual) return;
             int kept = 0;
             foreach (BackupInfo b in List(accountId))
             {
-                if (b.Pool != pool) continue;
+                if (b.Pool != pool || (spare != null && b.Id == spare)) continue;
                 if (kept < Num.Max(cap, 0))
                 {
                     kept++;

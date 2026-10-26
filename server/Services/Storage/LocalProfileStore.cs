@@ -313,8 +313,11 @@ namespace McvsOffline.Server.Services.Storage
             return CreateBackup(accountId, reason, out copied);
         }
 
-        /// <summary>As <see cref="CreateBackup(string, string)"/>, with the file text that was copied.</summary>
-        internal BackupInfo CreateBackup(string accountId, string reason, out string copiedText)
+        /// <summary>
+        /// As <see cref="CreateBackup(string, string)"/>, with the file text that was copied; the pool's prune leaves
+        /// <paramref name="spare"/> alone (the backup a staged restore copies).
+        /// </summary>
+        internal BackupInfo CreateBackup(string accountId, string reason, out string copiedText, string spare = null)
         {
             copiedText = null;
             if (string.IsNullOrEmpty(accountId)) throw new ArgumentException("account id required", "accountId");
@@ -326,7 +329,7 @@ namespace McvsOffline.Server.Services.Storage
                 if (!doc.IsStored) return null;
                 string fileText = AtomicFile.ReadAllTextOrNull(PathFor(accountId));
                 if (fileText == null) return null;
-                BackupInfo info = backups.Create(accountId, fileText, doc.Revision, reason, clock.UtcNow, settings.BackupsKeep);
+                BackupInfo info = backups.Create(accountId, fileText, doc.Revision, reason, clock.UtcNow, settings.BackupsKeep, spare);
                 copiedText = fileText;
                 log.Info("backup " + info.Id + " of " + accountId);
                 return info;
