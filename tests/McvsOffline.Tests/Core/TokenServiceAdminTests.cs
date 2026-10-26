@@ -19,7 +19,11 @@ namespace McvsOffline.Tests.Core
             var tokens = Create(dir);
             Assert.Null(tokens.LastDirectAnonymous);
 
-            tokens.Issue("aaaaaaaaaaaaaaaaaaaaaaaa", "anonymous:player1", Client, Scopes, "device-1");
+            // Not marked as the player's login (a web page's GET authorize, a tool): not remembered.
+            tokens.Issue("eeeeeeeeeeeeeeeeeeeeeeee", "anonymous:webpage", Client, Scopes, "device-1");
+            Assert.Null(tokens.LastDirectAnonymous);
+
+            tokens.Issue("aaaaaaaaaaaaaaaaaaaaaaaa", "anonymous:player1", Client, Scopes, "device-1", playerLogin: true);
             TokenInfo last = tokens.LastDirectAnonymous;
             Assert.Equal("anonymous:player1", last.Credential);
             Assert.Equal(Client, last.ClientId);
@@ -27,9 +31,10 @@ namespace McvsOffline.Tests.Core
             Assert.Null(last.Actor);
 
             // The game server's on-behalf token for another player, its own game: grant, a fed_id credential: ignored.
-            tokens.Issue("bbbbbbbbbbbbbbbbbbbbbbbb", "anonymous:player2", Client, Scopes, "device-2", "game:mcvsoffline");
-            tokens.Issue("cccccccccccccccccccccccc", "game:mcvsoffline", Client, Scopes, "device-3");
-            tokens.Issue("dddddddddddddddddddddddd", "fed_id:dddddddddddddddddddddddd", Client, Scopes);
+            tokens.Issue("bbbbbbbbbbbbbbbbbbbbbbbb", "anonymous:player2", Client, Scopes, "device-2", "game:mcvsoffline", true);
+            tokens.Issue("cccccccccccccccccccccccc", "game:mcvsoffline", Client, Scopes, "device-3", playerLogin: true);
+            tokens.Issue("dddddddddddddddddddddddd", "fed_id:dddddddddddddddddddddddd", Client, Scopes, playerLogin: true);
+            tokens.Issue("eeeeeeeeeeeeeeeeeeeeeeee", "anonymous:webpage", Client, Scopes, "device-1"); // a re-issue, still unmarked
             Assert.Equal("anonymous:player1", tokens.LastDirectAnonymous.Credential);
 
             // A copy: changing it changes nothing.
@@ -42,11 +47,12 @@ namespace McvsOffline.Tests.Core
         {
             using var dir = new TempDir();
             var tokens = Create(dir);
-            TokenInfo first = tokens.Issue("aaaaaaaaaaaaaaaaaaaaaaaa", "anonymous:player1", Client, Scopes, "device-1");
-            tokens.Issue("bbbbbbbbbbbbbbbbbbbbbbbb", "anonymous:player2", "other:client", Scopes, "device-2");
+            TokenInfo first = tokens.Issue("aaaaaaaaaaaaaaaaaaaaaaaa", "anonymous:player1", Client, Scopes, "device-1", playerLogin: true);
+            tokens.Issue("bbbbbbbbbbbbbbbbbbbbbbbb", "anonymous:player2", "other:client", Scopes, "device-2", playerLogin: true);
             Assert.Equal("anonymous:player2", tokens.LastDirectAnonymous.Credential);
 
-            TokenInfo again = tokens.Issue("aaaaaaaaaaaaaaaaaaaaaaaa", "anonymous:player1", Client, new[] { "storage", "auth" }, "device-9");
+            TokenInfo again = tokens.Issue("aaaaaaaaaaaaaaaaaaaaaaaa", "anonymous:player1", Client, new[] { "storage", "auth" }, "device-9",
+                                           playerLogin: true);
             Assert.Equal(first.Token, again.Token);
             TokenInfo last = tokens.LastDirectAnonymous;
             Assert.Equal("anonymous:player1", last.Credential);

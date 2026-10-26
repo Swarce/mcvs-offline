@@ -131,10 +131,12 @@ namespace McvsOffline.Server.Services.Assets
         /// message into the inbox (EN/AssetsComponent.cs RedeemCoupon, GM/PlayerProfileComponent.cs PushCouponDataToInbox);
         /// after a 404 it shows "code does not exist" (behind the browser) and claims nothing.
         /// <para>
-        /// The page opens only when every check holds: the admin portal is there and enabled; the request comes from this
-        /// phone (loopback; a LAN guest's menu server never opens our browser); it is the game's request and not a web
-        /// page's (see <see cref="NotTheGame"/>); an access token, when the request carries one, belongs to the current
-        /// player; a host can open the in-game browser and it is not open already; and the last opening by this code is
+        /// The page opens only when every check holds: the admin portal is there and enabled; LAN mode is off (a guest's
+        /// redemption runs on this phone's menu server, RemoteSource.Session, so it arrives over loopback with the game's
+        /// User-Agent and no token, exactly like the player's own, and would open the page on this screen); the request
+        /// comes from this phone (loopback); it is the game's request and not a web page's (no browser header and the
+        /// game's exact User-Agent for a client id of the game's form, <see cref="GameRequest.NotTheGame"/>); an access
+        /// token, when the request carries one, belongs to the current player; a host can open the in-game browser and it is not open already; and the last opening by this code is
         /// more than 30 s ago. The game's own request carries no access token: redemption runs on the menu server
         /// (EN/AssetsComponent.cs:170-195, RedeemCouponRemote → RedeemCoupon), and
         /// <c>AssetsApi.GetRedeemCouponRequest</c> builds a FedRequestMessage without scopes, to which
@@ -190,8 +192,9 @@ namespace McvsOffline.Server.Services.Assets
                 IAdminPortal portal = context.Features.Get<IAdminPortal>();
                 if (portal == null) return "the settings page is not part of this server";
                 if (!portal.Enabled) return "the settings page is turned off (admin.enabled)";
+                if (context.Settings.LanMode) return "LAN mode is on (a guest's code would open it on this phone)";
                 if (!LocalAccessGate.IsLoopback(request.RemoteEndPoint)) return "not from this phone";
-                string notTheGame = NotTheGame(request);
+                string notTheGame = GameRequest.NotTheGame(request, request.RouteValue("clientId"));
                 if (notTheGame != null) return notTheGame;
                 string tokenProblem = CheckToken(request);
                 if (tokenProblem != null) return tokenProblem;
@@ -210,33 +213,6 @@ namespace McvsOffline.Server.Services.Assets
                     lastOpened = now;
                 }
                 return portal.OpenPage(AdminTriggers.Redeem, null) ? null : "the in-game browser could not be opened";
-            }
-
-            /// <summary>
-            /// Null when the request looks like the game's own; else why not. Any web page in a browser on the phone can
-            /// send this GET (an &lt;img&gt;, a no-cors fetch), and the Federation Host rule lets 127.0.0.1:&lt;any port&gt;
-            /// through. The game's request carries only Host, Cache-Control and its User-Agent "[&lt;session agent&gt; ](&lt;client
-            /// id&gt;; &lt;datacenter&gt;)" (OP/FedRequestMessage.cs:137-142; Session.UserAgent is never set), and the client id
-            /// is the one in the path (OP/AssetsApi.cs:39-43). A browser adds Origin, Referer or Sec-Fetch-* (current Chromium,
-            /// Firefox and Safari send Sec-Fetch-Site on every request, no-cors image loads included), and its User-Agent is
-            /// its own: a page cannot set it on a no-cors request, and a CORS request with it needs a preflight that no route
-            /// here answers. The second check covers old WebViews without Sec-Fetch-* and a page with no-referrer.
-            /// </summary>
-            private static string NotTheGame(HttpRequest request)
-            {
-                foreach (KeyValuePair<string, string> header in request.Headers)
-                {
-                    string name = header.Key ?? "";
-                    if (string.Equals(name, "Origin", StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(name, "Referer", StringComparison.OrdinalIgnoreCase)
-                        || name.StartsWith("Sec-Fetch-", StringComparison.OrdinalIgnoreCase))
-                        return "a web browser's request";
-                }
-                string clientId = request.RouteValue("clientId") ?? "";
-                string userAgent = request.Headers.Get("User-Agent") ?? "";
-                if (clientId.Length == 0 || userAgent.IndexOf("(" + clientId + "; ", StringComparison.Ordinal) < 0)
-                    return "not the game's User-Agent";
-                return null;
             }
 
             /// <summary>Null when the request carries no access token or one of the current player's; else why not.</summary>

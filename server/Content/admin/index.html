@@ -317,6 +317,7 @@ p { margin: 4px 0 8px; }
     pingFails: 0,
     guard: false,        // our history entry is on top (Back guard, §2.1)
     asking: false,       // the "Discard your changes?" question is open
+    unwinding: false,    // the page called history.back() to take its entry off; the next popstate is its own
     dialog: null,
     dismissed: {},
     filesOpen: false,
@@ -355,7 +356,8 @@ p { margin: 4px 0 8px; }
     };
   }
 
-  function on(node, type, fn) { node.addEventListener(type, safe(function () { fn(); })); }
+  // Every handler and every answer ends with updateGuard(): the Back guard follows whatever it changed (§2.1).
+  function on(node, type, fn) { node.addEventListener(type, safe(function () { fn(); updateGuard(); })); }
 
   function btn(label, cls, fn, id) {
     var b = el('button', cls || null, label);
@@ -500,6 +502,7 @@ p { margin: 4px 0 8px; }
       if (st === 401 && !opts.quiet401 && S.session) lostSession();
       if (st === 409 && data && data.error === 'restarting') S.restarting = true;
       if (cb) safe(cb)(st, data);
+      safe(updateGuard)();
     }
     try {
       xhr.open(method, API + path, true);
@@ -614,9 +617,21 @@ p { margin: 4px 0 8px; }
 
   function somethingToLose() { return settingsDirty() || wizardRunning(); }
 
+  // One entry while something is open or unsaved; taken off again (history.back) once nothing is left, so that the
+  // next hardware Back closes the browser (InGameBrowser.onBackPressed: goBack while it can, else close).
   function updateGuard() {
-    if (S.guard || S.asking || !canPush()) return;
-    if (!somethingToLose() && !S.dialog) return;
+    if (S.asking || !canPush()) return;
+    var need = somethingToLose() || !!S.dialog;
+    if (S.guard) {
+      if (!need && !S.unwinding && typeof history.back === 'function') {
+        try {
+          S.unwinding = true;
+          history.back();
+        } catch (e) { S.unwinding = false; }
+      }
+      return;
+    }
+    if (!need) return;
     try {
       history.pushState({ mcvs: 1 }, '');
       S.guard = true;
@@ -625,7 +640,20 @@ p { margin: 4px 0 8px; }
 
   // Hardware Back: closes an open dialog, or asks before discarding. While the question is shown no entry is pushed,
   // so a second Back leaves the page; "Stay" pushes the entry again.
-  function onPopState() {
+  function onPopState(ev) {
+    if (S.unwinding) {
+      // The page's own history.back(): the entry is gone. Something may have opened meanwhile.
+      S.unwinding = false;
+      S.guard = false;
+      updateGuard();
+      return;
+    }
+    if (ev && ev.state && ev.state.mcvs === 1) {
+      // Forward onto the page's entry (the browser's Forward button): it is on top again.
+      S.guard = true;
+      updateGuard();
+      return;
+    }
     S.guard = false;
     if (S.dialog) {
       dialogCancel();
@@ -776,14 +804,23 @@ p { margin: 4px 0 8px; }
       ptext = describeOp(prob) + ' was applied and waits for the game to load it (start ' + (prob.startsWithoutSave || 1) + ' of 3).';
       pkey = 'prob:' + prob.id;
     } else if (last && last.result === 'reverted') {
-      ptext = 'Reverted automatically: ' + (last.message || 'the game did not load the save in 3 starts') + '.';
+      // The server writes a whole sentence that already starts with "Reverted automatically:" (§6.5).
+      var rmsg = last.message || '';
+      ptext = /^Reverted automatically/.test(rmsg) ? sentence(rmsg)
+        : 'Reverted automatically: ' + sentence(rmsg || 'the game did not load the save in 3 starts');
       pkey = 'rev:' + last.id;
     } else if (last && last.result === 'failed') {
-      ptext = 'The last operation failed: ' + (last.message || 'see Saves') + '.';
+      ptext = 'The last operation failed: ' + sentence(last.message || 'see Saves');
       pkey = 'fail:' + last.id;
     }
     banner('banner-probation', ptext && S.session && !S.dismissed[pkey], ptext || '');
     S.bannerKeys = { staged: key, restart: rkey, probation: pkey };
+  }
+
+  // The text with a full stop, unless it already ends a sentence (server messages usually do).
+  function sentence(text) {
+    var t = String(text || '');
+    return /[.!?)]$/.test(t) ? t : t + '.';
   }
 
   function dismiss(which, id) {

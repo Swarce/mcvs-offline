@@ -89,11 +89,28 @@ namespace McvsOffline.Server.Services.Auth
             // SessionForUser sends "Unknown" when the game server has no device id for the player: not worth recording.
             bool recordDevice = !string.IsNullOrEmpty(deviceId) && !string.Equals(deviceId, "Unknown", StringComparison.Ordinal);
             Account account = context.Accounts.GetOrCreate(subject.ToString(), recordDevice ? deviceId : null);
-            TokenInfo token = context.Tokens.Issue(account.Id, subject.ToString(), clientId, scopes, deviceId, actor);
+            string notPlayerLogin = actor == null && subject.Type == Credential.Anonymous ? NotThePlayersLogin(request, recordDevice) : null;
+            TokenInfo token = context.Tokens.Issue(account.Id, subject.ToString(), clientId, scopes, deviceId, actor,
+                                                   actor == null && subject.Type == Credential.Anonymous && notPlayerLogin == null);
 
             log.Info("authorize " + (actor != null ? actor + " on behalf of " : "") + subject + " -> account " + account.Id
-                     + ", scope [" + token.ScopeString + "]");
+                     + ", scope [" + token.ScopeString + "]"
+                     + (notPlayerLogin != null ? " (not taken as the player's login: " + notPlayerLogin + ")" : ""));
             return TokenResponse(token);
+        }
+
+        /// <summary>
+        /// Null when a direct anonymous grant is the game's own login (OP/Session.cs GetAuthorizeRequest: a POST with
+        /// device_id and client_id, the game's User-Agent, no browser header); else why not. Only such a login may tell
+        /// the settings page who the current player is (TokenService.LastDirectAnonymous, design §6.6): any web page on
+        /// the phone can send a blind GET or form POST to 127.0.0.1 (the Federation Host rule lets it through), and
+        /// authorize takes any anonymous name without a password.
+        /// </summary>
+        private static string NotThePlayersLogin(HttpRequest request, bool hasDevice)
+        {
+            if (!string.Equals(request.Method, "POST", StringComparison.OrdinalIgnoreCase)) return "not a POST";
+            if (!hasDevice) return "no device id";
+            return GameRequest.NotTheGame(request, request.Param("client_id"));
         }
 
         private HttpResponse AuthorizeTransferCode(HttpRequest request)

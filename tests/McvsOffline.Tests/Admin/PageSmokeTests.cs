@@ -339,7 +339,8 @@ namespace McvsOffline.Tests.Admin
         {
             const string credential = "anonymous:pagesmoke0123456789";
             var account = server.Context.Accounts.GetOrCreate(credential, "page-smoke-device");
-            string token = server.Context.Tokens.Issue(account.Id, credential, McvsConstants.ClientId, new[] { "auth", "storage" }, "page-smoke-device").Token;
+            string token = server.Context.Tokens.Issue(account.Id, credential, McvsConstants.ClientId, new[] { "auth", "storage" }, "page-smoke-device",
+                                                        playerLogin: true).Token;
             var dump = new StringBuilder("{\"@version\":\"0.1\",\"$default\":{\"/Profile\":{\"@type\":\"Game.PlayerProfileComponent\",\"Version\":57,\"GameVersion\":\"1.17.32\",\"PlayerName\":\"smoke\",\"Items\":[");
             for (int i = 0; i < 300; i++) dump.Append(i == 0 ? "" : ",").Append('"').Append(Convert.ToHexString(RandomNumberGenerator.GetBytes(16))).Append('"');
             dump.Append("]}}}");

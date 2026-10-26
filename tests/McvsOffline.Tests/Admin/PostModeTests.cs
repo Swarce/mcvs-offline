@@ -40,7 +40,7 @@ namespace McvsOffline.Tests.Admin
             var first = PostForm(client, ticket);
             Assert.Equal(303, first.StatusCode);
             Assert.Equal("See Other", first.ReasonPhrase);
-            Assert.Equal("/_mcvs/ui/", first.Headers.Get("Location"));
+            Assert.Equal("/_mcvs/ui/#s=status", first.Headers.Get("Location")); // the default screen, never a bare URL
             Assert.Matches("^mcvs_s=[0-9a-f]{64}; Path=/_mcvs/; HttpOnly; SameSite=Strict$", first.Headers.Get("Set-Cookie"));
             Assert.Equal(200, client.Get("status").StatusCode);
             string cookie = client.SessionCookie;
@@ -57,6 +57,8 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal(303, none.StatusCode);
             Assert.Null(none.Headers.Get("Set-Cookie"));
             Assert.Equal(401, client.Get("status").StatusCode);
+            // A fragment, so the page shows #banner-nosession: with an empty one it would show view mode (§2.4, §5.3).
+            Assert.Equal("/_mcvs/ui/#s=status", none.Headers.Get("Location"));
         }
 
         /// <summary>
@@ -77,12 +79,12 @@ namespace McvsOffline.Tests.Admin
             Assert.NotNull(first.Headers.Get("Set-Cookie"));
 
             Assert.Equal("/_mcvs/ui/#s=logs", PostForm(client, client.MintTicket(), "&s=logs").Headers.Get("Location"));
-            Assert.Equal("/_mcvs/ui/#r=nosave", PostForm(client, client.MintTicket(), "&r=nosave").Headers.Get("Location"));
+            Assert.Equal("/_mcvs/ui/#s=status&r=nosave", PostForm(client, client.MintTicket(), "&r=nosave").Headers.Get("Location"));
 
             // Anything the page would not accept from a fragment is left out.
-            Assert.Equal("/_mcvs/ui/", PostForm(client, client.MintTicket(), "&s=Saves&r=saved").Headers.Get("Location"));
-            Assert.Equal("/_mcvs/ui/", PostForm(client, client.MintTicket(), "&s=..%2Fx&r=nosave%26t%3D1").Headers.Get("Location"));
-            Assert.Equal("/_mcvs/ui/#r=nosave", PostForm(client, client.MintTicket(), "&s=javascript:x&r=nosave").Headers.Get("Location"));
+            Assert.Equal("/_mcvs/ui/#s=status", PostForm(client, client.MintTicket(), "&s=Saves&r=saved").Headers.Get("Location"));
+            Assert.Equal("/_mcvs/ui/#s=status", PostForm(client, client.MintTicket(), "&s=..%2Fx&r=nosave%26t%3D1").Headers.Get("Location"));
+            Assert.Equal("/_mcvs/ui/#s=status&r=nosave", PostForm(client, client.MintTicket(), "&s=javascript:x&r=nosave").Headers.Get("Location"));
 
             // A used ticket without a cookie: no session, the screen is still handed back (the page then asks to open it from the game).
             client.SessionCookie = null;

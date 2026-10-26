@@ -240,8 +240,8 @@ and nothing on it leaves the phone unless you share it.
   that is expected, nothing is claimed. `admin.redeemCode` in `settings.json` changes the code (empty turns it off).
 - The Forum button, if you patched with `--patch default,forum`.
 
-**Chrome is not supported.** Open the page only from the game. In Chrome (or any other browser) `http://127.0.0.1:51780/`
-shows a view-only page at most: Android freezes the game about a minute after it leaves the screen, and the page's
+**Chrome is not supported.** Open the page only from the game. In Chrome (or any other browser)
+`http://127.0.0.1:51780/_mcvs/ui/` shows a view-only page at most: Android freezes the game about a minute after it leaves the screen, and the page's
 one-time links go only to the game's own browser.
 
 **Screens:** Status (version, the player, the last save by the game, recent problems), Settings, Saves, Logs, Actions
