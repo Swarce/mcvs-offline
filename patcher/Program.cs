@@ -153,6 +153,11 @@ namespace McvsOffline.Patcher
                 "                          bottile  BOTMATCH tile -> bot-filled PvP with full progression\n" +
                 "                          finder   LocalAnubis Finder on all interfaces (survives Wi-Fi changes)\n" +
                 "                          lan      LAN hosting helpers, implies finder (experimental)\n" +
+                "                          store    kill-signature store items: no null list for sounds, a failing item is skipped\n" +
+                "                          signatures  kill-signature screen looks owned ids up in a set (no freeze with many)\n" +
+                "                          debloat  remove the manifest declarations of SDK parts dead offline (ad screens, GCM\n" +
+                "                                   push, install-referrer and boot receivers, Crashlytics/Facebook init providers,\n" +
+                "                                   location/legacy permissions) and drop the Crashlytics/Fabric files\n" +
                 "                        'none' = only the mandatory patches (server hook, headless TS/GS fixes, server physics),\n" +
                 "                        'all' = everything\n" +
                 "  --game-log <m>        all (default): the game logs every level to logcat (mono-stdout); fatal: Fatal only,\n" +
