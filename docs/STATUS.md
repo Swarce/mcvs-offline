@@ -1,10 +1,10 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-Last updated for build 7 (October 2026), after device test 6 (Samsung Galaxy S22, Android 16; see "Build 7" and
-"Device test 6" below).
+Last updated for build 8 (October 2026), after device test 6 (Samsung Galaxy S22, Android 16; see "Build 8", "Build 7"
+and "Device test 6" below).
 
-**Summary:** the Federation server is complete for the offline single-player goals and passes 677 tests, including a
+**Summary:** the Federation server is complete for the offline single-player goals and passes 739 tests, including a
 conformance harness that runs the game's own client libraries against it. Device test 1 put the player build (patcher +
 embedded host) on a phone for the first time and found two blockers (a stall with the internet on, a crash of the headless
 TS World). Build 2 fixed both: in device test 2 the whole boot chain up to the TS handshake ran, and the TS World loaded its
@@ -18,6 +18,35 @@ copied `Data/` folder and the avatar editor freezing after unlock-all. Build 5 a
 server". Build 6 makes the CRM document the game reloads there ~78% smaller for an unlock-all profile: **in device test 6
 the return to the menu was fast**, and a thread dump finally caught the kill-signature screen freeze, which build 7 patches;
 device test 7 is next (checklist below).
+
+## Build 8 (October 2026): 'debloat', dead SDK pieces removed
+
+New default patch id `debloat` (ARCHITECTURE.md §2 lists every item). Only what the APK research rated high-confidence and
+free of any feature change; everything with a feature cost or a medium rating was left as it is (boot-completed reminders,
+VIBRATE, BILLING, Google Analytics, FacebookActivity, the Play Games/Facebook app ids, the ad guard, dex code, Bind*.dll,
+btls).
+
+* **Manifest**: 113 → 46 elements (44 targets and their 23 intent-filter children). `BinaryXml` gained a checked element
+  tree and `Remove`; the string pool, resource map and every kept chunk stay byte-identical. Refused (nothing written)
+  unless every target matches exactly once in the verified 1.17.32 manifest.
+* **Files**: the 9 Crashlytics/Fabric entries, again only if all are the verified ones.
+* **Gameloft.Engine**: Crashlytics can never start; no push-token request (local reminders unchanged, the notification
+  toggle still purges and re-schedules them); Facebook and Play Games are not initialised at menu start, so no
+  GoogleApiClient connect, no possible Google sign-in prompt and no Facebook auto-login; a tap on their buttons in
+  Settings > Account shows "Connecting…" and then the normal login-failed state.
+* **Checked**: aapt2 `xmltree` (deletions only) and `badging` (package, launcher, exactly the kept permissions), apksigner
+  v1/v2/v3 with `--min-sdk-version 21`, an independent AXML rebuild byte-identical to the patcher's, no reference to a
+  removed component in the dex, the native libraries or the managed code, update install over build 7 (only removals,
+  package-scoped permission). Gameloft.Engine: 9 patched + 3 added methods ILVerify clean and JIT, every other of 21,381
+  method bodies unchanged, execution tests with the real assemblies and a native-call recorder. Two review findings (the
+  "Connecting…" label after a login tap, the local-alarm purge in push registration) were fixed and re-verified.
+
+### Also check in device test 7 (with build 8 installed)
+
+1. Install over build 6 or 7: the update installs and the save is kept.
+2. No Google sign-in prompt at boot; Settings > Account: Facebook and Google buttons show the failed-login state after a tap.
+3. Local reminders still arrive (and after a reboot); toggling notifications off and on in settings works.
+4. Shop, matches, saves and the signature screen as in build 7.
 
 ## Device test 6 (October 2026): fast return to the menu; the signature-screen freeze caught in a dump
 
@@ -616,7 +645,7 @@ Superseded by the device-test-3 sequence above (steps 1-8 are what device test 2
 | MISC | Hermes mailboxes, Kairos alert stream, Olympus leaderboards with league groups, Osiris events/profiles, clans, wall, group chat, profanity, game_stats, BanTool, geolocation, tracking/marketing catch-alls | `server/Services/{Social,Messaging,Alerts,...,Misc}` | [misc.md](protocol/misc.md) |
 | LIVE OPS | Weekly division seasons (17 division events, 100-entry season boards with rivals that grow and freeze), daily missions, weekly events, weekly modifier as CRM table overrides, CRM `expiry` for the client's refresh, culture-safe dates | `server/Services/Social/LiveOps`, `server/Services/Leaderboards/SeasonRivals.cs`, `tools/content-gen/liveops_tuning.json` | [LIVEOPS.md](LIVEOPS.md), [misc.md](protocol/misc.md) |
 | Unlocks | `settings.unlockAll` through the inventory ledger (starts only once the game profile and the inventory section are stored, waits for the player's alert stream, backup, ordered batches with the merc unlock re-checked before each, `set_profile` alerts) | `server/Services/Unlocks` | [unlocks.md](protocol/unlocks.md) |
-| EMBED | In-game bootstrap (game root via the game's own Java helpers, `args.txt` managed block with `-DataCenter`, device id, logcat, server thread); diagnostics (crash reporter, self-reporting log files, boot trace, game-thread watchdog with managed and native thread dump, game-log bridge, phone-readable copy, exit reasons); patcher (hook, headless, headless-engine, physics, nativeonline, waits, geo, bottile, finder, lan; `res/raw/args.txt` for `--game-log`; vendor-wide manifest permission renamed into the package namespace; AOT strip; ABI selection (every ABI by default, `--abi arm64-v8a` for 64-bit only); signatures (build 7); raw zip rewrite; v1/v2/v3 signing); installer-data restore (saved CDN index, journal and preferences, size-only index for a complete `Data/`, background CRC pass, installer monitor) | `hosts/embedded`, `patcher` | [PLAYER-SETUP.md](PLAYER-SETUP.md), [INSTALL-OFFLINE.md](INSTALL-OFFLINE.md) |
+| EMBED | In-game bootstrap (game root via the game's own Java helpers, `args.txt` managed block with `-DataCenter`, device id, logcat, server thread); diagnostics (crash reporter, self-reporting log files, boot trace, game-thread watchdog with managed and native thread dump, game-log bridge, phone-readable copy, exit reasons); patcher (hook, headless, headless-engine, physics, nativeonline, waits, geo, bottile, finder, lan; `res/raw/args.txt` for `--game-log`; vendor-wide manifest permission renamed into the package namespace; AOT strip; ABI selection (every ABI by default, `--abi arm64-v8a` for 64-bit only); signatures (build 7); debloat (build 8: 44 dead manifest elements, Crashlytics/Fabric files, SDK start-up calls); raw zip rewrite; v1/v2/v3 signing); installer-data restore (saved CDN index, journal and preferences, size-only index for a complete `Data/`, background CRC pass, installer monitor) | `hosts/embedded`, `patcher` | [PLAYER-SETUP.md](PLAYER-SETUP.md), [INSTALL-OFFLINE.md](INSTALL-OFFLINE.md) |
 | Hosts | Standalone net8 console host; embedded DLL compiled against the game's trimmed Mono BCL (ILVerify-clean) | `hosts/standalone`, `server/McvsOffline.Server.Embedded.csproj` | [DEV-LOOP.md](DEV-LOOP.md) |
 
 ### How it was checked
