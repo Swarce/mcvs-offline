@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using McvsOffline.Server;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Http;
@@ -303,6 +304,58 @@ namespace McvsOffline.Tests.Content
 
             using (var server = ServerWithPortal(dir, new FakeAdminPortal { Enabled = false }, new ManualClock(Wednesday)))
                 Assert.Empty(Newsfeeds(Doc(server)));
+        }
+
+        /// <summary>The "CRM document built" lines so far, waiting up to 15 s for the first.</summary>
+        private static List<string> WaitForBuilds(MemoryLogSink logs)
+        {
+            List<string> Builds() => logs.Snapshot().Where(e => e.Message != null && e.Message.StartsWith("CRM document built", StringComparison.Ordinal))
+                                         .Select(e => e.Message).ToList();
+            DateTime deadline = DateTime.UtcNow.AddSeconds(15);
+            while (Builds().Count == 0 && DateTime.UtcNow < deadline) Thread.Sleep(10);
+            return Builds();
+        }
+
+        /// <summary>
+        /// The warm-up's document serves the first request (the TS waits only 1 s for configs/users/me/game): without a
+        /// data pack the warm-up is ready before the admin module registers its portal (it registers after the CRM
+        /// module), so it waits for the portal instead of building a document without the item that the first request
+        /// would rebuild on its own thread.
+        /// </summary>
+        [Fact]
+        public void TheWarmupDocumentHasTheItemAndServesTheFirstRequest()
+        {
+            using var dir = new TempDir();
+            var logs = new MemoryLogSink();
+            // No data pack, the default crm.usePreconfiguration: the preconfiguration load is quick.
+            using var server = AdminTestClient.CreateServer(dir.Combine("data"), logs, clock: new ManualClock(Wednesday));
+            string warmup = Assert.Single(WaitForBuilds(logs));
+            Assert.Contains("inbox item on", warmup);
+
+            Assert.Equal(200, ContentTestSupport.Get(server, "/configs/users/me/game").StatusCode);
+            Assert.Single(Newsfeeds(Doc(server)));
+            Assert.Single(WaitForBuilds(logs)); // both from the warm-up's document
+        }
+
+        /// <summary>Without the admin module the warm-up stops waiting and builds the document without the item.</summary>
+        [Fact]
+        public void WithoutTheAdminModuleTheWarmupStillBuilds()
+        {
+            using var dir = new TempDir();
+            var logs = new MemoryLogSink();
+            var options = new ServerOptions
+            {
+                DataDir = dir.Combine("data"), Port = AdminTestClient.DefaultPort, ConsoleLog = false, FileLog = false,
+                Clock = new ManualClock(Wednesday), RegisterServices = ServiceRegistry.RegisterAll,
+            };
+            options.ExtraSinks.Add(logs);
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            using var server = McvsServer.Create(options);
+            string warmup = Assert.Single(WaitForBuilds(logs));
+            Assert.Contains("inbox item off", warmup);
+            Assert.True(watch.ElapsedMilliseconds >= CrmDocumentCache.PortalWaitMs - 100, watch.ElapsedMilliseconds + " ms");
+            Assert.Empty(Newsfeeds(Doc(server)));
+            Assert.Single(WaitForBuilds(logs));
         }
 
         [Fact]

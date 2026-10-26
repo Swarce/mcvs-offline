@@ -109,6 +109,11 @@ namespace McvsOffline.Server.Services.Crm
     /// </summary>
     public sealed class CrmDocumentCache
     {
+        /// <summary>How long the warm-up waits for the admin module's portal (<see cref="WaitForAdminPortal"/>).</summary>
+        public const int PortalWaitMs = 2000;
+
+        private const int PortalPollMs = 10;
+
         private readonly ServerContext context;
         private readonly Log log;
         private readonly CrmPreconfiguration preconfiguration;
@@ -142,8 +147,10 @@ namespace McvsOffline.Server.Services.Crm
                 try
                 {
                     string ignored;
-                    LoadPreconfiguration(CurrentOptions(out ignored));
+                    CrmOptions o = CurrentOptions(out ignored);
+                    LoadPreconfiguration(o);
                     firstAttemptDone.Set();
+                    WaitForAdminPortal(o);
                     Get(0);
                 }
                 catch (Exception ex)
@@ -158,6 +165,27 @@ namespace McvsOffline.Server.Services.Crm
             thread.IsBackground = true;
             thread.Name = "mcvs-crm-warmup";
             thread.Start();
+        }
+
+        /// <summary>
+        /// The inbox item depends on the admin module's portal, which registers after this module (ServiceRegistry order),
+        /// and it is part of the document's key. Without a data pack (or with <c>crm.usePreconfiguration</c> off) the
+        /// warm-up gets here before the portal exists: a document built now would lack the item, and the first request
+        /// would rebuild the whole document on its own thread, the very cost the warm-up is there to take off the TS's
+        /// 1 s WaitForCRM. So while <c>crm.newsfeedLink</c> is on, wait up to <see cref="PortalWaitMs"/> for the portal
+        /// (module registration takes milliseconds); a server without the admin module builds without the item after
+        /// that. Requests do not wait for this: the preconfiguration is already marked done.
+        /// </summary>
+        private void WaitForAdminPortal(CrmOptions o)
+        {
+            if (!o.NewsfeedLink) return;
+            int start = Environment.TickCount;
+            while (context.Features.Get<IAdminPortal>() == null)
+            {
+                // TickCount wraps: compare the difference.
+                if (unchecked(Environment.TickCount - start) >= PortalWaitMs) return;
+                if (context.StopSignal.WaitOne(PortalPollMs)) return;
+            }
         }
 
         /// <summary>Forgets the cached document (content overrides edited on disk, /_mcvs/crm/reload).</summary>
@@ -211,7 +239,7 @@ namespace McvsOffline.Server.Services.Crm
 
             // The inbox item (design §9.1): its link (the port), the week of its timestamp, and whether it is there at
             // all (crm.newsfeedLink, admin.enabled, and the admin module, which registers after this one: the warm-up
-            // may build the first document without it) are part of the key, so the document is rebuilt when any changes.
+            // waits for it, see WaitForAdminPortal) are part of the key, so the document is rebuilt when any changes.
             List<object> newsfeeds = CrmNewsfeed.Build(o, context.Features.Get<IAdminPortal>(), context.Clock.UtcNow);
             string newsKey = MiniJson.Serialize(newsfeeds);
 

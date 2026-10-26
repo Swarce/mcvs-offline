@@ -26,6 +26,27 @@ namespace McvsOffline.Tests.Content
     public class RedeemPageCodeTests
     {
         private const string Player = "anonymous:redeemer0123456789abcdef";
+
+        /// <summary>The headers of the game's coupon request, as the real client sends them (see the real-client test).</summary>
+        private static readonly string[] GameHeaders =
+        {
+            "Host", "127.0.0.1:51780",
+            "Cache-Control", "no-cache",
+            "User-Agent", "(" + ContentTestSupport.ClientId + "; mcvs)",
+        };
+
+        /// <summary>What a hostile page's &lt;img src&gt; on the phone's browser sends (current Chromium).</summary>
+        private static readonly string[] CrossSiteImageHeaders =
+        {
+            "Host", "127.0.0.1:51780",
+            "User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36",
+            "Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            "Origin", "https://evil.example",
+            "Referer", "https://evil.example/",
+            "Sec-Fetch-Site", "cross-site",
+            "Sec-Fetch-Mode", "no-cors",
+            "Sec-Fetch-Dest", "image",
+        };
         private static readonly Regex PageUrl = new Regex("^http://127\\.0\\.0\\.1:51780/_mcvs/ui/#t=[0-9a-f]{32}$");
 
         private readonly ITestOutputHelper output;
@@ -69,12 +90,13 @@ namespace McvsOffline.Tests.Content
 
             public string OnBehalfToken { get; }
 
-            public HttpResponse Redeem(string code, string token = null, IPEndPoint remote = null)
+            public HttpResponse Redeem(string code, string token = null, IPEndPoint remote = null, string[] headerPairs = null)
             {
                 string target = "/coupons/" + ContentTestSupport.ClientId + "/" + code
                                 + (token == null ? "" : "?access_token=" + Uri.EscapeDataString(token));
                 var headers = new HttpHeaders();
-                headers.Add("Host", "127.0.0.1:51780");
+                string[] pairs = headerPairs ?? GameHeaders;
+                for (int i = 0; i < pairs.Length; i += 2) headers.Add(pairs[i], pairs[i + 1]);
                 var request = new HttpRequest("GET", target, headers, null);
                 request.RemoteEndPoint = remote ?? new IPEndPoint(IPAddress.Loopback, 40001);
                 return Server.Handle(request);
@@ -161,6 +183,39 @@ namespace McvsOffline.Tests.Content
             Assert.Equal(1, rig.Opened);
         }
 
+        /// <summary>
+        /// Any web page in a browser on the phone can send this GET from loopback (an &lt;img&gt;, a no-cors fetch), and the
+        /// Federation Host rule lets 127.0.0.1:&lt;any port&gt; through: the page must not open (design §5.1).
+        /// </summary>
+        [Fact]
+        public void AWebPagesRequestIsIgnored()
+        {
+            using var rig = new Rig();
+            AssertDoesNotExist(rig.Redeem("MCVSOFFLINE", headerPairs: CrossSiteImageHeaders));
+            Assert.True(rig.Logged("MCVSOFFLINE", "ignored: a web browser's request"));
+
+            // Each browser header alone is enough, whatever its case; the game sends none of them.
+            foreach (string header in new[] { "Origin", "Referer", "Sec-Fetch-Site", "sec-fetch-mode", "Sec-Fetch-Dest", "Sec-Fetch-User" })
+            {
+                AssertDoesNotExist(rig.Redeem("MCVSOFFLINE", headerPairs: GameHeaders.Concat(new[] { header, "x" }).ToArray()));
+            }
+            // An old WebView without Sec-Fetch-* and a page with referrerpolicy=no-referrer: only the User-Agent tells.
+            AssertDoesNotExist(rig.Redeem("MCVSOFFLINE", headerPairs: new[] { "Host", "127.0.0.1:51780", "User-Agent", CrossSiteImageHeaders[3] }));
+            Assert.True(rig.Logged("MCVSOFFLINE", "ignored: not the game's User-Agent"));
+            AssertDoesNotExist(rig.Redeem("MCVSOFFLINE", headerPairs: new[] { "Host", "127.0.0.1:51780" }));
+            AssertDoesNotExist(rig.Redeem("MCVSOFFLINE", headerPairs: new[] { "Host", "127.0.0.1:51780", "User-Agent", "(another:client; mcvs)" }));
+            // Not even with the current player's token.
+            AssertDoesNotExist(rig.Redeem("MCVSOFFLINE", rig.OnBehalfToken, headerPairs: CrossSiteImageHeaders));
+            Assert.Equal(0, rig.Opened);
+
+            // None of them used up the 30 s; a session agent before the comment is still the game's shape.
+            AssertDoesNotExist(rig.Redeem("MCVSOFFLINE", headerPairs: new[]
+            {
+                "Host", "127.0.0.1:51780", "User-Agent", "Agent/1 (" + ContentTestSupport.ClientId + "; mcvs)",
+            }));
+            Assert.Equal(1, rig.Opened);
+        }
+
         [Fact]
         public void NoHostOrATurnedOffPageOpensNothing()
         {
@@ -209,7 +264,8 @@ namespace McvsOffline.Tests.Content
         /// <summary>
         /// The game's own redemption, through the real Gameloft.OnlinePlatform over HTTP: the menu server's on-behalf
         /// session (SessionForUser, as the TS gets it) calls AssetsService.RedeemCoupon. The request carries no access
-        /// token (AssetsApi.GetRedeemCouponRequest has no scopes), the client gets the 404 it maps to "code does not
+        /// token (AssetsApi.GetRedeemCouponRequest has no scopes) and no browser header, only the game's User-Agent
+        /// "(&lt;client id&gt;; mcvs)" (FedRequestMessage's constructor), the client gets the 404 it maps to "code does not
         /// exist", and the page opens once with a fresh ticket.
         /// </summary>
         [Fact]
