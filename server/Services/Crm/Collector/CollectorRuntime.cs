@@ -68,6 +68,7 @@ namespace McvsOffline.Server.Services.Crm.Collector
         private DateTime? servedAt;
         private DateTime? servedWindow;
         private string servedEvent;
+        private bool latchBroken;
         private bool latchWriteFailing;
 
         public CollectorRuntime(ServerContext context)
@@ -181,12 +182,21 @@ namespace McvsOffline.Server.Services.Crm.Collector
 
             DateTime guardSince = GuardSince(since);
             if (utcNow >= guardSince) return new CollectorStatus { Phase = CollectorPhase.Guard, Reason = why, Since = since };
-            DateTime? served = CratesServedAt;
+            DateTime? served;
+            bool broken;
+            lock (gate)
+            {
+                LoadLatch();
+                served = servedAt;
+                broken = latchBroken;
+            }
             if (served.HasValue)
                 return new CollectorStatus
                 {
                     Phase = CollectorPhase.Guard,
-                    Reason = why + " (guard kept: Cosmetic crates were served at " + TimeFormat.Iso8601(served.Value) + ")",
+                    Reason = why + (broken
+                                        ? " (guard kept: " + LatchFileName + " is unreadable)"
+                                        : " (guard kept: Cosmetic crates were served at " + TimeFormat.Iso8601(served.Value) + ")"),
                     Since = since,
                 };
             return new CollectorStatus { Phase = CollectorPhase.Dormant, Reason = why + " (guard from " + TimeFormat.Iso8601(guardSince) + ")", Since = since };
@@ -194,7 +204,8 @@ namespace McvsOffline.Server.Services.Crm.Collector
 
         /// <summary>
         /// When live ops first served an event carrying the Cosmetic crate (server clock), from <see cref="LatchFileName"/>;
-        /// null when they never did. From then on <see cref="Status"/> is never <c>Dormant</c>.
+        /// null when they never did; <see cref="DateTime.MinValue"/> when the file is unreadable (set, time unknown; the
+        /// next served crate rewrites it). From then on <see cref="Status"/> is never <c>Dormant</c>.
         /// </summary>
         public DateTime? CratesServedAt
         {
@@ -233,9 +244,11 @@ namespace McvsOffline.Server.Services.Crm.Collector
             lock (gate)
             {
                 LoadLatch();
-                if (servedAt.HasValue && servedWindow.HasValue && windowStart >= servedWindow.Value) return;
+                if (servedAt.HasValue && !latchBroken && servedWindow.HasValue && windowStart >= servedWindow.Value) return;
                 bool first = !servedAt.HasValue;
-                if (first) servedAt = utcNow;
+                // A broken file is rewritten with this serve's time (it already kept the guard).
+                if (first || latchBroken) servedAt = utcNow;
+                latchBroken = false;
                 servedWindow = windowStart;
                 servedEvent = eventId;
                 if (first)
@@ -267,6 +280,7 @@ namespace McvsOffline.Server.Services.Crm.Collector
             {
                 log.Warn(LatchFileName + " could not be read (" + ex.Message + "); keeping the guard as if Cosmetic crates had been served");
                 servedAt = DateTime.MinValue;
+                latchBroken = true;
                 return;
             }
             if (text == null) return;
@@ -277,6 +291,7 @@ namespace McvsOffline.Server.Services.Crm.Collector
             {
                 log.Warn(LatchFileName + " is not valid; keeping the guard as if Cosmetic crates had been served");
                 servedAt = DateTime.MinValue;
+                latchBroken = true;
                 return;
             }
             servedAt = at;

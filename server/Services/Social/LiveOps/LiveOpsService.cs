@@ -32,7 +32,7 @@ namespace McvsOffline.Server.Services.Social.LiveOps
         /// <summary>
         /// liveops.json <c>collector.since</c> (null: no valid collector block), whether or not live ops are on: the CRM
         /// builder passes it to <c>CollectorRuntime.Status</c>, so the layer starts exactly where the crates do (D5) and
-        /// the guard at <c>min(since, CollectorGuard.ShippedSince)</c>.
+        /// the guard at <c>CollectorRuntime.GuardSince(since)</c> (a day before <c>min(since, CollectorGuard.ShippedSince)</c>).
         /// </summary>
         public DateTime? CollectorSince;
 

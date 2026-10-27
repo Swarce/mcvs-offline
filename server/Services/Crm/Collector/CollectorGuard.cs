@@ -15,7 +15,7 @@ namespace McvsOffline.Server.Services.Crm.Collector
     {
         /// <summary>
         /// The <c>since</c> of the shipped server/Content/liveops.json <c>collector</c> block, compiled in so the guard
-        /// starts even when that block is missing or broken (<c>guardSince = min(since, ShippedSince)</c>, §2.12).
+        /// starts even when that block is missing or broken (<c>guardSince = min(since, ShippedSince) − Lead</c>, §2.12).
         /// GeneratedContentTests asserts it equals the shipped file.
         /// </summary>
         public static readonly DateTime ShippedSince = new DateTime(2026, 11, 9, 0, 0, 0, DateTimeKind.Utc);

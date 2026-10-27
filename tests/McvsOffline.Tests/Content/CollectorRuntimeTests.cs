@@ -635,8 +635,17 @@ namespace McvsOffline.Tests.Content
                 var brokenLogger = new Logger();
                 brokenLogger.AddSink(logs);
                 var broken = new ServerContext(dir, new Settings(), brokenLogger, new ManualClock(early), f.Content);
-                Assert.Equal(CollectorPhase.Guard, CollectorRuntime.For(broken).Status(early, true, Shipped).Phase);
+                CollectorRuntime b = CollectorRuntime.For(broken);
+                CollectorStatus bs = b.Status(early, true, Shipped);
+                Assert.Equal(CollectorPhase.Guard, bs.Phase);
+                Assert.EndsWith("(guard kept: " + CollectorRuntime.LatchFileName + " is unreadable)", bs.Reason);
+                Assert.Equal(DateTime.MinValue, b.CratesServedAt);
                 Assert.True(logs.Contains(CollectorRuntime.LatchFileName + " is not valid"));
+                // The next served crate rewrites it.
+                b.NoteCratesServed("mcvs_weekly_2026110900x7", Shipped, Shipped.AddHours(3));
+                Assert.Equal(Shipped.AddHours(3), b.CratesServedAt);
+                Assert.Contains("\"cratesServed\": \"2026-11-09T03:00:00Z\"", File.ReadAllText(Path.Combine(dir, CollectorRuntime.LatchFileName)));
+                Assert.EndsWith("(guard kept: Cosmetic crates were served at 2026-11-09T03:00:00Z)", b.Status(early, true, Shipped).Reason);
             }
         }
     }
