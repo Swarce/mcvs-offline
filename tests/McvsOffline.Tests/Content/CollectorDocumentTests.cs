@@ -401,7 +401,7 @@ namespace McvsOffline.Tests.Content
             using var run = new GoldenRun(ActiveDay);
             run.Set("crm.overlay", MiniJson.ParseObject(@"{""game"":{""_OverrideTables"":{""MCVS_Meta"":{
                 ""LootCrates"":{""Id@CratesCount"":{""Crate_Event_Special"":7}},
-                ""Crate_Event_Special"":{""Id@Weight#1"":{""2"":12345}},
+                ""Crate_Event_Special"":{""Id@Weight#1"":{""3"":12345}},
                 ""KillsignatureAvatars"":{""ID@Unlockable"":{""226"":""false""}}}}}}"));
             string token = Player(run, "p", GoldenScenarios.DumpText(GoldenScenarios.Fresh));
             var stat = MiniJson.ParseObject(run.Get("/configs/users/me", null).BodyText);
@@ -412,16 +412,16 @@ namespace McvsOffline.Tests.Content
             {
                 var game = (Dictionary<string, object>)root["game"];
                 Assert.Equal(7L, Cell(Tables(game, false), "LootCrates", "Id@CratesCount", "Crate_Event_Special"));
-                Assert.Equal(12345L, Cell(Tables(game, false), "Crate_Event_Special", "Id@Weight#1", "2"));
+                Assert.Equal(12345L, Cell(Tables(game, false), "Crate_Event_Special", "Id@Weight#1", "3"));
                 Assert.Equal("false", Cell(Tables(game, false), "KillsignatureAvatars", "ID@Unlockable", "226"));
                 Assert.Empty(CrmDocumentValidator.CheckCollector(Tables(game, false), null, "game"));
             }
             Assert.Equal(7L, Cell(Tables((Dictionary<string, object>)stat["game"], true), "LootCrates", "Id@CratesCount", "Crate_Event_Special"));
             // The other rows are the player's own (a fresh profile has 20 agents locked: its weights differ from the static ones).
-            object staticRow1 = Cell(Tables((Dictionary<string, object>)stat["game"], false), "Crate_Event_Special", "Id@Weight#1", "1");
-            object playerRow1 = Cell(Tables((Dictionary<string, object>)player["game"], false), "Crate_Event_Special", "Id@Weight#1", "1");
-            Assert.Equal(416290L, staticRow1);
-            Assert.NotEqual(staticRow1, playerRow1);
+            object staticAvatars = Cell(Tables((Dictionary<string, object>)stat["game"], false), "Crate_Event_Special", "Id@Weight#1", "2");
+            object playerAvatars = Cell(Tables((Dictionary<string, object>)player["game"], false), "Crate_Event_Special", "Id@Weight#1", "2");
+            Assert.Equal(416290L, staticAvatars);
+            Assert.NotEqual(staticAvatars, playerAvatars);
         }
 
         // ------------------------------------------------------------------------------------------ per-player documents
@@ -654,7 +654,8 @@ namespace McvsOffline.Tests.Content
             // that inventory.
             Assert.Null(JsonPath.Get(tables, Meta + "." + CollectorPlan.AvatarsTable));
             Assert.Null(JsonPath.Get(tables, Meta + "." + CollectorPlan.BackgroundsTable));
-            Assert.Equal(0L, Cell(tables, "Crate_Event_Special", "Id@Weight#1", "1"));
+            Assert.Equal(0L, Cell(tables, "Crate_Event_Special", "Id@Weight#1", "2"));   // avatars
+            Assert.Equal(1L, Cell(tables, "Crate_Event_Special", "Id@Weight#1", "1"));   // exhausted (§5.1)
             CrmDocument doc = run.Context.Features.Get<CrmDocumentCache>().Get(0);
             IList<FieldPatch> expected = CollectorPlan.PlayerCells(doc.Collector.Content, doc.Collector.Options,
                                                                    PlayerInventory.Scan(GoldenScenarios.DumpText(GoldenScenarios.UnlockAll), true),
@@ -684,10 +685,10 @@ namespace McvsOffline.Tests.Content
             Assert.Equal(510L, JsonPath.Get(crm, "collector.cells.game"));
             Assert.Equal(365L, JsonPath.Get(crm, "collector.cells.mirror"));
             Assert.Equal("guard", JsonPath.Get(crm, "collector.cells.playerMirror"));
-            Assert.Equal(416290L, JsonPath.Get(crm, "collector.staticWeights.1"));
-            Assert.Equal(117699L, JsonPath.Get(crm, "collector.staticWeights.37"));
-            Assert.Equal(132301L, JsonPath.Get(crm, "collector.staticWeights.38"));
-            Assert.Equal(0L, JsonPath.Get(crm, "collector.staticWeights.39"));
+            Assert.Equal(0L, JsonPath.Get(crm, "collector.staticWeights.1"));          // exhausted
+            Assert.Equal(416290L, JsonPath.Get(crm, "collector.staticWeights.2"));     // avatars
+            Assert.Equal(117699L, JsonPath.Get(crm, "collector.staticWeights.38"));    // camos
+            Assert.Equal(132301L, JsonPath.Get(crm, "collector.staticWeights.39"));    // jerseys
 
             var collector = MiniJson.ParseObject(run.Get("/_mcvs/collector?account=" + account, null).BodyText);
             Assert.Equal("Active", collector["phase"]);
@@ -728,7 +729,7 @@ namespace McvsOffline.Tests.Content
             CrmDocumentCache cache = run.Context.Features.Get<CrmDocumentCache>();
             CrmDocument shipped = cache.Get(0);
             Assert.Equal(CollectorPhase.Active, shipped.CollectorPhase);
-            Assert.Contains("\"Crate.Cosmetic_Crate\"", shipped.Json);
+            Assert.Contains("\"crm.CrateCustomization\"", shipped.Json);
             Assert.Same(shipped, cache.Get(0));
             var edited = MiniJson.ParseObject(CollectorPlanTests.ShippedJson);
             edited["note"] = "same rows, another text";

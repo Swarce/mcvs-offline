@@ -195,7 +195,8 @@ namespace McvsOffline.Tests.Content
             Assert.Equal(new[] { "base", "drawable", "unlock" }, ((Dictionary<string, object>)collector["backgrounds"]).Keys);
             Assert.Equal(new[] { "tiers", "divisionTier", "retarget", "placement", "emblems" }, ((Dictionary<string, object>)collector["season"]).Keys);
 
-            // The 39 rows of §2.3, ids 1..39, in category order; sounds only as bundles on random-avatar carriers (D8).
+            // The 39 rows of §2.3, ids 1..39, in category order (the exhausted row first: CrateRewardItem.IsAvailable stops
+            // there without a signature list); sounds only as bundles on random-background carriers (D8).
             var rows = (List<object>)collector["rows"];
             Assert.Equal(39, rows.Count);
             var categories = new List<string>();
@@ -209,14 +210,17 @@ namespace McvsOffline.Tests.Content
                 if (row.ContainsKey("bundle"))
                 {
                     Assert.Equal("sounds", category);
-                    Assert.Equal(new object[] { "KillSignature", "Avatar", "Random" }, new[] { row["type"], row["subtype"], row["subtype2"] });
+                    Assert.Equal(new object[] { "KillSignature", "Background", "Random" }, new[] { row["type"], row["subtype"], row["subtype2"] });
                     Assert.Equal("KillSignature_Sound_" + row["item"], row["bundle"]);
                 }
             }
-            Assert.Equal(new[] { "avatars", "backgrounds", "sounds", "skins", "hiddenJerseys", "agents", "camos", "jerseys", "exhausted" },
+            Assert.Equal(new[] { "exhausted", "avatars", "backgrounds", "sounds", "skins", "hiddenJerseys", "agents", "camos", "jerseys" },
                          categories);
-            Assert.Equal("VersusCoins", JsonPath.Get(collector, "rows.38.type"));
-            Assert.Equal("Tiers4", JsonPath.Get(collector, "rows.38.subtype"));
+            Assert.Equal("VersusCoins", JsonPath.Get(collector, "rows.0.type"));
+            Assert.Equal("Tiers4", JsonPath.Get(collector, "rows.0.subtype"));
+            // The crate's name differs from the weekly event crates' Crate.Cosmetics_Crate in every language (§2.2).
+            Assert.Equal(CollectorGuard.LocId, JsonPath.Get(collector, "crate.locId"));
+            Assert.Equal("crm.CrateCustomization", CollectorGuard.LocId);
 
             Assert.Equal(21, ((Dictionary<string, object>)collector["camos"]).Count);
             Assert.Equal(7, ((List<object>)JsonPath.Get(collector, "season.tiers")).Count);

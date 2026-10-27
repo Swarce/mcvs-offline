@@ -219,8 +219,8 @@ namespace McvsOffline.Tests.Conformance
                 {
                     object row = crate[id.ToString(CultureInfo.InvariantCulture)];
                     Assert.Equal(RewardIds[id - 1], (string)GameClient.Get(row, "RewardId"));
-                    bool carrier = id >= 3 && id <= 6;
-                    Assert.Equal(carrier ? "KillSignature_Sound_" + (id - 1) : null, (string)GameClient.Get(row, "BundledRewards"));
+                    bool carrier = id >= 4 && id <= 7;
+                    Assert.Equal(carrier ? "KillSignature_Sound_" + (id - 2) : null, (string)GameClient.Get(row, "BundledRewards"));
                     Assert.Equal(carrier, (bool)GameClient.Get(row, "AlwaysGiveBundledRewards"));
                     Assert.Equal(0, (int)GameClient.Get(row, "FixedQuantity"));
                     Assert.Equal((float)(long)weights[id.ToString(CultureInfo.InvariantCulture)], Weight(row, 0));
@@ -228,7 +228,7 @@ namespace McvsOffline.Tests.Conformance
                 }
                 Assert.Contains(crate.Values, r => Weight(r, 0) > 0);
                 if (name == "per-player unlock-all")
-                    Assert.Equal(new[] { "39" }, crate.Where(kv => Weight(kv.Value, 0) > 0).Select(kv => kv.Key));   // §5.1
+                    Assert.Equal(new[] { "1" }, crate.Where(kv => Weight(kv.Value, 0) > 0).Select(kv => kv.Key));   // §5.1
 
                 // §2.5: ranks 1-3. The season from Monday 2026-11-09 follows the one numbered V (273): 1st ★★★ 276, 2nd 275, 3rd 274.
                 int[] emblems = name == "static" ? new[] { 276, 275, 274 } : null;
@@ -290,7 +290,7 @@ namespace McvsOffline.Tests.Conformance
                         break;
                     case "MercAccessory":
                         Assert.True((bool)GameClient.Get(item, "IsRandomMerc"), rewardId);
-                        Assert.Equal(id == 38, (bool)GameClient.Get(item, "IsRandomAccessory"));
+                        Assert.Equal(id == 39, (bool)GameClient.Get(item, "IsRandomAccessory"));
                         break;
                 }
             }
@@ -367,7 +367,7 @@ namespace McvsOffline.Tests.Conformance
             Assert.Equal(LocId, content.LocId);
             Assert.Equal(CrateImage, content.Image);
 
-            // Row 39 (exhausted): the VersusCoins type route, and its tier pays 70 VersusCoins (VersusCoinsTiers).
+            // Row 1 (exhausted): the VersusCoins type route, and its tier pays 70 VersusCoins (VersusCoinsTiers).
             object tiers = real.Fill("Game", "Game.CurrencyTiersCollection", real.NewTable("VersusCoinsTiers"));
             object tiers4 = Element(tiers, "Tiers4");
             Assert.Equal(70, (int)GameClient.Get(tiers4, "QuantityMin"));
@@ -816,8 +816,9 @@ namespace McvsOffline.Tests.Conformance
 
         private static string[] BuildRewardIds()
         {
-            var ids = new List<string> { "KillSignature_Avatar_Random", "KillSignature_Background_Random" };
-            for (int sound = 2; sound <= 5; sound++) ids.Add("KillSignature_Avatar_Random");
+            // The exhausted row first (§2.3: CrateRewardItem.IsAvailable stops there), the sounds on background carriers.
+            var ids = new List<string> { "VersusCoins_Tiers4", "KillSignature_Avatar_Random", "KillSignature_Background_Random" };
+            for (int sound = 2; sound <= 5; sound++) ids.Add("KillSignature_Background_Random");
             foreach (string skin in new[] { "2_5", "4_6", "6_4", "8_7", "9_3", "9_4", "10_7", "11_3", "11_4", "12_4", "15_6", "17_6", "17_11", "17_12", "19_4", "20_4" })
                 ids.Add("MercSkin_" + skin);
             foreach (int jersey in new[] { 112, 143, 144, 152, 153, 212, 213, 214, 268, 269, 270, 271 }) ids.Add("MercAccessory_Random_" + jersey);
@@ -825,7 +826,6 @@ namespace McvsOffline.Tests.Conformance
             ids.Add("UnlockMerc_21");
             ids.Add("WeaponCamo_Random_Random");
             ids.Add("MercAccessory_Random_Random");
-            ids.Add("VersusCoins_Tiers4");
             return ids.ToArray();
         }
 

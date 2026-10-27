@@ -1141,6 +1141,10 @@ def _find_nosource(cat, unlocks):
     return found
 
 
+# The random signature rows a sound may ride on (D8): previewable with weight, and the bundle always follows the draw.
+CARRIER_SUBTYPES = ("Avatar", "Background")
+
+
 def collector_row_problem(row):
     """None when the client can preview a crate row with weight (economy-collector.md §2.3.1), else why not.
     GetPreview keys each weighted row on its image; a row whose reward has none (a sound, a fixed background) throws
@@ -1168,8 +1172,8 @@ def collector_row_problem(row):
     if bundle is not None:
         if not (isinstance(bundle, str) and re.match(r"^KillSignature_Sound_\d+$", bundle)):
             return "bundle %s is not a KillSignature_Sound_<n> carrier bundle" % bundle
-        if (kind, sub, sub2) != ("KillSignature", "Avatar", "Random"):
-            return "bundle %s on a non-carrier %s/%s/%s row (only KillSignature/Avatar/Random rows carry sounds)" % (
+        if kind != "KillSignature" or sub not in CARRIER_SUBTYPES or sub2 != "Random":
+            return "bundle %s on a non-carrier %s/%s/%s row (only KillSignature/Avatar|Background/Random rows carry sounds)" % (
                 bundle, kind, sub, sub2)
     return None
 
@@ -1249,6 +1253,11 @@ def build_collector(cat, tuning, unlocks, loc_tables):
     # The explicit rows of O5: released no-source items each (a tuning typo would otherwise sell a sourced item).
     sound_rows = set(int(r["ID"]) for r in _design_rows(cat, "KillsignatureSounds"))
     sounds = [int(s) for s in tuning["sounds"]]
+    # D8: the carrier kind. Background (the default of the shipped tuning) keeps the crate's IsAvailable and preview
+    # checks on the 35-entry background list instead of the 1,518-entry avatar list (economy-collector.md §2.3).
+    carrier = tuning.get("soundCarrier", "Avatar")
+    if carrier not in CARRIER_SUBTYPES:
+        raise ContentError("collector: soundCarrier must be one of %s, not %s" % (", ".join(CARRIER_SUBTYPES), carrier))
     for s in sounds:
         if s not in sound_rows or "KillSignature_Sound_%d" % s not in nosource.get("sounds", ()):
             raise ContentError("collector: sound %d is not a released no-source sound" % s)
@@ -1326,9 +1335,9 @@ def build_collector(cat, tuning, unlocks, loc_tables):
         elif category == "backgrounds":
             row(category, "KillSignature", "Background", "Random")
         elif category == "sounds":
-            # Carriers (D8): a random-avatar row that always also gives its sound.
+            # Carriers (D8): a random-signature row that always also gives its sound.
             for s in sounds:
-                row(category, "KillSignature", "Avatar", "Random", bundle="KillSignature_Sound_%d" % s, item=s)
+                row(category, "KillSignature", carrier, "Random", bundle="KillSignature_Sound_%d" % s, item=s)
         elif category == "skins":
             for m, s in skins:
                 row(category, "MercSkin", str(m), str(s), merc=m, item=s)
@@ -1425,6 +1434,11 @@ def check_collector(cat, doc):
         problem = collector_row_problem(r)
         if problem:
             raise ContentError("collector: row %d: %s" % (i, problem))
+        # A bundle belongs to a sound carrier, whose weight counts its sound (§4.1); a carrier gives its own sound.
+        if (r.get("bundle") is not None) != (r.get("category") == "sounds") or (
+                r.get("category") == "sounds" and r.get("bundle") != "KillSignature_Sound_%s" % r.get("item")):
+            raise ContentError("collector: row %d: bundle %s on a non-carrier %s row (a sounds row carries its own sound)"
+                               % (i, r.get("bundle"), r.get("category")))
 
     av = dict((int(r["ID"]), r) for r in _design_rows(cat, "KillsignatureAvatars"))
     released_av = set(a for a, _ in cat.avatars)

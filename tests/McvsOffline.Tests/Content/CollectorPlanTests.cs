@@ -149,14 +149,16 @@ namespace McvsOffline.Tests.Content
             CollectorContent c = Shipped();
             Assert.Equal("Crate_Event_Special", c.CrateId);
             Assert.Equal("Crate_Event_Special", c.Table);
-            Assert.Equal("Crate.Cosmetic_Crate", c.LocId);
+            Assert.Equal("crm.CrateCustomization", c.LocId);
             Assert.Equal("Menus/assets/png/Crates/Crates/crate_Legendary_Open.png", c.Image);
 
+            // The exhausted row first (CrateRewardItem.IsAvailable stops there without a signature list), the sounds on
+            // random background carriers (§2.3, D8).
             var expected = new List<string>
             {
-                "avatars KillSignature/Avatar/Random", "backgrounds KillSignature/Background/Random",
+                "exhausted VersusCoins/Tiers4", "avatars KillSignature/Avatar/Random", "backgrounds KillSignature/Background/Random",
             };
-            for (int s = 2; s <= 5; s++) expected.Add("sounds KillSignature/Avatar/Random+KillSignature_Sound_" + s);
+            for (int s = 2; s <= 5; s++) expected.Add("sounds KillSignature/Background/Random+KillSignature_Sound_" + s);
             foreach (string skin in new[] { "2/5", "4/6", "6/4", "8/7", "9/3", "9/4", "10/7", "11/3", "11/4", "12/4", "15/6", "17/6", "17/11", "17/12", "19/4", "20/4" })
                 expected.Add("skins MercSkin/" + skin);
             foreach (int j in new[] { 112, 143, 144, 152, 153, 212, 213, 214, 268, 269, 270, 271 }) expected.Add("hiddenJerseys MercAccessory/Random/" + j);
@@ -164,7 +166,6 @@ namespace McvsOffline.Tests.Content
             expected.Add("agents UnlockMerc/21");
             expected.Add("camos WeaponCamo/Random/Random");
             expected.Add("jerseys MercAccessory/Random/Random");
-            expected.Add("exhausted VersusCoins/Tiers4");
             Assert.Equal(expected, c.Rows.Select(r => r.Category + " " + r.Type + "/" + r.Subtype + (r.Subtype2 == null ? "" : "/" + r.Subtype2)
                                                       + (r.Bundle == null ? "" : "+" + r.Bundle)));
             Assert.Equal(Enumerable.Range(1, 39), c.Rows.Select(r => r.Id));
@@ -194,15 +195,21 @@ namespace McvsOffline.Tests.Content
             ["no crate"] = (null, d => d.Remove("crate"), "crate"),
             ["crate id is not Crate_Event_Special"] = (null, d => JsonPath.Set(d, "crate.id", "Crate_Event_1"), "crate.id Crate_Event_1 is not Crate_Event_Special"),
             ["crate table is not Crate_Event_Special"] = (null, d => JsonPath.Set(d, "crate.table", "Crate_Event_1"), "crate.table Crate_Event_1 is not Crate_Event_Special"),
-            ["sound row with weight"] = (null, d => Row(d, 3)["subtype"] = "Sound", "cannot be previewed"),
-            ["sound row without carrier"] = (null, d => { Row(d, 3)["subtype"] = "Sound"; Row(d, 3)["subtype2"] = "2"; Row(d, 3).Remove("bundle"); }, "cannot be previewed"),
-            ["bundle on a skin row"] = (null, d => Row(d, 7)["bundle"] = "KillSignature_Sound_2", "non-carrier"),
-            ["bundle that is no sound"] = (null, d => Row(d, 1)["bundle"] = "Gear_Random_1_Random", "carrier bundle"),
-            ["fixed background"] = (null, d => Row(d, 2)["subtype2"] = "3", "cannot be previewed"),
-            ["empty subtype2"] = (null, d => Row(d, 7)["subtype2"] = "", "non-empty"),
-            ["unknown category"] = (null, d => Row(d, 37)["category"] = "vip", "unknown category"),
-            ["exhausted row not a tier"] = (null, d => Row(d, 39)["subtype"] = "Gold", "cannot be previewed"),
-            ["no exhausted row"] = (null, d => ((List<object>)d["rows"]).RemoveAt(38), "exactly one exhausted row"),
+            ["sound row with weight"] = (null, d => Row(d, 4)["subtype"] = "Sound", "cannot be previewed"),
+            ["sound row without carrier"] = (null, d => { Row(d, 4)["subtype"] = "Sound"; Row(d, 4)["subtype2"] = "2"; Row(d, 4).Remove("bundle"); }, "cannot be previewed"),
+            ["bundle on a skin row"] = (null, d => Row(d, 8)["bundle"] = "KillSignature_Sound_2", "non-carrier"),
+            ["bundle on a fixed background"] = (null, d => { Row(d, 4)["subtype2"] = "7"; }, "cannot be previewed"),
+            ["bundle that is no sound"] = (null, d => Row(d, 2)["bundle"] = "Gear_Random_1_Random", "carrier bundle"),
+            ["fixed background"] = (null, d => Row(d, 3)["subtype2"] = "3", "cannot be previewed"),
+            ["empty subtype2"] = (null, d => Row(d, 8)["subtype2"] = "", "non-empty"),
+            ["unknown category"] = (null, d => Row(d, 38)["category"] = "vip", "unknown category"),
+            ["exhausted row not a tier"] = (null, d => Row(d, 1)["subtype"] = "Gold", "cannot be previewed"),
+            ["no exhausted row"] = (null, d =>
+            {
+                var rows = (List<object>)d["rows"];
+                rows.RemoveAt(0);
+                for (int i = 0; i < rows.Count; i++) ((Dictionary<string, object>)rows[i])["id"] = (long)(i + 1);
+            }, "exactly one exhausted row"),
             ["ids out of order"] = (null, d => Row(d, 5)["id"] = 7L, "ids must run"),
             ["Kayac in base"] = (null, d => JsonPath.Set(d, "avatars.base", "61-76,443"), "Kayac or reserved"),
             ["unlock outside base"] = (null, d => JsonPath.Set(d, "avatars.unlock", "225-253,598"), "not in avatars.base"),
@@ -257,7 +264,9 @@ namespace McvsOffline.Tests.Content
             Assert.NotNull(CollectorContent.RowProblem("KillSignature", "Sound", "2", null));        // KeyNotFoundException in GetPreview (D8)
             Assert.NotNull(CollectorContent.RowProblem("KillSignature", "Background", "7", null));   // a fixed background has no image either
             Assert.NotNull(CollectorContent.RowProblem("KillSignature", "Avatar", "Random", "KillSignature_Avatar_5"));
-            Assert.NotNull(CollectorContent.RowProblem("KillSignature", "Background", "Random", "KillSignature_Sound_2"));
+            Assert.Null(CollectorContent.RowProblem("KillSignature", "Background", "Random", "KillSignature_Sound_2"));   // a background carrier
+            Assert.NotNull(CollectorContent.RowProblem("KillSignature", "Background", "7", "KillSignature_Sound_2"));
+            Assert.NotNull(CollectorContent.RowProblem("MercSkin", "17", "11", "KillSignature_Sound_2"));
             Assert.NotNull(CollectorContent.RowProblem("UpgradeTokens", "Tiers3", null, null));
             Assert.NotNull(CollectorContent.RowProblem("VersusCoins", "Tiers4", "1", null));
             Assert.NotNull(CollectorContent.RowProblem("WeaponCamo", "Random", "5", null));
@@ -450,7 +459,7 @@ namespace McvsOffline.Tests.Content
             Assert.Equal(accepted ? value : "VersusCoins_Tiers4", o.ExhaustedReward);
             Assert.Equal(!accepted, sink.Snapshot().Any(e => e.Message.StartsWith("settings: economy.collector.exhaustedReward ")));
             CollectorLayer layer = CollectorPlan.Static(Shipped(), o, Snapshot(Week147));
-            Assert.Equal(o.ExhaustedSubtype, Value(layer.Game, "Crate_Event_Special", "Id@Subtype", "39"));
+            Assert.Equal(o.ExhaustedSubtype, Value(layer.Game, "Crate_Event_Special", "Id@Subtype", "1"));
         }
 
         // ------------------------------------------------------------------------------------------ static layer
@@ -463,11 +472,11 @@ namespace McvsOffline.Tests.Content
             CollectorLayer layer = CollectorPlan.Static(content, new CollectorOptions(), Snapshot(Week147));
             Assert.Equal(663.0, layer.Weights.Base);
             Assert.Equal(9365.0, layer.Weights.Paid);
-            Assert.Equal(368, layer.Units.Of(1));
-            Assert.Equal(23, layer.Units.Of(2));
-            var expected = new Dictionary<int, long> { [1] = 416290, [2] = 26018, [35] = 0, [36] = 0, [37] = 117699, [38] = 132301, [39] = 0 };
-            for (int row = 3; row <= 22; row++) expected[row] = 1131;
-            for (int row = 23; row <= 34; row++) expected[row] = 23756;
+            Assert.Equal(368, layer.Units.Of(2));
+            Assert.Equal(23, layer.Units.Of(3));
+            var expected = new Dictionary<int, long> { [2] = 416290, [3] = 26018, [36] = 0, [37] = 0, [38] = 117699, [39] = 132301, [1] = 0 };
+            for (int row = 4; row <= 23; row++) expected[row] = 1131;
+            for (int row = 24; row <= 35; row++) expected[row] = 23756;
             foreach (CollectorRow row in content.Rows)
             {
                 Assert.Equal(expected[row.Id], layer.Weights.Of(row.Id));
@@ -479,7 +488,7 @@ namespace McvsOffline.Tests.Content
         }
 
         /// <summary>
-        /// The design's cells (cells2.py, which computed them with itemsPerCrate 3, before O3): the game layer of §2.10 (510
+        /// The design's cells (cells2.py, which computed them with itemsPerCrate 3, before O3; round 3: cells3.py): the game layer of §2.10 (510
         /// cells: LootCrates 87, crate rows 161, placement 42, avatars 214, backgrounds 6), the mirror (365), the 139
         /// <c>true</c> and the 75 Kayac <c>false</c> avatar cells, as canonical hashes of the oracle files.
         /// </summary>
@@ -495,8 +504,9 @@ namespace McvsOffline.Tests.Content
             }, byTable);
             Assert.Equal(510, layer.Game.Count);
             Assert.Equal(365, layer.Mirror.Count);
-            Assert.Equal("872d562e5ccc6c0ce96711a315aa2ab91226e2dc0aa246b09c0b91db6c1a1aea", Sha256(Canonical(layer.Game)));
-            Assert.Equal("a7d632a81d587fed041f71345cc6b96ef2edf5c27a147249d905fb79cf240f47", Sha256(Canonical(layer.Mirror)));
+            // Round 3 (cells3.py: cells2.py with the exhausted row first, background carriers and crm.CrateCustomization).
+            Assert.Equal("8037f57724283bad5df12ac5564a274ac32f43cd963f7a5804884aff60482cf0", Sha256(Canonical(layer.Game)));
+            Assert.Equal("b7b4538cd617727de44c7fe6f4e4d2f2f8638fcb6fc46aebc54d2a6db7ed0188", Sha256(Canonical(layer.Mirror)));
             var avatars = Cells(layer.Game, "KillsignatureAvatars", "ID@Unlockable").ToList();
             Assert.Equal("7469331f38b8bd1b5626eb31c064b2ef725ca28deb6f8e466aa1b21d0fc3bc88", Sha256(Canonical(avatars.Where(c => (string)c.Value == "true"))));
             Assert.Equal("c723e617f37b650e61b137abfcbe43abf76a6050d9317ed82f85d7dda0d77f53", Sha256(Canonical(avatars.Where(c => (string)c.Value == "false"))));
@@ -664,7 +674,7 @@ namespace McvsOffline.Tests.Content
                     Assert.Equal((long)expected[tier], Value(layer.Game, "LootCrates", "Id@CratesCount", crate));
                     Assert.Equal("Crate_Event_Special", Value(layer.Game, "LootCrates", "Id@ContentTableName", crate));
                     Assert.Equal(0L, Value(layer.Game, "LootCrates", "Id@RewardChance#2", crate));
-                    Assert.Equal("Crate.Cosmetic_Crate", Value(layer.Game, "LootCrates", "Id@LocId", crate));
+                    Assert.Equal("crm.CrateCustomization", Value(layer.Game, "LootCrates", "Id@LocId", crate));
                     Assert.Equal(content.Image, Value(layer.Game, "LootCrates", "Id@Image", crate));
                     Assert.Equal(content.Image, Value(layer.Game, "LootCrates", "Id@ImageShop", crate));
                 }
@@ -693,7 +703,7 @@ namespace McvsOffline.Tests.Content
             var cells = Cells(layer.Game, "KillsignatureAvatars", "ID@Unlockable").ToList();
             Assert.Equal(content.AvatarsUnlock.Take(trueCells).Select(a => a.ToString()), cells.Where(c => (string)c.Value == "true").Select(c => c.Key));
             Assert.Equal(75, cells.Count(c => (string)c.Value == "false"));
-            Assert.Equal(229 + trueCells, layer.Units.Of(1));
+            Assert.Equal(229 + trueCells, layer.Units.Of(2));
 
             // Per player: owned ids leave the window, which moves on to the next unowned ones.
             PlayerInventory inventory = Fresh(content);
@@ -710,7 +720,7 @@ namespace McvsOffline.Tests.Content
 
         // ------------------------------------------------------------------------------------------ per-player weights
 
-        /// <summary>§5.1: everything owned → only row 39 has weight (1) and no Unlockable cell is sent.</summary>
+        /// <summary>§5.1: everything owned → only row 1 (exhausted) has weight (1) and no Unlockable cell is sent.</summary>
         [Fact]
         public void UnlockAllInventoryLeavesOnlyTheExhaustedRow()
         {
@@ -719,8 +729,8 @@ namespace McvsOffline.Tests.Content
                                                                   out CollectorUnits units, out CollectorWeights weights);
             Dictionary<int, long> w = Weights(patches);
             Assert.Equal(39, w.Count);
-            Assert.Equal(1L, w[39]);
-            Assert.All(w.Where(kv => kv.Key != 39), kv => Assert.Equal(0L, kv.Value));
+            Assert.Equal(1L, w[1]);
+            Assert.All(w.Where(kv => kv.Key != 1), kv => Assert.Equal(0L, kv.Value));
             Assert.Empty(Patch(patches, "KillsignatureAvatars", "ID@Unlockable").Cells);
             Assert.Empty(Patch(patches, "KillsignatureBackgrounds", "ID@Unlockable").Cells);
             Assert.Equal(21, patches.Count(p => p.Changer == "Id@BundledRewards"));                  // 39 weights + 21 emblem cells (§5.1)
@@ -746,26 +756,26 @@ namespace McvsOffline.Tests.Content
             }
             Dictionary<int, long> w = Weights(CollectorPlan.PlayerCells(content, options, baseOwned, Snapshot(Week147)));
             Assert.All(content.Rows.Where(r => CollectorContent.IsBaseCategory(r.Category)), r => Assert.Equal(0L, w[r.Id]));
-            Assert.Equal(470796L, w[37]);           // 1,000,000 × 4,409 / 9,365
-            Assert.Equal(529204L, w[38]);
-            Assert.Equal(0L, w[39]);
+            Assert.Equal(470796L, w[38]);           // 1,000,000 × 4,409 / 9,365
+            Assert.Equal(529204L, w[39]);
+            Assert.Equal(0L, w[1]);
 
             // Paid empty: every camo and visible jersey owned, nothing else.
             w = Weights(CollectorPlan.PlayerCells(content, options, OwnsAllPaid(content, Fresh(content)), Snapshot(Week147)));
-            Assert.Equal(0L, w[37]);
             Assert.Equal(0L, w[38]);
             Assert.Equal(0L, w[39]);
+            Assert.Equal(0L, w[1]);
             long baseTotal = content.Rows.Where(r => CollectorContent.IsBaseCategory(r.Category)).Sum(r => w[r.Id]);
             Assert.InRange(baseTotal, 999990L, 1000010L);   // rounding of each row
-            Assert.Equal(555053L, w[1]);                     // 1,000,000 × 368 / 663
+            Assert.Equal(555053L, w[2]);                     // 1,000,000 × 368 / 663
 
             // The same through the formula alone.
             var units = new CollectorUnits();
             foreach (CollectorRow row in content.Rows) units.Rows[row.Id] = row.Category == CollectorContent.Camos ? 10 : 0;
             CollectorWeights only = CollectorWeights.Compute(content, options, units);
             Assert.Equal(0.0, only.BaseShare);
-            Assert.Equal(1000000L, only.Of(37));
-            Assert.Equal(0L, only.Of(39));
+            Assert.Equal(1000000L, only.Of(38));
+            Assert.Equal(0L, only.Of(1));
         }
 
         /// <summary>§4.1: a row with something left never rounds to 0, and the category weights scale the units.</summary>
@@ -775,23 +785,23 @@ namespace McvsOffline.Tests.Content
             CollectorContent content = Shipped();
             var units = new CollectorUnits();
             foreach (CollectorRow row in content.Rows) units.Rows[row.Id] = 0;
-            units.Rows[1] = 10000000;
-            units.Rows[3] = 1;
-            units.Rows[37] = 5;
+            units.Rows[2] = 10000000;
+            units.Rows[4] = 1;
+            units.Rows[38] = 5;
             CollectorWeights w = CollectorWeights.Compute(content, new CollectorOptions(), units);
-            Assert.Equal(750000L, w.Of(1));
-            Assert.Equal(1L, w.Of(3));                 // 0.075 rounds to 0: at least 1
-            Assert.Equal(250000L, w.Of(37));
-            Assert.Equal(0L, w.Of(4));
+            Assert.Equal(750000L, w.Of(2));
+            Assert.Equal(1L, w.Of(4));                 // 0.075 rounds to 0: at least 1
+            Assert.Equal(250000L, w.Of(38));
+            Assert.Equal(0L, w.Of(5));
 
             var options = new CollectorOptions();
             options.Weights["sounds"] = 3;
             options.Weights["avatars"] = 0;            // 0 removes the category
-            units.Rows[1] = 4;
+            units.Rows[2] = 4;
             w = CollectorWeights.Compute(content, options, units);
             Assert.Equal(3.0, w.Base);
-            Assert.Equal(0L, w.Of(1));
-            Assert.Equal(750000L, w.Of(3));
+            Assert.Equal(0L, w.Of(2));
+            Assert.Equal(750000L, w.Of(4));
         }
 
         /// <summary>Owned skins, sounds and agents weigh 0; their categories' other rows keep theirs.</summary>
@@ -800,17 +810,17 @@ namespace McvsOffline.Tests.Content
         {
             CollectorContent content = Shipped();
             PlayerInventory inventory = Fresh(content, 21);
-            inventory.Mercs[2].Skins.Add(5);       // row 7
-            inventory.Mercs[17].Skins.Add(11);     // row 19
-            inventory.Sounds.Add(3);               // row 4
+            inventory.Mercs[2].Skins.Add(5);       // row 8
+            inventory.Mercs[17].Skins.Add(11);     // row 20
+            inventory.Sounds.Add(3);               // row 5
             Dictionary<int, long> w = Weights(CollectorPlan.PlayerCells(content, new CollectorOptions(), inventory, Snapshot(Week147)));
-            Assert.Equal(0L, w[7]);
-            Assert.Equal(0L, w[19]);
-            Assert.Equal(0L, w[4]);
-            Assert.Equal(0L, w[35]);               // Witch (17) owned
-            Assert.True(w[36] > 0);                // Bli-P (21) locked: weights.agents units
-            Assert.True(w[3] > 0 && w[8] > 0 && w[18] > 0);
-            Assert.InRange(w[36], 2 * w[3] - 1, 2 * w[3] + 1);   // 2 units against 1 (rounding aside)
+            Assert.Equal(0L, w[8]);
+            Assert.Equal(0L, w[20]);
+            Assert.Equal(0L, w[5]);
+            Assert.Equal(0L, w[36]);               // Witch (17) owned
+            Assert.True(w[37] > 0);                // Bli-P (21) locked: weights.agents units
+            Assert.True(w[4] > 0 && w[9] > 0 && w[19] > 0);
+            Assert.InRange(w[37], 2 * w[4] - 1, 2 * w[4] + 1);   // 2 units against 1 (rounding aside)
         }
 
         /// <summary>A locked agent: its skins weigh 0, it lacks no hidden jersey and its camo/jersey pairs are not counted.</summary>
@@ -821,12 +831,12 @@ namespace McvsOffline.Tests.Content
             IList<FieldPatch> patches = CollectorPlan.PlayerCells(content, new CollectorOptions(), Fresh(content, 17), Snapshot(Week147),
                                                                   out CollectorUnits units, out CollectorWeights weights);
             Dictionary<int, long> w = Weights(patches);
-            foreach (int row in new[] { 18, 19, 20 }) Assert.Equal(0L, w[row]);   // the skins of agent 17
-            Assert.Equal(1, units.Of(35));
-            for (int row = 23; row <= 34; row++) Assert.Equal(20, units.Of(row));
-            Assert.Equal(4409 - content.CamoPools[17].Count, units.Of(37));
-            Assert.Equal(4956 - 236, units.Of(38));
-            Assert.True(w[35] > 0);
+            foreach (int row in new[] { 19, 20, 21 }) Assert.Equal(0L, w[row]);   // the skins of agent 17
+            Assert.Equal(1, units.Of(36));
+            for (int row = 24; row <= 35; row++) Assert.Equal(20, units.Of(row));
+            Assert.Equal(4409 - content.CamoPools[17].Count, units.Of(38));
+            Assert.Equal(4956 - 236, units.Of(39));
+            Assert.True(w[36] > 0);
         }
 
         /// <summary>§4.2's per-player example: the 19 obtainable agents, Witch and Bli-P locked → base 640 units.</summary>
@@ -880,17 +890,17 @@ namespace McvsOffline.Tests.Content
             bool avatarsStatic = part == "avatars";
             Assert.Equal(Json(avatarsStatic ? statics : known, "KillsignatureAvatars", "ID@Unlockable"), Json(mixed, "KillsignatureAvatars", "ID@Unlockable"));
             Assert.Equal(Json(avatarsStatic ? statics : known, "Crate_Gold_FirstPlace", "Id@BundledRewards"), Json(mixed, "Crate_Gold_FirstPlace", "Id@BundledRewards"));
-            Assert.Equal((avatarsStatic ? staticUnits : knownUnits).Of(1), mixedUnits.Of(1));
+            Assert.Equal((avatarsStatic ? staticUnits : knownUnits).Of(2), mixedUnits.Of(2));
             Assert.Equal(Json(part == "backgrounds" ? statics : known, "KillsignatureBackgrounds", "ID@Unlockable"), Json(mixed, "KillsignatureBackgrounds", "ID@Unlockable"));
-            Assert.Equal((part == "backgrounds" ? staticUnits : knownUnits).Of(2), mixedUnits.Of(2));
-            for (int row = 3; row <= 6; row++) Assert.Equal((part == "sounds" ? staticUnits : knownUnits).Of(row), mixedUnits.Of(row));
-            for (int row = 7; row <= 38; row++) Assert.Equal((part == "mercs" ? staticUnits : knownUnits).Of(row), mixedUnits.Of(row));
+            Assert.Equal((part == "backgrounds" ? staticUnits : knownUnits).Of(3), mixedUnits.Of(3));
+            for (int row = 4; row <= 7; row++) Assert.Equal((part == "sounds" ? staticUnits : knownUnits).Of(row), mixedUnits.Of(row));
+            for (int row = 8; row <= 39; row++) Assert.Equal((part == "mercs" ? staticUnits : knownUnits).Of(row), mixedUnits.Of(row));
 
             // The parts really differ from the static assumptions, so each assertion above decides something.
-            Assert.NotEqual(knownUnits.Of(1), staticUnits.Of(1));
             Assert.NotEqual(knownUnits.Of(2), staticUnits.Of(2));
             Assert.NotEqual(knownUnits.Of(3), staticUnits.Of(3));
-            Assert.NotEqual(knownUnits.Of(35), staticUnits.Of(35));
+            Assert.NotEqual(knownUnits.Of(4), staticUnits.Of(4));
+            Assert.NotEqual(knownUnits.Of(36), staticUnits.Of(36));
             Assert.Equal("KillSignature_Avatar_268", Patch(known, "Crate_Gold_FirstPlace", "Id@BundledRewards").Cells["1"]);
         }
 
@@ -997,7 +1007,7 @@ namespace McvsOffline.Tests.Content
                 "Crate_Event_Special.Id@Type.1 = VersusCoins",
                 "Crate_Event_Special.Id@Subtype.1 = Tiers4",
                 "Crate_Event_Special.Id@Weight#1.1 = 1",
-                "LootCrates.Id@LocId.Crate_Event_Special = Crate.Cosmetic_Crate",
+                "LootCrates.Id@LocId.Crate_Event_Special = crm.CrateCustomization",
                 "LootCrates.Id@RewardChance#2.Crate_Event_Special = 0",
             }, CollectorGuard.Cells.Select(c => c.ToString()));
             // The bench's guard table (cells-guard.json): the 3 content-table cells.

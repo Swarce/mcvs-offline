@@ -22,7 +22,7 @@ namespace McvsOffline.Server.Services.Crm.Collector
     ///   "seasonEmblems": true,            // ranks 1-3 also get the season emblem
     ///   "unlockableWindow": 160,          // 0..400: Unlockable "true" cells per document
     ///   "levelUpAvatars": 0,              // 0..3: PlayerLevelXP AvatarRewards for levels 2-50
-    ///   "exhaustedReward": "VersusCoins_Tiers4"  // row 39: VersusCoins_Tiers0..6
+    ///   "exhaustedReward": "VersusCoins_Tiers4"  // the exhausted row (row 1): VersusCoins_Tiers0..6
     /// }
     /// </code>
     /// Out-of-range values are clamped, values of the wrong type replaced by the default; both are logged

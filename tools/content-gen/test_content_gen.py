@@ -633,6 +633,16 @@ class GeneratorTests(unittest.TestCase):
         self.assertIn({"name": "collector.json", "entries": 10}, out["manifest.json"]["files"])
         self.assertEqual(out["manifest.json"]["source"]["collector"], "tools/content-gen/collector_tuning.json")
 
+    def test_collector_sound_carrier(self):
+        # D8: the sounds ride on random background rows (the shipped tuning) or random avatar rows (the default)
+        tuning = sample_collector()
+        tuning["soundCarrier"] = "Background"
+        self.write_collector(tuning)
+        rows = self.outputs()["collector.json"]["rows"]
+        self.assertEqual(rows[2], {"id": 3, "category": "sounds", "type": "KillSignature", "subtype": "Background",
+                                   "subtype2": "Random", "bundle": "KillSignature_Sound_2", "item": 2})
+        self.assert_error(lambda t: t.update(soundCarrier="Sound"), text="soundCarrier must be one of Avatar, Background")
+
     def test_collector_kayac_rule_inputs(self):
         tuning = sample_collector()
         tuning["kayac"]["extra"] = []
@@ -646,6 +656,7 @@ class GeneratorTests(unittest.TestCase):
     def test_preview_safety_rule(self):
         ok = {"type": "KillSignature", "subtype": "Avatar", "subtype2": "Random"}
         for row in (ok, dict(ok, bundle="KillSignature_Sound_3"), dict(ok, subtype="Background"),
+                    dict(ok, subtype="Background", bundle="KillSignature_Sound_2"),          # a background carrier
                     {"type": "MercSkin", "subtype": "2", "subtype2": "5"},
                     {"type": "MercAccessory", "subtype": "Random", "subtype2": "112"},
                     {"type": "MercAccessory", "subtype": "Random", "subtype2": "Random"},
@@ -654,8 +665,7 @@ class GeneratorTests(unittest.TestCase):
             self.assertIsNone(cg.collector_row_problem(row), row)
         for row in ({"type": "KillSignature", "subtype": "Sound", "subtype2": "2"},           # KeyNotFoundException in GetPreview
                     {"type": "KillSignature", "subtype": "Background", "subtype2": "7"},      # no image either
-                    dict(ok, subtype="Background", bundle="KillSignature_Sound_2"),          # bundle on a non-carrier
-                    {"type": "MercSkin", "subtype": "2", "subtype2": "5", "bundle": "KillSignature_Sound_2"},
+                    {"type": "MercSkin", "subtype": "2", "subtype2": "5", "bundle": "KillSignature_Sound_2"},   # non-carrier
                     dict(ok, bundle="WeaponCamo_1_2"),
                     {"type": "WeaponCamo", "subtype": "1", "subtype2": "2"},
                     {"type": "UnlockMerc", "subtype": "17", "subtype2": "1"},
@@ -675,7 +685,10 @@ class GeneratorTests(unittest.TestCase):
 
         self.assert_document_error(sound_row, "cannot be previewed")
         self.assert_document_error(lambda d: d["rows"][1].update(bundle="KillSignature_Sound_2"), "non-carrier")
-        self.assert_document_error(lambda d: d["rows"][6].update(bundle="KillSignature_Sound_2"), "only KillSignature/Avatar/Random")
+        self.assert_document_error(lambda d: d["rows"][6].update(bundle="KillSignature_Sound_2"),
+                                   "only KillSignature/Avatar|Background/Random")
+        self.assert_document_error(lambda d: d["rows"][2].update(bundle="KillSignature_Sound_3"), "a sounds row carries its own sound")
+        self.assert_document_error(lambda d: d["rows"][2].pop("bundle"), "non-carrier sounds row")
         self.assert_document_error(too_many_rows, "101 crate rows")
         self.assert_document_error(lambda d: d["rows"][3].update(id=9), "ids must run 1..n")
         self.assert_document_error(kayac_in_base, "in both base and kayac")
@@ -968,6 +981,12 @@ class RealDataTests(unittest.TestCase):
         count = lambda category: len([r for r in col["rows"] if r["category"] == category])
         self.assertEqual((count("sounds"), count("skins"), count("hiddenJerseys"), count("agents")), (4, 16, 12, 2))
         self.assertEqual(len(col["rows"]), 39)
+        # the shipped order and carriers (§2.3): the exhausted VersusCoins row first, so CrateRewardItem.IsAvailable
+        # stops there without a signature list; the sounds on random background rows (35 entries, not 1,518 avatars)
+        self.assertEqual(col["rows"][0], {"id": 1, "category": "exhausted", "type": "VersusCoins", "subtype": "Tiers4"})
+        self.assertEqual(set(r["subtype"] for r in col["rows"] if r["category"] == "sounds"), {"Background"})
+        self.assertEqual([r["id"] for r in col["rows"] if r["type"] == "KillSignature" and r["subtype"] == "Avatar"], [2])
+        self.assertEqual(col["crate"]["locId"], "crm.CrateCustomization")
         self.assertEqual(sum(len(cg.expand_ranges(v)) for v in col["camos"].values()), 4409)
         self.assertEqual(len(cg.expand_ranges(col["jerseys"])) * len(col["camos"]), 4956)
         self.assertEqual(col["summary"], {"baseItems": 596, "baseTier": 665, "paidPairs": 9365, "vipOnlyPairs": 5624,

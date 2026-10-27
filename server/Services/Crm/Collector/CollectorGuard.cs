@@ -7,7 +7,7 @@ namespace McvsOffline.Server.Services.Crm.Collector
     /// The guard (docs/design/economy-collector.md §2.8, D9): five compiled-in cells that make <c>Crate_Event_Special</c>
     /// a valid crate of one 70-VersusCoins row, sent whenever the collector layer is not (phase <c>Guard</c>, a build or
     /// validation failure, the minimal document) and as the per-player mirror. From <see cref="ShippedSince"/> on a stale
-    /// Cosmetic crate (a milestone claimed after a switch-off) then shows "COSMETIC CRATE, CONTAINS 1 ITEM" and pays 70
+    /// Cosmetic crate (a milestone claimed after a switch-off) then shows "CUSTOMIZATION CRATE, CONTAINS 1 ITEM" and pays 70
     /// VersusCoins instead of throwing in <c>CrateRewardItem.OnClaimed</c> on the TS (an empty content table throws,
     /// §0.3.6). Not the <c>CratesCount=0</c> variant: that ends in an empty <c>NotifyCrateReceived</c>.
     /// </summary>
@@ -30,7 +30,12 @@ namespace McvsOffline.Server.Services.Crm.Collector
 
         public const string CrateTable = "Crate_Event_Special";
         public const string CrateId = "Crate_Event_Special";
-        public const string LocId = "Crate.Cosmetic_Crate";
+        /// <summary>
+        /// "CUSTOMIZATION CRATE" (crm.CrateCustomization, in all 15 languages): unlike Crate.Cosmetic_Crate it differs in
+        /// every language from Crate.Cosmetics_Crate, the name of the 65 weekly event crates (7 languages render those two
+        /// alike). collector.json carries the same id; GeneratedContentTests asserts it.
+        /// </summary>
+        public const string LocId = "crm.CrateCustomization";
 
         /// <summary>The 5 guard cells (a new list on every call: callers may keep or change it).</summary>
         public static IList<CollectorCell> Cells

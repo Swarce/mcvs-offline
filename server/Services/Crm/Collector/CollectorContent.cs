@@ -201,9 +201,9 @@ namespace McvsOffline.Server.Services.Crm.Collector
             {
                 if (!bundle.StartsWith(SoundBundlePrefix, StringComparison.Ordinal) || !IsDigits(bundle.Substring(SoundBundlePrefix.Length)))
                     return "bundle " + bundle + " is not a " + SoundBundlePrefix + "<n> carrier bundle";
-                if (type != "KillSignature" || subtype != "Avatar" || subtype2 != "Random")
+                if (type != "KillSignature" || (subtype != "Avatar" && subtype != "Background") || subtype2 != "Random")
                     return "bundle " + bundle + " on a non-carrier " + type + "/" + subtype + "/" + Describe(subtype2)
-                           + " row (only KillSignature/Avatar/Random rows carry sounds)";
+                           + " row (only KillSignature/Avatar|Background/Random rows carry sounds)";
             }
             return null;
         }

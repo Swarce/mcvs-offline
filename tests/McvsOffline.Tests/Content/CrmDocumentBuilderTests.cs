@@ -305,9 +305,9 @@ namespace McvsOffline.Tests.Content
         {
             var tables = new Dictionary<string, object>();
             CrmDocumentBuilder.SetCell(tables, "MCVS_Meta", "LootCrates", "Id", "RewardChance.2", "Crate_Event_Special", 0L);
-            CrmDocumentBuilder.SetCell(tables, "MCVS_Meta", "LootCrates", "Id", "LocId", "Crate_Event_Special", "Crate.Cosmetic_Crate");
+            CrmDocumentBuilder.SetCell(tables, "MCVS_Meta", "LootCrates", "Id", "LocId", "Crate_Event_Special", "crm.CrateCustomization");
             CrmDocumentBuilder.SetCell(tables, "MCVS_Meta", "Crate_Event_Special", "Id", "Weight.1", "1", 7);   // an int is widened
-            Assert.Equal("{\"MCVS_Meta\":{\"LootCrates\":{\"Id@RewardChance#2\":{\"Crate_Event_Special\":0},\"Id@LocId\":{\"Crate_Event_Special\":\"Crate.Cosmetic_Crate\"}},"
+            Assert.Equal("{\"MCVS_Meta\":{\"LootCrates\":{\"Id@RewardChance#2\":{\"Crate_Event_Special\":0},\"Id@LocId\":{\"Crate_Event_Special\":\"crm.CrateCustomization\"}},"
                          + "\"Crate_Event_Special\":{\"Id@Weight#1\":{\"1\":7}}}}", MiniJson.Serialize(tables));
             Assert.IsType<long>(At(tables, "MCVS_Meta.Crate_Event_Special.Id@Weight#1.1"));
 
@@ -344,7 +344,7 @@ namespace McvsOffline.Tests.Content
             {
                 Assert.Equal("{\"Id@Type\":{\"1\":\"VersusCoins\"},\"Id@Subtype\":{\"1\":\"Tiers4\"},\"Id@Weight#1\":{\"1\":1}}",
                              MiniJson.Serialize(At(doc, tree + ".MCVS_Meta.Crate_Event_Special")));
-                Assert.Equal("{\"Id@LocId\":{\"Crate_Event_Special\":\"Crate.Cosmetic_Crate\"},\"Id@RewardChance#2\":{\"Crate_Event_Special\":0}}",
+                Assert.Equal("{\"Id@LocId\":{\"Crate_Event_Special\":\"crm.CrateCustomization\"},\"Id@RewardChance#2\":{\"Crate_Event_Special\":0}}",
                              MiniJson.Serialize(At(doc, tree + ".MCVS_Meta.LootCrates")));
                 Assert.Equal("7", At(doc, tree + ".MCVS_Meta.MercsList.Id@TrialDays.3"));   // the preconfiguration's cells stay
             }
@@ -366,7 +366,7 @@ namespace McvsOffline.Tests.Content
             // The per-player mirror: the preconfiguration's cells and the guard, nothing else of the collector.
             Assert.Equal("{\"MercsList\":{\"Id@TrialDays\":{\"3\":\"7\"}},\"Crate_Event_Special\":{\"Id@Type\":{\"1\":\"VersusCoins\"},"
                          + "\"Id@Subtype\":{\"1\":\"Tiers4\"},\"Id@Weight#1\":{\"1\":1}},\"LootCrates\":{\"Id@LocId\":{\"Crate_Event_Special\":"
-                         + "\"Crate.Cosmetic_Crate\"},\"Id@RewardChance#2\":{\"Crate_Event_Special\":0}}}",
+                         + "\"crm.CrateCustomization\"},\"Id@RewardChance#2\":{\"Crate_Event_Special\":0}}}",
                          MiniJson.Serialize(active.PlayerMirrorTables["MCVS_Meta"]));
         }
 
@@ -401,7 +401,7 @@ namespace McvsOffline.Tests.Content
             {
                 Assert.Equal("{\"Id@Type\":{\"1\":\"VersusCoins\"},\"Id@Subtype\":{\"1\":\"Tiers4\"},\"Id@Weight#1\":{\"1\":1}}",
                              MiniJson.Serialize(At(doc, tree + ".MCVS_Meta.Crate_Event_Special")));
-                Assert.Equal("{\"Id@LocId\":{\"Crate_Event_Special\":\"Crate.Cosmetic_Crate\"},\"Id@RewardChance#2\":{\"Crate_Event_Special\":0}}",
+                Assert.Equal("{\"Id@LocId\":{\"Crate_Event_Special\":\"crm.CrateCustomization\"},\"Id@RewardChance#2\":{\"Crate_Event_Special\":0}}",
                              MiniJson.Serialize(At(doc, tree + ".MCVS_Meta.LootCrates")));   // no tier crate retargeted
                 Assert.Null(At(doc, tree + ".MCVS_Meta.Crate_Gold_FirstPlace"));
                 Assert.Null(At(doc, tree + ".MCVS_Meta.KillsignatureAvatars"));
