@@ -85,11 +85,11 @@ namespace McvsOffline.Embed.Tests.Support
         private static bool pruned;
 
         /// <summary>A new folder under the temp dir. Tests never delete theirs (APKs and DLLs often stay mapped), so the
-        /// first call of a run removes folders older than six hours, which earlier runs left behind.</summary>
+        /// first call of a run removes folders older than an hour, which earlier runs left behind.</summary>
         public static string NewTempDir(string prefix)
         {
             string root = Path.Combine(Path.GetTempPath(), "mcvs-embed-tests");
-            PruneStale(root, TimeSpan.FromHours(6));
+            PruneStale(root, TimeSpan.FromHours(1));
             string dir = Path.Combine(root, prefix + "-" + Guid.NewGuid().ToString("N").Substring(0, 8));
             Directory.CreateDirectory(dir);
             return dir;
