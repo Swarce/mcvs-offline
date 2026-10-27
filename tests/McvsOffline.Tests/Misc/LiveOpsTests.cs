@@ -627,15 +627,21 @@ namespace McvsOffline.Tests.Misc
                     crateDays++;
                     List<Dictionary<string, object>> a = Achievements(served), p = Achievements(plain);
                     Assert.Equal(p.Count, a.Count);
-                    for (int i = 0; i < a.Count - 1; i++) Assert.Equal(MiniJson.Serialize(p[i]), MiniJson.Serialize(a[i]));
-                    Assert.Equal(new[] { "Crate_Contracts x1", "Crate_Event_Special x1" }, Rewards(a.Last(), 0));
-                    Assert.Equal(JsonPath.Get(Milestone(p.Last(), 0), "milestone_value"), JsonPath.Get(Milestone(a.Last(), 0), "milestone_value"));
+                    // The day's first mission gets the crate after its rewards; the other missions and the bonus (with its
+                    // Contracts crate: one crate per milestone) stay as they are.
+                    Assert.Equal(p[0]["primary_tracker"], a[0]["primary_tracker"]);
+                    Assert.Equal(JsonPath.Get(Milestone(p[0], 0), "milestone_value"), JsonPath.Get(Milestone(a[0], 0), "milestone_value"));
+                    Assert.Equal(Rewards(p[0], 0).Concat(new[] { "Crate_Event_Special x1" }), Rewards(a[0], 0));
+                    for (int i = 1; i < a.Count; i++) Assert.Equal(MiniJson.Serialize(p[i]), MiniJson.Serialize(a[i]));
+                    Assert.Equal(new[] { "Crate_Contracts x1" }, Rewards(a.Last(), 0));
+                    AssertOneCratePerMilestone(served);
                     Assert.NotEqual(plain["_version"], served["_version"]);
                     Assert.Null(TleTemplateValidator.Problem(served));
                 }
             }
 
-            // Seasons of 7 days and of 1 day: every tier gets its crate after today's rewards, the final after the event crate.
+            // Seasons of 7 days and of 1 day: every tier gets its crates after today's rewards (tier 3 two: the final's,
+            // which holds the event crate); the final stays as it is.
             foreach (int days in new[] { 7, 1 })
             {
                 LiveOpsSettings s = Settings(days);
@@ -661,11 +667,13 @@ namespace McvsOffline.Tests.Misc
                         for (int m = 0; m < milestones; m++)
                         {
                             Assert.Equal(JsonPath.Get(Milestone(p[i], m), "milestone_value"), JsonPath.Get(Milestone(a[i], m), "milestone_value"));
-                            Assert.Equal(Rewards(p[i], m).Concat(new[] { "Crate_Event_Special x1" }), Rewards(a[i], m));
+                            Assert.Equal(Rewards(p[i], m).Concat(new[] { "Crate_Event_Special x" + (m == 2 ? 2 : 1) }), Rewards(a[i], m));
                         }
                     }
                     string eventCrate = catalog.EventCrates[(int)(LiveOpsSchedule.Ordinal(season) % catalog.EventCrates.Count)];
-                    Assert.Equal(new[] { "HardCurrency x20", eventCrate + " x1", "Crate_Event_Special x2" }, Rewards(a.Last(), 0));
+                    Assert.Equal(new[] { "HardCurrency x20", eventCrate + " x1" }, Rewards(a.Last(), 0));
+                    Assert.Equal(MiniJson.Serialize(p.Last()), MiniJson.Serialize(a.Last()));
+                    AssertOneCratePerMilestone(served);
                     Assert.NotEqual(plain["_version"], served["_version"]);
                     Assert.Null(TleTemplateValidator.Problem(served));
                 }
@@ -740,14 +748,15 @@ namespace McvsOffline.Tests.Misc
         {
             const string Crate = "{\"item\":\"Crate_Event_Special\",\"quantity\":1}";
             const string Tiers = "[[" + Crate + "],[" + Crate + "],[" + Crate + "]]";
-            string Block(string since = "\"2026-11-09T00:00:00Z\"", string daily = "[" + Crate + "]", string tiers = Tiers,
-                         string final = "[" + Crate + "]", string extra = "")
-                => "{\"since\":" + since + ",\"dailyBonus\":" + daily + ",\"weeklyMilestones\":" + tiers + ",\"weeklyFinal\":" + final + extra + "}";
+            string Block(string since = "\"2026-11-09T00:00:00Z\"", string daily = "[]", string mission = "[" + Crate + "]", string tiers = Tiers,
+                         string final = "[]", string extra = "")
+                => "{\"since\":" + since + ",\"dailyBonus\":" + daily + ",\"dailyMission\":" + mission + ",\"weeklyMilestones\":" + tiers
+                   + ",\"weeklyFinal\":" + final + extra + "}";
             return new[]
             {
                 new object[] { "[]", "collector is not an object" },
                 new object[] { "\"on\"", "collector is not an object" },
-                new object[] { "{\"since\":\"2026-11-09T00:00:00Z\",\"dailyBonus\":[],\"weeklyMilestones\":" + Tiers + "}", "missing: weeklyFinal" },
+                new object[] { "{\"since\":\"2026-11-09T00:00:00Z\",\"dailyBonus\":[],\"weeklyMilestones\":" + Tiers + "}", "missing: dailyMission, weeklyFinal" },
                 new object[] { Block(extra: ",\"weeklyFinals\":[]"), "unknown: weeklyFinals" },
                 new object[] { Block(since: "\"next monday\""), "collector.since \"next monday\" is not an ISO 8601 time" },
                 new object[] { Block(since: "20261109"), "collector.since 20261109 is not an ISO 8601 time" },
@@ -764,7 +773,13 @@ namespace McvsOffline.Tests.Misc
                 new object[] { Block(final: "[7]"), "collector.weeklyFinal: a reward must be an {item, quantity} object" },
                 new object[] { Block(final: "[{\"item\":\"Crate_Contracts\",\"quantity\":1}]"), "collector.weeklyFinal: Crate_Contracts is neither a currency nor Crate_Event_Special" },
                 new object[] { Block(daily: "[{\"item\":\"crate_event_special\",\"quantity\":1}]"), "crate_event_special is neither a currency nor Crate_Event_Special" },
-                new object[] { Block(daily: "[{\"item\":\"VersusCoins\",\"quantity\":100}]", tiers: "[[],[],[]]", final: "[]"), "collector hands out no Crate_Event_Special" },
+                new object[] { Block(daily: "[{\"item\":\"VersusCoins\",\"quantity\":100}]", mission: "[]", tiers: "[[],[],[]]", final: "[]"), "collector hands out no Crate_Event_Special" },
+                new object[] { Block(mission: Crate), "collector.dailyMission must be a list of rewards" },
+                // One crate per milestone (§3.1): the claim reveals only a milestone's last crate.
+                new object[] { Block(daily: "[" + Crate + "]"), "collector.dailyBonus: the daily bonus already holds a crate (Crate_Contracts)" },
+                new object[] { Block(final: "[" + Crate + "]"), "collector.weeklyFinal: the weekly final already holds a crate (the event crate)" },
+                new object[] { Block(tiers: "[[" + Crate + "," + Crate + "],[],[]]"), "collector.weeklyMilestones[0]: Crate_Event_Special twice in one milestone" },
+                new object[] { Block(mission: "[" + Crate + "," + Crate + "]"), "collector.dailyMission: Crate_Event_Special twice in one milestone" },
             };
         }
 
@@ -831,7 +846,7 @@ namespace McvsOffline.Tests.Misc
         public void CollectorListsMayBeEmptyAsLongAsTheCrateIsHandedOut()
         {
             // The content-only fallback of §8: crates on tier 3 and the final only; a comment key; a date-only since.
-            string text = LiveOpsContent.WithCollector("{\"_why\":\"fewer crate objects per screen\",\"since\":\"2026-11-09\",\"dailyBonus\":[],"
+            string text = LiveOpsContent.WithCollector("{\"_why\":\"fewer crate objects per screen\",\"since\":\"2026-11-09\",\"dailyBonus\":[],\"dailyMission\":[],"
                                                        + "\"weeklyMilestones\":[[],[],[{\"item\":\"Crate_Event_Special\",\"quantity\":2},"
                                                        + "{\"item\":\"VersusCoins\",\"quantity\":100}]],\"weeklyFinal\":[]}");
             LiveOpsCatalog catalog = LiveOpsCatalog.Parse(text, null);
@@ -969,6 +984,49 @@ namespace McvsOffline.Tests.Misc
             page = MiscServer.Obj(s.Get("/_mcvs/liveops"));
             Assert.Equal("Guard", JsonPath.Get(page, "collector.phase"));
             Assert.Equal("live ops are off", JsonPath.Get(page, "collector.reason"));
+        }
+
+        /// <summary>
+        /// The live-ops events of every window from two weeks before the shipped since to five weeks after it (quest days
+        /// at reset hours 0 and 6, seasons of 7 and 1 days, every modifier) hold at most one crate per milestone (§3.1:
+        /// ClaimAchievementMilestoneRequest reveals only the last crate of a milestone).
+        /// </summary>
+        [Fact]
+        public void NoGeneratedMilestoneHoldsTwoCrates()
+        {
+            using var f = new LiveOpsFixture(AfterSince);
+            LiveOpsCatalog catalog = f.LiveOps.Catalog;
+            Assert.NotNull(catalog.Collector);
+            int events = 0, withCrate = 0;
+            foreach (int resetHour in new[] { 0, 6 })
+                foreach (int days in new[] { 7, 1 })
+                {
+                    LiveOpsSettings s = Settings(days, resetHour);
+                    for (DateTime t = Since.AddDays(-14); t < Since.AddDays(35); t = t.AddHours(12))
+                    {
+                        var served = new List<Dictionary<string, object>> { LiveOpsEvents.DailyQuest(catalog, LiveOpsSchedule.DayAt(s, t), f.Runtime) };
+                        foreach (LiveOpsModifier m in catalog.Modifiers)
+                            served.Add(LiveOpsEvents.WeeklyEvent(catalog, LiveOpsSchedule.SeasonAt(s, t), m, f.Runtime));
+                        foreach (Dictionary<string, object> e in served)
+                        {
+                            AssertOneCratePerMilestone(e);
+                            events++;
+                            if (((string)e["_template"]).Contains(CollectorGuard.CrateId)) withCrate++;
+                        }
+                    }
+                }
+            Assert.True(withCrate > events / 2, events + " events, " + withCrate + " with the Cosmetic crate");
+        }
+
+        /// <summary>Every milestone of the event holds at most one crate reward (anything but a plain currency).</summary>
+        private static void AssertOneCratePerMilestone(Dictionary<string, object> e)
+        {
+            foreach (Dictionary<string, object> achievement in Achievements(e))
+                for (int m = 0; m < ((List<object>)achievement["milestones"]).Count; m++)
+                {
+                    List<string> crates = Rewards(achievement, m).Where(r => LiveOpsCatalog.IsCrate(r.Substring(0, r.LastIndexOf(" x", StringComparison.Ordinal)))).ToList();
+                    Assert.True(crates.Count <= 1, e["id"] + " " + achievement["primary_tracker"] + " milestone " + m + ": " + string.Join(", ", crates));
+                }
         }
 
         // ------------------------------------------------------------------------------------------ helpers

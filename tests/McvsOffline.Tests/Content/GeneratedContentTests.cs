@@ -8,6 +8,7 @@ using McvsOffline.Server.Core.Json;
 using McvsOffline.Server.Services.Assets;
 using McvsOffline.Server.Services.Crm;
 using McvsOffline.Server.Services.Crm.Collector;
+using McvsOffline.Server.Services.Social.LiveOps;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -240,7 +241,8 @@ namespace McvsOffline.Tests.Content
         {
             var liveops = Load("liveops.json");
             var block = (Dictionary<string, object>)liveops["collector"];
-            Assert.Equal(new[] { "since", "dailyBonus", "weeklyMilestones", "weeklyFinal" }, block.Keys);
+            Assert.Equal(new[] { "since", "dailyBonus", "dailyMission", "weeklyMilestones", "weeklyFinal" }, block.Keys);
+            Assert.Equal(LiveOpsCatalog.CollectorKeys, block.Keys);
 
             string since = (string)block["since"];
             DateTime start = DateTime.ParseExact(since, "yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture,
@@ -253,7 +255,7 @@ namespace McvsOffline.Tests.Content
 
             var milestones = (List<object>)block["weeklyMilestones"];
             Assert.Equal(((List<object>)JsonPath.Get(liveops, "weeklyEvents.milestoneRewards")).Count, milestones.Count);
-            var lists = new List<object> { block["dailyBonus"], block["weeklyFinal"] };
+            var lists = new List<object> { block["dailyBonus"], block["dailyMission"], block["weeklyFinal"] };
             lists.AddRange(milestones);
             string crate = (string)JsonPath.Get(Load("collector.json"), "crate.id");
             Assert.Equal(CollectorGuard.CrateId, crate);

@@ -207,9 +207,11 @@ def sample_collector():
 
 
 def collector_block(since="2030-01-07T00:00:00Z"):
+    """The shipped placement: one crate per milestone, so none on the daily bonus (Crate_Contracts) or the weekly final
+    (the event crate); the final's two on tier 3."""
     crate = [{"item": "Crate_Event_Special", "quantity": 1}]
-    return {"since": since, "dailyBonus": crate, "weeklyMilestones": [crate, crate, crate],
-            "weeklyFinal": [{"item": "Crate_Event_Special", "quantity": 2}]}
+    return {"since": since, "dailyBonus": [], "dailyMission": crate,
+            "weeklyMilestones": [crate, crate, [{"item": "Crate_Event_Special", "quantity": 2}]], "weeklyFinal": []}
 
 
 def sample_liveops():
@@ -821,7 +823,7 @@ class GeneratorTests(unittest.TestCase):
         without = dict(live)
         del without["collector"]
         self.assertEqual(cg.dumps(without), plain)
-        self.assertEqual(live["collector"]["dailyBonus"][0]["item"], out["collector.json"]["crate"]["id"])
+        self.assertEqual(live["collector"]["dailyMission"][0]["item"], out["collector.json"]["crate"]["id"])
         for since in ("2030-01-07T00:00:00+00:00", "2030-01-07T00:00Z"):
             tuning["collector"]["since"] = since
             self.write_liveops(tuning)
@@ -844,16 +846,38 @@ class GeneratorTests(unittest.TestCase):
         self.assert_error(mutate_liveops=block(weeklyFinal=[{"item": "Crate_Event_Special", "quantity": 0}]), text="positive")
         self.assert_error(mutate_liveops=block(weeklyFinal={"item": "Crate_Event_Special", "quantity": 2}), text="must be a list")
         self.assert_error(mutate_liveops=block(dailyBonus=["Crate_Event_Special"]), text="{item, quantity}")
-        self.assert_error(mutate_liveops=block(dailyBonus=[{"item": "Crate_Contracts", "quantity": 1}]),
+        self.assert_error(mutate_liveops=block(dailyMission=[{"item": "Crate_Contracts", "quantity": 1}]),
                           text="not the collector's crate")
         self.assert_error(mutate_liveops=block(since="2030-02-30T00:00:00Z"), text="not a valid date")
         self.assert_error(mutate_liveops=lambda t: t.update(collector=[collector_block()]), text="collector must be an object")
         # lists may be empty, the block as a whole must hand out the crate (GeneratedContentTests asserts the same)
-        self.assert_error(mutate_liveops=block(dailyBonus=[], weeklyMilestones=[[], [], []], weeklyFinal=[]),
+        self.assert_error(mutate_liveops=block(dailyMission=[], weeklyMilestones=[[], [], []]),
                           text="hands out no Crate_Event_Special")
-        self.assert_error(mutate_liveops=block(dailyBonus=[], weeklyMilestones=[[], [], []],
+        self.assert_error(mutate_liveops=block(dailyMission=[], weeklyMilestones=[[], [], []],
                                                weeklyFinal=[{"item": "VersusCoins", "quantity": 50}]),
                           text="hands out no Crate_Event_Special")
+        # one crate per milestone: the claim reveals only a milestone's last crate (economy-collector.md §3.1)
+        self.assert_error(mutate_liveops=block(dailyBonus=crate), text="the daily bonus already holds a crate (Crate_Contracts)")
+        self.assert_error(mutate_liveops=block(weeklyFinal=crate), text="the weekly final already holds a crate (the event crate)")
+        self.assert_error(mutate_liveops=block(weeklyMilestones=[crate, crate + crate, crate]),
+                          text="collector.weeklyMilestones[1]: the crate twice in one milestone")
+
+        def mission_with_crate(t):
+            block()(t)
+            t["objectives"][1]["daily"]["rewards"] = [{"item": "Crate_Contracts", "quantity": 1}]
+        self.assert_error(mutate_liveops=mission_with_crate, text="the daily mission kills already holds a crate (Crate_Contracts)")
+
+        def tier_with_crate(t):
+            block()(t)
+            t["weeklyEvents"]["milestoneRewards"][2] = [{"item": "Crate_Contracts", "quantity": 1}]
+        self.assert_error(mutate_liveops=tier_with_crate, text="weekly milestone tier 3 already holds a crate (Crate_Contracts)")
+
+        # without the event crate the final may hold the crate
+        tuning = sample_liveops()
+        block(weeklyFinal=crate)(tuning)
+        tuning["weeklyEvents"]["final"]["eventCrate"] = False
+        self.write_liveops(tuning)
+        self.assertEqual(self.outputs()["liveops.json"]["collector"]["weeklyFinal"], crate)
         # a misspelt or missing key would silently drop its crates
         self.assert_error(mutate_liveops=block(weeklyfinal=crate), text="unknown: weeklyfinal")
 
@@ -862,17 +886,23 @@ class GeneratorTests(unittest.TestCase):
             del t["collector"]["weeklyFinal"]
         self.assert_error(mutate_liveops=without_final, text="missing: weeklyFinal")
 
+        def without_mission(t):
+            block()(t)
+            del t["collector"]["dailyMission"]
+        self.assert_error(mutate_liveops=without_mission, text="missing: dailyMission")
+
     def test_liveops_collector_lists_may_be_empty(self):
-        # the content-only fallback of economy-collector.md §8: crates on milestone tier 3 and the final only
+        # the content-only fallback of economy-collector.md §8: crates on milestone tier 3 only
         tuning = sample_liveops()
-        tuning["collector"] = dict(collector_block(), _comment="tier 3 and the final only", dailyBonus=[],
+        tuning["collector"] = dict(collector_block(), _comment="tier 3 only", dailyMission=[],
                                    weeklyMilestones=[[], [], [{"item": "Crate_Event_Special", "quantity": 2}]])
         self.write_liveops(tuning)
         block = self.outputs()["liveops.json"]["collector"]
-        self.assertEqual(list(block), ["since", "dailyBonus", "weeklyMilestones", "weeklyFinal"])   # comments dropped
+        self.assertEqual(list(block), ["since", "dailyBonus", "dailyMission", "weeklyMilestones", "weeklyFinal"])   # comments dropped
         self.assertEqual(block["dailyBonus"], [])
+        self.assertEqual(block["dailyMission"], [])
         self.assertEqual(block["weeklyMilestones"], [[], [], [{"item": "Crate_Event_Special", "quantity": 2}]])
-        self.assertEqual(block["weeklyFinal"], [{"item": "Crate_Event_Special", "quantity": 2}])
+        self.assertEqual(block["weeklyFinal"], [])
         # only the collector's lists may be empty: the other reward lists still need a reward
         tuning["dailyQuests"]["bonus"]["rewards"] = []
         self.write_liveops(tuning)

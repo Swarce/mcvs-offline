@@ -214,9 +214,12 @@ namespace McvsOffline.Tests.Misc
 
         /// <summary>
         /// Every reward of the template became a RewardItem with its id and quantity, in order (Initialize calls
-        /// <c>RewardHelper.CreateRewardItem(item, quantity, source)</c> for each); in a window from <c>collector.since</c>
-        /// the Cosmetic crate is a <c>Game.CrateRewardItem</c> after today's rewards in the daily bonus, in every milestone
-        /// of every weekly objective and in the weekly final, and nowhere else; before it, nowhere. True when it was there.
+        /// <c>RewardHelper.CreateRewardItem(item, quantity, source)</c> for each); no milestone holds two
+        /// <c>Game.CrateRewardItem</c>s (the claim reveals only the last crate, §3.1); in a window from
+        /// <c>collector.since</c> the Cosmetic crate is a <c>Game.CrateRewardItem</c> after today's rewards on the day's
+        /// first mission (1) and on every milestone of every weekly objective (1, 1, 2 on tier 3), and nowhere else (not on
+        /// the daily bonus with its Contracts crate, not on the weekly final with its event crate); before it, nowhere.
+        /// True when it was there.
         /// </summary>
         private static bool CheckRewards(object tle, string eventType, Dictionary<string, object> raw, bool crateWindow)
         {
@@ -225,7 +228,7 @@ namespace McvsOffline.Tests.Misc
             var achievements = ((IEnumerable)GameClient.Get(tle, "Achievements")).Cast<object>().ToList();
             Assert.Equal(expected.Count, achievements.Count);
             bool weekly = eventType == "TimeLimitedAchievementEvent";
-            int found = 0, all = 0;
+            int found = 0, objectiveMilestones = 0;
             for (int i = 0; i < achievements.Count; i++)
             {
                 string tracker = GameClient.Get(achievements[i], "MainTracker").ToString();
@@ -233,8 +236,8 @@ namespace McvsOffline.Tests.Misc
                 var milestones = ((IEnumerable)GameClient.Get(achievements[i], "Milestones")).Cast<object>().ToList();
                 var wanted = ((List<object>)expected[i]["milestones"]).Cast<Dictionary<string, object>>().ToList();
                 Assert.Equal(wanted.Count, milestones.Count);
-                all += milestones.Count;
                 bool final = tracker == LiveOpsEvents.CompleteAll;
+                if (!final) objectiveMilestones += milestones.Count;
                 for (int m = 0; m < milestones.Count; m++)
                 {
                     var rewards = ((IEnumerable)GameClient.Get(milestones[m], "Rewards")).Cast<object>().ToList();
@@ -245,8 +248,11 @@ namespace McvsOffline.Tests.Misc
                         Assert.Equal((string)want[r]["item"], (string)GameClient.Get(rewards[r], "Id"));
                         Assert.Equal((long)want[r]["quantity"], (long)(int)GameClient.Get(rewards[r], "Quantity"));
                     }
+                    Assert.True(rewards.Count(r => r.GetType().FullName == "Game.CrateRewardItem") <= 1,
+                                raw["id"] + " " + tracker + " milestone " + m + ": two crates in one milestone");
                     var crates = rewards.Where(r => (string)GameClient.Get(r, "Id") == CollectorGuard.CrateId).ToList();
-                    if (!crateWindow || !(weekly || final))
+                    bool place = crateWindow && !final && (weekly || i == 0);
+                    if (!place)
                     {
                         Assert.Empty(crates);
                         continue;
@@ -254,12 +260,12 @@ namespace McvsOffline.Tests.Misc
                     object crate = Assert.Single(crates);
                     Assert.Equal("Game.CrateRewardItem", crate.GetType().FullName);
                     Assert.Same(crate, rewards.Last());
-                    Assert.Equal(weekly && final ? 2 : 1, (int)GameClient.Get(crate, "Quantity"));   // §3.1: 1 per tier and bonus, 2 in the final
+                    Assert.Equal(weekly && m == 2 ? 2 : 1, (int)GameClient.Get(crate, "Quantity"));   // §3.1: 1 per tier and mission, 2 on tier 3
                     found++;
                 }
             }
-            // The daily bonus alone; or every milestone of the weekly event (each objective's tiers and the final).
-            if (crateWindow) Assert.Equal(weekly ? all : 1, found);
+            // The day's first mission alone; or every milestone of every weekly objective.
+            if (crateWindow) Assert.Equal(weekly ? objectiveMilestones : 1, found);
             return found > 0;
         }
 

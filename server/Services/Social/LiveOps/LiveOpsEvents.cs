@@ -69,8 +69,10 @@ namespace McvsOffline.Server.Services.Social.LiveOps
 
         /// <summary>The day's quests (a TimeLimitedDailyQuestEvent): <c>count</c> objectives picked from the catalogue by
         /// the day, plus the "complete all" bonus (its goal is set by the TS to the number of other milestones). In a day
-        /// that gets the Cosmetic crate (<see cref="CratesIn"/>) the collector's <c>dailyBonus</c> follows the bonus
-        /// rewards; otherwise the event, and so its <c>_version</c>, is exactly as without the collector.</summary>
+        /// that gets the Cosmetic crate (<see cref="CratesIn"/>) the collector's <c>dailyMission</c> follows the rewards
+        /// of the first picked mission and its <c>dailyBonus</c> the bonus rewards (one crate per milestone, checked by
+        /// <see cref="LiveOpsCatalog.ParseCollector"/>); otherwise the event, and so its <c>_version</c>, is exactly as
+        /// without the collector.</summary>
         public static Dictionary<string, object> DailyQuest(LiveOpsCatalog catalog, LiveOpsWindow day, CollectorRuntime runtime)
         {
             var pool = new List<LiveOpsObjective>();
@@ -80,14 +82,22 @@ namespace McvsOffline.Server.Services.Social.LiveOps
             ulong state = LiveOpsHash.Fnv64("mcvs-offline/daily/v1|" + day.Key);
             List<LiveOpsObjective> picked = Pick(pool, MinInt(catalog.DailyCount, pool.Count), ref state);
 
+            bool crates = CratesIn(catalog, day, runtime);
             var achievements = new List<object>();
-            foreach (LiveOpsObjective o in picked)
+            for (int i = 0; i < picked.Count; i++)
             {
+                LiveOpsObjective o = picked[i];
                 int goal = o.DailyGoals[LiveOpsHash.Below(ref state, o.DailyGoals.Count)];
-                achievements.Add(Achievement(o.Tracker, o.Title, o.TitlePlural, new[] { goal }, new List<List<LiveOpsReward>> { o.DailyRewards }));
+                List<LiveOpsReward> rewards = o.DailyRewards;
+                if (crates && i == 0 && catalog.Collector.DailyMission.Count > 0)
+                {
+                    rewards = new List<LiveOpsReward>(o.DailyRewards);
+                    rewards.AddRange(catalog.Collector.DailyMission);
+                }
+                achievements.Add(Achievement(o.Tracker, o.Title, o.TitlePlural, new[] { goal }, new List<List<LiveOpsReward>> { rewards }));
             }
             var bonus = new List<LiveOpsReward>(catalog.DailyBonusRewards);
-            if (CratesIn(catalog, day, runtime)) bonus.AddRange(catalog.Collector.DailyBonus);
+            if (crates) bonus.AddRange(catalog.Collector.DailyBonus);
             if (bonus.Count > 0)
                 achievements.Add(Achievement(CompleteAll, catalog.DailyBonusTitle, catalog.DailyBonusTitle, new[] { picked.Count },
                                              new List<List<LiveOpsReward>> { bonus }));

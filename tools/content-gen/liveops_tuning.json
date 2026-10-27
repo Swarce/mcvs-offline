@@ -5,9 +5,12 @@
     "server/Content/liveops.json. Design and settings: docs/LIVEOPS.md. Text is never copied: titles are the game's",
     "own localization ids (<table>.<id>, e.g. menu.Tle01Name from Localization/menu_<lang>.json).",
     "Bump 'revision' when a change must replace events players already hold (it is part of every event's _version).",
-    "'collector': the Cosmetic crates added to the daily bonus, each weekly milestone tier and the weekly final in every",
-    "window from 'since' on (docs/design/economy-collector.md section 3). Do not bump 'revision' for it: set 'since' to the",
-    "first Monday 00:00 UTC at least 7 days after the build is published (content-gen warns otherwise)."
+    "'collector': the Cosmetic crates added to the daily bonus, the day's first mission, each weekly milestone tier and",
+    "the weekly final in every window from 'since' on (docs/design/economy-collector.md section 3). One crate per",
+    "milestone: the claim reveals only a milestone's last crate, so the crate goes only where today's milestone holds",
+    "none (not the daily bonus with its Contracts crate, not the weekly final with its event crate). Do not bump",
+    "'revision' for it: set 'since' to the first Monday 00:00 UTC at least 7 days after the build is published",
+    "(content-gen warns otherwise)."
   ],
   "revision": 1,
   "images": {
@@ -99,10 +102,12 @@
   "seasonRewards": {"table": "PVPDivisionRewards", "index": "Rank", "fieldPrefix": "Division"},
   "collector": {
     "since": "2026-11-09T00:00:00Z",
-    "dailyBonus": [{"item": "Crate_Event_Special", "quantity": 1}],
+    "_placement": "one crate per milestone: the daily crate on the day's first mission (the bonus holds Crate_Contracts), the final's two on each tier 3 (the final holds the event crate)",
+    "dailyBonus": [],
+    "dailyMission": [{"item": "Crate_Event_Special", "quantity": 1}],
     "weeklyMilestones": [[{"item": "Crate_Event_Special", "quantity": 1}],
                          [{"item": "Crate_Event_Special", "quantity": 1}],
-                         [{"item": "Crate_Event_Special", "quantity": 1}]],
-    "weeklyFinal": [{"item": "Crate_Event_Special", "quantity": 2}]
+                         [{"item": "Crate_Event_Special", "quantity": 2}]],
+    "weeklyFinal": []
   }
 }

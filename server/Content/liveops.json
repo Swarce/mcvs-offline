@@ -73,8 +73,9 @@
   },
   "collector": {
     "since": "2026-11-09T00:00:00Z",
-    "dailyBonus": [{"item":"Crate_Event_Special","quantity":1}],
-    "weeklyMilestones": [[{"item":"Crate_Event_Special","quantity":1}],[{"item":"Crate_Event_Special","quantity":1}],[{"item":"Crate_Event_Special","quantity":1}]],
-    "weeklyFinal": [{"item":"Crate_Event_Special","quantity":2}]
+    "dailyBonus": [],
+    "dailyMission": [{"item":"Crate_Event_Special","quantity":1}],
+    "weeklyMilestones": [[{"item":"Crate_Event_Special","quantity":1}],[{"item":"Crate_Event_Special","quantity":1}],[{"item":"Crate_Event_Special","quantity":2}]],
+    "weeklyFinal": []
   }
 }

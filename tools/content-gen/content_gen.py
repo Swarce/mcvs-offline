@@ -789,7 +789,7 @@ SEASON_EPOCH = datetime.datetime(2024, 1, 1, tzinfo=datetime.timezone.utc)
 # content-gen warns when collector.since is closer than this to the generation time (economy-collector.md §3.2).
 SINCE_MARGIN = datetime.timedelta(days=7)
 # The liveops.json collector block, in output order (economy-collector.md §3.2).
-COLLECTOR_BLOCK_KEYS = ("since", "dailyBonus", "weeklyMilestones", "weeklyFinal")
+COLLECTOR_BLOCK_KEYS = ("since", "dailyBonus", "dailyMission", "weeklyMilestones", "weeklyFinal")
 
 
 def parse_since(value, where):
@@ -963,16 +963,37 @@ def build_liveops(cat, tuning, loc_tables, now=None):
                           "fields": reward_fields},
     }
     if "collector" in tuning:
-        out["collector"] = build_liveops_collector(tuning["collector"], len(milestone_rewards), rewards, now)
+        today = {"dailyBonus": daily["bonus"]["rewards"],
+                 "dailyMission": [(o["id"], o["daily"]["rewards"]) for o in daily_pool],
+                 "weeklyMilestones": milestone_rewards,
+                 "weeklyFinal": weekly["final"]["rewards"] + ([{"item": "the event crate", "quantity": 1}]
+                                                              if weekly["final"]["eventCrate"] else [])}
+        out["collector"] = build_liveops_collector(tuning["collector"], today, rewards, now)
     return out
 
 
-def build_liveops_collector(block, milestone_tiers, rewards, now):
-    """The liveops.json ``collector`` block (economy-collector.md §3.2): the Cosmetic crates the daily bonus, the weekly
-    milestone tiers and the weekly final hand out in every window from ``since`` on. Carried unchanged, ``since``
-    normalised; the ``revision`` stays as it is (a bump would replace the running day and week for everybody). A list
-    may be empty (that event part gets no crate: the content-only fallback of §8, e.g. crates on tier 3 and the final
-    only); every key must be there, so that a misspelt one cannot silently drop its crates."""
+def one_crate_per_milestone(where, added, milestone, today):
+    """The milestone made of ``today``'s rewards plus the collector's ``added`` holds at most one crate. The claim
+    (GM/TimeLimitedAchievementsComponent.cs ClaimAchievementMilestoneRequest) replaces its reward list by each crate's
+    generated items in turn, so the reveal shows only the last crate of a milestone; the others are granted unseen."""
+    crates = [r["item"] for r in today if r["item"] not in LIVEOPS_CURRENCIES]
+    ours = [r for r in added if r["item"] not in LIVEOPS_CURRENCIES]
+    if len(ours) > 1:
+        raise ContentError("liveops: %s: the crate twice in one milestone (one reward with a quantity instead)" % where)
+    if ours and crates:
+        raise ContentError("liveops: %s: %s already holds a crate (%s); a milestone reveals only its last crate, so the "
+                           "collector's crate must go on a milestone without one" % (where, milestone, crates[0]))
+
+
+def build_liveops_collector(block, today, rewards, now):
+    """The liveops.json ``collector`` block (economy-collector.md §3.2): the Cosmetic crates the daily bonus, the day's
+    first mission, the weekly milestone tiers and the weekly final hand out in every window from ``since`` on. Carried
+    unchanged, ``since`` normalised; the ``revision`` stays as it is (a bump would replace the running day and week for
+    everybody). A list may be empty (that event part gets no crate: the content-only fallback of §8, e.g. crates on tier
+    3 only); every key must be there, so that a misspelt one cannot silently drop its crates. One crate per milestone
+    (§3.1): a list may hold the crate only where ``today``'s milestone (the daily bonus, every daily mission, the tier,
+    the final with its event crate) holds no crate."""
+    milestone_tiers = len(today["weeklyMilestones"])
     if not isinstance(block, dict):
         raise ContentError("liveops: collector must be an object")
     unknown = sorted(k for k in block if not k.startswith("_") and k not in COLLECTOR_BLOCK_KEYS)
@@ -988,10 +1009,18 @@ def build_liveops_collector(block, milestone_tiers, rewards, now):
     out = {
         "since": since.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "dailyBonus": rewards(block["dailyBonus"], "collector.dailyBonus", allow_empty=True),
+        "dailyMission": rewards(block["dailyMission"], "collector.dailyMission", allow_empty=True),
         "weeklyMilestones": [rewards(m, "collector.weeklyMilestones[%d]" % i, allow_empty=True)
                              for i, m in enumerate(milestones)],
         "weeklyFinal": rewards(block["weeklyFinal"], "collector.weeklyFinal", allow_empty=True),
     }
+    one_crate_per_milestone("collector.dailyBonus", out["dailyBonus"], "the daily bonus", today["dailyBonus"])
+    for oid, mission in today["dailyMission"]:
+        one_crate_per_milestone("collector.dailyMission", out["dailyMission"], "the daily mission " + oid, mission)
+    for i, tier in enumerate(today["weeklyMilestones"]):
+        one_crate_per_milestone("collector.weeklyMilestones[%d]" % i, out["weeklyMilestones"][i],
+                                "weekly milestone tier %d" % (i + 1), tier)
+    one_crate_per_milestone("collector.weeklyFinal", out["weeklyFinal"], "the weekly final", today["weeklyFinal"])
     if now is not None and since <= now:
         # A rebuild after the release: since must stay (moving it replaces the running events, §3.3, and must match
         # the compiled-in CollectorGuard.ShippedSince).
@@ -1432,7 +1461,7 @@ def check_collector_rewards(liveops, collector):
     block = liveops.get("collector")
     if block is None:
         return
-    lists = [block["dailyBonus"], block["weeklyFinal"]] + block["weeklyMilestones"]
+    lists = [block["dailyBonus"], block["dailyMission"], block["weeklyFinal"]] + block["weeklyMilestones"]
     crates = 0
     for r in [r for rewards in lists for r in rewards]:
         if r["item"] not in LIVEOPS_CURRENCIES and r["item"] != collector["crate"]["id"]:

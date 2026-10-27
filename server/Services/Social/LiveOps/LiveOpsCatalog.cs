@@ -41,8 +41,12 @@ namespace McvsOffline.Server.Services.Social.LiveOps
 
     /// <summary>
     /// The liveops.json <c>collector</c> block (docs/design/economy-collector.md §3.2): the Cosmetic crates the daily
-    /// bonus, each weekly milestone tier and the weekly final hand out on top of today's rewards, in every window that
-    /// starts at or after <see cref="Since"/> while <see cref="CollectorRuntime.CratesInWindow"/> allows it (D5).
+    /// bonus, the day's first mission, each weekly milestone tier and the weekly final hand out on top of today's
+    /// rewards, in every window that starts at or after <see cref="Since"/> while
+    /// <see cref="CollectorRuntime.CratesInWindow"/> allows it (D5). One crate per milestone (§3.1): the claim reveals
+    /// only the last crate of a milestone (GM/TimeLimitedAchievementsComponent.cs ClaimAchievementMilestoneRequest
+    /// replaces its reward list by each crate's generated items), so a list may hand out the crate only where today's
+    /// milestone holds no crate (<see cref="LiveOpsCatalog.ParseCollector"/>).
     /// </summary>
     public sealed class LiveOpsCollectorRewards
     {
@@ -51,6 +55,9 @@ namespace McvsOffline.Server.Services.Social.LiveOps
 
         /// <summary>Appended to the daily "complete all" bonus.</summary>
         public List<LiveOpsReward> DailyBonus = new List<LiveOpsReward>();
+
+        /// <summary>Appended to the milestone of the day's first mission (the first objective the day picks).</summary>
+        public List<LiveOpsReward> DailyMission = new List<LiveOpsReward>();
 
         /// <summary>One list per weekly milestone tier (as many as <c>weeklyEvents.milestoneRewards</c>), each appended to its tier.</summary>
         public List<List<LiveOpsReward>> WeeklyMilestones = new List<List<LiveOpsReward>>();
@@ -75,7 +82,7 @@ namespace McvsOffline.Server.Services.Social.LiveOps
         public const string ContentName = "liveops.json";
 
         /// <summary>The keys of the <c>collector</c> block, all required (keys starting with "_" are comments).</summary>
-        public static readonly string[] CollectorKeys = { "since", "dailyBonus", "weeklyMilestones", "weeklyFinal" };
+        public static readonly string[] CollectorKeys = { "since", "dailyBonus", "dailyMission", "weeklyMilestones", "weeklyFinal" };
 
         /// <summary>The plain currencies the <c>collector</c> block may hand out besides the Cosmetic crate (content-gen
         /// <c>LIVEOPS_CURRENCIES</c>, GM/&lt;Type&gt;RewardItem.cs).</summary>
@@ -290,7 +297,7 @@ namespace McvsOffline.Server.Services.Social.LiveOps
             string problem;
             try
             {
-                c.Collector = ParseCollector(root, c.WeeklyMilestoneRewards.Count, out problem);
+                c.Collector = ParseCollector(root, c, out problem);
             }
             catch (Exception ex)
             {
@@ -306,13 +313,16 @@ namespace McvsOffline.Server.Services.Social.LiveOps
         /// <summary>
         /// The <c>collector</c> block (economy-collector.md §3.2), checked like content-gen checks it: exactly the keys
         /// <see cref="CollectorKeys"/>; <c>since</c> an ISO 8601 time; <c>weeklyMilestones</c> one list per weekly
-        /// milestone tier (<paramref name="milestoneTiers"/>); every reward an <c>{item, quantity}</c> object with a
-        /// positive integer quantity and an item that is a currency (<see cref="CollectorCurrencies"/>) or the Cosmetic
-        /// crate (<see cref="CollectorGuard.CrateId"/>); any list may be empty, but the crate is handed out at least once.
+        /// milestone tier of <paramref name="catalog"/>; every reward an <c>{item, quantity}</c> object with a positive
+        /// integer quantity and an item that is a currency (<see cref="CollectorCurrencies"/>) or the Cosmetic crate
+        /// (<see cref="CollectorGuard.CrateId"/>); any list may be empty, but the crate is handed out at least once; and
+        /// one crate per milestone: a list holds the crate at most once, and only where today's milestone (the
+        /// catalogue's daily bonus, daily missions, weekly tier, weekly final with its event crate) holds no crate.
         /// Null with <paramref name="problem"/> when the block is absent (or null) or breaks a rule.
         /// </summary>
-        public static LiveOpsCollectorRewards ParseCollector(Dictionary<string, object> root, int milestoneTiers, out string problem)
+        public static LiveOpsCollectorRewards ParseCollector(Dictionary<string, object> root, LiveOpsCatalog catalog, out string problem)
         {
+            int milestoneTiers = catalog.WeeklyMilestoneRewards.Count;
             object value = JsonValue.Get(root, "collector");
             if (value == null)
             {
@@ -352,6 +362,8 @@ namespace McvsOffline.Server.Services.Social.LiveOps
 
             rewards.DailyBonus = CollectorRewards(block["dailyBonus"], "collector.dailyBonus", out problem);
             if (rewards.DailyBonus == null) return null;
+            rewards.DailyMission = CollectorRewards(block["dailyMission"], "collector.dailyMission", out problem);
+            if (rewards.DailyMission == null) return null;
             var tiers = block["weeklyMilestones"] as List<object>;
             if (tiers == null || tiers.Count != milestoneTiers)
             {
@@ -369,15 +381,62 @@ namespace McvsOffline.Server.Services.Social.LiveOps
             rewards.WeeklyFinal = CollectorRewards(block["weeklyFinal"], "collector.weeklyFinal", out problem);
             if (rewards.WeeklyFinal == null) return null;
 
-            bool crate = HasCrate(rewards.DailyBonus) || HasCrate(rewards.WeeklyFinal);
+            bool crate = HasCrate(rewards.DailyBonus) || HasCrate(rewards.DailyMission) || HasCrate(rewards.WeeklyFinal);
             foreach (List<LiveOpsReward> tier in rewards.WeeklyMilestones) crate |= HasCrate(tier);
             if (!crate)
             {
                 problem = "collector hands out no " + CollectorGuard.CrateId;
                 return null;
             }
-            problem = null;
+
+            // One crate per milestone (§3.1): the claim reveals only the last crate of a milestone.
+            problem = OneCratePerMilestone("collector.dailyBonus", rewards.DailyBonus, "the daily bonus", catalog.DailyBonusRewards);
+            if (problem != null) return null;
+            foreach (LiveOpsObjective o in catalog.Objectives)
+            {
+                if (o.DailyRewards == null || o.DailyGoals == null) continue;
+                problem = OneCratePerMilestone("collector.dailyMission", rewards.DailyMission, "the daily mission " + o.Id, o.DailyRewards);
+                if (problem != null) return null;
+            }
+            for (int i = 0; i < milestoneTiers; i++)
+            {
+                problem = OneCratePerMilestone("collector.weeklyMilestones[" + i.ToString(CultureInfo.InvariantCulture) + "]", rewards.WeeklyMilestones[i],
+                                               "weekly milestone tier " + (i + 1).ToString(CultureInfo.InvariantCulture), catalog.WeeklyMilestoneRewards[i]);
+                if (problem != null) return null;
+            }
+            var final = new List<LiveOpsReward>(catalog.WeeklyFinalRewards);
+            if (catalog.WeeklyFinalEventCrate && catalog.EventCrates.Count > 0) final.Add(new LiveOpsReward { Item = "the event crate", Quantity = 1 });
+            problem = OneCratePerMilestone("collector.weeklyFinal", rewards.WeeklyFinal, "the weekly final", final);
+            if (problem != null) return null;
             return rewards;
+        }
+
+        /// <summary>
+        /// Null when the milestone made of <paramref name="today"/> plus <paramref name="added"/> holds at most one crate
+        /// reward; else why not. ClaimAchievementMilestoneRequest sets the claim's reward list to each crate's generated
+        /// items in turn, so the reveal shows only the last crate (the others are granted unseen).
+        /// </summary>
+        private static string OneCratePerMilestone(string where, List<LiveOpsReward> added, string milestone, List<LiveOpsReward> today)
+        {
+            int crates = 0;
+            string first = null;
+            foreach (LiveOpsReward r in today)
+                if (IsCrate(r.Item) && crates++ == 0) first = r.Item;
+            int ours = 0;
+            foreach (LiveOpsReward r in added)
+                if (IsCrate(r.Item)) ours++;
+            if (ours > 1) return where + ": " + CollectorGuard.CrateId + " twice in one milestone (one reward with a quantity instead)";
+            if (ours == 1 && crates > 0)
+                return where + ": " + milestone + " already holds a crate (" + first + "); a milestone reveals only its last crate, so the "
+                       + CollectorGuard.CrateId + " must go on a milestone without one";
+            return null;
+        }
+
+        /// <summary>A live-ops reward that is a crate: anything but the plain currencies (content-gen checks every item is a
+        /// currency or a catalogue crate).</summary>
+        public static bool IsCrate(string item)
+        {
+            return !string.IsNullOrEmpty(item) && Array.IndexOf(CollectorCurrencies, item) < 0;
         }
 
         /// <summary>A list of the block: null with <paramref name="problem"/> at the first reward that breaks a rule.</summary>
