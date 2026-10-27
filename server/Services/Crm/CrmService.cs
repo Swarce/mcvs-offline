@@ -123,7 +123,8 @@ namespace McvsOffline.Server.Services.Crm
 
         /// <summary>
         /// The <c>collector</c> block of <c>GET _mcvs/crm</c> (economy-collector.md §2.13, §5.8): the phase the document
-        /// carries and why, the cells of each tree, itemsPerCrate and the static weights (§4.2).
+        /// carries and why, the cells of each tree, itemsPerCrate, when live ops first served the crate (the latch, §2.12)
+        /// and the static weights (§4.2).
         /// </summary>
         private static Dictionary<string, object> CollectorBlock(ServerContext context, CrmDocument doc)
         {
@@ -154,6 +155,9 @@ namespace McvsOffline.Server.Services.Crm
                 o["content"] = content != null ? "collector.json " + content.Hash : runtime.ContentProblem;
                 bool? patch = runtime.StorePatch;
                 o["storePatch"] = patch.HasValue ? (object)patch.Value : null;
+                // The latch (§2.12): once live ops served the crate, the document is never dormant again.
+                DateTime? served = runtime.CratesServedAt;
+                o["cratesServed"] = served.HasValue ? (object)TimeFormat.Iso8601(served.Value) : null;
             }
             catch (Exception ex)
             {

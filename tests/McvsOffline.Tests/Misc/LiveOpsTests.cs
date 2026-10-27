@@ -932,12 +932,18 @@ namespace McvsOffline.Tests.Misc
             Assert.Equal("2026-11-09T00:00:00Z", JsonPath.Get(page, "collector.since"));
             Assert.Empty((List<object>)JsonPath.Get(page, "collector.activeFor"));
             Assert.Null(JsonPath.Get(page, "collector.block"));
+            Assert.Null(JsonPath.Get(page, "collector.cratesServed"));
 
-            // The last day before since: tomorrow's quest day and the announced next season get the crate, today's do not.
+            // The last day before since: tomorrow's quest day and the announced next season get the crate, today's do not;
+            // the TS fetches both today, so the document carries the guard (guardSince = since − 1 day, §2.12).
             clock.UtcNow = new DateTime(2026, 11, 8, 12, 0, 0, DateTimeKind.Utc);
             page = MiscServer.Obj(s.Get("/_mcvs/liveops"));
-            Assert.Equal("Dormant", JsonPath.Get(page, "collector.phase"));
+            Assert.Equal("Guard", JsonPath.Get(page, "collector.phase"));
+            Assert.Equal("before collector.since 2026-11-09T00:00:00Z", JsonPath.Get(page, "collector.reason"));
             Assert.Equal(new object[] { "mcvs_daily_2026110900", "mcvs_weekly_2026110900x7" }, (List<object>)JsonPath.Get(page, "collector.activeFor"));
+            Assert.Null(JsonPath.Get(page, "collector.cratesServed"));      // the page builds the events, it does not serve them
+            Assert.Contains("Crate_Event_Special", s.Get("/events/mcvs_daily_2026110900?language=en").BodyText);
+            Assert.Equal("2026-11-08T12:00:00Z", JsonPath.Get(MiscServer.Obj(s.Get("/_mcvs/liveops")), "collector.cratesServed"));
 
             clock.UtcNow = AfterSince;
             page = MiscServer.Obj(s.Get("/_mcvs/liveops"));

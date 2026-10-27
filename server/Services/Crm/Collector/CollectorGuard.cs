@@ -20,6 +20,14 @@ namespace McvsOffline.Server.Services.Crm.Collector
         /// </summary>
         public static readonly DateTime ShippedSince = new DateTime(2026, 11, 9, 0, 0, 0, DateTimeKind.Utc);
 
+        /// <summary>
+        /// How long before its window starts an event carrying the crate can reach the TS: live ops list the next day's
+        /// quests for the whole current day and announce the next weekly event during the last day of a season
+        /// (<c>LiveOpsService.Snapshot</c>), and the TS fetches every listed event. The guard starts this much before
+        /// <c>min(since, ShippedSince)</c> (§2.12), so no listed crate ever meets an empty content table.
+        /// </summary>
+        public static readonly TimeSpan Lead = TimeSpan.FromDays(1);
+
         public const string CrateTable = "Crate_Event_Special";
         public const string CrateId = "Crate_Event_Special";
         public const string LocId = "Crate.Cosmetic_Crate";

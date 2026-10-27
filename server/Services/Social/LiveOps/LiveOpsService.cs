@@ -380,10 +380,33 @@ namespace McvsOffline.Server.Services.Social.LiveOps
             // The Cosmetic crate (economy-collector.md §3.2): only in windows CollectorRuntime.CratesInWindow allows; the
             // events of every other window are exactly as without the collector.
             window = LiveOpsSchedule.TryParseDaily(eventId);
-            if (window != null) return s.DailyQuests ? LiveOpsEvents.DailyQuest(c, window, Collector) : null;
+            if (window != null) return s.DailyQuests ? Served(eventId, window, LiveOpsEvents.DailyQuest(c, window, Collector), utcNow) : null;
             window = LiveOpsSchedule.TryParseWeekly(eventId);
-            if (window != null) return s.WeeklyEvents ? LiveOpsEvents.WeeklyEvent(c, window, ModifierFor(window, s, c), Collector) : null;
+            if (window != null)
+                return s.WeeklyEvents ? Served(eventId, window, LiveOpsEvents.WeeklyEvent(c, window, ModifierFor(window, s, c), Collector), utcNow) : null;
             return null;
+        }
+
+        /// <summary>
+        /// An event handed to the TS. When it carries the Cosmetic crate the collector's latch is set
+        /// (<see cref="CollectorRuntime.NoteCratesServed"/>): the CRM document keeps the guard from then on, whatever later
+        /// happens to collector.since or the clock (economy-collector.md §2.12, D9).
+        /// </summary>
+        private Dictionary<string, object> Served(string eventId, LiveOpsWindow window, Dictionary<string, object> e, DateTime utcNow)
+        {
+            string template = e == null ? null : e["_template"] as string;
+            if (template != null && template.IndexOf("\"" + CollectorGuard.CrateId + "\"", StringComparison.Ordinal) >= 0)
+            {
+                try
+                {
+                    Collector.NoteCratesServed(eventId, window.Start, utcNow);
+                }
+                catch (Exception ex)
+                {
+                    log.Error("liveops: the collector's latch could not be set for " + eventId, ex);
+                }
+            }
+            return e;
         }
 
         // ------------------------------------------------------------------------------------------ season boards
@@ -460,10 +483,10 @@ namespace McvsOffline.Server.Services.Social.LiveOps
         }
 
         /// <summary>
-        /// <c>collector: {phase, reason, since, activeFor, block}</c> (economy-collector.md §3.2): the phase a CRM document
-        /// served now has (<see cref="CollectorRuntime.Status"/>), <c>since</c> from the catalogue, the listed daily and
-        /// weekly event ids whose window gets the Cosmetic crate, and why the catalogue has no collector block (null when
-        /// it has one).
+        /// <c>collector: {phase, reason, since, activeFor, block, cratesServed}</c> (economy-collector.md §3.2): the phase a
+        /// CRM document served now has (<see cref="CollectorRuntime.Status"/>), <c>since</c> from the catalogue, the listed
+        /// daily and weekly event ids whose window gets the Cosmetic crate, why the catalogue has no collector block (null
+        /// when it has one) and when live ops first served the crate (the latch, null: never).
         /// </summary>
         private Dictionary<string, object> DescribeCollector(LiveOpsSnapshot snap, LiveOpsCatalog c, CollectorRuntime runtime, DateTime utc)
         {
@@ -489,6 +512,15 @@ namespace McvsOffline.Server.Services.Social.LiveOps
             }
             o["activeFor"] = active;
             o["block"] = c.CollectorProblem;
+            try
+            {
+                DateTime? served = runtime.CratesServedAt;
+                o["cratesServed"] = served.HasValue ? (object)TimeFormat.Iso8601(served.Value) : null;
+            }
+            catch (Exception ex)
+            {
+                o["cratesServed"] = "unavailable (" + ex.Message + ")";
+            }
             return o;
         }
 

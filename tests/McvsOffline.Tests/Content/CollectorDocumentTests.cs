@@ -42,24 +42,27 @@ namespace McvsOffline.Tests.Content
         // ------------------------------------------------------------------------------------------ golden
 
         /// <summary>
-        /// O7: with <c>economy.collector.enabled=false</c> every WP-0 output before <c>since</c> is byte-identical, and from
-        /// <c>since</c> on each document is identical after removing exactly the 5 guard cells from each tree, which are
-        /// there (live ops on and off; events always identical).
+        /// O7: with <c>economy.collector.enabled=false</c> every WP-0 output before guardSince (a day before <c>since</c>,
+        /// <see cref="CollectorGuard.Lead"/>) is byte-identical, and from guardSince on each document is identical after
+        /// removing exactly the 5 guard cells from each tree, which are there (live ops on and off; events always identical).
         /// </summary>
         [Fact]
         public void CollectorOffMatchesGolden()
         {
+            DateTime guardSince = CollectorRuntime.GuardSince(Since);
+            Assert.Equal(Since.AddDays(-1), guardSince);
             List<GoldenOutput> outputs = GoldenScenarios.RunAll(run => run.Set("economy.collector.enabled", false));
             Assert.Equal(GoldenScenarios.Names(), outputs.Select(o => o.Name).ToList());
-            Assert.Empty(GoldenScenarios.Mismatches(outputs.Where(o => o.Day < Since)));
-            List<GoldenOutput> after = outputs.Where(o => o.Day >= Since).ToList();
+            Assert.Empty(GoldenScenarios.Mismatches(outputs.Where(o => o.Day < guardSince)));
+            List<GoldenOutput> after = outputs.Where(o => o.Day >= guardSince).ToList();
             foreach (GoldenOutput o in after.Where(IsDocument)) AssertGuardInBothTrees(o);
             Assert.Empty(GoldenScenarios.Mismatches(after, o => IsDocument(o) ? Strip(o, IsGuardCell) : o.Text));
         }
 
         /// <summary>
-        /// Dormant (§2.12): no cells at all. Live ops off: byte-identical before guardSince (the shipped since), the guard
-        /// alone after it; live ops on: byte-identical before since.
+        /// Dormant (§2.12): no cells at all. Live ops off: byte-identical before guardSince (a day before the shipped since),
+        /// the guard alone after it; live ops on: byte-identical before guardSince, the guard alone on the day before since
+        /// (that day's documents list tomorrow's quests and announce the next week, both with the crate).
         /// </summary>
         [Fact]
         public void DormantMatchesGolden()
@@ -72,9 +75,13 @@ namespace McvsOffline.Tests.Content
             Assert.Empty(GoldenScenarios.Mismatches(guarded, o => IsDocument(o) ? Strip(o, IsGuardCell) : o.Text));
 
             List<GoldenOutput> on = GoldenScenarios.Run(true);
-            Assert.Empty(GoldenScenarios.Mismatches(on.Where(o => o.Day < Since)));
-            foreach (GoldenOutput o in on.Where(o => o.Day < Since && IsDocument(o)))
+            Assert.Empty(GoldenScenarios.Mismatches(on.Where(o => o.Day < guardSince)));
+            foreach (GoldenOutput o in on.Where(o => o.Day < guardSince && IsDocument(o)))
                 Assert.DoesNotContain("Crate_Event_Special", o.Text);
+            List<GoldenOutput> dayBefore = on.Where(o => o.Day >= guardSince && o.Day < Since).ToList();
+            Assert.NotEmpty(dayBefore.Where(IsDocument));
+            foreach (GoldenOutput o in dayBefore.Where(IsDocument)) AssertGuardInBothTrees(o);
+            Assert.Empty(GoldenScenarios.Mismatches(dayBefore, o => IsDocument(o) ? Strip(o, IsGuardCell) : o.Text));
         }
 
         /// <summary>
@@ -103,7 +110,9 @@ namespace McvsOffline.Tests.Content
             List<GoldenOutput> crateEvents = on.Where(o => o.Day >= Since && !IsDocument(o)).ToList();
             Assert.NotEmpty(crateEvents);
             foreach (GoldenOutput o in crateEvents) Assert.True(o.Text.Contains("Crate_Event_Special"), o.Name + ": the crate");
-            Assert.Empty(GoldenScenarios.Mismatches(on.Except(crateEvents), o => IsDocument(o) && o.Day >= Since
+            // From guardSince (the day before since: the guard) on, the documents differ only in the collector's changers.
+            DateTime guardSince = CollectorRuntime.GuardSince(Since);
+            Assert.Empty(GoldenScenarios.Mismatches(on.Except(crateEvents), o => IsDocument(o) && o.Day >= guardSince
                                                                                 ? Strip(o, (t, c, k) => changers.Contains(t + "\n" + c))
                                                                                 : o.Text));
         }
@@ -121,9 +130,11 @@ namespace McvsOffline.Tests.Content
 
         /// <summary>
         /// D5/D9: for every combination of settings, content validity and store patch, and every day of the golden run,
-        /// if live ops hand out Crate_Event_Special (in an event, or by <see cref="CollectorRuntime.CratesInWindow"/> for
-        /// the day's or the season's window) then the served documents (static, per-player, minimal) have typed
-        /// Crate_Event_Special rows in game._OverrideTables, and every document from guardSince on has the crate valid.
+        /// if live ops hand out Crate_Event_Special (in any event the document lists in
+        /// <c>groupware.events.participation</c>: today's and tomorrow's quests, this season's and the announced next
+        /// weekly event; or by <see cref="CollectorRuntime.CratesInWindow"/> for the day's or the season's window) then
+        /// the served documents (static, per-player, minimal) have typed Crate_Event_Special rows in game._OverrideTables,
+        /// and every document from guardSince on has the crate valid.
         /// </summary>
         [Theory]
         [MemberData(nameof(Combinations))]
@@ -149,13 +160,14 @@ namespace McvsOffline.Tests.Content
                     LiveOpsSettings s = LiveOpsService.For(run.Context).Settings;
                     LiveOpsWindow daily = LiveOpsSchedule.DayAt(s, run.Clock.UtcNow);
                     LiveOpsWindow season = LiveOpsSchedule.SeasonAt(s, run.Clock.UtcNow);
-                    string dailyText = run.Get("/events/" + LiveOpsSchedule.DailyEventId(daily) + "?language=en", null).BodyText;
-                    string weeklyText = run.Get("/events/" + LiveOpsSchedule.WeeklyEventId(season) + "?language=en", null).BodyText;
-                    bool handsOut = dailyText.Contains("Crate_Event_Special") || weeklyText.Contains("Crate_Event_Special")
+                    string staticText = run.Get("/configs/users/me", null).BodyText;
+                    var listed = ListedEvents(staticText);
+                    if (liveOps) Assert.Contains(LiveOpsSchedule.DailyEventId(daily), listed);
+                    bool handsOut = listed.Any(id => run.Get("/events/" + id + "?language=en", null).BodyText.Contains("Crate_Event_Special"))
                                     || (liveOps && (runtime.CratesInWindow(daily.Start, Since) || runtime.CratesInWindow(season.Start, Since)));
                     var docs = new[]
                     {
-                        ("static", GameMember(run.Get("/configs/users/me", null).BodyText)),
+                        ("static", GameMember(staticText)),
                         ("player", GameMember(run.Get("/configs/users/me", token).BodyText)),
                         ("minimal", JsonValue.GetObject(minimal, "game")),
                     };
@@ -171,9 +183,93 @@ namespace McvsOffline.Tests.Content
                     if (handsOut) handedOut++;
                 }
             }
-            // The defaults hand out crates from since on (not a vacuous pass).
+            // The defaults hand out crates from the day before since on (tomorrow's quests, the announced week; not a
+            // vacuous pass).
             bool hands = enabled && liveOps && content == "valid" && patch != false;
-            Assert.Equal(hands ? GoldenScenarios.Days().Count(d => d >= Since) : 0, handedOut);
+            Assert.Equal(hands ? GoldenScenarios.Days().Count(d => d >= Since.AddDays(-1)) : 0, handedOut);
+        }
+
+        /// <summary>The event ids of a served document's <c>groupware.events.participation</c> (empty when there is none).</summary>
+        private static List<string> ListedEvents(string documentText)
+        {
+            var ids = new List<string>();
+            if (!McvsOffline.Server.Services.Storage.JsonSpanScanner.TryFindValue(documentText, new[] { "groupware" }, out int start, out int length))
+                return ids;
+            var participation = JsonValue.AsArray(JsonPath.Get(MiniJson.ParseObject(documentText.Substring(start, length)), "events.participation"));
+            foreach (object e in participation ?? new List<object>()) ids.Add(JsonValue.GetString(e as Dictionary<string, object>, "id"));
+            return ids;
+        }
+
+        /// <summary>
+        /// D9, the latch (§2.12): a liveops.json override moves since a fortnight back and the TS gets an event with the
+        /// crate; then the override goes and the device clock goes back before the guard's start. The phase is never
+        /// Dormant again: the static document, the game selector and the per-player document carry the 5 guard cells in
+        /// both trees, also on the next server on the same data folder.
+        /// </summary>
+        [Fact]
+        public void TheGuardStaysOnceCratesWereServed()
+        {
+            Assert.True(new ContentProvider(null, null, Log.Null).TryReadContentText(LiveOpsCatalog.ContentName, out string shipped));
+            DateTime earlySince = new DateTime(2026, 10, 26, 0, 0, 0, DateTimeKind.Utc);
+            DateTime at = new DateTime(2026, 10, 27, 12, 0, 0, DateTimeKind.Utc);
+            string dataDir;
+            var first = new GoldenRun(at) { KeepDataDir = true };
+            try
+            {
+                using (first)
+                {
+                    dataDir = first.DataDir;
+                    first.OverrideContent(LiveOpsCatalog.ContentName, WithSince(shipped, TimeFormat.Iso8601(earlySince)));
+                    string token = Player(first, "p", GoldenScenarios.DumpText(GoldenScenarios.Fresh));
+                    Assert.Equal(CollectorPhase.Active, first.Context.Features.Get<CrmDocumentCache>().Get(0).CollectorPhase);
+                    LiveOpsSettings s = LiveOpsService.For(first.Context).Settings;
+                    string daily = LiveOpsSchedule.DailyEventId(LiveOpsSchedule.DayAt(s, at));
+                    Assert.Contains("Crate_Event_Special", first.Get("/events/" + daily + "?language=en", null).BodyText);
+                    Assert.Equal(at, CollectorRuntime.For(first.Context).CratesServedAt);
+
+                    // The override removed, the clock an hour later: before guardSince, but the guard stays.
+                    System.IO.File.Delete(System.IO.Path.Combine(first.DataDir, "content", LiveOpsCatalog.ContentName));
+                    first.Clock.UtcNow = at.AddHours(1);
+                    AssertGuardServed(first, token, "the override removed");
+                    var diag = MiniJson.ParseObject(first.Get("/_mcvs/crm", null).BodyText);
+                    Assert.Equal("2026-10-27T12:00:00Z", JsonPath.Get(diag, "collector.cratesServed"));
+                    Assert.Contains("guard kept", (string)JsonPath.Get(diag, "collector.reason"));
+                    Assert.Equal("2026-10-27T12:00:00Z", JsonPath.Get(MiniJson.ParseObject(first.Get("/_mcvs/liveops", null).BodyText), "collector.cratesServed"));
+                }
+                using (var second = new GoldenRun(at.AddDays(-5), dataDir))
+                {
+                    string token = second.NewPlayer("p");
+                    second.ReadGameProfile(token);
+                    AssertGuardServed(second, token, "the next server, the clock set back");
+                }
+            }
+            finally
+            {
+                first.DeleteDataDir();
+            }
+
+            // The clock-rollback variant on the shipped since: crates served on 2026-11-10, then the clock on 2026-11-06.
+            using (var run = new GoldenRun(ActiveDay))
+            {
+                string token = Player(run, "p", GoldenScenarios.DumpText(GoldenScenarios.Fresh));
+                LiveOpsSettings s = LiveOpsService.For(run.Context).Settings;
+                Assert.Contains("Crate_Event_Special", run.Get("/events/" + LiveOpsSchedule.WeeklyEventId(LiveOpsSchedule.SeasonAt(s, ActiveDay))
+                                                               + "?language=en", null).BodyText);
+                run.Clock.UtcNow = DormantDay.AddDays(2);
+                Assert.True(run.Clock.UtcNow < CollectorRuntime.GuardSince(Since));
+                AssertGuardServed(run, token, "the clock set back");
+            }
+        }
+
+        /// <summary>The documents served now carry exactly the guard in both trees (static, game selector, per-player).</summary>
+        private static void AssertGuardServed(GoldenRun run, string token, string what)
+        {
+            CrmDocument doc = run.Context.Features.Get<CrmDocumentCache>().Get(0);
+            Assert.True(doc.CollectorPhase == CollectorPhase.Guard, what + ": " + doc.CollectorPhase + " (" + doc.Collector.Status.Reason + ")");
+            AssertOnlyGuard(MiniJson.ParseObject(run.Get("/configs/users/me", null).BodyText));
+            AssertOnlyGuard(MiniJson.ParseObject(run.Get("/configs/users/me", token).BodyText));
+            var selector = new Dictionary<string, object>(StringComparer.Ordinal) { ["game"] = MiniJson.ParseObject(run.Get("/configs/users/me/game", null).BodyText) };
+            AssertOnlyGuard(selector);
         }
 
         // ------------------------------------------------------------------------------------------ isolation
@@ -619,11 +715,12 @@ namespace McvsOffline.Tests.Content
         [Fact]
         public void DocumentFollowsThePhaseAndTheContent()
         {
-            using var run = new GoldenRun(Since.AddSeconds(-10));
+            DateTime guardSince = CollectorRuntime.GuardSince(Since);
+            using var run = new GoldenRun(guardSince.AddSeconds(-10));
             run.Set("liveops.enabled", false);
             string before = run.Get("/configs/users/me", null).BodyText;
             Assert.DoesNotContain("Crate_Event_Special", before);
-            run.Clock.UtcNow = Since.AddSeconds(-1);   // the decision runs ahead of the clock as live ops do
+            run.Clock.UtcNow = guardSince.AddSeconds(-1);   // the decision runs ahead of the clock as live ops do
             Assert.Contains("Crate_Event_Special", run.Get("/configs/users/me", null).BodyText);
 
             run.Set("liveops.enabled", true);

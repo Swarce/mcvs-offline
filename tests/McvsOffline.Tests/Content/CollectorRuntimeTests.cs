@@ -131,6 +131,9 @@ namespace McvsOffline.Tests.Content
                 yield return boundary.AddSeconds(-1);
                 yield return boundary;
                 yield return boundary.AddHours(36);
+                // guardSince = since − Lead
+                yield return boundary - CollectorGuard.Lead - TimeSpan.FromSeconds(1);
+                yield return boundary - CollectorGuard.Lead;
             }
             yield return Shipped.AddDays(-60);
             yield return Shipped.AddDays(60);
@@ -141,7 +144,7 @@ namespace McvsOffline.Tests.Content
         {
             bool active = enabled && liveOps && content == ContentState.Valid && patch != false && since.HasValue && now >= since.Value;
             if (active) return CollectorPhase.Active;
-            DateTime guardSince = since.HasValue && since.Value < Shipped ? since.Value : Shipped;
+            DateTime guardSince = (since.HasValue && since.Value < Shipped ? since.Value : Shipped).AddDays(-1);
             return now >= guardSince ? CollectorPhase.Guard : CollectorPhase.Dormant;
         }
 
@@ -196,9 +199,17 @@ namespace McvsOffline.Tests.Content
             CollectorStatus s = r.Status(Shipped, true, Shipped);
             Assert.Equal(CollectorPhase.Active, s.Phase);
             Assert.Equal("active since 2026-11-09T00:00:00Z", s.Reason);
-            Assert.Equal(CollectorPhase.Dormant, r.Status(Shipped.AddSeconds(-1), true, Shipped).Phase);
+            // The day before since: the guard (live ops already list that day's quests and announce the week).
+            s = r.Status(Shipped.AddSeconds(-1), true, Shipped);
+            Assert.Equal(CollectorPhase.Guard, s.Phase);
+            Assert.Equal("before collector.since 2026-11-09T00:00:00Z", s.Reason);
+            Assert.Equal(CollectorPhase.Guard, r.Status(Shipped.AddDays(-1), true, Shipped).Phase);
+            s = r.Status(Shipped.AddDays(-1).AddSeconds(-1), true, Shipped);
+            Assert.Equal(CollectorPhase.Dormant, s.Phase);
+            Assert.Equal("before collector.since 2026-11-09T00:00:00Z (guard from 2026-11-08T00:00:00Z)", s.Reason);
             Assert.Equal(CollectorPhase.Active, r.Status(Shipped.AddDays(-13), true, Shipped.AddDays(-14)).Phase);   // an earlier since
-            Assert.Equal(CollectorPhase.Dormant, r.Status(Shipped.AddDays(-15), true, Shipped.AddDays(-14)).Phase);
+            Assert.Equal(CollectorPhase.Guard, r.Status(Shipped.AddDays(-15), true, Shipped.AddDays(-14)).Phase);
+            Assert.Equal(CollectorPhase.Dormant, r.Status(Shipped.AddDays(-15).AddSeconds(-1), true, Shipped.AddDays(-14)).Phase);
 
             // A later since: the guard still starts at the shipped since (guardSince = min).
             s = r.Status(Shipped.AddDays(1), true, later);
@@ -209,9 +220,9 @@ namespace McvsOffline.Tests.Content
             s = r.Status(Shipped.AddDays(1), true, null);
             Assert.Equal(CollectorPhase.Guard, s.Phase);
             Assert.Contains("no collector.since", s.Reason);
-            s = r.Status(Shipped.AddDays(-1), true, null);
+            s = r.Status(Shipped.AddDays(-2), true, null);
             Assert.Equal(CollectorPhase.Dormant, s.Phase);
-            Assert.Contains("guard from 2026-11-09T00:00:00Z", s.Reason);
+            Assert.Contains("guard from 2026-11-08T00:00:00Z", s.Reason);
 
             Assert.Equal("live ops are off", r.Status(Shipped.AddDays(1), false, Shipped).Reason);
 
@@ -561,12 +572,72 @@ namespace McvsOffline.Tests.Content
             Assert.DoesNotContain(f.Logs.Snapshot(), e => e.Level >= LogLevel.Warn);
         }
 
+        /// <summary>guardSince = min(since, ShippedSince) − Lead (one day: the next day's quests and the next week's event
+        /// are listed, and fetched, a day before their window starts).</summary>
         [Fact]
-        public void GuardSinceIsTheEarlierOfSinceAndTheShippedSince()
+        public void GuardSinceIsADayBeforeTheEarlierOfSinceAndTheShippedSince()
         {
-            Assert.Equal(Shipped, CollectorRuntime.GuardSince(null));
-            Assert.Equal(Shipped, CollectorRuntime.GuardSince(Shipped.AddDays(7)));
-            Assert.Equal(Shipped.AddDays(-7), CollectorRuntime.GuardSince(Shipped.AddDays(-7)));
+            Assert.Equal(TimeSpan.FromDays(1), CollectorGuard.Lead);
+            Assert.Equal(Shipped.AddDays(-1), CollectorRuntime.GuardSince(null));
+            Assert.Equal(Shipped.AddDays(-1), CollectorRuntime.GuardSince(Shipped.AddDays(7)));
+            Assert.Equal(Shipped.AddDays(-8), CollectorRuntime.GuardSince(Shipped.AddDays(-7)));
+        }
+
+        /// <summary>
+        /// The latch (D9, §2.12): once live ops served an event carrying the crate, Status is never Dormant again, whatever
+        /// since or the clock does (the phase table otherwise unchanged: Active stays Active). It is written to the data
+        /// folder and read back by the next server; a broken file counts as set.
+        /// </summary>
+        [Fact]
+        public void TheLatchKeepsTheGuardForever()
+        {
+            DateTime early = Shipped.AddDays(-30);
+            DateTime overrideSince = Shipped.AddDays(-14);
+            string dir;
+            using (var f = new Fixture())
+            {
+                dir = f.Dir.Path;
+                CollectorRuntime r = f.Runtime;
+                Assert.Null(r.CratesServedAt);
+                Assert.Equal(CollectorPhase.Dormant, r.Status(early, true, Shipped).Phase);
+                r.NoteCratesServed("mcvs_daily_2026102600", overrideSince, overrideSince.AddHours(12));
+                Assert.Equal(overrideSince.AddHours(12), r.CratesServedAt);
+                Assert.Equal(overrideSince, r.CratesServedWindow);
+                Assert.Single(f.Logs.Snapshot(), e => e.Message.StartsWith("Cosmetic crates served for the first time (mcvs_daily_2026102600)"));
+                // The override removed (since back to the shipped one) and the clock set back: the guard stays.
+                CollectorStatus s = r.Status(early, true, Shipped);
+                Assert.Equal(CollectorPhase.Guard, s.Phase);
+                Assert.Equal("before collector.since 2026-11-09T00:00:00Z (guard kept: Cosmetic crates were served at 2026-10-26T12:00:00Z)", s.Reason);
+                Assert.Equal(CollectorPhase.Guard, r.Status(early, false, null).Phase);
+                Assert.Equal(CollectorPhase.Active, r.Status(overrideSince, true, overrideSince).Phase);
+                // Later windows change nothing; an earlier one is remembered (and written) too.
+                r.NoteCratesServed("mcvs_daily_2026102700", overrideSince.AddDays(1), overrideSince.AddDays(1));
+                Assert.Equal(overrideSince, r.CratesServedWindow);
+                r.NoteCratesServed("mcvs_daily_2026102000", overrideSince.AddDays(-6), overrideSince.AddDays(2));
+                Assert.Equal(overrideSince.AddDays(-6), r.CratesServedWindow);
+                Assert.Equal(overrideSince.AddHours(12), r.CratesServedAt);
+                Assert.Single(f.Logs.Snapshot(), e => e.Message.StartsWith("Cosmetic crates served for the first time"));
+                string text = File.ReadAllText(Path.Combine(dir, CollectorRuntime.LatchFileName));
+                Assert.Contains("\"cratesServed\": \"2026-10-26T12:00:00Z\"", text);
+                Assert.Contains("\"event\": \"mcvs_daily_2026102000\"", text);
+
+                // The next server on the same data folder.
+                var logger = new Logger();
+                var next = new ServerContext(dir, new Settings(), logger, new ManualClock(early), f.Content);
+                CollectorRuntime again = CollectorRuntime.For(next);
+                Assert.Equal(overrideSince.AddHours(12), again.CratesServedAt);
+                Assert.Equal(overrideSince.AddDays(-6), again.CratesServedWindow);
+                Assert.Equal(CollectorPhase.Guard, again.Status(early, true, Shipped).Phase);
+
+                // A broken file: the guard, as if crates had been served.
+                File.WriteAllText(Path.Combine(dir, CollectorRuntime.LatchFileName), "{ not json");
+                var logs = new MemoryLogSink();
+                var brokenLogger = new Logger();
+                brokenLogger.AddSink(logs);
+                var broken = new ServerContext(dir, new Settings(), brokenLogger, new ManualClock(early), f.Content);
+                Assert.Equal(CollectorPhase.Guard, CollectorRuntime.For(broken).Status(early, true, Shipped).Phase);
+                Assert.True(logs.Contains(CollectorRuntime.LatchFileName + " is not valid"));
+            }
         }
     }
 }
