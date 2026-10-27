@@ -79,7 +79,7 @@ namespace McvsOffline.Tests.Content
             foreach (GoldenOutput o in on.Where(o => o.Day < guardSince && IsDocument(o)))
                 Assert.DoesNotContain("Crate_Event_Special", o.Text);
             List<GoldenOutput> dayBefore = on.Where(o => o.Day >= guardSince && o.Day < Since).ToList();
-            Assert.NotEmpty(dayBefore.Where(IsDocument));
+            Assert.Contains(dayBefore, IsDocument);
             foreach (GoldenOutput o in dayBefore.Where(IsDocument)) AssertGuardInBothTrees(o);
             Assert.Empty(GoldenScenarios.Mismatches(dayBefore, o => IsDocument(o) ? Strip(o, IsGuardCell) : o.Text));
         }
