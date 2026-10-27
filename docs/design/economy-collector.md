@@ -1,9 +1,10 @@
 # Design: the Cosmetic crate ("economy collector")
 
-Status: **design, revised after review round 2, ready to implement; owner set 5 items per crate (O3)** (October 2026, `main-dev` `e4bff79`). Roadmap item
+Status: **design, revised after review round 2, ready to implement; owner set 5 items per crate (O3); integration review
+round 3 applied (§0.5)** (October 2026, `main-dev` `e4bff79`). Roadmap item
 "economy polish". This document is the contract between the work packages in §6: anything another package relies on
 (content file schemas, CRM cells, C# signatures, settings keys, test names) is fixed here. Change it only through the
-integrator (WP-I). §0.4 lists what changed in round 2 and why.
+integrator (WP-I). §0.4 lists what changed in round 2 and why, §0.5 what the integration review (round 3) changed.
 
 Evidence: `polish-research.md` (section *economy*) and its scratch scripts; the decoded 1.17.32 data pack
 (`/home/user/mcvs-work/datapack-decoded`, `Design/MCVS_Meta.xlsx`, `Design/MCVS_Gameplay.xlsx`, `_catalog.json`); the
@@ -38,10 +39,11 @@ round 2 in `collector/rev/`: `pools2.py`, `pace2.py`, `cells2.py`, `cells-{game,
 | D5 | Live-ops rewards and the CRM layer start together at a content date **`collector.since`** (a season start), behind **one predicate** (`CollectorRuntime`, §2.12). No `revision` bump. | A bump resets the running day and week for everybody at install time (§3.3); one predicate means the crate is never handed out unless the document carries its rows. |
 | D6 | The Unlockable "window" covers the **whole** remaining set by default (≤ 139 + 75 + 6 cells). | Measured ~5 ms each for the 139 `true` and the 75 Kayac `false` cells on net8 (§2.10). A window setting remains as a safety valve. |
 | D7 | When every collectible is owned, each draw pays **70 VersusCoins** (`VersusCoins_Tiers4` row). | Unlock-all profiles get something useful and the crate is never "unavailable" (§5.1). |
-| D8 | **Sounds ride as bundles** on four "carrier" rows (random avatar + `BundledRewards = KillSignature_Sound_<n>`, always given). No row has `Type KillSignature / Subtype Sound`. | A sound row with weight throws `KeyNotFoundException` in the crate preview, which every TLE screen builds (§2.3). |
-| D9 | From `since` on, `Crate_Event_Special` **never has an empty content table**: the document carries either the collector layer or a 5-cell **guard** (row 1 = 70 VersusCoins). | An empty content table throws in `GenerateRewards` (no `Crate_LastChance` fallback); stale crates outlive a switch-off (§2.12). |
+| D8 | **Sounds ride as bundles** on four "carrier" rows (random **background** + `BundledRewards = KillSignature_Sound_<n>`, always given; round 3: was a random avatar). No row has `Type KillSignature / Subtype Sound`. | A sound row with weight throws `KeyNotFoundException` in the crate preview, which every TLE screen builds (§2.3); a background row's checks build the 35-entry background list, not the 1,518-entry avatar list (§2.3, §8). |
+| D9 | From `guardSince` (a day before `since`) on, and for good once live ops served the crate, `Crate_Event_Special` **never has an empty content table**: the document carries either the collector layer or a 5-cell **guard** (row 1 = 70 VersusCoins). | An empty content table throws in `GenerateRewards` (no `Crate_LastChance` fallback); stale crates outlive a switch-off, a `since` change and a clock set back (§2.12). |
 | D10 | **Mirror policy**: the static document's `_ServerConfig.default._OverrideTables` (the `game` selector the GS/TS install) carries the layer **minus** the Unlockable `true` cells; the per-player document's mirror carries only the guard. | Server Worlds read the static selector; the per-player mirror is read by nothing we know of, so it is made safe and small (§2.9, §2.10). |
 | D11 | The collector **requires the patcher's default `store` patch** (S1); the embedded host reports whether it is present and the collector stays off (guard) when it is known to be missing. | Vanilla `GetAvailableId` throws for sounds and for a random signature that found nothing, on the reveal and inbox paths (§2.13). |
+| D12 | **One crate per milestone** (round 3): live ops put the Cosmetic crate only on milestones that hold no other crate. | `ClaimAchievementMilestoneRequest` replaces the claim's reward list by each crate's generated items, so a milestone reveals only its last crate (§3.1). |
 
 ### 0.3 Corrections to the research (verified for this design)
 
@@ -84,6 +86,21 @@ round 2 in `collector/rev/`: `pools2.py`, `pace2.py`, `cells2.py`, `cells-{game,
 | Minor: D2 reasoning | Reworded. |
 | Minor: settings defaults, one parser, release date | `economy.collector.enabled` in `Settings.CreateDefaults` (WP-D); live ops read `CollectorOptions`; content-gen warns when `since` is < 7 days ahead; release checklist (WP-G). |
 | Minor: unbounded season multiplier | `maxSeasonItems` (40) caps one season claim (§2.4). |
+
+### 0.5 Integration review round 3: what changed
+
+| Finding | Resolution |
+|---|---|
+| Major: the guard depended only on the current `since` and clock; a crate handed out under an earlier `since` (a `liveops.json` override) or a later device clock could meet a `Dormant` document (D9 hazard) | §2.12: a **latch** in `<data>/collector-guard.json`: once live ops served an event carrying the crate (`CollectorRuntime.NoteCratesServed`, called by `LiveOpsService.FindEvent`) the phase is never `Dormant` again; a broken file counts as set; `GET _mcvs/crm` / `_mcvs/liveops` show `cratesServed`. Tests `TheLatchKeepsTheGuardForever`, `TheGuardStaysOnceCratesWereServed`. |
+| Minor: the day before `since` the TS fetches tomorrow's quests and the announced next week, both with the crate, while the document was `Dormant` | `guardSince = min(since, ShippedSince) − CollectorGuard.Lead` (1 day). The 5 guard cells move one day earlier (allowed by the O7 reading). `EveryServedCrateHasRows` fetches every listed participation id. |
+| Minor: the store filter waited for a profile read after a restart (not byte-identical to `ac64bfd`) | §2.9: the store filter loads the dump on disk at read count 0 too, as before; only the collector's per-player cells wait for a read. Test `StoreFilterBeforeTheFirstReadAfterARestart` (golden text). |
+| Major: a milestone with two crates reveals only the last one (daily bonus with `Crate_Contracts`, weekly final with the event crate) | D12, §3.1: the daily crate moves to the **day's first mission** (new `collector.dailyMission`), the final's two crates to **tier 3** (1, 1, 2 per objective); the daily bonus and the weekly final keep today's rewards exactly. `ParseCollector` and content-gen refuse a crate beside another one. Owner point (§8). |
+| Major: the weekly screen rebuilt the 1,518-entry avatar list up to 78 times (`IsAvailable` over rows 1, 3–6; the preview on every weighted avatar row) | §2.3: the exhausted VersusCoins row is now **row 1** (always available: `IsAvailable` stops there) and the carriers are **random background** rows (D8): at most one avatar-list build per crate object (the preview of row 2). WP-F test 10 logs the cost per weekly screen. |
+| Minor: `Crate.Cosmetic_Crate` reads the same as the 65 event crates' `Crate.Cosmetics_Crate` in 7 languages | §2.2: the crate is named `crm.CrateCustomization` ("CUSTOMIZATION CRATE", distinct in all 15 languages). |
+| Minor: WP-F never ran the paths a player hits | WP-F tests 9 (claim semantics, Cecil), 10 (list builds per screen and their cost), 11 (the real weighted draw over the served tables); the claim and reveal themselves stay device checks 2–4 (§7). |
+
+The design's cells were recomputed by `collector/rev3/cells3.py` (`cells2.py` with the exhausted row first, background
+carriers and the new loc id): 510 / 365 cells as before, hashes pinned by `StaticLayerMatchesTheDesignCells`.
 
 ## 1. Pools
 
@@ -184,7 +201,7 @@ crate's paid tier is "every locked camo/jersey pair of an unlocked agent", which
 |---|---|---|---|
 | `KillSignature/Avatar/Random` | random locked **and** unlockable avatar (`GM/KillSignatureRewardItem.cs:117-143`) | no candidate | `Gear_Random_1_Random` ×1 |
 | `KillSignature/Background/Random` | same for backgrounds | no candidate | `Gear_Random_1_Random` ×1 |
-| carrier (avatar row + bundle `KillSignature_Sound_<n>`) | a random avatar **and** that sound | each part independently | `Gear_Random_1_Random` ×1 per owned part |
+| carrier (random background row + bundle `KillSignature_Sound_<n>`) | a random background **and** that sound | each part independently | `Gear_Random_1_Random` ×1 per owned part |
 | `MercSkin/<m>/<s>` | that skin | owned, or agent locked | `Gear_Random_3_Random` ×1 |
 | `MercAccessory/Random/<id>` | that jersey on a random unlocked agent lacking it | every unlocked agent has it | `Gear_Random_2_Random` ×1 |
 | `UnlockMerc/<id>` | that agent | unlocked | `Gear_Random_3_Random` ×40 |
@@ -218,16 +235,19 @@ index field equals the key; a null target cell is simply set).
 
 | Field changer | Key | Value | Today |
 |---|---|---|---|
-| `Id@LocId` | `Crate_Event_Special` | `"Crate.Cosmetic_Crate"` ("COSMETIC CRATE", `Localization/Crate_*.json`) | `menu.LegendaryPremium` |
+| `Id@LocId` | `Crate_Event_Special` | `"crm.CrateCustomization"` ("CUSTOMIZATION CRATE", `Localization/crm_*.json`, all 15 languages) | `menu.LegendaryPremium` |
 | `Id@CratesCount` | `Crate_Event_Special` | `itemsPerCrate` (1–10) | 1 |
 | `Id@RewardChance#2` | `Crate_Event_Special` | `0` | 100 |
 
-Image (`crate_Legendary_Open.png`), Rarity06, ShopType Loot stay. The crate is not sold anywhere.
+Image (`crate_Legendary_Open.png`), Rarity06, ShopType Loot stay. The crate is not sold anywhere. Round 3: the name was
+`Crate.Cosmetic_Crate` ("COSMETIC CRATE"), which reads the same as the 65 weekly event crates' `Crate.Cosmetics_Crate`
+in 7 languages (id, ja, ko, th, tr, zh, zt); `crm.CrateCustomization` differs from it in every language and is used by
+no shipped crate.
 
 ### 2.3 Content table `Crate_Event_Special` (39 rows, 161 cells)
 
 Rows 1–39 get `Id@Type`, `Id@Subtype`, `Id@Subtype2` (omitted when "–") and `Id@Weight#1` (always sent, 0 allowed);
-the carrier rows 3–6 also get `Id@BundledRewards` and `Id@AlwaysGiveBundledRewards = "true"` (the shipped event crates
+the carrier rows 4–7 also get `Id@BundledRewards` and `Id@AlwaysGiveBundledRewards = "true"` (the shipped event crates
 use the same pair: `Crate_Event_1`…`5`, skin rows with a camo bundle). `Weight.2` and `FixedQuantity` are never sent.
 Rows 40–100 keep a null `Type` and are skipped (`CrateRewards.AddElement`). Never send `""` (CRMTableCell throws
 `FormatException`) or null. Numeric-looking strings (`"133"`) become doubles in the cell; the typed reader converts
@@ -236,35 +256,49 @@ re-read with `float.Parse(cell.ToString(), Invariant)`, so weights are integers 
 
 | Row ids | Category | Type | Subtype | Subtype2 | Bundle |
 |---|---|---|---|---|---|
-| 1 | avatars | `KillSignature` | `Avatar` | `Random` | – |
-| 2 | backgrounds | `KillSignature` | `Background` | `Random` | – |
-| 3–6 | sounds (carriers) | `KillSignature` | `Avatar` | `Random` | `KillSignature_Sound_2` … `_5` |
-| 7–22 | skins | `MercSkin` | merc | skin, in the order of §1.4 (7 = `2`/`5` … 22 = `20`/`4`) | – |
-| 23–34 | hiddenJerseys | `MercAccessory` | `Random` | `112`, `143`, `144`, `152`, `153`, `212`, `213`, `214`, `268`, `269`, `270`, `271` | – |
-| 35, 36 | agents | `UnlockMerc` | `17`, `21` | – | – |
-| 37 | camos | `WeaponCamo` | `Random` | `Random` | – |
-| 38 | jerseys | `MercAccessory` | `Random` | `Random` | – |
-| 39 | exhausted | `VersusCoins` | `Tiers4` (setting `exhaustedReward`) | – | – |
+| 1 | exhausted | `VersusCoins` | `Tiers4` (setting `exhaustedReward`) | – | – |
+| 2 | avatars | `KillSignature` | `Avatar` | `Random` | – |
+| 3 | backgrounds | `KillSignature` | `Background` | `Random` | – |
+| 4–7 | sounds (carriers) | `KillSignature` | `Background` | `Random` | `KillSignature_Sound_2` … `_5` |
+| 8–23 | skins | `MercSkin` | merc | skin, in the order of §1.4 (8 = `2`/`5` … 23 = `20`/`4`) | – |
+| 24–35 | hiddenJerseys | `MercAccessory` | `Random` | `112`, `143`, `144`, `152`, `153`, `212`, `213`, `214`, `268`, `269`, `270`, `271` | – |
+| 36, 37 | agents | `UnlockMerc` | `17`, `21` | – | – |
+| 38 | camos | `WeaponCamo` | `Random` | `Random` | – |
+| 39 | jerseys | `MercAccessory` | `Random` | `Random` | – |
 
-Bench readback (real `CrateRewards` fill): 39 typed rows; row 3 `RewardId=KillSignature_Avatar_Random
-Bundled=KillSignature_Sound_2 Always=True`; rows 40–100 absent.
+Bench readback (real `CrateRewards` fill, WP-F test 3): 39 typed rows; row 4 `RewardId=KillSignature_Background_Random
+Bundled=KillSignature_Sound_2 Always=True`; rows 40–100 absent. (Round 2 had the exhausted row last and avatar
+carriers; `collector_tuning.json` `rows` and `soundCarrier` hold the order and the carrier kind.)
+
+**Why the exhausted row first (round 3).** Every crate reward object on a TLE screen (the weekly event builds 12, one
+per milestone, claimed or not: `GetMilestonesObject`) runs `CrateRewardItem.IsAvailable` =
+`GetCrateRewards(...).Any(row => CreateRewardItem(row).IsAvailable(profile))`, the rows in table order, weight not
+considered. A random avatar row's `IsAvailable` rebuilds the 1,518-entry avatar list (`GetSignatureAssetsList`:
+`ownedIds.Contains` per entry on a `List<string>`; 0.5–6.9 ms on net8 for 50–1,400 owned, review measurement). Row 1 =
+`VersusCoins` is always available, so the check stops there without any list, whatever the player owns; its weight stays
+0 until everything is owned (§4.1), so it is neither drawn nor previewed before.
 
 **Why carriers (D8).** `GetPreview` builds each entry's dedup key as `Type##` + `(dictionary2["img"] as string) ??
 (dictionary2["skinImg"] as string)` — the second part is a plain `Dictionary` indexer. `KillSignatureRewardItem.GetImage`
 returns null for "Sound" (and for a non-random background) and its `GetRewardInfo` never sets `skinImg`, so any sound
-row with `Weight.1 > 0` throws `KeyNotFoundException` in every preview. A carrier is a random-avatar row: its key
-`KillSignature##…/Random_Player_icon.png` equals row 1's, so it merges into row 1's preview entry and nothing new is
-shown; `GetPreview` ignores bundles. `GenerateRewards` adds the bundle after the drawn avatar
-(`(Claimed || !IsAvailable) && !AlwaysGive` is false). A carrier draw therefore yields **two** items (avatar + sound);
-with avatars exhausted its avatar part pays one `Gear_Random_1` (at most four times per profile). Weight-0 rows are
-skipped before the key is built (`IsSpawnable`), so the hazard only concerns weighted rows.
+row with `Weight.1 > 0` throws `KeyNotFoundException` in every preview. A carrier is a random-background row: its key
+`KillSignature##…/Random_Player_bg.png` equals row 3's, so it merges into row 3's preview entry and nothing new is
+shown; `GetPreview` ignores bundles. `GenerateRewards` adds the bundle after the drawn background
+(`(Claimed || !IsAvailable) && !AlwaysGive` is false). A carrier draw therefore yields **two** items (background +
+sound); with backgrounds exhausted its background part pays one `Gear_Random_1` (at most four times per profile).
+Weight-0 rows are skipped before the key is built (`IsSpawnable`), so the hazard only concerns weighted rows. Round 3:
+the carriers were random-avatar rows; `GetPreview` calls `GetObject`, so `IsAvailable`, on every spawnable row before
+it deduplicates, so each avatar carrier rebuilt the avatar list once more per crate object (up to 6 builds with row 1's
+`IsAvailable`); a background carrier builds the 35-entry background list instead. A crate object now builds the avatar
+list at most once (row 2's preview), never for a complete profile (row 2 then has weight 0); WP-F test 10.
 
 #### 2.3.1 Preview-safety rule (enforced in three places)
 
 A row may carry `Weight#1 > 0` only if its reward is one of: `KillSignature/Avatar|Background/Random`, `MercSkin/<m>/<s>`
 (sets `skinImg`), `MercAccessory/Random/<id|Random>`, `UnlockMerc/<id>` (`img ""`), `WeaponCamo/Random/Random`,
-`VersusCoins/Tiers<n>`. Sounds only as `BundledRewards`. Enforced by content-gen (`ContentError`), by
-`CollectorContent.Parse` (file refused → collector inactive, guard), and by WP-F against the real client.
+`VersusCoins/Tiers<n>`. Sounds only as `BundledRewards`, on `KillSignature/Avatar|Background/Random` rows of the sounds
+category (each its own sound). Enforced by content-gen (`ContentError`), by `CollectorContent.Parse` (file refused →
+collector inactive, guard), and by WP-F against the real client.
 
 `Weight#1` values: §4.1 (static document: §4.2; per player: §2.9).
 
@@ -280,7 +314,7 @@ Starter 1, Bronze 1, Silver 2, Gold 2, Platinum 3, Diamond 3, Master 4):
 | `Id@ContentTableName` | `"Crate_Event_Special"` |
 | `Id@CratesCount` | `max(1, min(band × itemsPerCrate, ⌊maxSeasonItems / q⌋))`, q = `⌈liveops.seasonRewardMultiplier⌉` (1 when ≤ 1) |
 | `Id@RewardChance#2` | `0` |
-| `Id@LocId` | `"Crate.Cosmetic_Crate"` |
+| `Id@LocId` | `"crm.CrateCustomization"` |
 | `Id@Image`, `Id@ImageShop` | `"Menus/assets/png/Crates/Crates/crate_Legendary_Open.png"` |
 
 `maxSeasonItems` (default 40 = band 4 × N 10) caps the items of one season claim: the season multiplier's MUL cell on
@@ -290,7 +324,7 @@ tier's two crates alone (today's gear piece). Ranks 4–30 lose today's single r
 "1–4 Cosmetic crates" replace it). Only `PVPDivisionRewardsType` references these crates (`polish/scripts/crates.py`).
 
 Bench: `Crate_Gold_4To10Place` after the cells: `RewardsCount=1 CratesCount=6 chances=100/0
-LocId=Crate.Cosmetic_Crate Content=Crate_Event_Special`.
+LocId=crm.CrateCustomization Content=Crate_Event_Special` (round 2 measured it with the former loc id).
 
 Rejected alternative: SET `PVPDivisionRewardsType` for ranks 4–30 to `"Crate_Event_Special"` — 918 cells, and the
 season multiplier would have to be folded into SET cells (a SET cell is never multiplied).
@@ -366,8 +400,8 @@ uses (`economy.json` targets, live-ops modifiers, `seasonRewards`), asserted by 
 
 **The guard** (`CollectorGuard.Cells`, compiled constants, no content file needed), 5 cells:
 `Crate_Event_Special` `Id@Type` `1` = `"VersusCoins"`, `Id@Subtype` `1` = `"Tiers4"`, `Id@Weight#1` `1` = `1`;
-`LootCrates` `Id@LocId` `Crate_Event_Special` = `"Crate.Cosmetic_Crate"`, `Id@RewardChance#2` `Crate_Event_Special` =
-`0`. A stale Cosmetic crate then shows "COSMETIC CRATE, CONTAINS 1 ITEM", previews one VersusCoins entry and pays 70
+`LootCrates` `Id@LocId` `Crate_Event_Special` = `"crm.CrateCustomization"`, `Id@RewardChance#2` `Crate_Event_Special` =
+`0`. A stale Cosmetic crate then shows "CUSTOMIZATION CRATE, CONTAINS 1 ITEM", previews one VersusCoins entry and pays 70
 VersusCoins per crate (bench readback: `RewardId=VersusCoins_Tiers4 W1=1 W2=0`, 1 typed row). Not the `CratesCount=0`
 variant: it ends in an empty `NotifyCrateReceived`. The guard goes into both trees.
 
@@ -386,8 +420,10 @@ are checked the same way before serialisation (failure → the static document i
 
 Today `CrmService` serves `CrmOwnedStoreItems.JsonFor(doc, account)` for `configs/users/me` with a player's token when
 `crm.omitOwnedSignatures` is on. New rule: the per-player path runs when `omitOwnedSignatures` **or** the collector is
-`Active` (§2.12), and only for an account whose game profile has been read (`storage.gameprofile.read`); selectors and
-`configs/users/{user}` stay static. Server Worlds fetch their configuration through a `mcvsGameServer` session logged
+`Active` (§2.12); the collector's cells only for an account whose game profile has been read since the server started
+(`storage.gameprofile.read`), the store filter also before (round 3: as today, the dump on disk is taken once per read
+count, 0 included, so the first fetch after a restart is filtered exactly as before the collector existed); selectors
+and `configs/users/{user}` stay static. Server Worlds fetch their configuration through a `mcvsGameServer` session logged
 in with the `game:` super credential (`GM/GameProfileSection.cs:65`, `EN/CRMServerSettingsComponent`,
 `AuthEndpoints.CheckGameCredential`), an account without a game profile, so they always get the static document (WP-D
 test `ServerSessionGetsStaticDocument`). The TS's per-user `CRMComponent` fetches with the player's on-behalf token and
@@ -419,7 +455,8 @@ gets the per-player document.
    mirror tables of step 3, filters `offline_store.prices` as `JsonWithout` does, and serializes once. The cached tree is
    never mutated. A patched key is only replaced if the static document still holds the collector's own static value
    there (a `crm.overlay` cell on the same key wins).
-5. **Caching key**: per account, `(CrmDocument reference, profile-read counter)`. Same inventory → same text, so
+5. **Caching key**: per account, `(CrmDocument reference, profile-read counter)`; before the first read (counter 0) the
+   per-player text is the store filter alone, with the static layer and the static mirror. Same inventory → same text, so
    `DoSaveProfile`'s refresh is recognised as equal (`StandardCrm.Data.Equals`) and not re-applied.
 6. Logging: one line per rebuild: `CRM: collector for <account>: base N left (avatars a, backgrounds b, …), paid M left,
    K Unlockable cells, parts known avatars|backgrounds|sounds|mercs (<problems>)`.
@@ -485,13 +522,33 @@ public enum CollectorPhase { Dormant, Guard, Active }
 public sealed class CollectorStatus { public CollectorPhase Phase; public string Reason; public DateTime? Since; }
 public CollectorStatus Status(DateTime utcNow, bool liveOpsOn, DateTime? since);   // CRM builder
 public bool CratesInWindow(DateTime windowStart, DateTime? since);                    // LiveOpsEvents
+public void NoteCratesServed(string eventId, DateTime windowStart, DateTime utcNow);  // LiveOpsService.FindEvent (round 3)
+public DateTime? CratesServedAt { get; }                                              // the latch (round 3)
 ```
 
 * `Active` ⇔ `enabled` ∧ live ops on ∧ content valid ∧ `StorePatch != false` ∧ `since` known ∧ `utcNow ≥ since`.
-* `Guard` ⇔ not `Active` ∧ `utcNow ≥ guardSince`, `guardSince = min(since, CollectorGuard.ShippedSince)` (`since`
-  unknown → `ShippedSince`, the shipped `since` compiled in and asserted equal to `server/Content/liveops.json` by
-  `GeneratedContentTests`).
+* `Guard` ⇔ not `Active` ∧ (`utcNow ≥ guardSince` ∨ the latch is set), `guardSince = min(since,
+  CollectorGuard.ShippedSince) − CollectorGuard.Lead` (`since` unknown → `ShippedSince − Lead`; `ShippedSince` is the
+  shipped `since` compiled in and asserted equal to `server/Content/liveops.json` by `GeneratedContentTests`; `Lead` = 1
+  day, round 3).
 * `Dormant` otherwise: no cells at all; documents and events are **byte-identical** to `e4bff79` (golden, WP-0).
+
+**The lead (round 3).** Live ops list the next quest day for the whole current day and announce the next weekly event
+during the last day of a season (`LiveOpsService.Snapshot`), and the TS fetches every listed event; the first window
+from `since` on is therefore in the TS's hands up to a day before `since`, with the crate in it (shown from the
+LootCrates row with an empty preview, `IsAvailable` false). From `since − 1 day` the document carries the guard, so such
+a crate is never shown or claimable without a typed row. With the shipped `since` the golden comparisons therefore strip
+the 5 guard cells from 2026-11-08 on.
+
+**The latch (round 3).** The phase is decided from the current `since` and clock, but crates already handed out stay in
+the TS's profile (a kept-alive weekly event, a completed daily that blocks the next one): after a `liveops.json` override
+with an earlier `since` is removed, or the device clock goes back (the embedded server uses the phone's clock), the
+same rules would give `Dormant` and such a crate an empty content table. So once `LiveOpsService.FindEvent` served an
+event whose template carries `Crate_Event_Special`, `CollectorRuntime.NoteCratesServed` writes
+`<data>/collector-guard.json` (`cratesServed`, `firstWindow`, `event`; written once, and again for an earlier window) and
+`Status` never returns `Dormant` again (reason "… (guard kept: Cosmetic crates were served at …)"); `Active` is
+unaffected. An unreadable or broken file counts as set. Deleting the file with the server stopped makes the server
+dormant again (a tester's reset). `GET _mcvs/crm` (`collector.cratesServed`) and `GET _mcvs/liveops` show it.
 * `CratesInWindow` ⇔ `enabled` ∧ content valid ∧ `StorePatch != false` ∧ `since` known ∧ `windowStart ≥ since`.
   A crate can only be claimed after progress, i.e. once its window has started (`now ≥ windowStart ≥ since`; the next
   weekly event is announced, "coming soon", during the last day before it, but cannot progress yet), and the TS
@@ -505,8 +562,8 @@ different moments; an ended weekly event with unclaimed rewards stays in the pro
 Cosmetic-crate milestone can be claimed weeks after a switch-off; the minimal-document fallback; a collector build or
 validation failure. In all of them the crate pays 70 VersusCoins instead of throwing in `OnClaimed` on the TS.
 
-The CRM cache key gains the phase (computed per request from the clock), so a `Dormant` → `Guard` change without live
-ops (no CRM expiry) is picked up at the next fetch.
+The CRM cache key gains the phase (computed per request from the clock and the latch), so a `Dormant` → `Guard` change
+without live ops (no CRM expiry) is picked up at the next fetch.
 
 ### 2.13 Client requirement: the `store` patch (D11)
 
@@ -524,16 +581,30 @@ fixed in build 4 for the same reveal path) makes both return null. The patch can
 
 ## 3. Live-ops content
 
-### 3.1 Rewards (appended to today's lists)
+### 3.1 Rewards (appended to today's lists, one crate per milestone)
 
 | Event | Today | Added (windows from `collector.since`, `CratesInWindow`) | Crates when fully done |
 |---|---|---|---:|
-| Daily missions, "complete all" bonus | `Crate_Contracts` ×1 | `Crate_Event_Special` ×1 | 1/day |
+| Daily missions, the day's **first mission** (round 3) | 150–200 VC, 10 Credits | `Crate_Event_Special` ×1 | 1/day |
+| Daily missions, "complete all" bonus | `Crate_Contracts` ×1 | – (round 2: ×1) | – |
 | Weekly event, milestone tier 1 (×4 objectives) | 300 VC, 20 Credits | `Crate_Event_Special` ×1 | 4 |
 | tier 2 | 600 VC, 50 tokens | `Crate_Event_Special` ×1 | 4 |
-| tier 3 | 1,000 VC, 100 tokens | `Crate_Event_Special` ×1 | 4 |
-| final | 20 HC, `Crate_Event_<n>` | `Crate_Event_Special` ×2 | 2 |
+| tier 3 | 1,000 VC, 100 tokens | `Crate_Event_Special` ×**2** (round 3: the final's two) | 8 |
+| final | 20 HC, `Crate_Event_<n>` | – (round 2: ×2) | – |
 | Season end, ranks 4–30 | one gear piece | Cosmetic crate with `band × itemsPerCrate` items (§2.4) | 1–4 crates' worth |
+
+**One crate per milestone (D12, round 3).** `ClaimAchievementMilestoneRequest` (`GM/TimeLimitedAchievementsComponent.cs`,
+pinned by WP-F test 9) claims a milestone's rewards in template order: a crate sets the claim's list to its
+`RewardsGenerated` (`result.Rewards = crateRewardItem.RewardsGenerated`, a replace), any other reward is added to the
+current list; `ClaimAchievementMilestone` then opens the crate lottery with that list whenever a crate was claimed. So a
+milestone holding two crates reveals only the last one (the other's items are granted unseen), which ruled out round 2's
+daily bonus (`Crate_Contracts` + Cosmetic) and weekly final (event crate + Cosmetic ×2). The collector block now puts
+its crate only where today's milestone holds none; `LiveOpsCatalog.ParseCollector` and content-gen refuse anything else
+(and the crate twice in one list). The Contracts and event crates keep their own reveal, exactly as today; the weekly
+total for full completion goes from 14 to 16 crates (§4.3). A milestone with a crate still **credits its currencies
+without showing them** (they are claimed before the crate replaces the list; the milestone card lists them beforehand):
+the daily mission's VC/Credits, the tiers' VC/Credits/tokens (round 2's tiers too), as today's weekly final already
+does with its 20 HardCurrency. Device checks 2 and 3.
 
 Side effect: the weekly "crates opened" objective (`CratesOpened`, goals 2/5/10; drawn in about half the weeks, 3 of
 the 6 non-theme objectives) counts **sub-crates**: `OpenCrateOnServer` reports `max(CrateGenerationRound) + 1` and
@@ -549,33 +620,38 @@ casual player; regular and dedicated players complete every objective anyway).
 ```json
 "collector": {
   "since": "2026-11-09T00:00:00Z",
-  "dailyBonus": [{"item": "Crate_Event_Special", "quantity": 1}],
+  "dailyBonus": [],
+  "dailyMission": [{"item": "Crate_Event_Special", "quantity": 1}],
   "weeklyMilestones": [[{"item": "Crate_Event_Special", "quantity": 1}],
                        [{"item": "Crate_Event_Special", "quantity": 1}],
-                       [{"item": "Crate_Event_Special", "quantity": 1}]],
-  "weeklyFinal": [{"item": "Crate_Event_Special", "quantity": 2}]
+                       [{"item": "Crate_Event_Special", "quantity": 2}]],
+  "weeklyFinal": []
 }
 ```
 
 `liveops.json` carries it unchanged (`since` normalised to `"yyyy-MM-ddTHH:mm:ssZ"`). Validation: `since` is a Monday
 00:00 UTC on the default season grid (whole weeks since 2024-01-01); `weeklyMilestones` has one list per tier; every
-item is a currency or a catalogue crate; the `revision` is **not** changed. content-gen **warns** (does not fail) when
+item is a currency or a catalogue crate; one crate per milestone (round 3: the crate at most once per list, and never on
+a list whose milestone already holds a crate: the daily bonus, any daily mission, a weekly tier, the weekly final with
+its event crate); the `revision` is **not** changed. content-gen **warns** (does not fail) when
 `since` is earlier than generation time + 7 days ("set collector.since to the first Monday at least 7 days after the
 build is published"); the release checklist repeats it (WP-G).
 
 Server (`server/Services/Social/LiveOps/`):
 
-* `LiveOpsCatalog.Collector` (`LiveOpsCollectorRewards { DateTime Since; List<LiveOpsReward> DailyBonus;
+* `LiveOpsCatalog.Collector` (`LiveOpsCollectorRewards { DateTime Since; List<LiveOpsReward> DailyBonus, DailyMission;
   List<List<LiveOpsReward>> WeeklyMilestones; List<LiveOpsReward> WeeklyFinal }`, null when absent or broken; broken =
-  logged, live ops otherwise unaffected). `LiveOpsSnapshot.CollectorSince` passes `Since` to the CRM builder.
+  logged, live ops otherwise unaffected; `LiveOpsCatalog.CollectorKeys` the five required keys).
+  `LiveOpsSnapshot.CollectorSince` passes `Since` to the CRM builder.
 * `LiveOpsSettings` no longer parses `economy.collector.*`: its `Fingerprint` includes
   `CollectorRuntime.InputsKey` (enabled, content validity, store patch), and `LiveOpsService.Settings` re-parses when
   the `liveops` subtree or that key changes.
 * `LiveOpsEvents.DailyQuest(catalog, day, runtime)` / `WeeklyEvent(catalog, season, modifier, runtime)`: when
-  `catalog.Collector != null && runtime.CratesInWindow(window.Start, catalog.Collector.Since)`, append `DailyBonus` to
-  the bonus list, `WeeklyMilestones[i]` to tier *i*, `WeeklyFinal` after the event crate. Otherwise the template, and so
-  `_version`, is byte-identical to today's.
-* `GET /_mcvs/liveops` shows `collector: {phase, reason, since, activeFor: [daily id, weekly id]}`.
+  `catalog.Collector != null && runtime.CratesInWindow(window.Start, catalog.Collector.Since)`, append `DailyMission` to
+  the first picked mission's rewards, `DailyBonus` to the bonus list, `WeeklyMilestones[i]` to tier *i*, `WeeklyFinal`
+  after the event crate. Otherwise the template, and so `_version`, is byte-identical to today's.
+* `LiveOpsService.FindEvent` sets the collector's latch when the event it serves carries the crate (§2.12).
+* `GET /_mcvs/liveops` shows `collector: {phase, reason, since, activeFor: [daily id, weekly id], block, cratesServed}`.
 
 ### 3.3 Release on a Monday boundary: `since`, not `revision`
 
@@ -599,18 +675,18 @@ Generated by `tools/content-gen` from `collector_tuning.json` + the catalogue (`
 ```json
 {
   "format": "<FORMAT>",
-  "crate": {"id": "Crate_Event_Special", "table": "Crate_Event_Special", "locId": "Crate.Cosmetic_Crate",
+  "crate": {"id": "Crate_Event_Special", "table": "Crate_Event_Special", "locId": "crm.CrateCustomization",
             "image": "Menus/assets/png/Crates/Crates/crate_Legendary_Open.png"},
   "rows": [
-    {"id": 1, "category": "avatars", "type": "KillSignature", "subtype": "Avatar", "subtype2": "Random"},
-    {"id": 3, "category": "sounds", "type": "KillSignature", "subtype": "Avatar", "subtype2": "Random",
+    {"id": 1, "category": "exhausted", "type": "VersusCoins", "subtype": "Tiers4"},
+    {"id": 2, "category": "avatars", "type": "KillSignature", "subtype": "Avatar", "subtype2": "Random"},
+    {"id": 4, "category": "sounds", "type": "KillSignature", "subtype": "Background", "subtype2": "Random",
      "bundle": "KillSignature_Sound_2", "item": 2},
-    {"id": 7, "category": "skins", "type": "MercSkin", "subtype": "2", "subtype2": "5", "merc": 2, "item": 5},
-    {"id": 23, "category": "hiddenJerseys", "type": "MercAccessory", "subtype": "Random", "subtype2": "112", "item": 112},
-    {"id": 35, "category": "agents", "type": "UnlockMerc", "subtype": "17", "merc": 17},
-    {"id": 37, "category": "camos", "type": "WeaponCamo", "subtype": "Random", "subtype2": "Random"},
-    {"id": 38, "category": "jerseys", "type": "MercAccessory", "subtype": "Random", "subtype2": "Random"},
-    {"id": 39, "category": "exhausted", "type": "VersusCoins", "subtype": "Tiers4"}
+    {"id": 8, "category": "skins", "type": "MercSkin", "subtype": "2", "subtype2": "5", "merc": 2, "item": 5},
+    {"id": 24, "category": "hiddenJerseys", "type": "MercAccessory", "subtype": "Random", "subtype2": "112", "item": 112},
+    {"id": 36, "category": "agents", "type": "UnlockMerc", "subtype": "17", "merc": 17},
+    {"id": 38, "category": "camos", "type": "WeaponCamo", "subtype": "Random", "subtype2": "Random"},
+    {"id": 39, "category": "jerseys", "type": "MercAccessory", "subtype": "Random", "subtype2": "Random"}
   ],
   "avatars": {"base": "61-76,78,…", "drawable": "1-6,9-224,590-597", "unlock": "225-253,257,…,532",
               "lock": "598-672", "kayac": "382-384,443-531,533-589,598-1514", "reserved": "254-256,…,298-300"},
@@ -633,11 +709,13 @@ Generated by `tools/content-gen` from `collector_tuning.json` + the catalogue (`
 (Ellipses stand for the full lists of §1, written with `compress_ranges`.) The full row list is the 39 rows of §2.3.
 
 `collector_tuning.json` holds the rule inputs: `kayac` (`folders`, `nameContains: "kayac"`, `extra: [382, 383]`),
-`reservePlacementEmblems`, `sounds`, `skins`, `hiddenJerseys`, `agents`, the row order.
+`reservePlacementEmblems`, `sounds`, `soundCarrier` (`Background`; `Avatar` allowed), `skins`, `hiddenJerseys`, `agents`,
+the row order (`rows`, exhausted first).
 
 `content_gen.py` validations (`ContentError` otherwise): crate, tables and the 35 tier crates exist; `rows` ≤ 100;
 row types are cases of `GenerateRewardItem`; **§2.3.1 preview safety** (no `Sound` row; bundles only
-`KillSignature_Sound_<n>` on `KillSignature/Avatar/Random` rows); skins exist with `Locked=false`; hidden jerseys are
+`KillSignature_Sound_<n>` on `KillSignature/Avatar|Background/Random` rows of the sounds category, each its own sound);
+skins exist with `Locked=false`; hidden jerseys are
 `VisibleInShop=false` and not `IsKayac`; agents are displayed; every avatar/background id exists and is released;
 `kayac ∩ base = ∅`, `reserved ∩ base = ∅`, `1513-1518 ∩ (base ∪ unlock ∪ lock) = ∅`; `unlock` ⊆ base with
 `Unlockable=false`; `lock` = Kayac ∩ `Unlockable=true` ∩ released; per-agent `camos`/`jerseys` equal the `unlocks.json`
@@ -667,11 +745,11 @@ Each unit is multiplied by its category weight (`weights.avatars` … `weights.j
 base = uA + uB + ΣuS + ΣuK + ΣuH + ΣuM        paid = uC + uJ
 share_base = baseShare (0.75) if base > 0 and paid > 0; 1 if paid = 0; 0 if base = 0
 Weight#1(row) = round(1,000,000 × share_tier × u(row) / tier_total), at least 1 when u(row) > 0, else 0
-Weight#1(39 exhausted) = 1 if base = paid = 0, else 0
+Weight#1(1 exhausted) = 1 if base = paid = 0, else 0
 ```
 
 Inside a tier every remaining item is equally likely, so a tier's categories finish together. Carrier draws also
-deliver an avatar (counted in the simulation). The only waste is a row drawn after it ran out within one session
+deliver a background (round 3; round 2: an avatar; counted in the simulation). The only waste is a row drawn after it ran out within one session
 (weights refresh at each return to the menu): simulated 0.04–0.45 % of draws.
 
 ### 4.2 Static weights (assumption: all 21 agents unlocked, nothing owned but the starting items)
@@ -681,48 +759,52 @@ base = 368 + 23 + 4 + 16 + 12 × 21 + 2 × 0 = **663** units (agents 0: the assu
 
 | Row | Weight#1 | Row | Weight#1 |
 |---|---:|---|---:|
-| 1 avatars | 416,290 | 23–34 each hidden jersey | 23,756 |
-| 2 backgrounds | 26,018 | 35, 36 each agent | 0 |
-| 3–6 each sound carrier | 1,131 | 37 camos | 117,699 |
-| 7–22 each skin | 1,131 | 38 jerseys | 132,301 |
-| 39 exhausted | 0 | | |
+| 1 exhausted | 0 | 24–35 each hidden jersey | 23,756 |
+| 2 avatars | 416,290 | 36, 37 each agent | 0 |
+| 3 backgrounds | 26,018 | 38 camos | 117,699 |
+| 4–7 each sound carrier | 1,131 | 39 jerseys | 132,301 |
+| 8–23 each skin | 1,131 | | |
 
 (Sum exactly 1,000,000; bench readback matches.) Example per-player document, fresh profile with the 19 obtainable
 agents and Witch/Bli-P locked: base = 368 + 23 + 4 + 13 (Witch's 3 skins out) + 12 × 19 + 2 × 2 = 640.
 
 ### 4.3 Pace
 
-Crates per week (daily missions need ~5–6 matches; milestones per §3.1; divisions per LIVEOPS.md §5):
+Crates per week (daily missions need ~5–6 matches; milestones per §3.1 with round 3's placement; divisions per
+LIVEOPS.md §5):
 
-| Player | Play | Dailies | Weekly milestones + final | Season (ranks 4–30) | Crates/week |
+| Player | Play | Dailies (first mission) | Weekly milestones (tier 3 ×2) | Season (ranks 4–30) | Crates/week |
 |---|---|---:|---:|---:|---:|
-| Casual | ~25 matches/week on 3 days | 3 | 6 + 0.75 (`CratesOpened` weeks) + 0 | 0 (rank 31+) | **9.75** |
-| Regular | ~10 matches/day, 6 days | 6 | 12 + 2 | 3 (settles in Diamond, band 3) | **23** |
-| Dedicated | every day, Master | 7 | 12 + 2 | 4 (Master ranks 4–10) | **25** |
+| Casual | ~25 matches/week on 3 days | 3 | 6 + 1.0 (`CratesOpened` weeks) | 0 (rank 31+) | **10** |
+| Regular | ~10 matches/day, 6 days | 6 | 16 | 3 (settles in Diamond, band 3) | **25** |
+| Dedicated | every day, Master | 7 | 16 | 4 (Master ranks 4–10) | **27** |
 
-Simulation (`rev/pace2.py`, mean of 5 seeds): reference profile = the 19 obtainable agents unlocked, Witch and Bli-P
-locked (their skins, hidden jerseys, camos and jerseys join when won), no cosmetics but the starting ones; claims in
-bursts (dailies on play days, milestones spread over the week, final on the last play day, season crate on Monday);
-weights refreshed once per play day (the conservative case); carriers deliver avatar + sound.
+(Round 2: 9.75 / 23 / 25 with the final's two crates; moving them to each tier 3 adds 2 per fully completed week.)
+
+Simulation (`rev3/pace3.py`, `rev/pace2.py` with the round-3 placement and background carriers; mean of 5 seeds):
+reference profile = the 19 obtainable agents unlocked, Witch and Bli-P locked (their skins, hidden jerseys, camos and
+jerseys join when won), no cosmetics but the starting ones; claims in bursts (dailies on play days, milestones spread
+over the week, season crate on Monday); weights refreshed once per play day (the conservative case); carriers deliver
+background + sound.
 
 | itemsPerCrate N | Casual base / everything | Regular base / everything | Dedicated base / everything |
 |---:|---|---|---|
-| 1 | 91 w / 1,029 w (19.7 y) | 39 w / 437 w (8.4 y) | 36 w / 402 w (7.7 y) |
-| 2 | 46 w / 515 w (9.9 y) | 20 w / 219 w (4.2 y) | 18 w / 201 w (3.9 y) |
-| 3 | 31 w (7.1 mo) / 344 w (6.6 y) | 13 w (3.0 mo) / 146 w (2.8 y) | 12 w (2.8 mo) / 134 w (2.6 y) |
-| 4 | 23 w (5.2 mo) / 258 w (4.9 y) | 10 w (2.3 mo) / 110 w (2.1 y) | 9 w (2.1 mo) / 101 w (1.9 y) |
-| **5 (default)** | **19 w (4.3 mo) / 206 w (4.0 y)** | **8 w (1.8 mo) / 88 w (1.7 y)** | **7.5 w (1.7 mo) / 81 w (1.6 y)** |
-| 10 | 10 w (2.3 mo) / 104 w (2.0 y) | 4 w (0.9 mo) / 44 w (10.1 mo) | 4 w (0.9 mo) / 41 w (9.4 mo) |
+| 1 | 88 w / 1,003 w (19.2 y) | 36 w / 402 w (7.7 y) | 33 w / 372 w (7.1 y) |
+| 2 | 44 w / 502 w (9.6 y) | 18 w / 201 w (3.9 y) | 17 w / 186 w (3.6 y) |
+| 3 | 30 w (6.9 mo) / 335 w (6.4 y) | 12 w (2.8 mo) / 134 w (2.6 y) | 11 w (2.6 mo) / 124 w (2.4 y) |
+| 4 | 23 w (5.2 mo) / 251 w (4.8 y) | 9 w (2.1 mo) / 101 w (1.9 y) | 9 w (2.0 mo) / 93 w (1.8 y) |
+| **5 (default)** | **18 w (4.1 mo) / 201 w (3.9 y)** | **7.8 w (1.8 mo) / 81 w (1.6 y)** | **7 w (1.6 mo) / 75 w (1.4 y)** |
+| 10 | 9 w (2.1 mo) / 101 w (1.9 y) | 4 w (0.9 mo) / 41 w (9.4 mo) | 4 w (0.9 mo) / 38 w (8.7 mo) |
 
-* **Base set at 5 (default)**: ~2 months regular/dedicated, ~4.3 months casual; everything ~1.7 years regular
-  (10 seeds at N = 5 confirm 8.0 / 88.0 weeks regular, 7.5 / 81.0 dedicated, 18.7 / 206.4 casual).
-* **Everything in ~6 months (26 weeks) from crates alone** needs N ≈ **16.8 (regular), 15.4 (dedicated), 39.6
-  (casual)**, all outside 1–10; at the cap of 10: 10.1 months regular, 9.4 months dedicated, 2.0 years casual. The VC
+* **Base set at 5 (default)**: under 2 months regular/dedicated, ~4 months casual; everything ~1.6 years regular (round
+  2: 8.0 / 88 weeks regular, 7.5 / 81 dedicated, 18.7 / 206 casual).
+* **Everything in ~6 months (26 weeks) from crates alone** needs N ≈ **15.4 (regular), 14.3 (dedicated), 38.6
+  (casual)**, all outside 1–10; at the cap of 10: 9.4 months regular, 8.7 months dedicated, 1.9 years casual. The VC
   shop's camo/jersey 10-packs remain the main path to the paid tier (a regular player earning 17–21k VC a week clears
   it in ~22 weeks spending everything there). If the owner wants crates alone to reach 6 months, raise the range to 20
   (`maxSeasonItems` then 80) or add crates to the weekly event; reveals of > 10 items are plain lists (§4.4).
-* `baseShare` 0.5 / 0.9 moves the regular base set to 12 / 7 weeks at N = 5; "everything" is unchanged (88 weeks).
-* Agents (2 units each): Witch and Bli-P arrive in weeks ~1–7 for a regular player at N = 5 (median ~3; 4 units: ~1–5).
+* `baseShare` 0.5 / 0.9 moves the regular base set to 18 / 10 weeks at N = 3 (12 at 0.75); "everything" is unchanged.
+* Agents (2 units each): Witch and Bli-P arrive in weeks ~3–5 for a regular player at N = 5 (4 units: earlier).
   After an agent is won its row keeps weight until the next profile read: with 2 units a second hit on that agent in
   the rest of a 60-draw batch (the 36-draw batch of N = 3 scaled) has ~12 % probability (4 units: ~24 %) and pays 40
   random gear pieces (documented windfall).
@@ -740,23 +822,23 @@ weights refreshed once per play day (the conservative case); carriers deliver av
 | `seasonEmblems` | `true` | bool | §2.5 | same |
 | `unlockableWindow` | 160 | 0–400 | §2.6 | next per-player document |
 | `levelUpAvatars` | 0 | 0–3 | §2.7 | next CRM fetch |
-| `exhaustedReward` | `"VersusCoins_Tiers4"` | `VersusCoins_Tiers0`…`6`, `UpgradeTokens_Tiers0`…`11` | row 39 | next CRM fetch |
+| `exhaustedReward` | `"VersusCoins_Tiers4"` | `VersusCoins_Tiers0`…`6`, `UpgradeTokens_Tiers0`…`11` | row 1 | next CRM fetch |
 
 Parsed only by `CollectorOptions.FromSettings` (WP-C); out-of-range values are clamped and logged
 (`settings: economy.collector.<key> …`). `Settings.CreateDefaults` writes `economy.collector.enabled: true` so the
 opt-out is discoverable in a new settings.json (WP-D); the other keys stay implicit. The settings snapshot is part of
 the CRM cache key. The lottery animates a claim only when its item count is ≤ `MaxRewardsInAnimation` (MCVS_Meta row 1:
-**10**; `PlayerProfileComponent.NotifyCrateReceived` counts bonus items too): at N = 5 the daily crate (5–6 items with a
-carrier), a band 1–2 season crate (5 / 10) and a weekly final without a carrier (10) animate; a weekly final with a
-carrier (11–12), a season crate of band ≥ 3 (15+) or any claim over 10 shows the plain reward list (shipped behaviour for
-large claims). The table is not changed.
+**10**; `PlayerProfileComponent.NotifyCrateReceived` counts bonus items too): at N = 5 the daily mission's crate (5–6
+items with a carrier), a weekly tier 1/2 crate (5–6), a band 1–2 season crate (5 / 10) and a weekly tier 3 without a
+carrier (×2: 10) animate; a tier 3 with a carrier (11–12), a season crate of band ≥ 3 (15+) or any claim over 10 shows
+the plain reward list (shipped behaviour for large claims). The table is not changed.
 
 ## 5. Edge cases
 
 ### 5.1 Unlock-all and complete profiles
 
-Every unit is 0 → only row 39 has weight: each item pays 70 VC (350 VC for the daily crate at N = 5). The preview lists
-the VersusCoins row; `CrateRewardItem.IsAvailable` (any row available, weight not considered) stays true. Per-player
+Every unit is 0 → only row 1 has weight: each item pays 70 VC (350 VC for the daily crate at N = 5). The preview lists
+the VersusCoins row; `CrateRewardItem.IsAvailable` (any row available, weight not considered) stays true, at row 1. Per-player
 cells: 39 weights + 21 emblem cells + 0 Unlockable cells. Note: `UNLOCKALL` does not include the VIP-only pools
 (`UNLOCKPAID` does), so an unlock-all profile still has the paid tier.
 
@@ -771,7 +853,7 @@ At the next CRM fetch the layer is replaced by the guard (phase `Guard`) and the
 forced refresh). Events for windows from `since` regenerate without crates (`_version` changes): the running day/week
 and any kept-alive ended event are replaced once (progress and unclaimed milestones of those windows are lost, §3.3).
 A Cosmetic crate still claimable in between (a milestone of an event the TS has not replaced yet) pays 70 VersusCoins
-per crate. TLE rewards are claimed directly (nothing sets `SendToInbox`), so no Cosmetic crate sits in the inbox; the
+per crate; the latch (§2.12) keeps the guard for it however long that takes. TLE rewards are claimed directly (nothing sets `SendToInbox`), so no Cosmetic crate sits in the inbox; the
 inbox only holds retargeted **tier** crates, which revert to their own content table (today's gear piece). Season
 rewards evaluated later use the original tier crates (ranks 1–3: no emblem). Re-enabling restores everything at the
 next fetch (events replaced once again).
@@ -802,7 +884,8 @@ Each part falls back separately (§2.9.1), logged once per read; the document st
 Phase `Guard` (from `guardSince`) or `Dormant` (before): live ops never hand out the crate without `CratesInWindow`, and
 the document carries the guard for stale crates. A missing/broken `collector.json` makes `CratesInWindow` false **and**
 the phase `Guard`, logged as an error and shown in `GET _mcvs/crm`; `GeneratedContentTests` keeps the shipped files
-consistent. Before `since` everything is byte-identical to today (golden).
+consistent. Before `guardSince` (a day before `since`, §2.12) everything is byte-identical to today (golden); events
+stay byte-identical for every window that starts before `since`.
 
 ### 5.9 LAN
 
@@ -819,7 +902,7 @@ WP-I integrates.
 | **A. Content** | `tools/content-gen/content_gen.py` (`build_collector`, `_find_nosource`, liveops `collector` block), `tools/content-gen/collector_tuning.json` (new), `tools/content-gen/liveops_tuning.json`, `tools/content-gen/test_content_gen.py`, `tools/content-gen/README.md`, `server/Content/collector.json` (new, generated), `server/Content/liveops.json`, `server/Content/manifest.json`, `server/Content/README.md`, `tests/McvsOffline.Tests/Content/GeneratedContentTests.cs` | – |
 | **B. Inventory** | `server/Services/Crm/PlayerInventory.cs` (new), `tests/McvsOffline.Tests/Content/PlayerInventoryTests.cs` (new; holds the `internal const string WriterMercsFixture`, the expected Templates-writer shape of a `Mercs` list) | – |
 | **C. Collector plan + runtime** | `server/Services/Crm/Collector/CollectorContent.cs`, `CollectorOptions.cs`, `CollectorPlan.cs`, `CollectorWeights.cs`, `CollectorRuntime.cs`, `CollectorGuard.cs` (all new), `tests/McvsOffline.Tests/Content/CollectorPlanTests.cs`, `CollectorRuntimeTests.cs` (new) | A (schema; fixtures until generated), B (type), H (type) |
-| **D. CRM integration** | `server/Services/Crm/CrmDocumentBuilder.cs`, `CrmDocumentCache.cs`, `CrmOwnedStoreItems.cs`, `CrmService.cs`, `CrmOptions.cs`, `CrmContent.cs`, `CrmDocumentValidator.cs`, `server/Core/Settings.cs` (`CreateDefaults` only), `tests/McvsOffline.Tests/SettingsTests.cs`, `tests/McvsOffline.Tests/Content/CrmDocumentBuilderTests.cs`, `CrmOwnedStoreItemsTests.cs`, `CrmServiceTests.cs`, `CollectorDocumentTests.cs` (new) | 0, B, C |
+| **D. CRM integration** | `server/Services/Crm/CrmDocumentBuilder.cs`, `CrmDocumentCache.cs`, `CrmOwnedStoreItems.cs`, `CrmService.cs`, `CrmOptions.cs`, `CrmContent.cs`, `CrmDocumentValidator.cs`, `server/Core/Settings.cs` (`CreateDefaults` only), `tests/McvsOffline.Tests/SettingsTests.cs`, `tests/McvsOffline.Tests/Content/CrmDocumentBuilderTests.cs`, `CrmOwnedStoreItemsTests.cs`, `CrmServiceTests.cs`, `CollectorDocumentTests.cs` (new), `tests/McvsOffline.Tests/Golden/GoldenScenarios.cs` (round 3: `GoldenRun` restarts on a data dir) | 0, B, C |
 | **E. Live ops** | `server/Services/Social/LiveOps/LiveOpsCatalog.cs`, `LiveOpsEvents.cs`, `LiveOpsService.cs` (incl. `LiveOpsSnapshot`), `LiveOpsSettings.cs`, `tests/McvsOffline.Tests/Misc/LiveOpsTests.cs`, `Misc/LiveOpsConformanceTests.cs` | 0, A (schema), C |
 | **F. Real-client conformance and timing** | `tests/McvsOffline.Tests/Conformance/CollectorConformanceTests.cs` (new), `tests/McvsOffline.Tests/Conformance/RealTables.cs` (new helper) | A, C, D, E |
 | **H. Client capability** | `server/Core/ClientCapabilities.cs` (new), `server/Core/McvsServer.cs` (`ServerOptions.ClientCapabilities` → `context.Features`), `hosts/embedded/GamePatchProbe.cs` (new), `hosts/embedded/EmbeddedHost.cs` (one call), `tests/McvsOffline.Embed.Tests/Embedded/GamePatchProbeTests.cs` (new) | – |
@@ -842,9 +925,12 @@ liveops `collector` block (§3.2) with its validations and the `since` warning. 
 counts (304, 139, 75, 165 + 65, 18/6, 4, 16, 12, 2, 4,409, 4,956, 1,066 / 1,064 Kayac, 36 reserved, 596, 665); 382, 383
 and 384 in `kayac`, not in `base`, not in `unlock`; the per-agent pool equalities; every `ContentError` path (unknown
 crate, row > 100, Kayac in base, a `Sound` row, a bundle on a non-carrier row, `since` not a Monday, wrong tier count,
-bad loc id, missing image, placement row 1 not the only `Weight.1` row); the `since` warning; deterministic output.
+bad loc id, missing image, placement row 1 not the only `Weight.1` row; round 3: a bad `soundCarrier`, a crate beside
+another crate or twice in one list, a missing `dailyMission`); the `since` warning; deterministic output; round 3: the
+shipped row order (exhausted first), background carriers and `crm.CrateCustomization` on the decoded pack.
 `GeneratedContentTests` (MiniJson level): `collector.json` has the §3.4 keys and 39 rows, its crate id is the one
-`liveops.json`'s block hands out, `manifest.json` lists it, `CollectorGuard.ShippedSince` equals the shipped `since`.
+`liveops.json`'s block hands out, its loc id is `CollectorGuard.LocId`, `manifest.json` lists it,
+`CollectorGuard.ShippedSince` equals the shipped `since`, the block's keys are `LiveOpsCatalog.CollectorKeys`.
 
 ### WP-B Inventory
 `public sealed class PlayerInventory { bool AvatarsKnown, BackgroundsKnown, SoundsKnown, MercsKnown; HashSet<int>
@@ -866,16 +952,19 @@ the real writer) reads as one unlocked agent with its skins/camos/jerseys and on
 `CollectorPlan.Static(content, options, snapshot)` → `CollectorLayer`; `CollectorPlan.PlayerCells(content, options,
 inventory, snapshot)` → `IList<FieldPatch>`; `CollectorWeights.Compute(...)` (§4.1); `CollectorGuard` (cells,
 `ShippedSince`). Tests: the static weights of §4.2 exactly; `LayersStayWithinBudget` (≤ 600 cells per tree, incl.
-`levelUpAvatars` 3); mirror = game layer minus the `true` cells; never `""`/null/fractions; numeral mapping
+`levelUpAvatars` 3); mirror = game layer minus the `true` cells; never `""`/null/fractions; the design cells
+(`StaticLayerMatchesTheDesignCells`, round 3: `cells3.py`); numeral mapping
 (2026-10-26 → 264/263/262, 2026-11-02 → 268/267/266, `seasonDays` 1 and 14); per-player emblem choice (owned season
 numeral → next unowned of the same star count; all owned → season numeral); band × N cells and the `maxSeasonItems`
-cap (multiplier 1, 2.5, 100); window sizes (160, 50, 0); unlock-all inventory → only row 39 = 1 and 0 Unlockable cells;
+cap (multiplier 1, 2.5, 100); window sizes (160, 50, 0); unlock-all inventory → only row 1 (exhausted) = 1 and 0 Unlockable cells;
 base empty → paid 100 %; paid empty → base 100 %; owned skins/sounds/agents → 0; locked agent → its skins 0 and its
 pairs not counted; each unknown part → static values for that part only; weights deterministic; every row with weight
 passes §2.3.1; the generated `server/Content/collector.json` parses and yields the 39 rows of §2.3. `CollectorRuntime`:
 the phase table of §2.12 for every combination of enabled × live ops × content valid/missing/broken × store patch
 true/false/null × before/after `since` × before/after `guardSince`, and `CratesInWindow` true ⇒ `Status` `Active` at that
-window's start (`EveryCrateWindowHasRows`).
+window's start (`EveryCrateWindowHasRows`); round 3: `guardSince = min(since, ShippedSince) − 1 day`
+(`GuardSinceIsADayBeforeTheEarlierOfSinceAndTheShippedSince`) and the latch (`TheLatchKeepsTheGuardForever`: never
+`Dormant` once crates were served, read back by the next server, a broken file counts as set).
 
 ### WP-D CRM integration
 `SetCell` (§2.8); `Build` takes `CollectorRuntime` and writes the layer (`Active`), the guard (`Guard`) or nothing
@@ -887,10 +976,14 @@ tests move to WP-B, the HTTP-level tests stay here); validator `CheckCollector` 
 `collector {phase, reason, cells, itemsPerCrate, staticWeights}`; `GET _mcvs/collector?account=<id>`;
 `Settings.CreateDefaults` writes `economy.collector.enabled: true`. Tests: **`CollectorOffMatchesGolden`** (with
 `enabled=false`: every WP-0 document before `since` byte-identical; from `since` identical after removing exactly the 5
-guard cells from each tree, and those cells present); **`DormantMatchesGolden`** (live ops off, before `guardSince`);
-`EveryServedCrateHasRows` (for every combination of settings, content validity and store patch, and every day, if
-`liveops` hands out `Crate_Event_Special` in any event then the served document — static, per-player, minimal — has a
-typed `Crate_Event_Special` row in `game._OverrideTables`); `CollectorFailureServesGuard` (a throwing plan, an overlay
+guard cells from each tree, and those cells present; round 3: from `guardSince`, a day before `since`);
+**`DormantMatchesGolden`** (live ops off, before `guardSince`); `EveryServedCrateHasRows` (for every combination of
+settings, content validity and store patch, and every day, if `liveops` hands out `Crate_Event_Special` in any event the
+document lists in `groupware.events.participation` then the served document — static, per-player, minimal — has a
+typed `Crate_Event_Special` row in `game._OverrideTables`); round 3: `TheGuardStaysOnceCratesWereServed` (a `since`
+override, a crate served, the override removed and the clock set back: static, selector and per-player documents carry
+the 5 guard cells, also after a restart), `StoreFilterBeforeTheFirstReadAfterARestart` (the first fetch after a
+restart, before the read: the golden per-player text with the collector off); `CollectorFailureServesGuard` (a throwing plan, an overlay
 that clears `Id@Type`); `MirrorPolicy` (static mirror = layer minus `true` cells; per-player mirror = guard);
 `CollectorDoesNotTouchMulTargets`; `OverlayWinsOverCollector`; `PlayerDocumentChangesOnlyAfterProfileRead`;
 `PlayerDocumentDropsOwnedUnlockableCells`; `StoreFilterUnchangedWithCollector` (store part byte-identical to the
@@ -899,13 +992,16 @@ text); unreadable dump → static layer; selectors stay static; `CreateDefaultsH
 
 ### WP-E Live ops
 §3.2. Tests: **`LiveOpsCollectorOffMatchesGolden`** (events with the collector off, content missing or store patch
-false, and all events before `since`, byte-identical to WP-0's, `_version` included); from `since` the
-bonus/tiers/final carry the crates in the right order; toggling `enabled` changes `LiveOpsSnapshot.Key` and the
+false, and all events before `since`, byte-identical to WP-0's, `_version` included); from `since` the first
+mission and the tiers carry the crates in the right order (round 3; the bonus and the final as today); toggling `enabled` changes `LiveOpsSnapshot.Key` and the
 `_version` of windows ≥ `since` only; a broken `collector` block leaves live ops running; live ops read no
-`economy.collector.*` key directly. `LiveOpsConformanceTests` (real client): the 16-day run with a content override
+`economy.collector.*` key directly; round 3: a crate beside another crate, or twice in one list, is refused
+(`BrokenCollectorBlocks`), and `NoGeneratedMilestoneHoldsTwoCrates` sweeps seven weeks of events (reset hours 0 and 6,
+seasons of 7 and 1 days, every modifier). `LiveOpsConformanceTests` (real client): the 16-day run with a content override
 whose `since` falls inside it; every event passes `StandardCrm.Data`, `SocialEvent`, `ParseTemplate`,
-`TypeUtil.GetType` and `Initialize`, and `RewardHelper.CreateRewardItem("Crate_Event_Special", n)` yields
-`Game.CrateRewardItem` with quantity n in the daily bonus, every weekly tier and the final. Make its
+`TypeUtil.GetType` and `Initialize`; no milestone holds two `Game.CrateRewardItem`s; and
+`RewardHelper.CreateRewardItem("Crate_Event_Special", n)` yields `Game.CrateRewardItem` with quantity n on the day's
+first mission (1) and every weekly tier (1, 1, 2), and nowhere else. Make its
 `NativeTrackingStub` `internal` for WP-F.
 
 ### WP-F Real-client conformance and timing
@@ -939,6 +1035,19 @@ real `Database.Table`s (the bench technique). Uses the **store-patched** `Game.d
 8. **Timing**: `JObject.Parse` (as `StandardCrm.Data`) of the per-player documents (fresh, unlock-all) with and without
    the layer, and the apply of each tree; 1 cold + 5 warm; log per return to the menu (≥ 6 parses + 2 game-layer applies)
    and per match (2 mirror applies); assert warm apply < 60 ms per tree, cells ≤ 600, per-player text growth ≤ 15 %.
+9. **Claim semantics** (round 3, `AMilestoneRevealsOnlyItsLastCrate`): Cecil on the real `Game.dll`: in
+   `ClaimAchievementMilestoneRequest`'s state machine `RequestRewardsResult::set_Rewards` follows
+   `CrateRewardItem::get_RewardsGenerated` (a replace) and other rewards go through `get_Rewards` + `List.Add`;
+   `ClaimAchievementMilestone` reads `IsCrate` before `LotteryComponent.OpenSchematicLottery` (D12, §3.1).
+10. **TLE screen cost** (round 3, `ATleScreenBuildsTheAvatarListAtMostOncePerCrate`): on the real `CrateRewards` fill of
+   every served tree, no avatar row before the first non-signature row (`IsAvailable` builds no list) and at most one
+   spawnable avatar row (the preview builds it once); the round-2 layout gives 5 and 5. Logged: the crate objects of the
+   served weekly (12) and daily (1) events and the net8 cost of one avatar-list build over the real ids with 50, 300,
+   700 and 1,400 owned, per weekly screen (device check 1 compares against it).
+11. **The draw** (round 3, `TheServedTableDrawsByItsWeights`): 20,000 draws of the real `PickRandomWeightedItem` (round
+   0) over the served static, fresh and unlock-all tables follow the weights (≥ 2 % rows within 1.5 points), never a
+   weight-0 row, only row 1 for unlock-all; carriers bundle exactly their sound, always given. `GenerateRewards` over N
+   sub-crates and the reveal need a live `PlayerProfileComponent` (carrier `IsAvailable`): device checks 2–4.
 
 ### WP-H Client capability
 `public sealed class ClientCapabilities { public bool? StorePatch { get; set; } }` registered in `context.Features` by
@@ -956,29 +1065,40 @@ content.md (per-player collector cells, mirror policy, `_mcvs/collector`); STATU
 ## 7. Device checks
 
 1. **Fresh profile**, collector on, right after login and again right after a match: open the daily missions and the
-   weekly event screen. The "COSMETIC CRATE" reward shows its image, "CONTAINS 5 ITEM(S)" and a preview (≤ 33 entries;
-   one random-emblem entry for rows 1 and 3–6; one agent entry). A profile owning some no-source skins: they are absent
-   from the preview (proves the per-player layer reached the client and the TS). **Time the weekly screen opening**
-   with the collector off, on with a fresh profile, on with a complete profile (target ≤ +0.5 s; else §8 fallback).
-2. Claim the daily bonus (Contracts + Cosmetic): the reveal animates (≤ 10 items, `MaxRewardsInAnimation`); force a
-   carrier draw (`weights` everything 0 but `sounds`): emblem + sound revealed, no exception in the log.
-3. Weekly final (HC + event crate + 2 Cosmetic crates): 10 items animate; with a carrier (11–12) the plain list.
-4. `itemsPerCrate` 10: weekly final (20 items) and a Master rank-4 season crate (40) show the plain reward list (no
+   weekly event screen. The "CUSTOMIZATION CRATE" reward (round 3: was "COSMETIC CRATE") shows its image, "CONTAINS 5
+   ITEM(S)" and a preview (≤ 33 entries; one random-emblem entry for row 2, one random-background entry for rows 3–7;
+   one agent entry; no VersusCoins entry until everything is owned). The weekly final's event crate keeps its own name
+   ("COSMETICS CRATE" in English), different from ours in every language. A profile owning some no-source skins: they
+   are absent from the preview (proves the per-player layer reached the client and the TS). **Time the weekly screen
+   opening** with the collector off, on with a fresh profile, on with a profile owning ~1,400 avatars with some left, on
+   with a complete profile (target ≤ +0.5 s; WP-F test 10 logs the net8 estimate: 12 avatar-list builds per screen,
+   ~0.9–13 ms each for 50–1,400 owned on the build machine; else the §8 fallback). Also time the daily missions screen
+   (1 Cosmetic crate object).
+2. Claim the daily **first mission** (its currencies + the Cosmetic crate): the crate lottery reveals the crate's items
+   (≤ 10, `MaxRewardsInAnimation`) and **not** the mission's VersusCoins/Credits, which are credited unseen (check the
+   balance; D12, §3.1). Claim the daily bonus: the Contracts crate's own reveal, as today. Force a carrier draw
+   (`weights` everything 0 but `sounds`): background + sound revealed, no exception in the log.
+3. Weekly tier 1 or 2 (VC + Credits/tokens + 1 Cosmetic crate): the lottery shows the 5 items, the currencies credited
+   unseen. Weekly tier 3 (VC + tokens + 2 Cosmetic crates): 10 items animate; with a carrier (11–12) the plain list.
+   Weekly final (20 HC + the event crate): the event crate's reveal, as today.
+4. `itemsPerCrate` 10: weekly tier 3 (20 items) and a Master rank-4 season crate (40) show the plain reward list (no
    lottery), every item listed; time it.
 5. Random avatar/background reveals show the concrete emblem; 50 avatar draws contain no Kayac id (382–384, 443–531,
    533–589, 598–1514) and no starred season emblem.
 6. A hidden jersey (e.g. USSR) from the crate appears in that agent's jersey list and can be equipped.
 7. Witch or Bli-P from the crate: agent unlocked, unlock flow plays; its skins then appear in the preview.
-8. Season end (set `liveops.seasonStart` to the next hour): rank 4–30 inbox "DIVISION REWARD" with a Cosmetic crate of
-   band × 5 items; rank 1–3: HC + a ★★★/★★/★ emblem the player did not own + gear.
+8. Season end (set `liveops.seasonStart` to the next hour): rank 4–30 inbox "DIVISION REWARD" with a "CUSTOMIZATION
+   CRATE" of band × 5 items; rank 1–3: HC + a ★★★/★★/★ emblem the player did not own + gear.
 9. Unlock-all + `UNLOCKPAID` profile: crates pay 70 VC per item; no "unavailable" state on milestones.
 10. Return-to-menu "connecting to the server" time with the collector on vs off, fresh and unlock-all profiles (target
     ≤ +0.3 s); match start time on vs off (target ≤ +0.1 s); the server log shows the collector line once per return.
 11. Collector off (`economy.collector.enabled: false`) after `since`: events as before, ranks 4–10 get one gear piece,
     `GET /configs/users/me` carries only the 5 guard cells in each tree.
-12. **Stale crate**: collector on, complete the daily missions without claiming the bonus, set `enabled: false`, return
+12. **Stale crate**: collector on, complete the day's first mission without claiming it, set `enabled: false`, return
     to the menu; if the old event is still shown, claim it → 70 VC, no exception; otherwise the replaced event shows no
-    crate.
+    crate. Latch (round 3): with a `liveops.json` override moving `since` back, get a crate-carrying event, remove the
+    override and set the phone's clock back before the shipped `since`: `GET /_mcvs/crm` shows `cratesServed` and the
+    phase `Guard`; claiming the crate pays 70 VC.
 13. `CratesCount` sent as a JSON integer arrives as an int (the TS opens exactly N items) under a comma-decimal locale.
 14. `GET /_mcvs/collector?account=…` after a few crates: remaining counts fall; every part "known"; the agent states
     (locked/unlocked, skin counts) match the in-game agent list.
@@ -992,10 +1112,13 @@ content.md (per-player collector cells, mirror policy, `_mcvs/collector`); STATU
   crates with the mirror (static weights, no `true` cells: avatars only from the 230 shipped-unlockable, still no
   Kayac) until the next forced refresh. Valid and O5-safe; more duplicates. Checks 1 and 15.
 * **Preview cost on the TLE screens**: every crate reward object rebuilds a preview (`CreateRewardItem` + `GetObject` +
-  `IsAvailable` per weighted row, signature list builds, agent scans) and `CrateRewardItem.IsAvailable` evaluates all
-  39 rows; the weekly screen builds ~13 of them on the game thread. Check 1 times it. Fallback (content only, no code):
-  give the crate only on milestone tier 3 and the final with folded quantities (`collector` block of
-  `liveops_tuning.json`), which cuts the crate objects per screen to 5.
+  `IsAvailable` per weighted row, signature list builds, agent scans) and runs `CrateRewardItem.IsAvailable` (rows in
+  table order until one is available); the weekly screen builds 12 of them on the game thread. Round 3 (§2.3): the
+  exhausted row first and background carriers bring the avatar-list builds from up to 78 per weekly screen (6 per crate
+  object, 13 objects) to at most 12 (one per object, none for a complete profile); WP-F test 10 logs the net8 cost. Not
+  measured: the camo/jersey random rows' `IsAvailable` (agent scans). Check 1 times it. Fallback (content only, no
+  code): give the crate only on milestone tier 3 (`collector` block of `liveops_tuning.json`, e.g. `[[], [], [3]]`, the
+  daily mission's crate kept), which cuts the crate objects per weekly screen to 4.
 * **Dump shape for `Mercs`**: pinned by WP-F's real-writer fixture and the squad plausibility guard; check 14.
 * **Mono/ARM cost** (§2.10): estimated +0.2–0.3 s per return to the menu, 25–80 ms per match; check 10 and the
   documented fallback.
@@ -1004,8 +1127,15 @@ content.md (per-player collector cells, mirror policy, `_mcvs/collector`); STATU
 * **Event replacement** once for players updating after `since` or toggling the collector mid-week (§3.3).
 * **Reveal UI**: > 10 items per claim show a plain list (check 4).
 * Ranks 4–30 lose today's single gear piece; 3 league rank-up avatars (590–592) can come from the crate first.
-* **Owner points**: (1) O7 read as "behaviourally identical" from `since` (5 guard cells; byte-identical before);
-  (2) Kayac exclusion includes 382–384 by art/name evidence and keeps the 60 `Kayac/holidays` emblems out (§1.2);
-  (3) 11 of the 12 hidden jerseys O5 includes are Kayac-folder art (§1.4); (4) "everything in 6 months" from crates
-  alone needs itemsPerCrate ≈ 15–17 (regular/dedicated), outside 1–10 (§4.3); (5) the reserved starred emblems (D4)
-  keep the crate set at 304 avatars.
+* **Owner points**: (1) O7 read as "behaviourally identical" from `guardSince` (5 guard cells; byte-identical before;
+  round 3: from a day before `since`, and for good once live ops served the crate — a tester's server that served it
+  keeps the 5 cells until `<data>/collector-guard.json` is deleted); (2) Kayac exclusion includes 382–384 by art/name
+  evidence and keeps the 60 `Kayac/holidays` emblems out (§1.2); (3) 11 of the 12 hidden jerseys O5 includes are
+  Kayac-folder art (§1.4); (4) "everything in 6 months" from crates alone needs itemsPerCrate ≈ 14–16
+  (regular/dedicated), outside 1–10 (§4.3); (5) the reserved starred emblems (D4) keep the crate set at 304 avatars;
+  (6) round 3, O2's sources: the daily crate comes with the **day's first mission** instead of the "complete all"
+  bonus, and the weekly final's two crates with **each tier 3** (16 per completed week instead of 14), because a
+  milestone reveals only its last crate (D12); the alternative that keeps O2 literally moves today's Contracts crate and
+  the week's event crate instead (a content change of their own); (7) round 3: the crate is called "CUSTOMIZATION CRATE"
+  (`crm.CrateCustomization`), since "COSMETIC CRATE" read the same as the event crates in 7 languages; (8) round 3:
+  the sounds come with a random background (was a random avatar), for the screen cost.
