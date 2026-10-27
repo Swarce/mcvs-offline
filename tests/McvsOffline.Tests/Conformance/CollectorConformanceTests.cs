@@ -618,6 +618,265 @@ namespace McvsOffline.Tests.Conformance
                              + Ms(2 * apply["per-player mirror"]) + ")");
         }
 
+        // ------------------------------------------------------------------------------------------ 9. one crate per milestone
+
+        /// <summary>
+        /// Test 9 (§3.1, one crate per milestone): the real <c>ClaimAchievementMilestoneRequest</c> (its async state machine)
+        /// sets the claim's reward list to a crate's generated items, <c>result.Rewards = crateRewardItem.RewardsGenerated</c>,
+        /// a replace, not an append, and adds every other reward to that list; <c>ClaimAchievementMilestone</c> then reveals
+        /// <c>result.Rewards</c> in the crate lottery whenever <c>IsCrate</c>. So a milestone holding two crates reveals only the
+        /// last one, and the currencies before a crate are credited unseen; live ops never serve two crates in one milestone
+        /// (LiveOpsTests.NoGeneratedMilestoneHoldsTwoCrates, LiveOpsConformanceTests).
+        /// </summary>
+        [Fact]
+        public void AMilestoneRevealsOnlyItsLastCrate()
+        {
+            string refs = GameClient.RefsDirectory;
+            string path = System.IO.Path.Combine(refs, "Game.dll");
+            if (!System.IO.File.Exists(path))
+            {
+                if (GameClient.Required) throw new InvalidOperationException("MCVS_REQUIRE_REAL_CLIENT=1 but " + path + " is missing");
+                output.WriteLine("Game.dll not found in MCVS_REFS: skipped");
+                return;
+            }
+            using (var resolver = new Mono.Cecil.DefaultAssemblyResolver())
+            {
+                resolver.AddSearchDirectory(refs);
+                var reader = new Mono.Cecil.ReaderParameters { AssemblyResolver = resolver, InMemory = true };
+                using (Mono.Cecil.ModuleDefinition game = Mono.Cecil.ModuleDefinition.ReadModule(path, reader))
+                {
+                    Mono.Cecil.TypeDefinition component = game.GetType("Game.TimeLimitedAchievementsComponent");
+                    Assert.NotNull(component);
+
+                    List<string> request = Calls(StateMachine(component, "ClaimAchievementMilestoneRequest"));
+                    output.WriteLine("ClaimAchievementMilestoneRequest calls: " + string.Join(", ", request));
+                    int replace = request.IndexOf("Game.CrateRewardItem::get_RewardsGenerated");
+                    Assert.True(replace >= 0, "no CrateRewardItem.RewardsGenerated read");
+                    Assert.Equal("Game.RequestRewardsResult::set_Rewards", request[replace + 1]);
+                    Assert.Equal(1, request.Count(c => c == "Game.RequestRewardsResult::set_Rewards"));
+                    // result.Rewards.Count == 0 (an empty crate is an error), and result.Rewards.Add(reward) for any other reward.
+                    Assert.Equal("System.Collections.Generic.List`1<Game.RewardItem>::get_Count", request[replace + 3]);
+                    Assert.True(Enumerable.Range(0, request.Count - 1).Any(i => request[i] == "Game.RequestRewardsResult::get_Rewards"
+                                                                                && request[i + 1] == "System.Collections.Generic.List`1<Game.RewardItem>::Add"),
+                                "the other rewards are not appended");
+
+                    List<string> claim = Calls(StateMachine(component, "ClaimAchievementMilestone"));
+                    Assert.Contains("Game.RequestRewardsResult::get_IsCrate", claim);
+                    Assert.Contains("Game.LotteryComponent::OpenSchematicLottery", claim);
+                    Assert.True(claim.IndexOf("Game.RequestRewardsResult::get_IsCrate") < claim.IndexOf("Game.LotteryComponent::OpenSchematicLottery"));
+                }
+            }
+        }
+
+        /// <summary>The <c>MoveNext</c> of the compiler's state machine for the async method <paramref name="name"/>.</summary>
+        private static Mono.Cecil.MethodDefinition StateMachine(Mono.Cecil.TypeDefinition type, string name)
+        {
+            Mono.Cecil.TypeDefinition machine = type.NestedTypes.Single(t => t.Name.StartsWith("<" + name + ">", StringComparison.Ordinal));
+            return machine.Methods.Single(m => m.Name == "MoveNext");
+        }
+
+        /// <summary>"DeclaringType::Name" of every call and callvirt, in IL order.</summary>
+        private static List<string> Calls(Mono.Cecil.MethodDefinition method)
+        {
+            return method.Body.Instructions
+                         .Where(i => i.OpCode == Mono.Cecil.Cil.OpCodes.Call || i.OpCode == Mono.Cecil.Cil.OpCodes.Callvirt)
+                         .Select(i => (Mono.Cecil.MethodReference)i.Operand)
+                         .Select(m => m.DeclaringType.FullName + "::" + m.Name).ToList();
+        }
+
+        // ------------------------------------------------------------------------------------------ 10. the TLE screens' cost
+
+        /// <summary>
+        /// Test 10 (preview cost, device check 1): every crate object on a TLE screen runs <c>CrateRewardItem.IsAvailable</c>
+        /// (<c>GetCrateRewards(...).Any(...IsAvailable)</c>: the content rows in table order until one is available) and
+        /// <c>GetPreview</c> (<c>GetObject</c>, so <c>IsAvailable</c>, on every spawnable row); a random avatar row's
+        /// <c>IsAvailable</c> rebuilds the 1,518-entry avatar list (<c>GetSignatureAssetsList</c>: <c>List.Contains</c> against
+        /// the owned ids per entry). On the real <c>CrateRewards</c> fill of every served tree: no avatar row before the first
+        /// row that is not a signature (so <c>IsAvailable</c> never builds the list, even when nothing is left) and at most one
+        /// spawnable avatar row (the preview builds it at most once per crate object). Logged: the crate objects of the
+        /// served daily and weekly events, the round-2 layout for comparison, and the net8 cost of one build over the real
+        /// avatar ids with 50 to 1,400 owned, per weekly screen (Mono/ARM ×3-5; device check 1's target is +0.5 s).
+        /// </summary>
+        [Fact]
+        public void ATleScreenBuildsTheAvatarListAtMostOncePerCrate()
+        {
+            RealTables real = RealTables.TryGet(output);
+            if (real == null) return;
+            var served = new List<(string Name, string Text)>();
+            string weeklyText, dailyText;
+            using (var run = new GoldenRun(ActiveDay))
+            {
+                served.Add(("static", Ok(run.Get("/configs/users/me", null))));
+                served.Add(("per-player fresh", Ok(run.Get("/configs/users/me", Player(run, "fresh", GoldenScenarios.DumpText(GoldenScenarios.Fresh))))));
+                served.Add(("per-player unlock-all", Ok(run.Get("/configs/users/me", Player(run, "unlockAll", GoldenScenarios.UnlockAllDump())))));
+                LiveOpsSettings s = LiveOpsService.For(run.Context).Settings;
+                weeklyText = Ok(run.Get("/events/" + LiveOpsSchedule.WeeklyEventId(LiveOpsSchedule.SeasonAt(s, ActiveDay)) + "?language=en", null));
+                dailyText = Ok(run.Get("/events/" + LiveOpsSchedule.DailyEventId(LiveOpsSchedule.DayAt(s, ActiveDay)) + "?language=en", null));
+            }
+            served.Add(("minimal", MiniJson.Serialize(CrmService.MinimalDocument(false, true))));
+            int weeklyCrates = CrateObjects(weeklyText), dailyCrates = CrateObjects(dailyText);
+            Assert.Equal(12, weeklyCrates);                 // 4 objectives × 3 tiers; none on the final (§3.1)
+            Assert.Equal(1, dailyCrates);                   // the day's first mission
+
+            foreach (var (name, text) in served)
+            {
+                var (isAvailable, preview) = AvatarListBuilds(real, GameOf(real, text));
+                output.WriteLine(name + ": " + isAvailable + " avatar-list builds in IsAvailable at most, " + preview + " in the preview");
+                Assert.Equal(0, isAvailable);
+                Assert.True(preview <= 1, name + ": " + preview + " spawnable avatar rows");
+            }
+            // The round-2 layout (exhausted last, avatar carriers) for comparison: what the review measured.
+            var round2 = MiniJson.ParseObject(CollectorPlanTests.ShippedJson);
+            var rows = (List<object>)round2["rows"];
+            object exhausted = rows[0];
+            rows.RemoveAt(0);
+            rows.Add(exhausted);
+            for (int i = 0; i < rows.Count; i++)
+            {
+                var row = (Dictionary<string, object>)rows[i];
+                row["id"] = (long)(i + 1);
+                if ((string)row["category"] == CollectorContent.Sounds) row["subtype"] = "Avatar";
+            }
+            CollectorContent oldContent = CollectorContent.Parse(MiniJson.Serialize(round2), out string problem);
+            Assert.True(oldContent != null, problem);
+            var (oldAvailable, oldPreview) = AvatarListBuilds(real, GameOf(real, Built(oldContent, new CollectorOptions(), CollectorPlanTests.Snapshot(ActiveDay))));
+            output.WriteLine("round-2 layout: " + oldAvailable + " in IsAvailable at most, " + oldPreview + " in the preview");
+            Assert.Equal(5, oldAvailable);
+            Assert.Equal(5, oldPreview);
+
+            // One build on net8: GetSignatureAssetsList's loop and GetAvailableId's filter over the real avatar ids.
+            object avatars = real.Fill("Game", "Game.PlayerProfileComponent+SignatureItemDataCollection",
+                                       AppliedTable(real, GameOf(real, served[0].Text), CollectorPlan.AvatarsTable));
+            List<SignatureEntry> entries = Elements(avatars).Select(x => new SignatureEntry { Id = (string)GameClient.Get(x, "Id"), Unlockable = (bool)GameClient.Get(x, "unlockable") }).ToList();
+            Assert.True(entries.Count >= 1518, entries.Count + " avatars");
+            var noNew = new List<string>();
+            foreach (int owned in new[] { 50, 300, 700, 1400 })
+            {
+                List<string> ownedIds = entries.Select(e => e.Id).Take(owned).ToList();
+                double build = Time(() =>
+                {
+                    foreach (SignatureEntry e in entries)
+                    {
+                        e.Locked = !ownedIds.Contains(e.Id);
+                        e.IsNew = noNew.Contains(e.Id);
+                    }
+                    GC.KeepAlive(entries.Where(e => e.Locked && e.Unlockable).ToList());
+                }).Skip(1).Min();
+                output.WriteLine("one avatar-list build with " + owned + " owned: " + Ms(build) + "; weekly screen (" + weeklyCrates + " crate objects × "
+                                 + "at most 1): " + Ms(weeklyCrates * build) + " (round-2 layout, 13 × " + (oldAvailable + oldPreview) + "): "
+                                 + Ms(13 * (oldAvailable + oldPreview) * build) + "; Mono/ARM ×3-5");
+            }
+        }
+
+        /// <summary>A crate entry of an event's milestones (one reward object each, whatever its quantity).</summary>
+        private static int CrateObjects(string eventText)
+        {
+            var template = MiniJson.ParseObject((string)MiniJson.ParseObject(eventText)["_template"]);
+            int n = 0;
+            foreach (Dictionary<string, object> achievement in (List<object>)JsonPath.Get(template, "milestones.value"))
+                foreach (Dictionary<string, object> milestone in (List<object>)achievement["milestones"])
+                    foreach (Dictionary<string, object> reward in (List<object>)milestone["rewards"])
+                        if ((string)reward["item"] == CrateId) n++;
+            return n;
+        }
+
+        /// <summary>
+        /// For the crate's <c>CrateRewards</c> as the client fills them from <paramref name="game"/>: the avatar rows
+        /// <c>IsAvailable</c> can reach (those before the first row that is not a signature: a currency, skin, jersey, agent or
+        /// camo row is available or answers without the avatar list) and the spawnable avatar rows <c>GetPreview</c> builds.
+        /// </summary>
+        private static (int IsAvailable, int Preview) AvatarListBuilds(RealTables real, object game)
+        {
+            List<object> rows = Elements(real.Fill("Game", "Game.CratesInventoryComponent+CrateRewards", AppliedTable(real, game, CrateTable)));
+            Assert.NotEmpty(rows);
+            bool Avatar(object r) => (string)GameClient.Get(r, "Type") == "KillSignature" && (string)GameClient.Get(r, "Subtype") == "Avatar";
+            int reachable = 0;
+            foreach (object r in rows)
+            {
+                if ((string)GameClient.Get(r, "Type") != "KillSignature") break;
+                if (Avatar(r)) reachable++;
+            }
+            int preview = rows.Count(r => Avatar(r) && (bool)GameClient.Call(r, "IsSpawnable"));
+            return (reachable, preview);
+        }
+
+        private sealed class SignatureEntry
+        {
+            public string Id;
+            public bool Locked;
+            public bool IsNew;
+            public bool Unlockable;
+        }
+
+        // ------------------------------------------------------------------------------------------ 11. the draw
+
+        /// <summary>
+        /// Test 11: the real <c>PickRandomWeightedItem</c> (round 0, what every sub-crate of N draws) over the served
+        /// <c>CrateRewards</c>: 20,000 draws follow the served weights (rows with a share of 2 % or more within 1.5 points), a
+        /// weight-0 row is never drawn, the unlock-all player's table only draws the exhausted row; the four carriers bundle
+        /// exactly their sound (<c>GetBundleRewards</c>), always given. The claim itself (<c>GenerateRewards</c> with the
+        /// carriers' <c>IsAvailable</c>, the reveal) needs a live profile: device checks 2-4.
+        /// </summary>
+        [Fact]
+        public void TheServedTableDrawsByItsWeights()
+        {
+            RealTables real = RealTables.TryGet(output);
+            if (real == null) return;
+            Type inventoryType = real.Type("Game", "Game.CratesInventoryComponent");
+            Type rewardType = real.Type("Game", "Game.CratesInventoryComponent+CrateReward");
+            Type listType = typeof(List<>).MakeGenericType(rewardType);
+            object component = RuntimeHelpers.GetUninitializedObject(inventoryType);
+            MethodInfo pick = inventoryType.GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
+                                           .Single(m => m.Name == "PickRandomWeightedItem" && m.GetParameters().Length == 3);
+            var served = new List<(string, string)>();
+            using (var run = new GoldenRun(ActiveDay))
+            {
+                served.Add(("static", Ok(run.Get("/configs/users/me", null))));
+                served.Add(("per-player fresh", Ok(run.Get("/configs/users/me", Player(run, "fresh", GoldenScenarios.DumpText(GoldenScenarios.Fresh))))));
+                served.Add(("per-player unlock-all", Ok(run.Get("/configs/users/me", Player(run, "unlockAll", GoldenScenarios.UnlockAllDump())))));
+            }
+            foreach (var (name, text) in served)
+            {
+                List<object> rows = Elements(real.Fill("Game", "Game.CratesInventoryComponent+CrateRewards", AppliedTable(real, GameOf(real, text), CrateTable)));
+                IList pool = (IList)Activator.CreateInstance(listType);
+                foreach (object row in rows) pool.Add(row);
+                double total = rows.Sum(r => (double)Weight(r, 0));
+                object rng = Activator.CreateInstance(real.Type("Game", "Game.GameRandom"), 11);
+                var drawn = new Dictionary<string, int>(StringComparer.Ordinal);
+                const int Draws = 20000;
+                for (int i = 0; i < Draws; i++)
+                {
+                    object row = pick.Invoke(component, new[] { pool, rng, 0 });
+                    Assert.NotNull(row);
+                    string id = (string)GameClient.Get(row, "Id");
+                    drawn[id] = drawn.TryGetValue(id, out int n) ? n + 1 : 1;
+                }
+                foreach (object row in rows)
+                {
+                    string id = (string)GameClient.Get(row, "Id");
+                    double share = Weight(row, 0) / total;
+                    double seen = drawn.TryGetValue(id, out int n) ? n / (double)Draws : 0;
+                    if (share == 0) Assert.True(seen == 0, name + ": row " + id + " has weight 0 but was drawn");
+                    else if (share >= 0.02) Assert.True(Math.Abs(seen - share) < 0.015, name + ": row " + id + " drawn " + seen + ", weight share " + share);
+                    var bundles = ((IEnumerable)GameClient.Call(row, "GetBundleRewards")).Cast<object>().Select(b => (string)GameClient.Get(b, "FullType")).ToList();
+                    bool carrier = (string)GameClient.Get(row, "BundledRewards") != null;
+                    if (carrier)
+                    {
+                        Assert.Equal(new[] { "KillSignature_Sound_" + (int.Parse(id, CultureInfo.InvariantCulture) - 2) }, bundles);
+                        Assert.True((bool)GameClient.Get(row, "AlwaysGiveBundledRewards"));
+                        Assert.Equal("KillSignature_Background_Random", (string)GameClient.Get(row, "RewardId"));
+                    }
+                    else
+                    {
+                        Assert.Empty(bundles);
+                    }
+                }
+                if (name == "per-player unlock-all") Assert.Equal(new[] { "1" }, drawn.Keys);
+                output.WriteLine(name + ": " + drawn.Count + " rows drawn in " + Draws + " draws; most often " + string.Join(", ",
+                                 drawn.OrderByDescending(kv => kv.Value).Take(4).Select(kv => "row " + kv.Key + " " + (kv.Value * 100.0 / Draws).ToString("F1", CultureInfo.InvariantCulture) + " %")));
+            }
+        }
+
         // ------------------------------------------------------------------------------------------ trees
 
         private sealed class Tree
