@@ -16,6 +16,7 @@ do not own (including `server/Core`), ask the owner.
 | **CONTENT** | `server/Services/Crm/`, `Matchmaker/`, `Assets/`, `server/Content/`, `tools/content-gen/`, `docs/protocol/content.md` |
 | **MISC** | `server/Services/Social/`, `Messaging/`, `Alerts/`, `Leaderboards/`, `GameStats/`, `Profanity/`, `Chat/`, `Clans/`, `Wall/`, `BanTool/`, `Geo/`, `Misc/`, `docs/protocol/misc.md` |
 | **EMBED** | `hosts/embedded/`, `patcher/` |
+| **ADMIN** (settings page) | `server/Services/Admin/` (modules `admin`, `admin-logs`, `admin-saves`), `server/Content/admin/` (the page), `tests/McvsOffline.Tests/Admin/`, `docs/design/settings-page.md`; its Android side (`hosts/embedded/Admin/`, the JNI code in `hosts/embedded/Android/`) and the `adminpage`/`adminlink`/`forum` patches are EMBED's |
 | core (lead) | `server/Core/`, `server/Services/ServiceRegistry.cs`, `server/Services/Unlocks/` (cross-module glue for `unlockAll`), `server/build/`, `server/*.csproj`, `hosts/standalone/`, `tests/` core tests, `tests/McvsOffline.Tests/Conformance/`, `scripts/`, top-level docs |
 
 Tests: add your own test files under `tests/McvsOffline.Tests/<Module>/` (e.g. `tests/McvsOffline.Tests/Auth/`);
@@ -61,10 +62,23 @@ whose `Register` throws is logged and skipped, the rest of the server still star
   `router.TryMatch(request, skip, ...)` and `router.Dispatch(request, skip)` ignore the routes `skip` selects;
   `router.Invoke(route, request)` runs one chosen route (values bound, exceptions → logged 500). Pandora's
   service-prefix aliases (`/auth//authorize` → `/authorize`) are built on these.
-- Diagnostics: `_mcvs/<module>` is reserved for module diagnostics (developer tools, never the game); answer them
-  for loopback callers only when they expose player data. In use: `_mcvs/status`, `_mcvs/routes` (core),
-  `_mcvs/storage`, `_mcvs/storage/profiles/{account}` (STORAGE), `GET _mcvs/crm`, `POST _mcvs/crm/reload`
-  (CONTENT), `GET _mcvs/unlocks`, `POST _mcvs/unlocks/grant` (core/unlocks).
+- Diagnostics: `_mcvs/<module>` is reserved for module diagnostics (developer tools, never the game). In use:
+  `_mcvs/status`, `_mcvs/routes` (core), `_mcvs/storage`, `_mcvs/storage/profiles/{account}` (STORAGE),
+  `GET _mcvs/crm`, `POST _mcvs/crm/reload` (CONTENT), `GET _mcvs/unlocks`, `POST _mcvs/unlocks/grant` (core/unlocks),
+  and the settings page `_mcvs/ui`, `_mcvs/api/v1/*` (ADMIN).
+- **The access gate** (`server/Core/Http/LocalAccessGate.cs`) runs before the router for every request, so a module
+  never sees a refused one (they are logged with route name `core.gate`):
+  1. Federation routes, while the listener is bound to loopback, `lanMode` is off and `security.hostCheck` is on: a
+     `Host` other than `127.0.0.1`/`localhost`/`[::1]` (any port) or the `publicUrl` host → 404 (DNS rebinding). A
+     missing `Host` passes.
+  2. `_mcvs` routes: a caller that is not loopback, or a `Host` other than those three names with this server's port →
+     404, also in LAN mode.
+  3. `OPTIONS` under `_mcvs` → 405, never a CORS header.
+  4. Writes under `_mcvs` need `X-MCVS: 1`, an allowed `Origin` when one is sent (`null` is refused) and a
+     `Sec-Fetch-Site` of `same-origin` or `none` when one is sent; else 403 `csrf`. The one exemption is the page's
+     post-mode form (`POST _mcvs/ui` with `admin.openVia=post`).
+  5. Header-time body limit under `_mcvs`: 1 KiB without a valid session cookie, else the admin route's own limit
+     (413 before the body is read). Federation routes keep the global 64 MiB.
 
 ### Requests and responses
 
@@ -95,8 +109,10 @@ exceptions in full) to the console and `<data>/logs/server.log`; unknown endpoin
 | `context.BaseUrlFor(request)` | The URL to hand to a client (eve urls, pandora, chat `cmd_url`, lobbyconfigs): explicit port, trailing slash; Host-header based in LAN mode |
 | `Settings` | Typed shared settings (`Port`, `Bind`, `LanMode`, `UnlockAll`, `DevMenu`, `InstantBots`, economy multipliers, `SuperCredential`, `SuperPassword`, `DataCenter`) plus `GetBool/GetLong/GetDouble/GetString/GetObject(path, default)` for module-specific keys. Put your keys under your module name (`"storage": {...}`); defaults stay in your code. `Override(path, value)` (command line, tests) is never saved; an object override deep-merges into the file's object, so deeper keys it does not name still come from the file |
 | `AccountStore` (`context.Accounts`) | `GetOrCreate(credential, deviceId)`, `Find(credential or fed_id:x)`, `FindById`, `FindByDevice`, `LinkCredential`, `Update(id, mutate)`; `Account.Data` holds per-account module data. Account ids are derived from the credential (stable across devices and reinstalls) |
-| `TokenService` (`context.Tokens`) | `Issue(account, credential, clientId, scopes, deviceId, actor)` → `<issuer>.<random>` token (same grant → same token), `Resolve(token)`, `GetIssuer`, `IsLocal`, `ParseScopes` |
-| `Credential` | Parse/format `type:username` and `me` |
+| `TokenService` (`context.Tokens`) | `Issue(account, credential, clientId, scopes, deviceId, actor, playerLogin)` → `<issuer>.<random>` token (same grant → same token), `Resolve(token)`, `GetIssuer`, `IsLocal`, `ParseScopes`; `LastDirectAnonymous` (the last direct anonymous grant issued with `playerLogin`, which auth/authorize sets only for the game's own login: the settings page's current player) and `RevokeCredential(credential)` (drops every grant of a credential after a relink) |
+| `GameRequest` (`Core/Http`) | Whether a request looks like the game's own Federation client: `BrowserHeader` (`Origin`, `Referer`, `Sec-Fetch-*`), `IsClientId` (`<digits>:<digits>:<version>:<platform>:<store>`), `HasUserAgent(request, clientId)` (exactly `[<agent> ](<client id>; <datacenter>)`), `NotTheGame` (null or the reason). For routes a web page on the phone must not drive (the redeem page code, the player's login); a local app can still imitate it |
+| `Credential` | Parse/format `type:username` and `me`; `Mask(credential)` (`anonymous:a1b2…f9e8`) for anything logged or shown |
+| `LogRedaction`, `Logger.Redactor` | One redaction for every logger (tickets, `mcvs_s` cookies, password/token values), set on the server and host loggers at start. It is a safety net: still never log a ticket, cookie or token on purpose |
 | `DocumentStore` (`context.OpenStore("name")`) | One JSON document per key in `<data>/<name>/`; atomic writes, per-key lock, `Read/Write/ReadText/WriteText/Update/Delete/Keys/Lock`. Unreadable files throw `DocumentStoreException` (never "missing") |
 | `AtomicFile`, `KeyedLock`, `FileSystem` | Lower-level durable writes (temp + fsync + rename) and per-key locking |
 | `MiniJson` | `Parse`, `ParseObject`, `ParseArray`, `TryParse`, `Serialize(value[, indented])`, `Quote`. Objects are `Dictionary<string, object>` (insertion order kept), arrays `List<object>`, integers `long`, other numbers `double`, huge integers `JsonNumber` |
@@ -121,6 +137,10 @@ exceptions in full) to the console and `<data>/logs/server.log`; unknown endpoin
 | `Social.ISocialEventProvider` (`server/Services/Social/SocialEvents.cs`) | any (optional) | Time-limited events ahead of `content/social/events.json` (rolling division seasons need code); events the TS cannot parse are dropped |
 | `Alerts.AlertHub`, `Messaging.Mailboxes`, `Chat.ChatHub`, `Clans.ClanStore`, `Social.SocialProfiles` | MISC | Shared in-process hubs/stores of the MISC modules; other modules should prefer the EventHub topics below |
 | `Unlocks.UnlockGranter` | core | `settings.unlockAll` through the inventory ledger (diagnostics, tests) |
+| `Admin.AdminApi` | ADMIN (`admin`) | The settings page's framework: `Get/Post/Delete` register routes under `_mcvs/api/v1/` behind the session, CSRF, JSON, body-limit, rate-limit and `admin.enabled` checks; `CurrentPlayer()`, `Allow/RateLimited`, `ExitState`, `SetStatusSection`, `CreateBackup` (set by `admin-saves`). `admin-logs` and `admin-saves` build on it (no routes without it) |
+| `Admin.IAdminPortal` | ADMIN (`admin`) | `MintPageUrl(trigger, screen)` (a page URL with a one-time ticket in the fragment), `PageMarkerUrl`/`IsPageMarker` (the inbox item's fixed link, no secret), `OpenPage(trigger, screen)`, `Enabled`. Used by the host's page opener, the CRM inbox item, the redeem code and the standalone console |
+| `Admin.IAdminHost` | the host (embedded: `hosts/embedded/Admin/AdminHost.cs`; none in the standalone host) | What the page needs from the program around the server: open and close the in-game browser, share a file or text, clipboard, toast, ask the game to save, wait for the game loop, exit through the game's restart path, watchdog lease. Registered after `McvsServer.Create`, before `Start` |
+| `Admin.Saves.StagedOperations` | ADMIN (`admin-saves`) | Staged imports, restores, relinks and undos, applied at `Register` before the port opens, and their probation |
 
 ### Event topics
 
@@ -129,7 +149,7 @@ synchronously on the publisher's thread (usually a request thread): do little, q
 
 | Topic | Payload | Publisher → typical subscriber |
 |---|---|---|
-| `storage.profile.changed` | `{account, fedId, revision, operation, selector, deleted, source}`; `source` is `"http"` for game requests, `"api"` for `IProfileAccess` | STORAGE, after every saved change → unlocks (grants after the first `_mcvs.gameProfile`/`matchers`/`snapshot` save once the game profile and the inventory section are stored) |
+| `storage.profile.changed` | `{account, fedId, revision, operation, selector, deleted, source}`; `source` is `"http"` for game requests, `"api"` for `IProfileAccess`, `"admin"` for the settings page's staged apply and revert | STORAGE, after every saved change → unlocks (grants after the first `_mcvs.gameProfile`/`matchers`/`snapshot` save once the game profile and the inventory section are stored); admin (`GameSaveTracker`: the game's last save, "Save the game now"; `http` only); admin-saves (a probation ends with the game's first `http` save of the target) |
 | `storage.inventory.changed` | `{account, fedId, section, key, count, delta}` | STORAGE (`AddToLedger`) → whoever must tell a running TS to re-check the ledger |
 | `alerts.push` | `{"to": "fed_id:<id>" \| "<account id>" \| "group:<id>", "alert": {"type": ..., ...}}` (`alert` may be a JSON string); `connection` alerts are dropped (they kick the player) | anyone → MISC Kairos streams. `{"type":"set_profile"}` makes the TS re-run `IapStoreComponent.CheckInventory` (verify-C5) |
 | `messaging.post` | `{"to", "transport"? (default `secured`), "body", "type"?, "alert"? (default true), "label"?, "replaceMatchingLabel"?, "from"?, "fields"?}` | anyone → MISC Hermes mailboxes (inbox gifts, notices) |

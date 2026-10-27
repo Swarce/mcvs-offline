@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -14,6 +13,7 @@ using McvsOffline.Server.Core.Http;
 using McvsOffline.Server.Core.Json;
 using McvsOffline.Server.Core.Routing;
 using McvsOffline.Server.Services;
+using McvsOffline.Server.Services.Admin;
 using McvsOffline.Tests.Content;
 using Xunit;
 using Xunit.Abstractions;
@@ -24,8 +24,8 @@ namespace McvsOffline.Tests.Admin
     /// The settings page (server/Content/admin/index.html, WP4 of docs/design/settings-page.md). The static checks of §2.3
     /// always run: one self-contained file, every id of §2, an ES5 lint (a tokenizer that skips strings, comments and
     /// regex literals) and a CSS lint. page-smoke.js then runs the page in node (a DOM with exactly the §2.3 surface and a
-    /// cookie-aware XHR) against its fixture API and, once the admin modules are in the build, against a live in-process
-    /// server. node is optional unless MCVS_REQUIRE_NODE=1.
+    /// cookie-aware XHR) against its fixture API and against a live server with every module. node is optional unless
+    /// MCVS_REQUIRE_NODE=1, which makes both node runs mandatory.
     /// </summary>
     public class PageSmokeTests
     {
@@ -295,86 +295,40 @@ namespace McvsOffline.Tests.Admin
         }
 
         /// <summary>
-        /// The smoke against a real server with every module, as the game's WebView sees it. Needs the admin modules of WP2
-        /// (admin) and WP3 (admin-logs, admin-saves): until they are in the build the test says so and passes. They are
-        /// found by reflection so this package compiles on its own; ServiceRegistry registers them once WP8 adds them.
+        /// The smoke against a real server with every module of ServiceRegistry (the admin modules included), listening on a
+        /// free port, as the game's WebView sees it. Mandatory with MCVS_REQUIRE_NODE=1 (scripts/build.sh's full check):
+        /// nothing here skips except a missing node when it is not required.
         /// </summary>
         [Fact]
         public void NodeSmokeAgainstALiveServer()
         {
             string node = FindNode();
             if (node == null) return;
-            Assembly server = typeof(McvsServer).Assembly;
-            Type[] modules =
-            {
-                server.GetType("McvsOffline.Server.Services.Admin.AdminService"),
-                server.GetType("McvsOffline.Server.Services.Admin.Logs.LogsService"),
-                server.GetType("McvsOffline.Server.Services.Admin.Saves.SavesService"),
-            };
-            Type portalType = server.GetType("McvsOffline.Server.Services.Admin.IAdminPortal");
-            if (modules[0] == null || portalType == null)
-            {
-                output.WriteLine("live smoke skipped: the admin module (WP2) is not in this build yet");
-                return;
-            }
-
             using var dir = new TempDir();
-            McvsServer live;
-            try
-            {
-                live = CreateLiveServer(dir, modules);
-            }
-            catch (Exception ex) when (ex is TargetInvocationException || ex is NotImplementedException)
-            {
-                output.WriteLine("live smoke skipped: an admin module does not register yet: " + (ex.InnerException ?? ex).Message);
-                return;
-            }
-            using (live)
-            {
-                var have = new HashSet<string>(live.Router.Routes.Select(r => r.Name), StringComparer.Ordinal);
-                var missing = LiveRoutes.Where(r => !have.Contains(r)).ToList();
-                if (missing.Count > 0)
-                {
-                    output.WriteLine("live smoke skipped: admin routes not in this build yet: " + string.Join(", ", missing));
-                    return;
-                }
-                live.Start();
-                SeedPlayer(live);
-                object portal = typeof(FeatureRegistry).GetMethod("Get").MakeGenericMethod(portalType).Invoke(live.Context.Features, null);
-                Assert.NotNull(portal);
-                string url = (string)portalType.GetMethod("MintPageUrl").Invoke(portal, new object[] { "test", null });
-                Assert.StartsWith("http://127.0.0.1:" + live.Port + "/_mcvs/ui/#t=", url);
-
-                var result = RunNode(node, SmokeScript, url);
-                output.WriteLine(result.Item2);
-                Assert.True(result.Item1 == 0 && result.Item2.Contains("SMOKE OK"), "page-smoke.js against the live server failed:\n" + result.Item2);
-
-                // The page's Save reached settings.json (the smoke turned instantBots off).
-                var settings = MiniJson.ParseObject(File.ReadAllText(Path.Combine(live.Context.DataDir, Settings.FileName)));
-                Assert.Equal(false, settings["instantBots"]);
-            }
-        }
-
-        private static McvsServer CreateLiveServer(TempDir dir, Type[] modules)
-        {
-            var options = new ServerOptions
+            using McvsServer live = McvsServer.Create(new ServerOptions
             {
                 DataDir = dir.Combine("data"),
                 Port = 0,
                 ConsoleLog = false,
                 FileLog = true,
-                RegisterServices = (router, context) =>
-                {
-                    ServiceRegistry.RegisterAll(router, context);
-                    if (router.Routes.Any(r => r.Name == "admin.status")) return; // ServiceRegistry has them (WP8)
-                    foreach (Type module in modules)
-                    {
-                        if (module == null) continue;
-                        module.GetMethod("Register", new[] { typeof(Router), typeof(ServerContext) }).Invoke(null, new object[] { router, context });
-                    }
-                },
-            };
-            return McvsServer.Create(options);
+                RegisterServices = ServiceRegistry.RegisterAll,
+            });
+            var have = new HashSet<string>(live.Router.Routes.Select(r => r.Name), StringComparer.Ordinal);
+            Assert.Empty(LiveRoutes.Where(r => !have.Contains(r)));
+            live.Start();
+            SeedPlayer(live);
+            IAdminPortal portal = live.Context.Features.Get<IAdminPortal>();
+            Assert.NotNull(portal);
+            string url = portal.MintPageUrl(AdminTriggers.Test, null);
+            Assert.StartsWith("http://127.0.0.1:" + live.Port + "/_mcvs/ui/#t=", url);
+
+            var result = RunNode(node, SmokeScript, url);
+            output.WriteLine(result.Item2);
+            Assert.True(result.Item1 == 0 && result.Item2.Contains("SMOKE OK"), "page-smoke.js against the live server failed:\n" + result.Item2);
+
+            // The page's Save reached settings.json (the smoke turned instantBots off).
+            var settings = MiniJson.ParseObject(File.ReadAllText(Path.Combine(live.Context.DataDir, Settings.FileName)));
+            Assert.Equal(false, settings["instantBots"]);
         }
 
         /// <summary>
@@ -385,7 +339,8 @@ namespace McvsOffline.Tests.Admin
         {
             const string credential = "anonymous:pagesmoke0123456789";
             var account = server.Context.Accounts.GetOrCreate(credential, "page-smoke-device");
-            string token = server.Context.Tokens.Issue(account.Id, credential, McvsConstants.ClientId, new[] { "auth", "storage" }, "page-smoke-device").Token;
+            string token = server.Context.Tokens.Issue(account.Id, credential, McvsConstants.ClientId, new[] { "auth", "storage" }, "page-smoke-device",
+                                                        playerLogin: true).Token;
             var dump = new StringBuilder("{\"@version\":\"0.1\",\"$default\":{\"/Profile\":{\"@type\":\"Game.PlayerProfileComponent\",\"Version\":57,\"GameVersion\":\"1.17.32\",\"PlayerName\":\"smoke\",\"Items\":[");
             for (int i = 0; i < 300; i++) dump.Append(i == 0 ? "" : ",").Append('"').Append(Convert.ToHexString(RandomNumberGenerator.GetBytes(16))).Append('"');
             dump.Append("]}}}");

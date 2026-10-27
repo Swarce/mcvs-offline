@@ -84,9 +84,12 @@ namespace McvsOffline.Server.Services.Admin
         }
 
         /// <summary>
-        /// <c>admin.openVia=post</c>: the game's WebView posts <c>t=&lt;ticket&gt;</c>; the answer is always a 303 to
-        /// <c>GET /_mcvs/ui/</c> (a Refresh then reloads with the cookie instead of re-posting a used ticket), with a new
-        /// session cookie for a valid ticket and without one otherwise.
+        /// <c>admin.openVia=post</c>: the game's WebView posts <c>t=&lt;ticket&gt;</c>, optionally with the page URL's
+        /// <c>s=&lt;screen&gt;</c> and <c>r=nosave</c>; the answer is always a 303 to <c>GET /_mcvs/ui/</c> (a Refresh then
+        /// reloads with the cookie instead of re-posting a used ticket), with a new session cookie for a valid ticket and
+        /// without one otherwise. The screen (default <c>status</c>) and a valid <c>r</c> come back as the redirect's
+        /// fragment (<c>#s=saves&amp;r=nosave</c>), so the page opens on that screen with its toast as it does from the
+        /// fragment of a ticket URL, and without a session shows #banner-nosession rather than view mode.
         /// </summary>
         private HttpResponse PostMode(HttpRequest request)
         {
@@ -95,24 +98,42 @@ namespace McvsOffline.Server.Services.Admin
                 return AdminJson.Error(HttpStatus.NotFound, "not_found", "Not found.");
             if (request.Body.Length > 1024) return AdminJson.TooLarge(1024);
 
-            string ticket = request.IsFormBody ? request.Form.Get("t") : null;
+            ParamCollection form = request.IsFormBody ? request.Form : null;
+            string ticket = form == null ? null : form.Get("t");
+            string location = PageLocation(form);
             string trigger;
             if (ticket != null && security.TryConsumeTicket(ticket, out trigger))
             {
                 AdminSession session = Open(trigger, request);
-                return Redirect(AdminSecurity.SetCookie(session));
+                return Redirect(location, AdminSecurity.SetCookie(session));
             }
-            if (security.SessionOf(request, true) != null) return Redirect(null);
+            if (security.SessionOf(request, true) != null) return Redirect(location, null);
             if (!security.Limiter.Allow(AdminSecurity.TicketFailureBucket, AdminSecurity.TicketFailuresPerMinute))
                 return TicketsRateLimited();
             api.Log.Info("admin: page opened with an invalid or used ticket (post mode)");
-            return Redirect(null);
+            return Redirect(location, null);
         }
 
-        private static HttpResponse Redirect(string setCookie)
+        /// <summary>
+        /// "/_mcvs/ui/#s=&lt;screen&gt;", plus "&amp;r=nosave", from the form's fields that pass the page's own fragment
+        /// checks (§2.5: one of the six screen names; exactly "nosave"); anything else is left out, and the screen is
+        /// "status" (the page's default) when the form names none. The fragment is never empty: the page treats a bare
+        /// URL as a browser's (view mode, §2.4), but a post always comes from the game, so a failed exchange must show
+        /// #banner-nosession.
+        /// </summary>
+        internal static string PageLocation(ParamCollection form)
+        {
+            string screen = form == null ? null : form.Get("s");
+            string result = form == null ? null : form.Get("r");
+            string fragment = "s=" + (AdminPortal.IsScreen(screen) ? screen : "status");
+            if (string.Equals(result, "nosave", StringComparison.Ordinal)) fragment += "&r=nosave";
+            return "/_mcvs/ui/#" + fragment;
+        }
+
+        private static HttpResponse Redirect(string location, string setCookie)
         {
             HttpResponse response = HttpResponse.Empty(AdminJson.SeeOther);
-            response.Headers.Set("Location", "/_mcvs/ui/");
+            response.Headers.Set("Location", location);
             if (setCookie != null) response.Headers.Set("Set-Cookie", setCookie);
             return AdminJson.WithApiHeaders(response);
         }

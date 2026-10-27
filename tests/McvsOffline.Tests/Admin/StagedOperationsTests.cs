@@ -594,11 +594,8 @@ namespace McvsOffline.Tests.Admin
             var options = new ServerOptions
             {
                 DataDir = B.DataDir, Port = 0, ConsoleLog = false, FileLog = false, Clock = B.Clock,
-                RegisterServices = (r, c) =>
-                {
-                    ServiceRegistry.RegisterAll(r, c);
-                    SavesService.Register(r, c);   // no "admin" module: no routes, but the apply still happens
-                },
+                // Without the "admin" module (and "admin-logs"): no routes, but the apply still happens.
+                RegisterServices = (r, c) => ServiceRegistry.RegisterAll(r, c, module => module != "admin" && module != "admin-logs"),
             };
             using var server = McvsServer.Create(options);
             Assert.Equal(phones.X, server.Context.Accounts.Find("anonymous:c2newphone").Id);

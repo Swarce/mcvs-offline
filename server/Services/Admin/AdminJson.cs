@@ -10,10 +10,10 @@ namespace McvsOffline.Server.Services.Admin
     /// </summary>
     public static class AdminJson
     {
-        // Statuses the core HttpStatus table has no constant (or reason phrase) for.
-        public const int SeeOther = 303;
-        public const int UnsupportedMediaType = 415;
-        public const int TooManyRequests = 429;
+        // The statuses only the admin API uses (aliases of the core table's constants).
+        public const int SeeOther = HttpStatus.SeeOther;
+        public const int UnsupportedMediaType = HttpStatus.UnsupportedMediaType;
+        public const int TooManyRequests = HttpStatus.TooManyRequests;
 
         /// <summary>200 with <paramref name="body"/> (a MiniJson value).</summary>
         public static HttpResponse Ok(object body)
@@ -23,9 +23,7 @@ namespace McvsOffline.Server.Services.Admin
 
         public static HttpResponse Json(object body, int status)
         {
-            HttpResponse response = HttpResponse.Json(body, status);
-            response.ReasonPhrase = Reason(status);
-            return WithApiHeaders(response);
+            return WithApiHeaders(HttpResponse.Json(body, status));
         }
 
         public static HttpResponse Error(int status, string code, string message, Dictionary<string, object> details = null)
@@ -57,20 +55,8 @@ namespace McvsOffline.Server.Services.Admin
             if (response == null) return null;
             response.Headers.Set("Cache-Control", "no-store");
             response.Headers.Set("X-Content-Type-Options", "nosniff");
-            if (response.ReasonPhrase == null) response.ReasonPhrase = Reason(response.StatusCode);
+            if (response.ReasonPhrase == null) response.ReasonPhrase = HttpStatus.ReasonPhrase(response.StatusCode);
             return response;
-        }
-
-        /// <summary>The reason phrase for the statuses the core table lacks; null otherwise (the standard one is used).</summary>
-        private static string Reason(int status)
-        {
-            switch (status)
-            {
-                case SeeOther: return "See Other";
-                case UnsupportedMediaType: return "Unsupported Media Type";
-                case TooManyRequests: return "Too Many Requests";
-                default: return null;
-            }
         }
     }
 }

@@ -16,6 +16,7 @@ namespace McvsOffline.Server.Core.Http
         public const int Accepted = 202;
         public const int NoContent = 204;
         public const int Found = 302;
+        public const int SeeOther = 303;
         public const int NotModified = 304;
         public const int BadRequest = 400;
         public const int Unauthorized = 401;
@@ -28,7 +29,9 @@ namespace McvsOffline.Server.Core.Http
         public const int PreconditionFailed = 412;
         public const int PayloadTooLarge = 413;
         public const int UriTooLong = 414;
+        public const int UnsupportedMediaType = 415;
         public const int ExpectationFailed = 417;
+        public const int TooManyRequests = 429;
         public const int RequestHeaderFieldsTooLarge = 431;
         public const int InternalServerError = 500;
         public const int NotImplemented = 501;
@@ -47,6 +50,7 @@ namespace McvsOffline.Server.Core.Http
                 case 206: return "Partial Content";
                 case 301: return "Moved Permanently";
                 case 302: return "Found";
+                case 303: return "See Other";
                 case 304: return "Not Modified";
                 case 400: return "Bad Request";
                 case 401: return "Unauthorized";
@@ -59,8 +63,10 @@ namespace McvsOffline.Server.Core.Http
                 case 412: return "Precondition Failed";
                 case 413: return "Payload Too Large";
                 case 414: return "URI Too Long";
+                case 415: return "Unsupported Media Type";
                 case 416: return "Range Not Satisfiable";
                 case 417: return "Expectation Failed";
+                case 429: return "Too Many Requests";
                 case 431: return "Request Header Fields Too Large";
                 case 500: return "Internal Server Error";
                 case 501: return "Not Implemented";

@@ -71,6 +71,21 @@ namespace McvsOffline.Server.Core.Accounts
             return new Credential(FedId, accountId);
         }
 
+        /// <summary>
+        /// A credential text for logs and pages: "anonymous:a1b2…f9e8", only the first and last 4 characters of the user
+        /// name (the first 4 and "…" for names of 8 characters or fewer). A player's anonymous credential is what opens
+        /// their account, so it is never logged or shown in full.
+        /// </summary>
+        public static string Mask(string credential)
+        {
+            if (string.IsNullOrEmpty(credential)) return credential;
+            int colon = credential.IndexOf(':');
+            string type = colon < 0 ? "" : credential.Substring(0, colon + 1);
+            string name = colon < 0 ? credential : credential.Substring(colon + 1);
+            if (name.Length <= 8) return type + (name.Length <= 4 ? name : name.Substring(0, 4)) + "…";
+            return type + name.Substring(0, 4) + "…" + name.Substring(name.Length - 4);
+        }
+
         /// <summary>"type:username" (or "me").</summary>
         public override string ToString()
         {

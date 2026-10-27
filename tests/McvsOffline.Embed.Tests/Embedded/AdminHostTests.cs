@@ -349,11 +349,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Port = port,
                 Watchdog = false,
                 StatusIntervalMs = 0,
-                RegisterServices = (r, c) =>
-                {
-                    ServiceRegistry.RegisterAll(r, c);
-                    AdminService.Register(r, c);
-                },
+                RegisterServices = ServiceRegistry.RegisterAll,   // every module, the admin modules included
             });
             try
             {
@@ -392,7 +388,7 @@ namespace McvsOffline.Embed.Tests.Embedded
     {
         public const int Port = 51780;
 
-        /// <summary>A composed server with the admin module (not listening) on port 51780.</summary>
+        /// <summary>The composed server (not listening) on port 51780; <paramref name="admin"/> false leaves the admin modules out.</summary>
         public static McvsServer CreateServer(string dataDir, MemoryLogSink logs = null, bool admin = true)
         {
             var options = new ServerOptions
@@ -401,11 +397,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Port = Port,
                 ConsoleLog = false,
                 FileLog = false,
-                RegisterServices = (r, c) =>
-                {
-                    ServiceRegistry.RegisterAll(r, c);
-                    if (admin) AdminService.Register(r, c);
-                },
+                RegisterServices = (r, c) => ServiceRegistry.RegisterAll(r, c, module => admin || !module.StartsWith("admin", StringComparison.Ordinal)),
             };
             if (logs != null) options.ExtraSinks.Add(logs);
             return McvsServer.Create(options);

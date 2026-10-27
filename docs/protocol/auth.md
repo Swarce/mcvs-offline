@@ -166,6 +166,12 @@ Content-Type: application/json; charset=utf-8
   client id and scope set always get the same token back.
 * Malformed requests (no `username`/`credential_type`, type `none`/`me`, a `fed_id` that is not
   `[A-Za-z0-9_-]{1,64}`, an unsupported `grant_type`) get **400**.
+* **The player's login.** A direct anonymous grant counts as the player's own login (`TokenService.LastDirectAnonymous`,
+  the settings page's "current player", design `settings-page.md` §6.6) only when it looks like the game's request
+  above: a POST from loopback (not a LAN guest's), a `device_id` other than `Unknown`, the `User-Agent` `(<client_id>; <datacenter>)` for a client id of
+  the game's form, and no `Origin`, `Referer` or `Sec-Fetch-*` header (`GameRequest`). Any web page on the phone can
+  send a blind GET or form POST to `127.0.0.1` and get a token for a name it picks; such grants still work but log
+  `(not taken as the player's login: <reason>)`.
 
 ### 3.5 authorize: game server and on-behalf grants
 

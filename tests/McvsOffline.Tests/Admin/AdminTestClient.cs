@@ -39,10 +39,10 @@ namespace McvsOffline.Tests.Admin
         }
 
         /// <summary>
-        /// A composed server (every module plus <c>admin</c>) that is not listening, on port 51780, without console or file
-        /// logs. <paramref name="register"/> runs after the admin module (e.g. admin-logs and admin-saves);
-        /// <paramref name="exitTimings"/> shortens the save/restart sequence's waits. Until the integration registers the
-        /// admin modules in ServiceRegistry this adds "admin" itself (a second registration would be ignored anyway).
+        /// A composed server (every module of ServiceRegistry, the admin modules included) that is not listening, on port
+        /// 51780, without console or file logs. <paramref name="register"/> runs after the registry (a second registration of
+        /// an admin module is ignored); <paramref name="exitTimings"/> shortens the save/restart sequence's waits (the second
+        /// AdminService.Register call only sets them).
         /// </summary>
         public static McvsServer CreateServer(string dataDir, MemoryLogSink logs = null, Action<Router, ServerContext> register = null,
                                               IClock clock = null, Action<ServerOptions> configure = null, ExitTimings exitTimings = null)

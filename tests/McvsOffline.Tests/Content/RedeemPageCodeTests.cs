@@ -90,9 +90,10 @@ namespace McvsOffline.Tests.Content
 
             public string OnBehalfToken { get; }
 
-            public HttpResponse Redeem(string code, string token = null, IPEndPoint remote = null, string[] headerPairs = null)
+            public HttpResponse Redeem(string code, string token = null, IPEndPoint remote = null, string[] headerPairs = null,
+                                       string clientId = ContentTestSupport.ClientId)
             {
-                string target = "/coupons/" + ContentTestSupport.ClientId + "/" + code
+                string target = "/coupons/" + clientId + "/" + code
                                 + (token == null ? "" : "?access_token=" + Uri.EscapeDataString(token));
                 var headers = new HttpHeaders();
                 string[] pairs = headerPairs ?? GameHeaders;
@@ -216,6 +217,67 @@ namespace McvsOffline.Tests.Content
             Assert.Equal(1, rig.Opened);
         }
 
+        /// <summary>
+        /// A browser without Fetch Metadata (Chromium before 76, old stock browsers) and an &lt;img referrerpolicy=
+        /// "no-referrer"&gt; send no Origin, Referer or Sec-Fetch-*. The page picks the client id in the path, so it can
+        /// choose one its own User-Agent contains: every Android browser's has "(Linux; ". Only the game's client id form
+        /// and the game's exact User-Agent count.
+        /// </summary>
+        [Fact]
+        public void AnOldBrowsersImageCannotPickTheClientId()
+        {
+            using var rig = new Rig();
+            const string oldWebView = "Mozilla/5.0 (Linux; Android 7.0; SM-G930F Build/NRD90M; wv) AppleWebKit/537.36 (KHTML, like Gecko) "
+                                      + "Version/4.0 Chrome/64.0.3282.137 Mobile Safari/537.36";
+            string[] image = { "Host", "127.0.0.1:51780", "User-Agent", oldWebView, "Accept", "image/webp,image/apng,image/*,*/*;q=0.8" };
+            foreach (string clientId in new[] { "Linux", "Android 7.0", "wv", "KHTML, like Gecko", "Linux; Android 7.0; SM-G930F Build" })
+            {
+                AssertDoesNotExist(rig.Redeem("MCVSOFFLINE", headerPairs: image, clientId: Uri.EscapeDataString(clientId)));
+            }
+            Assert.True(rig.Logged("MCVSOFFLINE", "ignored: not the game's client id"));
+            // With the game's client id the browser's User-Agent does not match.
+            AssertDoesNotExist(rig.Redeem("MCVSOFFLINE", headerPairs: image));
+            Assert.True(rig.Logged("MCVSOFFLINE", "ignored: not the game's User-Agent"));
+
+            // Only "[<agent> ](<client id>; <datacenter>)" is the game's.
+            string id = ContentTestSupport.ClientId;
+            foreach (string ua in new[]
+                     {
+                         "Mozilla/5.0 (" + id + "; mcvs)", "(" + id + "; mcvs) Chrome/64", "(" + id + "; mcvs; x)", "(" + id + "; mc vs)",
+                         "(" + id + ";mcvs)", "Two Agents (" + id + "; mcvs)", "(Linux) (" + id + "; mcvs)", "(" + id + "x; mcvs)",
+                     })
+            {
+                AssertDoesNotExist(rig.Redeem("MCVSOFFLINE", headerPairs: new[] { "Host", "127.0.0.1:51780", "User-Agent", ua }));
+            }
+            Assert.Equal(0, rig.Opened);
+            foreach (string clientId in new[] { "1:2:3", "a:66102:1.17.32:android:googleplay", "2620:66102:1.17.32:Android:googleplay",
+                                                "2620:66102::android:googleplay", "2620:66102:1.17.32:android:google play" })
+                Assert.False(GameRequest.IsClientId(clientId), clientId);
+            Assert.True(GameRequest.IsClientId("1875:55437:2.0.1:ios:appstore"));
+
+            AssertDoesNotExist(rig.Redeem("MCVSOFFLINE", headerPairs: new[] { "Host", "127.0.0.1:51780", "User-Agent", " (" + id + "; mcvs) " }));
+            Assert.Equal(1, rig.Opened);
+        }
+
+        /// <summary>
+        /// In LAN mode a guest's redemption runs on this phone's menu server (RedeemCouponRemote with the guest's
+        /// RemoteSource.Session) and reaches the Federation over loopback with the game's User-Agent and no token: it
+        /// cannot be told from the player's own, so the code does nothing while LAN mode is on.
+        /// </summary>
+        [Fact]
+        public void LanModeTurnsTheCodeOff()
+        {
+            using var rig = new Rig();
+            rig.Server.Context.Settings.Override("lanMode", true);
+            AssertDoesNotExist(rig.Redeem("MCVSOFFLINE"));
+            Assert.True(rig.Logged("MCVSOFFLINE", "ignored: LAN mode is on (a guest's code would open it on this phone)"));
+            AssertDoesNotExist(rig.Redeem("MCVSOFFLINE", rig.OnBehalfToken));
+            Assert.Equal(0, rig.Opened);
+            rig.Server.Context.Settings.Override("lanMode", false);
+            AssertDoesNotExist(rig.Redeem("MCVSOFFLINE"));
+            Assert.Equal(1, rig.Opened);
+        }
+
         [Fact]
         public void NoHostOrATurnedOffPageOpensNothing()
         {
@@ -292,6 +354,11 @@ namespace McvsOffline.Tests.Content
             dynamic client = await GameClient.Await(fed.OpenSession(credential, "f3c1a9d2e8b74c55", "mcvs" + new string('7', 32), null,
                                                                     new List<string>(GameScopes.Client), ct));
             Assert.True((bool)client.IsOpen);
+            // The real client's own login (POST authorize, its User-Agent, a device id) is taken as the player's login
+            // (TokenService.LastDirectAnonymous, the "session" source of the current player, design §6.6).
+            Assert.Equal("anonymous:" + user, server.Context.Tokens.LastDirectAnonymous?.Credential);
+            Assert.Equal("mcvs" + new string('7', 32), server.Context.Tokens.LastDirectAnonymous.DeviceId);
+            Assert.False(logs.Contains("not taken as the player's login"));
             host.Info.GameCredential = "anonymous:" + user;
 
             // The menu server: game-server credential, session for the player (EN/Connection.cs SessionForUser).

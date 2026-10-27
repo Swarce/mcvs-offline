@@ -168,6 +168,11 @@ class Page {
     this.errors = [];
     this.pushes = 0;
     this.replaces = 0;
+    // The WebView's session history of this document: entries pushed by the page, the current index, and the page's
+    // own history.back() calls (each one a later traversal, like a browser).
+    this.entries = [{ state: null }];
+    this.index = 0;
+    this.backs = 0;
     this.pending = 0;
     this.requests = [];
     this.clipboard = [];
@@ -346,10 +351,23 @@ class Page {
       get pathname() { return page.pathname; },
     };
     const history = {
-      replaceState: (state, title, url) => { page.replaces++; if (url !== undefined) hash = String(url).indexOf('#') >= 0 ? String(url).slice(String(url).indexOf('#')) : ''; },
+      replaceState: (state, title, url) => {
+        page.replaces++;
+        page.entries[page.index] = { state: state === undefined ? null : state };
+        if (url !== undefined) hash = String(url).indexOf('#') >= 0 ? String(url).slice(String(url).indexOf('#')) : '';
+      },
       pushState: (state) => {
         if (!state || state.mcvs !== 1) throw new Error('pushState without {mcvs: 1}');
         page.pushes++;
+        page.entries.splice(page.index + 1);
+        page.entries.push({ state });
+        page.index = page.entries.length - 1;
+      },
+      // Asynchronous, as in a browser: the popstate comes after the current task.
+      back: () => {
+        page.backs++;
+        page.pending++;
+        setTimeout(() => { page.pending--; page.traverse(-1); }, 0);
       },
     };
     // options.clipboard: 'api' (navigator.clipboard works), 'command' (it refuses; execCommand('copy') works),
@@ -591,9 +609,32 @@ class Page {
     this.fire(n, 'input');
   }
 
+  // One step through the session history with a popstate, as WebView.goBack/goForward do; false when there is none.
+  traverse(delta) {
+    const to = this.index + delta;
+    if (this.closed || to < 0 || to >= this.entries.length) return false;
+    this.index = to;
+    const state = this.entries[to].state;
+    for (const fn of this.listeners.popstate.slice()) this.guard('popstate', fn)({ state });
+    return true;
+  }
+
+  // Whether hardware Back would close the browser now: InGameBrowser.onBackPressed is
+  // `if (webView.canGoBack()) webView.goBack(); else close`, and the page is the first entry of its WebView.
+  backCloses() { return this.index === 0; }
+
+  // Hardware Back. Returns false (and changes nothing) when it would close the browser instead.
   async back() {
-    for (const fn of this.listeners.popstate.slice()) this.guard('popstate', fn)(new Proxy({}, {}));
+    if (this.backCloses()) return false;
+    this.traverse(-1);
     await this.settle();
+    return true;
+  }
+
+  async forward() {
+    const moved = this.traverse(1);
+    await this.settle();
+    return moved;
   }
 
   // The first descendant of #id that reacts to a tap (list rows have no ids).
@@ -699,11 +740,11 @@ async function fullRun(url, jar, mode, fx) {
     for (const preset of ['preset-standard', 'preset-relaxed', 'preset-fast']) check(p.el(preset), 'run 1: ' + preset + ' missing');
     await p.tap('preset-relaxed');
     check(p.text('set-economy-versusCoinsMultiplier') === '2.0', 'run 1: preset Relaxed did not fill VersusCoins (' + p.text('set-economy-versusCoinsMultiplier') + ')');
+    check(!p.backCloses(), 'run 1: a pending preset edit left no history entry for Back');
     await p.tap('settings-discard');
     check(p.disabled(p.el('settings-save')), 'run 1: Save enabled after Discard');
-    // The history entry pushed for the preset edit stays after Discard; Back with nothing to lose just consumes it.
-    await p.back();
-    check(!p.isShown('dialog'), 'run 1: Back with nothing to lose opened a dialog');
+    // Nothing left to lose: the page takes its entry off again, so hardware Back closes the browser (§2.1, C18).
+    check(p.backCloses(), 'run 1: after Discard hardware Back would not close the browser (' + p.index + ' entries above the page)');
   }
   const pushesBefore = p.pushes;
   await p.tap('grp-gameplay');
@@ -712,17 +753,35 @@ async function fullRun(url, jar, mode, fx) {
   await p.tap('set-instantBots');
   check(p.pushes === pushesBefore + 1, 'run 1: a pending setting edit pushed ' + (p.pushes - pushesBefore) + ' history entries, not 1');
   check(!p.disabled(p.el('settings-save')), 'run 1: Save disabled with a pending edit');
-  await p.back();
+  check(await p.back(), 'run 1: Back with a pending edit would close the browser');
   check(p.isShown('dialog') && /Discard/.test(p.text('dialog-title')), 'run 1: Back with a pending edit did not ask "Discard your changes?"');
+  check(p.backCloses(), 'run 1: while "Discard your changes?" is open a second Back does not leave the page');
   await p.tap('dialog-cancel', 'Stay');
   check(!p.isShown('dialog'), 'run 1: the dialog stayed open after Stay');
   check(p.pushes === pushesBefore + 2, 'run 1: Stay did not push the history entry again');
+  check(!p.backCloses(), 'run 1: after Stay Back would close the browser');
   await p.tap('settings-save');
   if (p.isShown('dialog')) await p.tap('dialog-ok', 'confirm the save');
   check(/No changes/.test(p.text('settings-dirty')), 'run 1: settings still dirty after Save (' + p.text('settings-dirty') + ')');
   check(/Saved/.test(p.text('toast-text')), 'run 1: no "Saved" toast (' + p.text('toast-text') + ')');
   const after = p.el('set-instantBots');
   check(after && after.props.checked === !before, 'run 1: #set-instantBots does not show the saved value');
+  // C18: edit, Back, Stay, Save, Back closes the browser (the entry is gone after the save).
+  check(p.backCloses(), 'run 1: after Save hardware Back would not close the browser (' + p.index + ' entries above the page)');
+
+  // A dialog (the confirmation of a risky setting): Back closes it and keeps the edit; Discard then leaves no entry.
+  await p.tap('set-devMenu');
+  await p.tap('settings-save');
+  if (check(p.isShown('dialog'), 'run 1: enabling the cheat menu did not ask first')) {
+    check(await p.back(), 'run 1: Back with a dialog open would close the browser');
+    check(!p.isShown('dialog'), 'run 1: Back did not close the dialog');
+    check(!/No changes/.test(p.text('settings-dirty')), 'run 1: Back on the dialog dropped the pending edit');
+    check(!p.backCloses(), 'run 1: the pending edit has no history entry after the dialog closed');
+  }
+  await p.tap('settings-discard');
+  check(p.backCloses(), 'run 1: after the dialog and Discard Back would not close the browser');
+  // The browser's Forward button onto the old entry: the page takes it off again.
+  if (await p.forward()) check(p.backCloses(), 'run 1: Forward onto the page\'s old entry left it there');
   log('  settings: instantBots ' + before + ' -> ' + !before + ', Back guard and Save ok');
 
   // Logs: open a file, filter, then build the zip.
@@ -789,6 +848,8 @@ async function fullRun(url, jar, mode, fx) {
   await p.tap('nav-about');
 
   check(!p.isShown('banner-error'), 'run 1: #banner-error shown at the end');
+  check(!p.isShown('dialog') && p.backCloses(), 'run 1: with nothing open or unsaved, hardware Back would not close the browser at the end ('
+        + p.index + ' entries above the page)');
   check(p.pageErrorsShown() === null, 'run 1: the page reported errors: ' + p.pageErrorsShown());
   p.close();
 
@@ -843,6 +904,26 @@ async function fixtureExtras(p, fx) {
   await p.tap('saves-open-export');
   await p.tap('export-share');
   check(/within a minute/.test(p.text('export-result')), 'fixtures: export share result missing (' + p.text('export-result') + ')');
+  // 413 too_large: more than 999 parts of 1,900 characters. The page offers larger parts and a file.
+  fx.state.exportTooLarge = 'parts';
+  await p.choose('export-partsize', '1900');
+  await p.tap('export-copy');
+  check(/999 parts/.test(p.text('export-result')) && p.isShown('export-more'), 'fixtures: export 413 (parts) not explained (' + p.text('export-result') + ')');
+  check(p.button('export-more', 'Use Telegram parts (3,900)') && p.button('export-more', 'Share as a file'), 'fixtures: export 413 (parts) offers ' + p.text('export-more'));
+  await p.tap(p.button('export-more', 'Use whole parts (60,000)'));
+  check(p.isShown('export-text') && !p.isShown('export-more') && p.byId('export-partsize').props.value === '60000', 'fixtures: larger parts after a 413 did not export');
+  check(fx.state.exports[fx.state.exports.length - 1].partChars === 60000, 'fixtures: the retry did not ask for 60,000-character parts');
+  // 413 too_large in bytes: only the .json file can carry it.
+  fx.state.exportTooLarge = 'bytes';
+  await p.tap('export-copy');
+  const json = p.button('export-more', 'Share as a .json file');
+  if (check(json, 'fixtures: export 413 (bytes) offers ' + p.text('export-more'))) {
+    await p.tap(json);
+    const last = fx.state.exports[fx.state.exports.length - 1];
+    check(last.format === 'json' && last.target === 'share', 'fixtures: the .json share asked for ' + JSON.stringify(last));
+    check(/within a minute/.test(p.text('export-result')) && !p.isShown('export-more'), 'fixtures: the .json share result is missing (' + p.text('export-result') + ')');
+  }
+  fx.state.exportTooLarge = null;
   await p.tap('export-back');
   await p.tap('saves-open-import');
   const fileCheck = p.button('import-files', 'Check');
@@ -873,7 +954,22 @@ async function fixtureExtras(p, fx) {
   await p.tap('logs-share');
   check(/within a minute/.test(p.text('logs-built')), 'fixtures: logs share result missing (' + p.text('logs-built') + ')');
   await p.tap('logs-share-text');
+  check(/Choose an app\. Come back to the game within a minute/.test(p.text('toast-text')), 'fixtures: text report toast (' + p.text('toast-text') + ')');
+  fx.state.shareTextResult = { ok: false, method: 'text', publicPath: null, message: 'The share sheet is slow to open; it may still appear.' };
+  await p.tap('logs-share-text');
+  check(/may still appear\. If it opens, come back .*; if not, try again/.test(p.text('toast-text')), 'fixtures: slow text report toast (' + p.text('toast-text') + ')');
+  fx.state.shareTextResult = { ok: false, method: 'none', publicPath: null, message: 'Sharing failed: no activity.' };
+  await p.tap('logs-share-text');
+  check(p.text('toast-text') === 'Sharing failed: no activity.', 'fixtures: failed text report toast (' + p.text('toast-text') + ')');
+  fx.state.shareTextResult = null;
   await p.tap('logs-tab-view');
+  // game.log: the game's clock (no date) is shown as it is.
+  const gameLog = [...walk(p.el('logs-files'))].find((n) => n.listeners.click && /game\.log/.test(textOf(n)) && p.isShown(n));
+  if (check(gameLog, 'fixtures: game.log is not listed')) {
+    await p.tap(gameLog);
+    check(/10:42:39\.123 ERROR/.test(p.text('logs-view')), 'fixtures: game.log times not shown (' + p.text('logs-view').slice(0, 120) + ')');
+    await p.tap('logs-back');
+  }
   await p.tap('nav-actions');
   await p.tap('action-crm-reload');
   check(/takes effect/.test(p.text('toast-text')), 'fixtures: CRM rebuild not confirmed');
@@ -914,6 +1010,11 @@ async function repairRun(fx) {
     await p.tap(copy);
     check(fx.state.clipboard.length === 1, 'run 4: the copy did not fall back to POST clipboard');
     check(/through the game/.test(p.text('toast-text')), 'run 4: wrong copy toast (' + p.text('toast-text') + ')');
+    // The game could not copy (POST clipboard 501): the player copies it by hand.
+    fx.state.clipboardFails = true;
+    await p.tap(copy);
+    check(/^Could not copy\. Select the text/.test(p.text('toast-text')), 'run 4: wrong toast when the game cannot copy (' + p.text('toast-text') + ')');
+    fx.state.clipboardFails = false;
   }
   check(p.pageErrorsShown() === null, 'run 4: page errors: ' + p.pageErrorsShown());
   p.close();
@@ -938,6 +1039,36 @@ async function edgeRuns(fx) {
   p3.close();
   fx.state.down = false;
   log('runs 5-7: r=nosave, used ticket, dead server ok');
+
+  // Post mode when the exchange failed (a used or expired ticket, or a WebView that dropped the 303's cookie): the
+  // redirect always names the screen (§5.3), and the page asks to open it from the game instead of view mode.
+  const p8 = await new Page('run 8 (post mode, no session)', fx.origin, new CookieJar()).load(fx.origin + '/_mcvs/ui/#s=status');
+  check(p8.isShown('banner-nosession'), 'run 8: the failed post-mode exchange did not show #banner-nosession');
+  check(!p8.isShown('banner-viewmode'), 'run 8: the failed post-mode exchange showed #banner-viewmode');
+  p8.close();
+
+  // The probation banner shows the server's sentences as written (§6.5): no repeated prefix, no "..".
+  const reverted = 'Reverted automatically: the game did not load this save in 3 starts.';
+  const notes = reverted + ' (the backup from before it is gone or unreadable, so the save was not restored)';
+  const banners = [
+    [{ result: 'reverted', message: reverted }, reverted],
+    [{ result: 'reverted', message: notes }, notes],
+    [{ result: 'reverted', message: null }, 'Reverted automatically: the game did not load the save in 3 starts.'],
+    [{ result: 'failed', message: 'Gave up after 3 attempts.' }, 'The last operation failed: Gave up after 3 attempts.'],
+    [{ result: 'failed', message: 'The staged save is damaged or missing.' }, 'The last operation failed: The staged save is damaged or missing.'],
+    [{ result: 'failed', message: 'disk full' }, 'The last operation failed: disk full.'],
+  ];
+  const lastBefore = fx.state.last;
+  for (let i = 0; i < banners.length; i++) {
+    fx.state.last = Object.assign({ id: '2026102' + i + 'T080000000Z-import', kind: 'import', at: ISO(Date.now() - 3600000), undoable: false }, banners[i][0]);
+    const pb = await new Page('run 9.' + (i + 1) + ' (' + banners[i][0].result + ' banner)', fx.origin, new CookieJar()).load(fx.origin + '/_mcvs/ui/#t=' + fx.mintTicket());
+    check(pb.isShown('banner-probation') && pb.text('banner-probation-text') === banners[i][1],
+          pb.label + ': #banner-probation reads "' + pb.text('banner-probation-text') + '", not "' + banners[i][1] + '"');
+    check(pb.pageErrorsShown() === null, pb.label + ': page errors: ' + pb.pageErrorsShown());
+    pb.close();
+  }
+  fx.state.last = lastBefore;
+  log('runs 8-9: failed post-mode exchange, probation banners ok');
 }
 
 function acornCheck(html) {
@@ -1055,6 +1186,9 @@ function startFixtures(html) {
       [OTHER]: [{ id: '20261020T080000000Z-r900-auto', date: ISO(Date.now() - 86400000 * 6), revision: 900, reason: 'auto', pool: 'auto', size: 640000, level: 41, deletable: false }],
     },
     sets: {}, uploads: {}, zip: null,
+    // Failure switches of the extras: export 413 ('parts' for 1,900-character parts, or 'bytes'), the text report's share
+    // result, POST clipboard answering 501.
+    exportTooLarge: null, exports: [], shareTextResult: null, clipboardFails: false,
   };
   for (const k in keys) if (keys[k].editable) state.values[k] = keys[k].default;
   state.boot = Object.assign({}, state.values);
@@ -1118,10 +1252,12 @@ function startFixtures(html) {
     current: { account: ACCOUNT, alias: 'Player0815', level: 37, source: 'game' },
     plans: [plan], plan, errors: [], warnings: plan === 'replace' ? [] : ['This phone already has a newer save of that account (revision 950 > 900).'], canStage: true,
   });
-  const logEntries = (min) => {
+  const logEntries = (min, name) => {
     const order = ['TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR'];
     const all = [];
-    for (let i = 0; i < 40; i++) all.push({ t: ISO(Date.now() - (40 - i) * 1000), l: order[i % 5], c: ['http', 'crm', 'storage'][i % 3], m: 'line ' + i + (i % 7 === 0 ? '\n   at Something.Else()' : '') });
+    // game.log has the game's own clock, without a date (design §7.1).
+    const time = (i) => (name === 'game.log' ? '10:42:' + String(i).padStart(2, '0') + '.123' : ISO(Date.now() - (40 - i) * 1000));
+    for (let i = 0; i < 40; i++) all.push({ t: time(i), l: order[i % 5], c: ['http', 'crm', 'storage'][i % 3], m: 'line ' + i + (i % 7 === 0 ? '\n   at Something.Else()' : '') });
     return all.filter((e) => order.indexOf(e.l) >= order.indexOf(String(min || 'trace').toUpperCase()));
   };
 
@@ -1170,6 +1306,7 @@ function startFixtures(html) {
     }],
     ['GET', /^codes$/, true, (req, res) => json(res, 200, { codes: [{ code: 'UNLOCKALL', description: 'Everything that was released.', numericSuffix: true }, { code: 'UNLOCKMERCS', description: 'Every agent.', numericSuffix: true }], pageCode: 'MCVSOFFLINE', enabled: true })],
     ['POST', /^clipboard$/, true, (req, res, body) => {
+      if (state.clipboardFails) return error(res, 501, 'not_supported', 'The game could not copy the text.');
       state.clipboard.push(body.text);
       return json(res, 200, { ok: true });
     }],
@@ -1243,6 +1380,13 @@ function startFixtures(html) {
     }],
     ['POST', /^saves\/([0-9a-f]{24})\/relink$/, true, (req, res, body, m) => (body.confirm === 'switch' ? stage(res, body, manifest('relink', 'switch', m[1], { alias: account(m[1]).alias, level: 41 })) : error(res, 400, 'invalid', 'Confirm.'))],
     ['POST', /^saves\/([0-9a-f]{24})\/export$/, true, (req, res, body) => {
+      state.exports.push(body);
+      if (state.exportTooLarge === 'parts' && body.format !== 'json' && body.partChars === 1900) {
+        return error(res, 413, 'too_large', 'This save needs more than 999 parts of 1900 characters. Choose larger parts, or share it as a file.', { limit: 999, unit: 'parts', partChars: 1900 });
+      }
+      if (state.exportTooLarge === 'bytes' && body.format !== 'json') {
+        return error(res, 413, 'too_large', 'This save is too large to export as transfer text. Export it as a .json file.', { limit: 16777216, unit: 'bytes', partChars: body.partChars || 60000 });
+      }
       const t = transfer(body.partChars || 60000);
       if (body.target === 'text') return json(res, 200, { file: null, size: t.chars, asOf: ISO(Date.now() - 420000), transfer: t, share: null });
       t.texts = null;
@@ -1250,14 +1394,14 @@ function startFixtures(html) {
     }],
     ['GET', /^logs$/, true, (req, res) => json(res, 200, {
       directories: [{ index: 0, path: '/data/McvsOffline/logs', kind: 'primary' }],
-      files: [{ dir: 0, name: 'server.log', kind: 'server', size: 5242880, modified: ISO(Date.now()) }, { dir: 0, name: 'bootstrap.log', kind: 'bootstrap', size: 80000, modified: ISO(Date.now()) }, { dir: 0, name: 'crash-20261025-1010.txt', kind: 'crash', size: 9000, modified: ISO(Date.now() - 864e5) }],
+      files: [{ dir: 0, name: 'server.log', kind: 'server', size: 5242880, modified: ISO(Date.now()) }, { dir: 0, name: 'bootstrap.log', kind: 'bootstrap', size: 80000, modified: ISO(Date.now()) }, { dir: 0, name: 'game.log', kind: 'game', size: 40000, modified: ISO(Date.now()) }, { dir: 0, name: 'crash-20261025-1010.txt', kind: 'crash', size: 9000, modified: ISO(Date.now() - 864e5) }],
       mirror: 'active, 3 files, last copy 12 s ago',
     })],
     ['POST', /^logs\/zip$/, true, (req, res) => { state.zip = 'mcvs-logs-20261026-101500.zip'; return json(res, 200, { file: state.zip, size: 2412345, entries: 14, skipped: 3, fits: { discord: true, gmail: true } }); }],
     ['POST', /^logs\/share$/, true, (req, res, body) => (body.file === state.zip ? json(res, 200, { share: { ok: true, method: 'sheet', publicPath: 'Download/MCVS-Offline/' + state.zip, message: 'Shared.' } }) : error(res, 404, 'not_found', 'Build the zip first.'))],
-    ['POST', /^logs\/share-text$/, true, (req, res) => json(res, 200, { share: { ok: true, method: 'text', publicPath: null, message: 'Shared as text.' } })],
+    ['POST', /^logs\/share-text$/, true, (req, res) => json(res, 200, { share: state.shareTextResult || { ok: true, method: 'text', publicPath: null, message: 'Choose an app.' } })],
     ['GET', /^logs\/([A-Za-z0-9._-]{1,128})$/, true, (req, res, body, m, s, q) => {
-      const entries = logEntries(q.get('min')).filter((e) => !q.get('q') || e.m.indexOf(q.get('q')) >= 0);
+      const entries = logEntries(q.get('min'), m[1]).filter((e) => !q.get('q') || e.m.indexOf(q.get('q')) >= 0);
       return json(res, 200, { name: m[1], size: 5242880, window: 1048576, truncatedHead: true, entries: entries.slice(-Number(q.get('lines') || 200)) });
     }],
   ];

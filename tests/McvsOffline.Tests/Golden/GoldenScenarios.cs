@@ -420,9 +420,9 @@ namespace McvsOffline.Tests.Golden
     /// The server of one golden run: every module (<see cref="ServiceRegistry.RegisterAll"/>, as the hosts compose it)
     /// in a temporary data directory, default settings, a <see cref="ManualClock"/>, not listening (requests go through
     /// <see cref="McvsServer.Handle"/>), logs captured in <see cref="Logs"/>. The admin module (the settings page, whose
-    /// <c>IAdminPortal</c> gives the CRM its <c>newsfeeds</c> inbox item) is registered after the registry, where the
-    /// registry itself registers it once the settings page lands; that second registration is ignored, so the run
-    /// composes the same server before and after.
+    /// <c>IAdminPortal</c> gives the CRM its <c>newsfeeds</c> inbox item) is registered after the registry: on ac64bfd
+    /// the registry did not have it yet; since the settings page merged (e931bb8) the registry registers it itself and
+    /// this second registration is ignored, so the run composes the same server on both.
     /// </summary>
     internal sealed class GoldenRun : IDisposable
     {

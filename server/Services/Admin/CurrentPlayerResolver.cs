@@ -11,9 +11,10 @@ namespace McvsOffline.Server.Services.Admin
     /// <list type="number">
     /// <item><c>game</c>: the game's own credential as the host read it on the game thread (cannot be spoofed by a
     /// request) → <c>Accounts.Find</c>;</item>
-    /// <item><c>session</c>: the last direct anonymous grant (<see cref="TokenService.LastDirectAnonymous"/>), only from
-    /// the game's client id form (":android:") and, when both are known, the host's device id; any local app can call
-    /// auth/authorize without a password, so nothing else is trusted;</item>
+    /// <item><c>session</c>: the player's last own login (<see cref="TokenService.LastDirectAnonymous"/>: auth/authorize
+    /// remembers only a POST with the game's User-Agent, a device id and no browser header, so no web page's request
+    /// counts), only from the game's client id form (":android:"), with a device id, and the host's device id when the
+    /// host knows it; authorize takes any anonymous name without a password, so nothing else is trusted;</item>
     /// <item><c>device</c>: exactly one account recorded for the host's device id;</item>
     /// <item><c>single</c>: exactly one stored profile holds a game profile;</item>
     /// <item>none (<c>Source</c> null).</item>
@@ -53,12 +54,13 @@ namespace McvsOffline.Server.Services.Admin
                 if (account != null) return new CurrentPlayer { AccountId = account.Id, Credential = gameCredential, Source = "game" };
             }
 
-            // 2. The player's own last login, from the game's client and this device.
+            // 2. The player's own last login, from the game's client and this device. The game's login always sends its
+            //    device id (OP/Session.cs GetAuthorizeRequest).
             TokenInfo last = context.Tokens.LastDirectAnonymous;
             if (last != null && last.Credential != null && last.Credential.StartsWith("anonymous:", StringComparison.Ordinal)
                 && last.ClientId != null && last.ClientId.IndexOf(":android:", StringComparison.Ordinal) >= 0
-                && (string.IsNullOrEmpty(hostDevice) || string.IsNullOrEmpty(last.DeviceId)
-                    || string.Equals(hostDevice, last.DeviceId, StringComparison.Ordinal)))
+                && !string.IsNullOrEmpty(last.DeviceId) && !string.Equals(last.DeviceId, "Unknown", StringComparison.Ordinal)
+                && (string.IsNullOrEmpty(hostDevice) || string.Equals(hostDevice, last.DeviceId, StringComparison.Ordinal)))
             {
                 Account account = context.Accounts.Find(last.Credential); // follows relinks
                 if (account != null) return new CurrentPlayer { AccountId = account.Id, Credential = last.Credential, Source = "session" };

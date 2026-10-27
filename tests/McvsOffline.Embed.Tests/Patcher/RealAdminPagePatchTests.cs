@@ -15,10 +15,7 @@ using Mono.Cecil.Cil;
 using Xunit;
 using Xunit.Abstractions;
 using GameContext = McvsOffline.Embed.Tests.Patcher.RealGamePatchTests.GameContext;
-using MethodAttributes = Mono.Cecil.MethodAttributes;
 using OpCodes = Mono.Cecil.Cil.OpCodes;
-using ParameterAttributes = Mono.Cecil.ParameterAttributes;
-using TypeAttributes = Mono.Cecil.TypeAttributes;
 
 namespace McvsOffline.Embed.Tests.Patcher
 {
@@ -639,124 +636,45 @@ namespace McvsOffline
 
         // ------------------------------------------------------------------ the embedded server for full patcher runs
 
-        private static readonly object EmbeddedGate = new object();
-        private static string embeddedSource, embeddedWithHooks;
-
-        /// <summary>
-        /// The explicit opt-in for the pass-through hooks of <see cref="EmbeddedServer"/>: set only by the runs of settings-page
-        /// WP6's own branch (wip/admin-patcher), whose embedded build cannot have WP5's hooks yet; never by scripts/build.sh.
-        /// </summary>
-        internal const string StandInVariable = "MCVS_ADMINHOOKS_STAND_IN";
-
         /// <summary>
         /// The embedded server DLL of scripts/build.sh for full patcher runs with the default patches, or null (skipped) when it
-        /// was not built. The default 'adminpage' and 'adminlink' call McvsOffline.AdminHooks (hosts/embedded/Admin/AdminHooks.cs,
-        /// settings-page WP5): a build without it cannot be patched with the default options, which fails the run under
-        /// MCVS_REQUIRE_EMBEDDED=1 (skipped otherwise). Only with <see cref="StandInVariable"/>=1 does a copy with pass-through
-        /// hooks of the §8.1 signatures stand in, so WP6's branch can verify both patches on the real APK before WP5 lands. WP6
-        /// lands on main-dev with or after WP5, and WP8 deletes the stand-in.
+        /// was not built. The default 'adminpage' and 'adminlink' call McvsOffline.AdminHooks (hosts/embedded/Admin/AdminHooks.cs):
+        /// a build without it cannot be patched with the default options, which fails the run under MCVS_REQUIRE_EMBEDDED=1
+        /// (skipped otherwise).
         /// </summary>
         internal static string EmbeddedServer(ITestOutputHelper output)
         {
-            return EmbeddedServer(TestEnvironment.EmbeddedServerDll, Environment.GetEnvironmentVariable(StandInVariable) == "1",
-                                  Environment.GetEnvironmentVariable("MCVS_REQUIRE_EMBEDDED") == "1", output);
+            return EmbeddedServer(TestEnvironment.EmbeddedServerDll, Environment.GetEnvironmentVariable("MCVS_REQUIRE_EMBEDDED") == "1", output);
         }
 
-        /// <summary><see cref="EmbeddedServer(ITestOutputHelper)"/> for <paramref name="dll"/> with the two switches given.</summary>
-        internal static string EmbeddedServer(string dll, bool standIn, bool required, ITestOutputHelper output)
+        /// <summary><see cref="EmbeddedServer(ITestOutputHelper)"/> for <paramref name="dll"/>.</summary>
+        internal static string EmbeddedServer(string dll, bool required, ITestOutputHelper output)
         {
             if (dll == null) return null;
-            lock (EmbeddedGate)
+            using (ModuleDefinition module = ModuleDefinition.ReadModule(new MemoryStream(File.ReadAllBytes(dll))))
             {
-                byte[] bytes = File.ReadAllBytes(dll);
-                using (ModuleDefinition module = ModuleDefinition.ReadModule(new MemoryStream(bytes)))
-                {
-                    if (module.GetType(AdminPagePatch.HooksType) != null) return dll;
-                }
-                string missing = "the embedded build " + dll + " has no " + AdminPagePatch.HooksType + " (settings-page WP5): the default patches cannot be applied";
-                if (!standIn)
-                {
-                    if (required) throw new InvalidOperationException("MCVS_REQUIRE_EMBEDDED=1 but " + missing);
-                    output?.WriteLine(missing + ": skipped");
-                    return null;
-                }
-                if (embeddedWithHooks == null || embeddedSource != dll)
-                {
-                    string copy = Path.Combine(TestEnvironment.NewTempDir("embedded-adminhooks"), Path.GetFileName(dll));
-                    File.WriteAllBytes(copy, WithPassThroughAdminHooks(bytes));
-                    embeddedSource = dll;
-                    embeddedWithHooks = copy;
-                }
-                output?.WriteLine(StandInVariable + "=1 and " + missing + ": using a copy with pass-through hooks (" + embeddedWithHooks + ")");
-                return embeddedWithHooks;
+                if (module.GetType(AdminPagePatch.HooksType) != null) return dll;
             }
-        }
-
-        /// <summary>
-        /// <paramref name="server"/> with a public static class McvsOffline.AdminHooks whose three methods have the §8.1 signatures
-        /// in the server's own mscorlib: AccountMenuButtons returns its argument, OpenPage does nothing, OpenIfPageMarker is false.
-        /// </summary>
-        internal static byte[] WithPassThroughAdminHooks(byte[] server)
-        {
-            using (var resolver = new DefaultAssemblyResolver())
-            {
-                if (TestEnvironment.GameAssemblies != null) resolver.AddSearchDirectory(TestEnvironment.GameAssemblies);
-                using (ModuleDefinition module = ModuleDefinition.ReadModule(new MemoryStream(server), new ReaderParameters { AssemblyResolver = resolver, InMemory = true }))
-                {
-                    TypeSystem types = module.TypeSystem;
-                    var hooks = new TypeDefinition("McvsOffline", "AdminHooks",
-                        TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed | TypeAttributes.BeforeFieldInit, types.Object);
-                    var enumerable = new TypeReference("System.Collections.Generic", "IEnumerable`1", module, types.CoreLibrary);
-                    enumerable.GenericParameters.Add(new GenericParameter(enumerable));
-                    var buttons = new GenericInstanceType(enumerable);
-                    buttons.GenericArguments.Add(types.Object);
-
-                    void Add(string name, TypeReference returnType, TypeReference[] parameters, params OpCode[] body)
-                    {
-                        var method = new MethodDefinition(name, MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig, returnType);
-                        for (int i = 0; i < parameters.Length; i++) method.Parameters.Add(new ParameterDefinition("p" + i, ParameterAttributes.None, parameters[i]));
-                        foreach (OpCode op in body) method.Body.Instructions.Add(Instruction.Create(op));
-                        hooks.Methods.Add(method);
-                    }
-                    Add("AccountMenuButtons", buttons, new TypeReference[] { buttons }, OpCodes.Ldarg_0, OpCodes.Ret);
-                    Add("OpenPage", types.Void, new[] { types.String, types.Object }, OpCodes.Ret);
-                    Add("OpenIfPageMarker", types.Boolean, new[] { types.String, types.Object }, OpCodes.Ldc_I4_0, OpCodes.Ret);
-                    module.Types.Add(hooks);
-                    var stream = new MemoryStream();
-                    module.Write(stream);
-                    return stream.ToArray();
-                }
-            }
+            string missing = "the embedded build " + dll + " has no " + AdminPagePatch.HooksType + ": the default patches cannot be applied";
+            if (required) throw new InvalidOperationException("MCVS_REQUIRE_EMBEDDED=1 but " + missing);
+            output?.WriteLine(missing + ": skipped");
+            return null;
         }
 
         [Fact]
-        public void AnEmbeddedBuildWithoutTheHooksIsRefusedUnlessTheStandInIsAskedFor()
+        public void AnEmbeddedBuildWithoutTheHooksIsRefused()
         {
             string bare = Path.Combine(TestEnvironment.NewTempDir("embedded-nohooks"), "McvsOffline.Server.dll");
             File.WriteAllBytes(bare, FixtureCompiler.Compile("McvsOffline.Server", "namespace McvsOffline { public static class Bootstrap { public static void Init() { } } }"));
-            string message = Assert.Throws<InvalidOperationException>(() => EmbeddedServer(bare, false, true, output)).Message;
+            string message = Assert.Throws<InvalidOperationException>(() => EmbeddedServer(bare, true, output)).Message;
             Assert.Contains("MCVS_REQUIRE_EMBEDDED=1 but the embedded build", message);
             Assert.Contains("has no McvsOffline.AdminHooks", message);
-            Assert.Null(EmbeddedServer(bare, false, false, output));
+            Assert.Null(EmbeddedServer(bare, false, output));
 
-            // Asked for: a copy with the three pass-through hooks, the build itself untouched.
-            string copy = EmbeddedServer(bare, true, true, output);
-            Assert.NotEqual(bare, copy);
-            using (ModuleDefinition module = ModuleDefinition.ReadModule(new MemoryStream(File.ReadAllBytes(copy))))
-            {
-                Assert.Equal(new[] { "AccountMenuButtons", "OpenIfPageMarker", "OpenPage" },
-                             module.GetType(AdminPagePatch.HooksType).Methods.Select(m => m.Name).OrderBy(n => n, StringComparer.Ordinal));
-            }
-            using (ModuleDefinition module = ModuleDefinition.ReadModule(new MemoryStream(File.ReadAllBytes(bare))))
-            {
-                Assert.Null(module.GetType(AdminPagePatch.HooksType));
-            }
-
-            // A build with the hooks is used as built either way.
+            // A build with the hooks is used as built.
             string built = Path.Combine(TestEnvironment.NewTempDir("embedded-hooks"), "McvsOffline.Server.dll");
             File.WriteAllBytes(built, FixtureCompiler.Compile("McvsOffline.Server", HooksSource));
-            Assert.Equal(built, EmbeddedServer(built, false, true, output));
-            Assert.Equal(built, EmbeddedServer(built, true, true, output));
+            Assert.Equal(built, EmbeddedServer(built, true, output));
         }
     }
 }

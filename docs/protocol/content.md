@@ -15,7 +15,7 @@ verify-C6 §2.6, §5; report 04 §4-6, §10-11, §15; report 06 §4.5-4.8; repor
 | GET | `lobbyconfigs/{clientId}/{serverType}` | `matchmaker.lobbyconfigs` | 200 `{"game":{...,"cmd_args"},"automatchers":{...}}` | verify-C2 §1.3-1.4, report 06 §4.8 | implemented |
 | GET | `rooms/{clientId}` | `matchmaker.rooms.find` | 200 `[]` + warning (rooms live in the local Finder) | `EN/ClientLink.cs:377-440` | conservative |
 | POST | `rooms/{clientId}/quick_launch`, `rooms/{clientId}/automatch/{automatcher}` | `matchmaker.rooms.*` | 404 `{"error"}` + warning: only reached outside Embedded mode | `EN/ClientSettings.cs:341-351` OverrideAnubisHost | conservative |
-| GET | `coupons/{clientId}/{code}` | `assets.coupon` | 200 `[{"type":"<rewardId>","quantity":<int>}, ...]`; 404 = "coupon does not exist" | verify-C5 (b), `EN/AssetsComponent.cs:180-210` | implemented |
+| GET | `coupons/{clientId}/{code}` | `assets.coupon` | 200 `[{"type":"<rewardId>","quantity":<int>}, ...]`; 404 = "coupon does not exist"; the page code (`admin.redeemCode`) is always 404 and may open the settings page (below) | verify-C5 (b), `EN/AssetsComponent.cs:180-210` | implemented |
 | GET | `assets/{clientId}` | `assets.list` | 200 `[{name, hash (sha256), size}]` of `<data>/assets` (normally `[]`) | report 10 §5 | implemented |
 | GET | `assets/{clientId}/{name}` (+ `/metadata[/{attr}]`, `/url`) | `assets.get` | the local file (Range → 206/416), metadata JSON, URL text; 404 when not provided | report 04 §11 | implemented |
 | GET | `_mcvs/crm` / POST `_mcvs/crm/reload` | `crm.debug` / `crm.reload` | diagnostics: preconfiguration source, size, `_ServerConfig.default`, validation problems / rebuild | ours | implemented |
@@ -56,6 +56,14 @@ Built by `CrmDocumentBuilder`, layers in order (last wins):
    ahead); the season's modifier cells and the `liveops.seasonRewardMultiplier` cells as MUL cells. A MUL cell that
    is already there (economy multiplier) is multiplied, never overwritten; a SET/ADD cell is left alone.
 6. `crm.overlay` from settings.json, deep-merged.
+6b. **Inbox item** (`newsfeeds`, build 9; [../design/settings-page.md](../design/settings-page.md) §9.1): one entry
+   `{"news_id": "mcvsoffline_FromMCVS", "title": "MCVS Offline", "body": ..., "redirect": "http://127.0.0.1:<port>/_mcvs/ui/#news",
+   "asset": "", "youtube": "", "timestamp": <Monday 00:00 UTC of this week>}` appended to an overlay's `newsfeeds`
+   (replacing an entry with the same `news_id`). The inbox shows it as the message "MCVS Offline" from "MCVS"; its button
+   opens the page through the `adminlink` patch. `redirect` is a fixed marker, **never a secret**: `configs/users/me`
+   answers anyone. With `crm.newsfeedLink` false, `admin.enabled` false or no admin module the list is `"newsfeeds": []`
+   (never absent: the inbox removes an old message only when the key is there). `CrmDocumentValidator.Sanitize` keeps
+   `newsfeeds` an array of objects with string members and an integer `timestamp`, and drops entries without `news_id`.
 7. `game._OverrideTables` is pruned (empty changers, keys without exactly one `@`, non-scalar cells) and **mirrored**
    into `_ServerConfig.default._OverrideTables`: the TS applies the former, the GS applies the latter and forwards it to
    clients in its handshake (report 04 §4.2, `GM/GameplayCRMComponent.cs:119-203`).
@@ -82,7 +90,10 @@ document (never a 5xx). The document is cached and rebuilt when the effective se
 
 **Cross-module.** `CrmDocumentCache` is registered in `context.Features` (other modules may read the current document;
 no events are published). The cache key includes `LiveOpsSnapshot.Key` (settings, content hash, season, day,
-announcement, modifier), so the document is rebuilt once per schedule step, never per request.
+announcement, modifier) and the inbox item (week, marker URL, on/off), so the document is rebuilt once per schedule step
+(or when the admin module's portal appears or the port changes), never per request. The admin module registers after
+the CRM module, so while `crm.newsfeedLink` is on the warm-up waits up to 2 s for `IAdminPortal` before it builds;
+requests never wait for it.
 
 ## Matchmaker lobbyconfigs
 
@@ -129,6 +140,16 @@ gs: -ServerType gs -EnvironmentSwitcherUrl http://127.0.0.1:51780/ -DataCenter m
   `assets.couponsEnabled=false` answers 404 to everything. Unknown reward types and `Reset*` are never sent; quantities
   are JSON integers.
 * The Redeem button needs `GameFeatures.RedeemCoupons`, forced on by the CRM `_OverrideTables` cell above.
+* **The page code** (`admin.redeemCode`, default `MCVSOFFLINE`; empty turns it off; checked before
+  `assets.couponsEnabled`): always 404 "coupon does not exist" (a 200 would make the game mark it claimed and add an
+  empty inbox message), and it asks the admin portal to open the settings page (trigger `redeem`) only when the request
+  is the game's own: `lanMode` off (a LAN guest's redemption runs on this phone's menu server and looks exactly like
+  the player's); from loopback; no `Origin`, `Referer` or `Sec-Fetch-*` header, a client id in the path of the game's
+  form (`<digits>:<digits>:<version>:<platform>:<store>`) and exactly the game's `User-Agent`
+  `[<agent> ](<client id>; <datacenter>)` for it (any web page on the phone could otherwise send the GET, and picking
+  the client id `Linux` would match every Android browser's User-Agent); an access token, if any, of the current
+  player (the game's coupon request carries none); a host whose in-game browser is not open; at most once per 30 s.
+  Logged as `coupon '<code>': opens the MCVS Offline page (requested|ignored: <reason>)`.
 
 ## Iris assets
 
@@ -167,3 +188,5 @@ listing in `GET assets/{cid}`. Names are sanitised (no `..`, no absolute paths).
 - [ ] The preconfiguration is found in the embedded layout on first boot after the installer finished.
 - [ ] With live ops: the TS refetches `configs/users/me` once at each `expiry` (midnight UTC, Monday), not in a loop;
       the weekly modifier cells change the match rewards (and the division perks) after the Monday refresh.
+- [ ] Build 9: the "MCVS Offline" inbox message appears (and whether a new weekly timestamp marks it new again); its
+      button opens the page; `MCVSOFFLINE` opens it with "code does not exist" behind (design §12 C1, C2, C7).
