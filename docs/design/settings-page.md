@@ -345,7 +345,8 @@ refused the same way.
 | `relaxed` | Relaxed | `economy.versusCoinsMultiplier` 2, `economy.priceMultiplier` 0.5, others 1.0 |
 | `fast` | Fast | `economy.versusCoinsMultiplier` 5, others 1.0 |
 
-A preset only fills the controls; Save writes them.
+A preset only fills the controls; Save writes them. It touches only these five keys (a key one preset leaves out goes
+back to its default); the Cosmetic crate's `economy.collector.*` keys in the same group keep their value.
 
 ## 4. HTTP API
 

@@ -1297,7 +1297,18 @@ p { margin: 4px 0 8px; }
     return false;
   }
 
-  // A preset fills the controls (the group's other editable numbers go back to their defaults); Save writes them.
+  // Whether any preset sets this key: only those keys belong to the presets.
+  function presetKey(key) {
+    var presets = (S.settings && S.settings.presets) || [];
+    for (var i = 0; i < presets.length; i++) {
+      var vals = presets[i].values || {};
+      if (vals.hasOwnProperty(key)) return true;
+    }
+    return false;
+  }
+
+  // A preset fills the controls (the other presets' keys it leaves out go back to their defaults; keys no preset sets,
+  // such as the Cosmetic crate's, stay as they are); Save writes them.
   function presetButton(g, preset) {
     return btn(preset.label || preset.id, 'small', function () {
       var keys = g.keys || [];
@@ -1306,7 +1317,7 @@ p { margin: 4px 0 8px; }
         var k = keys[i];
         if (!editable(k)) continue;
         if (vals.hasOwnProperty(k.key)) setEdit(k, vals[k.key]);
-        else if (k.type === 'number' || k.type === 'int') setEdit(k, dflt(k));
+        else if (presetKey(k.key) && (k.type === 'number' || k.type === 'int')) setEdit(k, dflt(k));
       }
       renderSettings();
       toast('Preset ' + (preset.label || preset.id) + ' filled in: press Save to keep it.');

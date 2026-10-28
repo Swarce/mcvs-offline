@@ -738,8 +738,20 @@ async function fullRun(url, jar, mode, fx) {
   }
   if (await p.tap('grp-economy')) {
     for (const preset of ['preset-standard', 'preset-relaxed', 'preset-fast']) check(p.el(preset), 'run 1: ' + preset + ' missing');
+    // The presets own the five multipliers only: a pending crate edit survives one (and a multiplier Relaxed leaves out
+    // goes back to its default).
+    const items = p.el('set-economy-collector-itemsPerCrate');
+    const plus = items && items.parent.children[items.parent.children.indexOf(items) + 1];
+    if (check(plus, 'run 1: no + next to #set-economy-collector-itemsPerCrate')) await p.tap(plus, 'itemsPerCrate +1');
+    const credits = p.el('set-economy-creditsMultiplier');
+    const creditsPlus = credits && credits.parent.children[credits.parent.children.indexOf(credits) + 1];
+    if (check(creditsPlus, 'run 1: no + next to #set-economy-creditsMultiplier')) await p.tap(creditsPlus, 'creditsMultiplier +0.1');
     await p.tap('preset-relaxed');
     check(p.text('set-economy-versusCoinsMultiplier') === '2.0', 'run 1: preset Relaxed did not fill VersusCoins (' + p.text('set-economy-versusCoinsMultiplier') + ')');
+    check(p.text('set-economy-creditsMultiplier') === '1.0', 'run 1: preset Relaxed left Credits at ' + p.text('set-economy-creditsMultiplier') + ', not its default');
+    check(p.text('set-economy-collector-itemsPerCrate') === '6', 'run 1: preset Relaxed changed the items per crate (' + p.text('set-economy-collector-itemsPerCrate') + ', not the edited 6)');
+    const crate = p.el('set-economy-collector-enabled');
+    check(crate && crate.props.checked !== false, 'run 1: preset Relaxed switched the Cosmetic crate off');
     check(!p.backCloses(), 'run 1: a pending preset edit left no history entry for Back');
     await p.tap('settings-discard');
     check(p.disabled(p.el('settings-save')), 'run 1: Save enabled after Discard');
@@ -1139,6 +1151,8 @@ function schema() {
       k('economy.xpMultiplier', 'XP speed', 'number', 1.0, 'menu', num(0.1, 20, 0.1)),
       k('economy.priceMultiplier', 'Shop prices', 'number', 1.0, 'menu', num(0.05, 10, 0.05)),
       k('crm.dailyCapMultiplier', 'Daily cap', 'number', 1.0, 'menu', num(0.1, 20, 0.1)),
+      k('economy.collector.enabled', 'Cosmetic crate', 'bool', true, 'menu'),
+      k('economy.collector.itemsPerCrate', 'Items per Cosmetic crate', 'int', 5, 'menu', num(1, 10, 1)),
     ] },
     { id: 'unlocks', label: 'Unlocks & codes', keys: [
       k('unlockAll', 'Unlock everything', 'bool', false, 'live', cfmEnable('This cannot be undone.')),
