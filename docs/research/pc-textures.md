@@ -654,3 +654,16 @@ screen, targetSdk, PC support). Treat it as background.
 
    Both stay as WP1/WP2 gates. Verified here: the MidGPU/HighGPU override blocks and the catch-all
    `{"MidGPU": [[["CORES>1"]]]}` rule match §4. `renderTargetSizeScale` is 0.6 in MidGPU against a default of 0.7.
+
+## Owner's phone: ETC pack, not ASTC (2026-10-28)
+
+The owner's S22 sent its `Data/8/dbd2f1.f` (`ENV_GenericConcrete05_bc.tga`) for the HD probe. It is byte-identical to the
+**ETC** pack's copy (SHA-256 `636c5aea…56b0`, 43,301 bytes; ETC1 256x256, 9 mips). The phone runs on the ETC pack that the
+offline install copied, not on the ASTC pack this report assumed for the S22. For the texture port this means one of:
+
+* convert the PC textures to ETC1 (split alpha, as the ETC shaders expect): works with today's data, lower quality than ASTC;
+* or move the phone to the ASTC pack first (Gameloft's download server still served ASTC files during the research), then
+  convert to ASTC as planned. This needs the whole ASTC pack, not only the HD textures, because the shaders differ
+  (no `SPLIT_ALPHA`).
+
+The probe zip for the device test was built from this file (ETC1, the probe tool's ETC path).
