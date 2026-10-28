@@ -105,7 +105,7 @@ tests/             McvsOffline.Tests (server modules, core, real-client conforma
 tools/content-gen/ generator for server/Content from the decoded data pack (Python, stdlib only)
 tools/art/         owner-side icon exporter and previews (Python, Pillow)
 art/android/       the project's own launcher icon and launch-screen art, built into the patcher (empty until drawn)
-tools/hd-textures/ HD texture probe zip builder (net8 console)
+tools/hd-textures/ HD texture converter: PC textures to ETC1 replacements for the phone (net8 console)
 tools/pc-spike/    WP0 kit for the Steam build (one Windows exe; tests in tests/McvsOffline.PcSpike.Tests)
 scripts/           build.sh, run-standalone.sh
 docs/              architecture, module guide, protocol notes, status, guides, research

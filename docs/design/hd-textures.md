@@ -66,7 +66,9 @@ UTF-8 JSON, one object:
       "layout": "ktx",
       "original": { "size": 457642, "crc32": "8c1f0e2a", "width": 1024, "height": 1024, "mipLevels": 11 },
       "replacement": { "size": 1712345, "crc32": "0b7d33e1", "width": 2048, "height": 2048, "mipLevels": 12 },
-      "psnr": 36.4
+      "psnr": 27.0,
+      "originalPsnr": 24.4,
+      "alphaPsnr": null
     }
   ],
   "totals": { "files": 1, "originalBytes": 457642, "replacementBytes": 1712345 }
@@ -89,7 +91,9 @@ UTF-8 JSON, one object:
 | `files[].layout` | `"ktx"` (a GCBF-wrapped KTX) or `"split"` (a split-alpha zip). |
 | `files[].original` | the Android file this entry replaces, as it was in the `Data/` folder the converter read: `size` in bytes, `crc32` (8 lower-case hex digits), texture `width`, `height`, `mipLevels`. |
 | `files[].replacement` | the new file: `size`, `crc32`, `width`, `height`, `mipLevels`. |
-| `files[].psnr` | the converter's self-check: PSNR in dB of the top mip level (RGB, 8 bit) of the replacement, decoded, against the PC texture it came from; `null` when not computed. |
+| `files[].psnr` | the converter's self-check: PSNR in dB of the top mip level (RGB, 8 bit) of the replacement, decoded, against the PC texture it came from (99 when identical). |
+| `files[].originalPsnr` | for comparison: the PSNR of the Android original's top level against the PC texture's mip level of the same size, i.e. the quality the phone has today. |
+| `files[].alphaPsnr` | split layout: the self-check of the alpha texture against the PC alpha; `null` for the ktx layout. |
 | `totals` | the number of files and the summed sizes. |
 
 CRC-32 everywhere is the standard one (zlib, `java.util.zip.CRC32`: polynomial `0xEDB88320`, initial value 0) over the
@@ -129,7 +133,9 @@ For each texture of the chosen scope (from `hd-index.tsv`), only where the PC te
    layout as the original (`SPLIT` = 4 zero bytes, `rgb.ktx`, `alpha.ktx`; stored, no alignment, as Gameloft wrote them),
    alpha as an ETC1 grey texture (R = G = B = alpha). Every KTX the original wraps in GCBF is wrapped in GCBF (8 LZ4
    blocks, the engine writer's split).
-5. Decode the result and compute the PSNR against the PC texture; flag textures below `--min-psnr` (default 30 dB).
+5. Decode the result and compute the PSNR against the PC texture, and the original's PSNR against the PC texture at its
+   size; flag textures below `--min-psnr` (default 24 dB: ETC1's one modifier for all three channels limits noisy
+   roughness and normal maps to about 24-30 dB, and the shipped ETC pack scores lower still on those).
 6. Add the file to the pack (§2) and its row to the manifest (§3).
 
 Lightmaps are taken per level, all files of a level or none (a level whose lightmaps cannot all be converted gets none).

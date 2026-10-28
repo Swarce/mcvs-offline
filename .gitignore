@@ -25,6 +25,10 @@ TestResults/
 *.pdb
 *.dex
 *.f
+# HD texture packs (tools/hd-textures): converted from the player's own game files
+mcvs-hd-*.zip
+mcvs-hd-*.zip.partial
+*.ktx
 *.game
 *.tx
 *.level
