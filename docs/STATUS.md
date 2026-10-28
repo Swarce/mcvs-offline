@@ -1,10 +1,11 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-Last updated for build 9 (October 2026), before its device test (device test 8; see "Build 9" below). Earlier: device
-tests 6 and 7 on a Samsung Galaxy S22, Android 16 ("Build 8", "Build 7", "Device test 6").
+Last updated for build 9 (October 2026), after device test 8 (the MCVS Offline page; see "Device test 8" and "Build 9"
+below); the Cosmetic crate starts on 2026-11-09 and is not yet tested on the phone. Earlier: device tests 6 and 7 on a
+Samsung Galaxy S22, Android 16 ("Build 8", "Build 7", "Device test 6").
 
-**Summary:** the Federation server is complete for the offline single-player goals and passes 1,343 tests, including a
+**Summary:** the Federation server is complete for the offline single-player goals and passes 1,621 tests, including a
 conformance harness that runs the game's own client libraries against it. Device test 1 put the player build (patcher +
 embedded host) on a phone for the first time and found two blockers (a stall with the internet on, a crash of the headless
 TS World). Build 2 fixed both: in device test 2 the whole boot chain up to the TS handshake ran, and the TS World loaded its
@@ -18,9 +19,16 @@ copied `Data/` folder and the avatar editor freezing after unlock-all. Build 5 a
 server". Build 6 makes the CRM document the game reloads there ~78% smaller for an unlock-all profile: **in device test 6
 the return to the menu was fast**, and a thread dump finally caught the kill-signature screen freeze, which build 7 patches;
 **device test 7 (builds 7 and 8): the signature screen is fast and the debloated build works.** Build 9 adds the
-in-game MCVS Offline page: settings, saves (also from one phone to another) and logs, without a PC.
+in-game MCVS Offline page: settings, saves (also from one phone to another) and logs, without a PC (**device test 8:
+it works**), and the Cosmetic crate, a play path for the ~600 items that never had a source (from 2026-11-09).
 
-## Build 9 (October 2026): the MCVS Offline page
+## Device test 8 (October 2026): the MCVS Offline page works
+
+The owner installed build 9 (`feat/economy` `6bcb3d8`, both features) and reports that everything works ("it works
+wonderfully"). No logs and no per-check results were sent, so checks 1–13 below count as passed as a whole; the
+Cosmetic crate (checks 14–28) was not exercised, since its first crates come on 2026-11-09.
+
+## Build 9 (October 2026): the MCVS Offline page and the Cosmetic crate
 
 The settings and diagnostics page of [design/settings-page.md](design/settings-page.md), in the game's own browser
 (player guide: [PLAYER-SETUP.md](PLAYER-SETUP.md) section 7). `McvsVersion.Build` is `9`.
@@ -54,10 +62,28 @@ The settings and diagnostics page of [design/settings-page.md](design/settings-p
   from another phone applied at the next start and confirmed by the game's save); the three hook patches on the real
   1.17.32 assemblies (fingerprints, IL, executed against recording hooks with a differential, JIT, ILVerify) and
   against the real embedded DLL; `targetSdkVersion` 29 after every default patch.
+* **The Cosmetic crate** ([ECONOMY.md](ECONOMY.md) §5, [design/economy-collector.md](design/economy-collector.md)):
+  the unused `Crate_Event_Special`, named "CUSTOMIZATION CRATE", filled by CRM cells (39 rows: avatars, backgrounds,
+  sounds on background carriers, the 16 skins, 12 hidden jerseys, Witch and Bli-P, camos, jerseys; 70 VersusCoins
+  once everything is owned), weighted per player from the saved profile. From `collector.since` 2026-11-09: one crate
+  with the day's first mission, 1/1/2 on each weekly objective's tiers (16 a week), 1–4 × N items for ranks 4–30 at the
+  season end, a season emblem for ranks 1–3; one crate per milestone. Settings page: "Cosmetic crate" and "Items per
+  Cosmetic crate" (default 5); presets leave them alone. A 5-cell guard from a day before `since`, latched for good in
+  `<data>/collector-guard.json` once crates were handed out; an unreadable kill switch counts as off. Requires the
+  `store` patch (the embedded host reports it). Status screen and `GET /_mcvs/crm` show the phase; `GET
+  /_mcvs/collector?account=` what was read from the save.
+* **Checked (both features, `6bcb3d8` plus the loose ends)**: the full check as above: **McvsOffline.Tests 1338/1338,
+  McvsOffline.Embed.Tests 283/283, 0 skipped**, content-gen `--check` and its 28 unit tests. For the crate: every
+  output of 16 days of golden scenarios byte-identical to `ac64bfd` before the guard starts and equal after removing
+  the 5 guard cells; the cells, the per-player document and the events through the real client (`StandardCrm.Data`,
+  `ApplyCRMTableChanges`, `CrateRewards`, the patched `Game.dll`'s reveal paths, the claim of a milestone, the weighted
+  draw, a day-first culture); the TLE screen cost on net8.
 
-### What to check in device test 8 (build 9)
+### What to check on the phone (build 9)
 
-Details and what to record for each: design §12 (C1–C20).
+1–13: the page, done in device test 8 (details: design §12, C1–C20). 14–28: the Cosmetic crate (design §7), on or after
+2026-11-09. Before them: from 2026-11-08 `server.log` says `CRM document built: … collector guard (before
+collector.since …)`, from 2026-11-09 `collector active (510 cells, …)`; Status shows "Cosmetic crate: active".
 
 1. The "MCVS Offline" inbox message appears; its button opens the page (C1, C2).
 2. Settings › Account › MCVS Offline opens it; Status › player › source is `game` (C6).
@@ -77,6 +103,35 @@ Details and what to record for each: design §12 (C1–C20).
 12. Regression: boot, matches, shop, signatures, saves, codes as in build 8, and no `gate: refused Host` in `server.log` (C17).
 13. Layout at 130 % and 200 % font size and with the keyboard open; hardware Back closes the browser when nothing is
     unsaved, also right after a dialog or a Save; Status › host › `missingJni` empty (C18, C19).
+14. Fresh profile, right after login and after a match: the daily missions and the weekly event show "CUSTOMIZATION
+    CRATE", its image, "CONTAINS 5 ITEM(S)" and a preview (a random emblem, a random background, an agent; no
+    VersusCoins). The weekly final keeps its own event crate name. Log: `CRM: collector for <account>: base … left`.
+15. Time opening the weekly event screen: collector off, fresh profile, ~1,400 avatars owned, complete profile (target
+    ≤ +0.5 s); and the daily missions screen.
+16. Claim the day's first mission: the lottery shows the crate's items, not the mission's VersusCoins/Credits (the
+    balance still rises). Claim the daily bonus: the Contracts crate's own reveal, as before.
+17. Sounds: `economy.collector.weights` all 0 but `sounds`; a crate gives background + sound pairs; no exception in the
+    game log.
+18. Weekly tier 1 or 2: 5 items animate; tier 3: 10 items (11–12 with a sound: plain list); the final: the event crate
+    as before.
+19. `itemsPerCrate` 10: tier 3 (20 items) and a Master rank-4 season crate (40) show the plain list, every item listed;
+    time them.
+20. 50 avatar draws: concrete emblems, none Kayac (382–384, 443–531, 533–589, 598–1514), no starred season emblem.
+21. A hidden jersey from a crate is in that agent's jersey list and can be equipped; Witch or Bli-P from a crate:
+    unlocked with the unlock flow, then their skins appear in the preview.
+22. Season end (`liveops.seasonStart` to the next hour): ranks 4–30 get "DIVISION REWARD" with a CUSTOMIZATION CRATE of
+    band × 5 items; ranks 1–3 HardCurrency, gear and a ★★★/★★/★ emblem not owned before.
+23. Unlock-all + `UNLOCKPAID`: every item pays 70 VersusCoins; no milestone shows "unavailable".
+24. "Connecting to the server" after a match, collector on vs off, fresh and unlock-all (target ≤ +0.3 s); match start
+    on vs off (≤ +0.1 s); one `CRM: collector for …` line per return.
+25. Switch "Cosmetic crate" off after 2026-11-09: the running events are replaced once and carry no crate, ranks 4–30
+    get their gear piece; log `collector guard (economy.collector.enabled is false)`.
+26. Stale crate: complete the first mission without claiming, switch the crate off, back to the menu; if the old
+    mission is still there, claim it: 70 VersusCoins, no exception. `collector-guard.json` exists, `GET /_mcvs/crm`
+    shows `cratesServed`; log `Cosmetic crates served for the first time`.
+27. Phone language with a decimal comma (e.g. Deutsch): a crate still opens exactly 5 items.
+28. `GET /_mcvs/collector?account=<id>` after a few crates: `left` falls, every part `known`, the agents match the
+    game's list. On 5 logins claim a crate before the first match: no VersusCoins while items are left.
 
 ## Build 8 (October 2026): 'debloat', dead SDK pieces removed
 
@@ -700,7 +755,7 @@ Superseded by the device-test-3 sequence above (steps 1-8 are what device test 2
 | Core | HTTP/1.1 server on raw sockets (keep-alive, chunked, `Expect: 100-continue`, streams), router with re-dispatch, MiniJson, accounts and self-describing tokens, atomic writes with file and directory fsync, settings with merge-overrides, request/unknown-endpoint logging, GCBF/LZ4 data-pack reader | `server/Core` | [MODULES.md](MODULES.md) |
 | AUTH | eve, pandora (locate, service-prefix aliases), authorize (anonymous, game server, on-behalf, transfer code), users, compliance, aliases, credential links, `encrypt_token`/`verify`, `IAuthenticator` | `server/Services/{Eve,Pandora,Auth}` | [auth.md](protocol/auth.md) |
 | STORAGE | Seshat profiles with verbatim values, nested `include_fields`, deep merge, no ETag, 401-never-403, arrival-order lock, cache, backups, corrupt-file recovery (503, never "missing"), batch/backups/visibility/data endpoints, `IProfileAccess`, LAN seam | `server/Services/Storage` | [storage.md](protocol/storage.md) |
-| CONTENT | CRM over the player's own preconfiguration (validated against every client cast), matchmaker `lobbyconfigs`, unlock coupons, local Iris assets, generated VersusCoins economy (1,864 entries) | `server/Services/{Crm,Matchmaker,Assets}`, `server/Content`, `tools/content-gen` | [content.md](protocol/content.md), [ECONOMY.md](ECONOMY.md) |
+| CONTENT | CRM over the player's own preconfiguration (validated against every client cast), matchmaker `lobbyconfigs`, unlock coupons, local Iris assets, generated VersusCoins economy (1,864 entries), the Cosmetic crate (build 9: CRM cells per player, guard and latch) | `server/Services/{Crm,Matchmaker,Assets}`, `server/Content`, `tools/content-gen` | [content.md](protocol/content.md), [ECONOMY.md](ECONOMY.md) |
 | MISC | Hermes mailboxes, Kairos alert stream, Olympus leaderboards with league groups, Osiris events/profiles, clans, wall, group chat, profanity, game_stats, BanTool, geolocation, tracking/marketing catch-alls | `server/Services/{Social,Messaging,Alerts,...,Misc}` | [misc.md](protocol/misc.md) |
 | LIVE OPS | Weekly division seasons (17 division events, 100-entry season boards with rivals that grow and freeze), daily missions, weekly events, weekly modifier as CRM table overrides, CRM `expiry` for the client's refresh, culture-safe dates | `server/Services/Social/LiveOps`, `server/Services/Leaderboards/SeasonRivals.cs`, `tools/content-gen/liveops_tuning.json` | [LIVEOPS.md](LIVEOPS.md), [misc.md](protocol/misc.md) |
 | Unlocks | `settings.unlockAll` through the inventory ledger (starts only once the game profile and the inventory section are stored, waits for the player's alert stream, backup, ordered batches with the merc unlock re-checked before each, `set_profile` alerts) | `server/Services/Unlocks` | [unlocks.md](protocol/unlocks.md) |
