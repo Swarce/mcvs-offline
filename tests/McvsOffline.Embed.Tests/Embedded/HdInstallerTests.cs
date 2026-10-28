@@ -649,6 +649,132 @@ namespace McvsOffline.Embed.Tests.Embedded
         }
 
         /// <summary>
+        /// Data/ cannot be written and InstallerData has just given the installer an index with the original sizes (a reinstall
+        /// with Gameloft's index in files/pack.info): nothing in Data/ changes, but the index and the journal are still made to
+        /// match the HD files, or the installer would delete and download them.
+        /// </summary>
+        [Fact]
+        public void WhenDataCannotBeWrittenTheIndexStillMatchesTheHdFiles()
+        {
+            HdInstaller.ResetForTests();
+            Env env = Installed("hd-nodata-index", withPack: false);
+            byte[] pristine = File.ReadAllBytes(env.Loc.PackInfo);
+            var one = HdFiles.Take(1).ToArray();
+            WritePack(env, one, null);
+            Assert.True(Boot(env).hd.Installed);
+            // Uninstall + install: internal storage is wiped, no saved copy of ours, Gameloft's index next to Data/ (files/pack.info).
+            Directory.Delete(env.Internal, true);
+            Directory.CreateDirectory(env.Internal);
+            File.Delete(env.Loc.SavedIndex);
+            File.WriteAllBytes(env.Loc.PlayerIndex, pristine);
+
+            var (data, hd) = Boot(env, deny: p => Under(p, env.P("Data/8")));
+            output.WriteLine(data.Summary);
+            output.WriteLine(hd.Summary);
+            Assert.Equal("installer data: index restored from the files/pack.info, 1 entries to download", data.Summary);
+            Assert.Matches(@"^hd textures: mcvs-hd-test\.zip, 1 file installed \([0-9.]+ MiB\); nothing changed now: cannot write Data/8: permission denied$", hd.Summary);
+            Assert.True(hd.Installed);
+            Assert.True(hd.IndexChanged);
+            AssertHdInstalled(env, one.Select(f => f.path));
+            AssertInstallerAccepts(env);
+        }
+
+        /// <summary>
+        /// McvsOffline/hd-install holds a state, cannot be written at one start (the twin in internal storage takes the state over
+        /// and installs more), then can be written again: the newer state in internal storage stays in use, removal puts every
+        /// original back, and the twin's stale state and backups are cleaned up rather than offered for deletion.
+        /// </summary>
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void AStaleStateInHdInstallNeverHidesTheNewerOneInInternalStorage(bool onAgainFirst)
+        {
+            HdInstaller.ResetForTests();
+            Env env = Installed("hd-twin", withPack: false);
+            var (pristineIndex, pristineJournal) = Pristine(env);
+            string primary = HdInstaller.WorkDir(env.Loc), fallback = Fallback(env);
+            string small = WritePack(env, HdFiles.Take(2).ToArray(), null);
+            var (_, a) = Boot(env);
+            output.WriteLine(a.Summary);
+            Assert.Contains("2 files installed", a.Summary);
+            AssertHdInstalled(env, HdFiles.Take(2).Select(f => f.path));
+
+            File.Delete(small);
+            WritePack(env, HdFiles, m => m["created"] = "2026-10-29T08:00:00Z");
+            var (_, b) = Boot(env, deny: p => Under(p, primary));
+            output.WriteLine(b.Summary);
+            Assert.Contains("5 files installed", b.Summary);
+            Assert.Contains("3 written now", b.Summary);
+            Assert.EndsWith("; backups in the app's internal storage (McvsOffline/hd-install: permission denied)", b.Summary);
+            Assert.Contains("hd: took over McvsOffline/hd-install/installed.json (2 files) into " + fallback, env.Text);
+            Assert.True(File.Exists(Path.Combine(primary, HdInstaller.StateFile)));   // the stale copy McvsOffline/hd-install keeps
+
+            if (onAgainFirst)
+            {
+                var (_, again) = Boot(env);
+                output.WriteLine(again.Summary);
+                Assert.Matches(@"^hd textures: mcvs-hd-test\.zip, 5 files installed \([0-9.]+ MiB\); backups in the app's internal storage$", again.Summary);
+                AssertInstallerAccepts(env);
+            }
+
+            var (_, off) = Boot(env, enabled: false);
+            output.WriteLine(off.Summary);
+            Assert.Equal("hd textures: off (settings hd.enabled false); 5 originals put back", off.Summary);
+            Assert.DoesNotContain("is ignored", env.Text);
+            Assert.DoesNotContain("may be deleted", env.Text);
+            AssertOriginals(env);
+            Assert.Equal(pristineIndex, File.ReadAllBytes(env.Loc.PackInfo));
+            Assert.Equal(pristineJournal, new HashSet<string>(File.ReadAllLines(env.Loc.Journal)));
+            // Nothing refers to them any more: the twin's stale state and its backups are gone, as are ours.
+            Assert.False(File.Exists(Path.Combine(primary, HdInstaller.StateFile)));
+            Assert.False(Directory.Exists(Path.Combine(primary, HdInstaller.BackupFolder)));
+            Assert.False(File.Exists(Path.Combine(fallback, HdInstaller.StateFile)));
+            Assert.False(Directory.Exists(Path.Combine(fallback, HdInstaller.BackupFolder)));
+
+            // A later start does not bring anything back; on again, McvsOffline/hd-install is used.
+            Assert.Equal("hd textures: off (settings hd.enabled false)", Boot(env, enabled: false).hd.Summary);
+            AssertOriginals(env);
+            Assert.True(Boot(env).hd.Installed);
+            AssertHdInstalled(env);
+            AssertInstallerAccepts(env);
+        }
+
+        /// <summary>
+        /// Both folders hold an installed.json that neither took over from the other (here: build 11's in the drop folder beside
+        /// ours): the records ours lacks are added to ours, so removal puts back the originals only the old state knew.
+        /// </summary>
+        [Fact]
+        public void TwoUnrelatedStatesAreMergedAndRemovalPutsEveryOriginalBack()
+        {
+            HdInstaller.ResetForTests();
+            Env env = Installed("hd-merge", withPack: false);
+            string drop = HdInstaller.HdDir(env.Loc), primary = HdInstaller.WorkDir(env.Loc);
+            string first = WritePack(env, HdFiles.Take(2).ToArray(), null);
+            Assert.True(Boot(env).hd.Installed);
+            // Build 11 had kept this state and its backups in the drop folder.
+            string keep = Path.Combine(env.Root, "..", "kept");
+            Directory.Move(primary, keep);
+            File.Delete(first);
+            WritePack(env, HdFiles.Skip(2).ToArray(), m => m["created"] = "2026-10-29T08:00:00Z");
+            var (_, b) = Boot(env);
+            output.WriteLine(b.Summary);
+            Assert.Contains("3 files installed", b.Summary);
+            File.Move(Path.Combine(keep, HdInstaller.StateFile), Path.Combine(drop, HdInstaller.StateFile));
+            Directory.Move(Path.Combine(keep, HdInstaller.BackupFolder), Path.Combine(drop, HdInstaller.BackupFolder));
+            Dictionary<string, string> before = Tree(drop);
+
+            var (_, off) = Boot(env, enabled: false);
+            output.WriteLine(off.Summary);
+            Assert.Contains("hd: McvsOffline/hd/installed.json of an earlier start: 2 of its 2 files added to McvsOffline/hd-install/installed.json", env.Text);
+            Assert.Equal("hd textures: off (settings hd.enabled false); 5 originals put back; McvsOffline/hd/backup (and its installed.json) " +
+                         "of an earlier build is no longer used and may be deleted", off.Summary);
+            AssertOriginals(env);
+            AssertInstallerAccepts(env);
+            Assert.Equal(before, Tree(drop));
+            Assert.False(File.Exists(Path.Combine(primary, HdInstaller.StateFile)));
+        }
+
+        /// <summary>
         /// Build 11 kept installed.json and backup/ in McvsOffline/hd/ (where the app had made that folder itself): the state is
         /// taken over once, the old backups are used where they are and never written, and removal puts the originals back.
         /// </summary>

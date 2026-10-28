@@ -63,28 +63,43 @@ were made by the app and are writable. So:
   deleted). When it cannot (it was made by another tool too, or the storage refuses), the same folder in the app's
   internal storage, `getFilesDir()/McvsOffline/hd-install/`, is used; the log says which (`hd: installer files in
   McvsOffline/hd-install`, or a warning `hd: installer files in the app's internal storage <path> (McvsOffline/hd-install:
-  permission denied)`), and while files are installed Status adds "backups in the app's internal storage". A folder that
-  already holds an `installed.json` is used first, so the state never splits between the two. Nothing is created at all
-  while there is neither a pack (with `hd.enabled`) nor a state anywhere.
+  permission denied)`), and while files are installed Status adds "backups in the app's internal storage". The folder
+  that holds the current `installed.json` is used first. When both hold one, the internal one is current only when it
+  took over `McvsOffline/hd-install`'s (its `imported.txt` lists that file exactly as it is now): `McvsOffline/hd-install`
+  keeps the copy it had when it could not be written, and that stale copy never wins once it can be written again (the
+  internal folder stays in use; `McvsOffline/hd-install` is still probed so Status gives its reason). Nothing is created
+  at all while there is neither a pack (with `hd.enabled`) nor a state anywhere.
 * **Probe first, then change `Data/`.** Before anything is removed or installed, `Data/` and every `Data/<h>/` folder of an
   installed file or of the pack take a probe file too. When our folder (both places) or one of those cannot be written,
   nothing in `Data/` changes and the reason is the one line on Status › Game host › HD textures and in `[boot] hd:`:
   `none installed; cannot write McvsOffline/hd-install: permission denied (nor the app's internal storage: permission
   denied); nothing changed`, `none installed; cannot write Data/8: permission denied; nothing changed`, or, with HD files
-  installed, `<pack>, N files installed (...); nothing changed now: cannot write ...`. Step 1 (`Prepare`) still makes the
-  index match `Data/` (the index lives in the installer's storage), reading the state wherever it is.
-* **The state of an earlier build is taken over once.** When our folder has no `installed.json` and another place has one
-  (build 11's `McvsOffline/hd/installed.json`, or the other `hd-install` folder) that `imported.txt` (in either
-  `hd-install` folder) does not list, it is read and checked like our own (`HdState.Load`; one that cannot be read is
-  left alone, logged, and tried again at the next start, and until then nothing changes, as with our own unreadable
-  state: `McvsOffline/hd/installed.json of an earlier build cannot be read; nothing changed`), copied byte for byte into our folder (atomically) and its
-  CRC-32, size and folder are added to `imported.txt`, so a later start never takes it again (also once our own state
-  is gone after a removal). The backups stay where they are: **removal and the "already backed up" check look in our
+  installed, `<pack>, N files installed (...); nothing changed now: cannot write ...`. Both steps still make the
+  installer's index, our saved copy and the journal match what `Data/` holds (they live in the installer's storage and
+  `McvsOffline/install/`, never in `Data/` or our folder), reading the state wherever it is: step 2 too, because
+  `InstallerData` may have replaced the index between the steps (after a reinstall, Gameloft's own index from
+  `files/pack.info` lists the original sizes, and the installer would delete and download every HD file).
+* **The state of an earlier start is taken over once.** Another place's `installed.json` (build 11's
+  `McvsOffline/hd/installed.json`, or the other `hd-install` folder) that `imported.txt` (in either `hd-install`
+  folder) does not list is read and checked like our own (`HdState.Load`; one that cannot be read is left alone,
+  logged, and tried again at the next start; while we have no state of our own nothing changes until then, as with our
+  own unreadable state: `McvsOffline/hd/installed.json of an earlier build cannot be read; nothing changed`). Then:
+  * our folder has no `installed.json`: it is copied byte for byte into our folder (atomically);
+  * it took over ours as ours is now (its `imported.txt` lists our `installed.json`): it is the newer one (that folder was
+    in use while ours could not be written) and replaces ours byte for byte;
+  * otherwise (two states neither took from the other): its records for files ours does not list are added to ours
+    (ours wins for a file both list), so no record, and no original only it knows, is ever dropped.
+
+  Its CRC-32, size and folder are added to `imported.txt`, so a later start never takes it again (also once our own
+  state is gone after a removal). The backups stay where they are: **removal and the "already backed up" check look in our
   `backup/` first, then in the old places** (each copy checked against the original's CRC-32 on the way back). A new
   backup is always made in our folder: from `Data/` when it holds the original, else copied (checked) from an old backup,
-  so a record never depends on a folder we do not own. Old backups are never deleted (that would be a write in the drop
-  folder); once nothing is installed, Status and the log add `McvsOffline/hd/backup (and its installed.json) of an earlier
-  build is no longer used and may be deleted`.
+  so a record never depends on a folder we do not own. Backups in the drop folder are never deleted (that would be a
+  write there); once nothing is installed, and build 11's `installed.json` there is gone or was taken over, Status and
+  the log add `McvsOffline/hd/backup (and its installed.json) of an earlier build is no longer used and may be deleted`.
+  The other `hd-install` folder is the app's own: once nothing is installed, its `installed.json` (when it was taken
+  over) and its backups are deleted by the installer (left as they are when that folder cannot be written); it is
+  never offered for deletion.
 
 ### When: before the installer validates `Data/`
 
@@ -149,7 +164,7 @@ time removing installs nothing new. The same holds when the installer has no usa
 | `McvsOffline/hd-install/` | made by the app; when it cannot be written, `getFilesDir()/McvsOffline/hd-install/` instead (the log and Status say so) |
 | `McvsOffline/hd-install/installed.json` | `format` `mcvs-hd-installed`, `version` 1, `pack`, `packId`, `name`, `updated`, and per file `path`, `group`, `originalSize`, `originalCrc`, `originalPieces` (CRC per piece), `originalZip` (offset and ZIP size per piece in Gameloft's index), `hdSize`, `hdCrc`, `hdPieces`. Unreadable: nothing is touched (logged) |
 | `McvsOffline/hd-install/backup/Data/<h>/<name>.f` | the originals, while their HD files are installed |
-| `McvsOffline/hd-install/imported.txt` | `<crc32> <size> <folder>` per `installed.json` of another place taken over (or seen beside ours), so it is taken over once |
+| `McvsOffline/hd-install/imported.txt` | `<crc32> <size> <folder>` per `installed.json` of another place taken over (copied, replacing ours, or merged into ours), so it is taken over once; also how the current state is told from a stale copy |
 | `McvsOffline/hd/installed.json`, `McvsOffline/hd/backup/` | build 11 only: taken over / read, never written or deleted; may be deleted once Status says so |
 
 What `Data/` holds is always read from the files, never assumed from the state, so any start cut short is completed or

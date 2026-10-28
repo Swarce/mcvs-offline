@@ -484,10 +484,28 @@ namespace McvsOffline.Embedded.Hd
                 return null;
             }
 
-            /// <summary>Our folder or Data/ cannot be written: nothing is changed (Prepare has already made the index match Data/).</summary>
+            /// <summary>
+            /// Our folder or Data/ cannot be written: nothing in Data/ is changed. The index copies and the journal are still made to
+            /// match what Data/ holds (InstallerData may have replaced the index since <see cref="Prepare"/>, e.g. with Gameloft's
+            /// own after a reinstall: its original sizes would make the installer delete and download every HD file). They live in
+            /// the installer's storage and McvsOffline/install, never in Data/, the drop folder or our folder.
+            /// </summary>
             private HdResult NotWritable(string problem)
             {
                 log.Warn("hd: " + problem + ": nothing in Data/ is changed");
+                int fixedInstaller = 0;
+                try
+                {
+                    fixedInstaller = session.Installer == null ? 0 : session.Reconcile(session.Installer, state.Records, contents);
+                    if (session.Saved != null) session.Reconcile(session.Saved, state.Records, contents);
+                    session.EnsureJournal(state.Records, contents);
+                    session.Commit();
+                    if (fixedInstaller > 0) log.Info("hd: the installer's index entries of " + fixedInstaller + " HD files were made to match Data/");
+                }
+                catch (Exception ex)
+                {
+                    log.Warn("hd: making the installer's index match Data/ failed", ex);
+                }
                 int hdFiles = 0;
                 long hdBytes = 0;
                 foreach (HdRecord r in state.Records)
@@ -500,7 +518,7 @@ namespace McvsOffline.Embedded.Hd
                     ? "hd textures: " + (state.PackName ?? state.PackFile ?? "HD pack") + ", " + Count(hdFiles, "file", "files") + " installed (" + Mib(hdBytes) +
                       "); nothing changed now: " + problem
                     : "hd textures: none installed; " + problem + "; nothing changed";
-                return new HdResult(summary, false, hdFiles > 0);
+                return new HdResult(summary, session.InstallerChanged, hdFiles > 0);
             }
 
             private string DataVariant()
@@ -886,7 +904,11 @@ namespace McvsOffline.Embedded.Hd
                 if (places.Work != null)
                 {
                     SaveState();
-                    if (state.Records.Count == 0) DeleteEmptyDirs(places.BackupDir);
+                    if (state.Records.Count == 0)
+                    {
+                        DeleteEmptyDirs(places.BackupDir);
+                        places.CleanTwin(log);
+                    }
                 }
                 if (state.Records.Count == 0)
                 {
@@ -1398,7 +1420,7 @@ namespace McvsOffline.Embedded.Hd
             if (deleted > 0) log.Info("hd: deleted " + deleted + " temporary files of a start that was cut short");
         }
 
-        private static void DeleteEmptyDirs(string root)
+        internal static void DeleteEmptyDirs(string root)
         {
             try
             {

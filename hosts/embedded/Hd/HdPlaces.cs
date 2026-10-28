@@ -97,12 +97,16 @@ namespace McvsOffline.Embedded.Hd
         }
 
         /// <summary>
-        /// Picks the work folder: the one of McvsOffline/hd-install and its internal-storage twin that holds an installed.json,
-        /// else McvsOffline/hd-install first; each is created when missing and must take a probe file. Never throws.
+        /// Picks the work folder: the one of McvsOffline/hd-install and its internal-storage twin that holds the current
+        /// installed.json, else McvsOffline/hd-install first; each is created when missing and must take a probe file. When both
+        /// hold one, the twin is current only when it took over McvsOffline/hd-install's (its imported.txt lists that file as it
+        /// is now): McvsOffline/hd-install keeps the copy it had when it could not be written. Never throws.
         /// </summary>
         public void Choose()
         {
-            bool fallbackFirst = File.Exists(Path.Combine(Fallback, HdInstaller.StateFile)) && !File.Exists(Path.Combine(Primary, HdInstaller.StateFile));
+            bool fallbackState = File.Exists(Path.Combine(Fallback, HdInstaller.StateFile));
+            bool primaryState = File.Exists(Path.Combine(Primary, HdInstaller.StateFile));
+            bool fallbackFirst = fallbackState && (!primaryState || TookOver(Fallback, Primary));
             string first = fallbackFirst ? Fallback : Primary, second = fallbackFirst ? Primary : Fallback;
             string firstProblem = ProbeFolder(first);
             string secondProblem = null;
@@ -117,6 +121,9 @@ namespace McvsOffline.Embedded.Hd
             }
             string primaryProblem = first == Primary ? firstProblem : secondProblem;
             string fallbackProblem = first == Fallback ? firstProblem : secondProblem;
+            // The twin went first because it took over McvsOffline/hd-install's state: that folder (it exists) is probed too, so
+            // Status still says why it was left.
+            if (Work == Fallback && first == Fallback && primaryState) primaryProblem = ProbeFolder(Primary);
             if (Work != Primary) PrimaryProblem = primaryProblem;
             if (Work == null)
             {
@@ -244,28 +251,82 @@ namespace McvsOffline.Embedded.Hd
             return null;
         }
 
-        /// <summary>Folders of earlier starts other than the work folder that still hold backups (for the "may be deleted" note).</summary>
+        /// <summary>
+        /// For the "may be deleted" note once nothing is installed: build 11's backup folder in the drop folder when it still
+        /// holds files and its installed.json is gone or was taken over (a state not taken over may know originals no other
+        /// folder has). Our own folders are never named: <see cref="CleanTwin"/> empties the other one itself.
+        /// </summary>
         public List<string> OldBackupFolders()
         {
             var found = new List<string>();
-            foreach (string dir in Others)
+            if (Drop == Work) return found;
+            string backups = Path.Combine(Drop, HdInstaller.BackupFolder);
+            try
             {
-                string backups = Path.Combine(dir, HdInstaller.BackupFolder);
-                try
-                {
-                    if (Directory.Exists(backups) && Directory.GetFiles(backups, "*", SearchOption.AllDirectories).Length > 0) found.Add(backups);
-                }
-                catch (Exception)
-                {
-                }
+                if (!Directory.Exists(backups) || Directory.GetFiles(backups, "*", SearchOption.AllDirectories).Length == 0) return found;
+                byte[] raw = ReadStateOrNull(Drop);
+                if (raw == null || ImportedKeys().Contains(Key(raw))) found.Add(backups);
+            }
+            catch (Exception)
+            {
             }
             return found;
         }
 
+        /// <summary>The other of McvsOffline/hd-install and its internal-storage twin (null when no folder is used).</summary>
+        public string Twin { get { return Work == null ? null : Work == Primary ? Fallback : Primary; } }
+
         /// <summary>
-        /// When the work folder has no installed.json and another folder has one this folder has not taken over yet: it is
-        /// checked (<see cref="HdState.Load"/>) and copied byte for byte into the work folder, then noted in imported.txt; its
-        /// backups stay where they are. An installed.json that cannot be read is left for a later start (logged). Never throws.
+        /// Once nothing is installed: the other hd-install folder's installed.json (when it was taken over) and its backups are
+        /// no longer needed by any record (every record of it went into ours and has been given back), so they are deleted.
+        /// Both folders are the app's own (never the drop folder); a folder that cannot be written is left as it is. Never throws.
+        /// </summary>
+        public void CleanTwin(Log log)
+        {
+            string twin = Twin;
+            if (twin == null || !Directory.Exists(twin)) return;
+            try
+            {
+                string state = Path.Combine(twin, HdInstaller.StateFile);
+                byte[] raw = ReadStateOrNull(twin);
+                if (raw != null)
+                {
+                    if (!ImportedKeys().Contains(Key(raw))) return;
+                    HdInstaller.Guard(state);
+                    File.Delete(state);
+                }
+                string backups = Path.Combine(twin, HdInstaller.BackupFolder);
+                if (!Directory.Exists(backups)) return;
+                int deleted = 0;
+                foreach (string file in Directory.GetFiles(backups, "*", SearchOption.AllDirectories))
+                {
+                    HdInstaller.Guard(file);
+                    File.Delete(file);
+                    deleted++;
+                }
+                HdInstaller.DeleteEmptyDirs(backups);
+                if (deleted > 0 || raw != null)
+                    log.Info("hd: " + Display(twin) + ": " + (raw != null ? HdInstaller.StateFile + " taken over earlier and " : "") + deleted +
+                             " backups no longer needed deleted");
+            }
+            catch (Exception ex)
+            {
+                log.Info("hd: " + Display(twin) + " of an earlier start is left as it is (" + Reason(ex) + ")");
+            }
+        }
+
+        /// <summary>
+        /// Takes over the installed.json of another folder that imported.txt does not list yet (checked with
+        /// <see cref="HdState.Load"/>), then notes it in imported.txt (CRC-32, size, folder) so it is taken over once:
+        /// <list type="bullet">
+        /// <item>our folder has none: it is copied byte for byte (atomically);</item>
+        /// <item>it took over ours as ours is now (its imported.txt lists our installed.json: that folder was in use while ours
+        /// could not be written): it is the newer one and replaces ours byte for byte;</item>
+        /// <item>else its records for files ours does not list are added to ours (ours wins for a file both list), so no
+        /// record, and no original only it knows, is dropped.</item>
+        /// </list>
+        /// Its backups stay where they are. An installed.json that cannot be read is left for a later start (logged; with no state
+        /// of ours, <see cref="Blocked"/>). Never throws.
         /// </summary>
         public void Migrate(Log log)
         {
@@ -274,7 +335,6 @@ namespace McvsOffline.Embedded.Hd
             try
             {
                 HashSet<string> imported = ImportedKeys();
-                bool haveState = File.Exists(StatePath);
                 foreach (string dir in Others)
                 {
                     string source = Path.Combine(dir, HdInstaller.StateFile);
@@ -287,17 +347,12 @@ namespace McvsOffline.Embedded.Hd
                     catch (Exception ex)
                     {
                         log.Warn("hd: " + Display(source) + " of an earlier start cannot be read (" + Reason(ex) + "); it is not taken over");
-                        if (!haveState && Blocked == null) Blocked = Display(source) + " of an earlier build cannot be read";
+                        if (!File.Exists(StatePath) && Blocked == null) Blocked = Display(source) + " of an earlier build cannot be read";
                         continue;
                     }
                     string key = Key(raw);
                     if (imported.Contains(key)) continue;
-                    if (haveState)
-                    {
-                        log.Warn("hd: " + Display(source) + " of an earlier start is ignored: " + Display(StatePath) + " is in use");
-                        Note(key, dir);
-                        continue;
-                    }
+                    byte[] own = ReadStateOrNull(Work);
                     HdState state;
                     try
                     {
@@ -306,18 +361,55 @@ namespace McvsOffline.Embedded.Hd
                     catch (FormatException ex)
                     {
                         log.Warn("hd: " + ex.Message + ": it is not taken over (nothing is changed for its files)");
-                        if (Blocked == null) Blocked = Display(source) + " of an earlier build cannot be read";
+                        if (own == null && Blocked == null) Blocked = Display(source) + " of an earlier build cannot be read";
                         continue;
                     }
-                    if (state.Records.Count > 0)
+                    if (own == null || ImportedKeysOf(dir).Contains(Key(own)))
                     {
-                        HdInstaller.Guard(StatePath);
-                        AtomicFile.WriteAllBytes(StatePath, raw);
-                        haveState = true;
-                        log.Info("hd: took over " + Display(source) + " (" + state.Records.Count + " files) into " + Display(Work) +
-                                 "; its backups are used where they are");
+                        if (state.Records.Count > 0)
+                        {
+                            HdInstaller.Guard(StatePath);
+                            AtomicFile.WriteAllBytes(StatePath, raw);
+                            log.Info("hd: took over " + Display(source) + " (" + state.Records.Count + " files) into " + Display(Work) +
+                                     (own != null ? ", in place of the older " + HdInstaller.StateFile + " there" : "") + "; its backups are used where they are");
+                        }
+                    }
+                    else
+                    {
+                        HdState ours;
+                        try
+                        {
+                            ours = HdState.Load(StatePath);
+                        }
+                        catch (FormatException)
+                        {
+                            // Ours cannot be read: the run reports it and changes nothing; this one is tried again later.
+                            log.Warn("hd: " + Display(source) + " of an earlier start is not taken over now: " + Display(StatePath) + " cannot be read");
+                            continue;
+                        }
+                        int added = 0;
+                        foreach (HdRecord r in state.Records)
+                        {
+                            if (ours.Find(r.Path) != null) continue;
+                            ours.Put(r.Clone());
+                            added++;
+                        }
+                        if (added > 0)
+                        {
+                            if (ours.PackFile == null && ours.PackName == null)
+                            {
+                                ours.PackFile = state.PackFile;
+                                ours.PackId = state.PackId;
+                                ours.PackName = state.PackName;
+                            }
+                            HdInstaller.Guard(StatePath);
+                            ours.Save(StatePath);
+                        }
+                        log.Info("hd: " + Display(source) + " of an earlier start: " + added + " of its " + state.Records.Count + " files added to " +
+                                 Display(StatePath) + " (the others are listed there already); its backups are used where they are");
                     }
                     Note(key, dir);
+                    imported.Add(key);
                 }
             }
             catch (Exception ex)
@@ -327,26 +419,51 @@ namespace McvsOffline.Embedded.Hd
             }
         }
 
+        /// <summary><paramref name="dir"/>'s imported.txt lists <paramref name="other"/>'s installed.json as it is now (it took that one over).</summary>
+        private bool TookOver(string dir, string other)
+        {
+            try
+            {
+                byte[] raw = ReadStateOrNull(other);
+                return raw != null && ImportedKeysOf(dir).Contains(Key(raw));
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private static byte[] ReadStateOrNull(string dir)
+        {
+            string path = Path.Combine(dir, HdInstaller.StateFile);
+            return File.Exists(path) ? File.ReadAllBytes(path) : null;
+        }
+
         private HashSet<string> ImportedKeys()
         {
+            var keys = ImportedKeysOf(Primary);
+            keys.UnionWith(ImportedKeysOf(Fallback));
+            return keys;
+        }
+
+        /// <summary>The "&lt;crc32&gt; &lt;size&gt;" keys in <paramref name="folder"/>'s imported.txt (empty when it has none).</summary>
+        private static HashSet<string> ImportedKeysOf(string folder)
+        {
             var keys = new HashSet<string>(StringComparer.Ordinal);
-            foreach (string dir in new[] { Primary, Fallback })
+            try
             {
-                try
+                string text = AtomicFile.ReadAllTextOrNull(Path.Combine(folder, ImportedFile));
+                if (text == null) return keys;
+                foreach (string line in text.Split('\n'))
                 {
-                    string text = AtomicFile.ReadAllTextOrNull(Path.Combine(dir, ImportedFile));
-                    if (text == null) continue;
-                    foreach (string line in text.Split('\n'))
-                    {
-                        string l = line.TrimEnd('\r');
-                        int space = l.IndexOf(' ');
-                        int second = space < 0 ? -1 : l.IndexOf(' ', space + 1);
-                        if (second > 0) keys.Add(l.Substring(0, second));
-                    }
+                    string l = line.TrimEnd('\r');
+                    int space = l.IndexOf(' ');
+                    int second = space < 0 ? -1 : l.IndexOf(' ', space + 1);
+                    if (second > 0) keys.Add(l.Substring(0, second));
                 }
-                catch (Exception)
-                {
-                }
+            }
+            catch (Exception)
+            {
             }
             return keys;
         }

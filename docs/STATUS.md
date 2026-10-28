@@ -48,13 +48,18 @@ the first step), so the phone was left as it was.
 * `McvsOffline/hd/` is a read-only drop folder: the installer never creates, writes, renames or deletes anything in it.
 * `installed.json`, the backups and `imported.txt` go to `McvsOffline/hd-install/`, made by the app; when it does not take
   a probe file, `getFilesDir()/McvsOffline/hd-install/` (logged as a warning; Status adds "backups in the app's internal
-  storage"). A folder that already holds `installed.json` is used first.
+  storage"). The folder with the current `installed.json` is used first; when both hold one, `imported.txt` tells the
+  newer state from the stale copy `McvsOffline/hd-install` keeps while it cannot be written.
 * Before anything is removed or installed, our folder, `Data/` and every `Data/<h>/` to be touched take a probe file; when
   one does not, nothing in `Data/` changes and Status and `[boot] hd:` give one reason, e.g. `none installed; cannot write
-  McvsOffline/hd-install: permission denied (nor the app's internal storage: permission denied); nothing changed`.
+  McvsOffline/hd-install: permission denied (nor the app's internal storage: permission denied); nothing changed`. The
+  installer's index, our saved copy and the journal are still made to match `Data/` (also after `InstallerData` replaced
+  the index at that start).
 * Build 11's `McvsOffline/hd/installed.json` (on phones where the app made `hd/` itself) is taken over once (checked,
   copied byte for byte, noted in `imported.txt`); its backups are used where they are for removal and are never
-  deleted; once nothing is installed Status says they may be deleted.
+  deleted; once nothing is installed Status says they may be deleted. A state of another place beside ours is taken
+  over when it is newer (it took ours over), else merged into ours (no record is dropped); the other `hd-install`
+  folder's taken-over state and backups are deleted once nothing is installed.
 * Every guarantee stays: originals checked, atomic writes, index/journal consistent with `Data/` after every start, a
   start cut short completed by the next, removal byte-identical (from our backups or the old ones).
 
@@ -67,8 +72,12 @@ writable (internal storage used, kept while it holds the state, removal byte-ide
 `Data/8` not writable (nothing installed; with HD files installed, removal changes nothing and the files stay
 consistent), build 11's state taken over with `hd-install` writable and not (no new writes, removal byte-identical from
 the old backups, index and journal pristine, not taken again, reinstall backs up into our folder), an unreadable old
-state not taken over and nothing changed until it can be read. The `scripts/build.sh` steps with the same environment as
-below: **McvsOffline.Tests 1345/1345, McvsOffline.Embed.Tests 502/502, McvsOffline.PcSpike.Tests 62/62, 0 skipped**.
+state not taken over and nothing changed until it can be read; review fixes: `hd-install` denied for one start and
+writable again (the newer state in internal storage stays in use, removal puts all 5 originals back, no "may be deleted"
+for our own folders, the stale copy and its backups cleaned up), two unrelated states merged (removal puts every
+original back), `Data/8` denied right after `InstallerData` restored Gameloft's index from `files/pack.info` (the index
+still matches the HD file; the installer accepts it). The `scripts/build.sh` steps with the same environment as
+below: **McvsOffline.Tests 1345/1345, McvsOffline.Embed.Tests 506/506, McvsOffline.PcSpike.Tests 62/62, 0 skipped**.
 
 **On the phone**: no new step: with the pack in `McvsOffline/hd/` (made with adb as before) the next start installs
 (`[boot] hd: <name>, N files installed ...`); `McvsOffline/hd-install/` appears next to it.
