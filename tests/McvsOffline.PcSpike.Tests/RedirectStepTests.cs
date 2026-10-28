@@ -101,6 +101,58 @@ namespace McvsOffline.PcSpike.Tests
             }
         }
 
+        /// <summary>
+        /// Review finding (build 10): with the game still running, Windows refuses to delete the EngineBridge copy it loaded.
+        /// Undo then leaves the config too (the copy goes first), says to quit the game and run it again, and the leftovers
+        /// that 'status' and 'collect' print name both; a second Undo once the game is closed cleans up.
+        /// </summary>
+        [Fact]
+        public void ACopyTheGameStillHoldsLeavesTheFolderVisiblyModified()
+        {
+            string game = Support.NewTempDir("game");
+            string data = Support.NewTempDir("data");
+            try
+            {
+                File.WriteAllBytes(Path.Combine(game, "EngineBridge.dll"), Support.EngineBridge(Support.Engine()));
+                var log = new SpikeLog(data, echo: false);
+                Assert.Empty(GameFolderState.Leftovers(game));
+                Assert.True(RedirectStep.Install(game, data, log));
+                Assert.Equal(2, GameFolderState.Leftovers(game).Count);
+
+                string copy = RedirectStep.CopyPath(game);
+                var deleted = new List<string>();
+                void Locked(string path)
+                {
+                    if (path == copy) throw new IOException("The process cannot access the file '" + path + "' because it is being used by another process.");
+                    File.Delete(path);
+                    deleted.Add(path);
+                }
+                Assert.False(RedirectStep.Undo(game, data, log, Locked));
+                Assert.Empty(deleted);   // the config stays while the copy cannot go
+                Assert.True(File.Exists(copy));
+                Assert.True(File.Exists(RedirectStep.ConfigPath(game)));
+                string logText = File.ReadAllText(Path.Combine(data, SpikeLog.FileName));
+                Assert.Contains("ERROR redirect-undo: The process cannot access the file", logText);
+                Assert.Contains("(" + RedirectStep.QuitAndUndoAgain + ")", logText);
+
+                List<string> left = GameFolderState.Leftovers(game);
+                foreach (string l in left) output.WriteLine(l);
+                Assert.Equal(2, left.Count);
+                Assert.Contains(left, l => l.StartsWith(ExeConfig.FileName + " is ours: run 'redirect-undo'", StringComparison.Ordinal));
+                Assert.Contains(left, l => l == "McvsOffline\\spike\\EngineBridge.dll is still there: " + RedirectStep.QuitAndUndoAgain);
+
+                // The game closed: the next redirect-undo removes both.
+                Assert.True(RedirectStep.Undo(game, data, log));
+                Assert.Empty(GameFolderState.Leftovers(game));
+                Assert.False(Directory.Exists(Path.Combine(game, "McvsOffline")));
+            }
+            finally
+            {
+                Support.DeleteDir(game);
+                Support.DeleteDir(data);
+            }
+        }
+
         [Fact]
         public void AForeignConfigIsBackedUpAndRestored()
         {

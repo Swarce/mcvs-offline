@@ -63,7 +63,9 @@ asks again. After `start` ends with Ctrl+C, the menu comes back: choose `stop`, 
    .\McvsOffline.PcSpike.exe redirect-undo
    ```
 
-   It prints `MARKER WRITTEN` or `NO MARKER`, then removes the test files. Both answers are useful.
+   It prints `MARKER WRITTEN` or `NO MARKER`, then removes the test files. Both answers are useful. If it says
+   `error: redirect-undo: ...` and "quit the game ... then run 'redirect-undo' again", the game was still running and
+   Windows kept the test file: end `ModernCombatVersus.exe` in Task Manager and run `redirect-undo` once more.
 
 If the game does not start at all after `redirect-test`, run `redirect-undo` at once. The game then starts as before.
 That result is useful too.
@@ -106,7 +108,8 @@ That result is useful too.
 ```
 
 Run it after you quit the game and stopped `start` with Ctrl+C. If either still runs, it warns you; the zip is still
-made, but the memory record may be cut short.
+made, but the memory record may be cut short. If the game folder still has our changes (you skipped `stop` or
+`redirect-undo`), it says so after "Done" and names the command to run; run it then.
 
 It asks six short questions: menu reached, bot match, the news link, firewall, graphics setting, anything else. Press
 Enter to skip one. It then writes `McvsOffline-pc-spike-<date>-<time>.zip` to your desktop. Send us that file.
@@ -128,7 +131,9 @@ The zip contains no game files and no passwords. Some paths in it include your W
 
 ## 6. Clean up
 
-* `stop` and `redirect-undo` already removed everything from the game folder. `status` shows what is still installed.
+* `stop` and `redirect-undo` normally removed everything from the game folder. `status` checks it: it ends with
+  "game folder: as Steam installed it", or "STILL MODIFIED" and one line per leftover (our `args.txt` block,
+  `ModernCombatVersus.exe.config`, `McvsOffline\spike\EngineBridge.dll`) with the command that removes it.
 * Delete `%LOCALAPPDATA%\McvsOffline\spike` and the exe when you no longer need them.
 * You do not need Steam's "Verify integrity of game files", because no Steam file was changed. Running it does no harm.
 

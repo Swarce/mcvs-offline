@@ -191,6 +191,10 @@ namespace McvsOffline.PcSpike
             {
                 s.AppendLine("  " + ExeConfig.FileName + ": absent");
             }
+            s.AppendLine("  " + RedirectStep.CopyFolder.Replace('/', '\\') + "\\" + RedirectStep.AssemblyFileName + ": " +
+                         (File.Exists(RedirectStep.CopyPath(game.Directory)) ? "present (" + RedirectStep.QuitAndUndoAgain + ")" : "absent"));
+            List<string> left = GameFolderState.Leftovers(game.Directory);
+            s.AppendLine("  still modified by the kit: " + (left.Count == 0 ? "no" : "YES, " + left.Count + " item(s); the console said so too"));
 
             var listing = new StringBuilder();
             try

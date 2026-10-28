@@ -32,6 +32,9 @@ namespace McvsOffline.PcSpike
 
         public static string ConfigPath(string gameDir) => Path.Combine(gameDir, ExeConfig.FileName);
 
+        /// <summary>What to do when the copy cannot be deleted: Windows keeps a DLL the game process has loaded.</summary>
+        public const string QuitAndUndoAgain = "quit the game (end ModernCombatVersus.exe in Task Manager if it hangs), then run 'redirect-undo' again";
+
         /// <summary>
         /// Patches the player's EngineBridge.dll in memory with <see cref="EngineBridgeMarkerPatch"/> and returns the new image
         /// and the assembly version (for the codeBase element). Throws <see cref="PatchException"/> on an unknown build.
@@ -115,19 +118,37 @@ namespace McvsOffline.PcSpike
             return true;
         }
 
-        /// <summary>Removes our config and copy, restores a config we replaced. Returns false when something was left behind.</summary>
+        /// <summary>
+        /// Removes our copy and config, restores a config we replaced. Returns false when something was left behind. The copy
+        /// goes first: while the game still runs, Windows refuses to delete the DLL it loaded, and then the config stays
+        /// too, so 'status' still shows the folder as modified (and a later 'redirect-undo' finishes the job).
+        /// </summary>
         public static bool Undo(string gameDir, string dataDir, SpikeLog log)
+        {
+            return Undo(gameDir, dataDir, log, File.Delete);
+        }
+
+        /// <summary><see cref="Undo(string, string, SpikeLog)"/> with another file deletion (tests: a DLL Windows keeps loaded).</summary>
+        internal static bool Undo(string gameDir, string dataDir, SpikeLog log, Action<string> deleteFile)
         {
             bool clean = true;
             string config = ConfigPath(gameDir);
             string backup = Path.Combine(dataDir, ArgsTxtStep.BackupFolder, ExeConfig.FileName);
             try
             {
+                string copy = CopyPath(gameDir);
+                if (File.Exists(copy))
+                {
+                    deleteFile(copy);
+                    log.Info("redirect-undo: deleted " + copy);
+                }
+                DeleteIfEmpty(Path.GetDirectoryName(copy));
+                DeleteIfEmpty(Path.Combine(gameDir, "McvsOffline"));
                 if (File.Exists(config))
                 {
                     if (ExeConfig.IsOurs(File.ReadAllText(config)))
                     {
-                        File.Delete(config);
+                        deleteFile(config);
                         log.Info("redirect-undo: deleted " + config);
                     }
                     else
@@ -141,18 +162,10 @@ namespace McvsOffline.PcSpike
                     File.Move(backup, config);
                     log.Info("redirect-undo: restored the earlier " + ExeConfig.FileName);
                 }
-                string copy = CopyPath(gameDir);
-                if (File.Exists(copy))
-                {
-                    File.Delete(copy);
-                    log.Info("redirect-undo: deleted " + copy);
-                }
-                DeleteIfEmpty(Path.GetDirectoryName(copy));
-                DeleteIfEmpty(Path.Combine(gameDir, "McvsOffline"));
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
             {
-                log.Error("redirect-undo: " + ex.Message);
+                log.Error("redirect-undo: " + ex.Message + " (" + QuitAndUndoAgain + ")");
                 clean = false;
             }
             return clean;

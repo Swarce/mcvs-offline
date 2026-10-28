@@ -45,9 +45,13 @@ namespace McvsOffline.PcSpike.Tests
                 Assert.NotEqual(0xEF, written[0]);   // no BOM: it would swallow the first argument
                 Assert.DoesNotContain((byte)'\t', written);
                 Assert.Contains("RESULT install folder writable: yes", File.ReadAllText(log.FilePath));
+                // 'status' and 'collect' warn on the console while our block is there (review finding, build 10).
+                Assert.Equal(new[] { "args.txt still has the MCVS Offline block (the game would look for our server): run 'stop' to restore the original" },
+                             GameFolderState.Leftovers(game));
 
                 Assert.Equal("deleted our args.txt (there was none before)", ArgsTxtStep.Restore(game, data, log));
                 Assert.False(File.Exists(Path.Combine(game, "args.txt")));
+                Assert.Empty(GameFolderState.Leftovers(game));
                 Assert.Equal("nothing to restore (no backup record)", ArgsTxtStep.Restore(game, data, log));
             }
             finally
@@ -79,8 +83,10 @@ namespace McvsOffline.PcSpike.Tests
                 ArgsTxtStep.Install(game, data, Managed(), log);
                 Assert.Equal(original, File.ReadAllBytes(Path.Combine(data, "backup", "args.txt")));
 
+                Assert.Single(GameFolderState.Leftovers(game));
                 Assert.Equal("restored the original args.txt", ArgsTxtStep.Restore(game, data, log));
                 Assert.Equal(original, File.ReadAllBytes(Path.Combine(game, "args.txt")));
+                Assert.Empty(GameFolderState.Leftovers(game));   // the player's own args.txt is not a leftover
                 Assert.False(File.Exists(Path.Combine(data, "backup", "args.txt")));
             }
             finally

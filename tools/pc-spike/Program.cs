@@ -271,6 +271,7 @@ namespace McvsOffline.PcSpike
             Console.WriteLine();
             Console.WriteLine("Done: " + zip);
             Console.WriteLine("Please send this file back. It holds logs and our own files only, no game files.");
+            WarnLeftovers(game, log);
             return 0;
         }
 
@@ -284,10 +285,28 @@ namespace McvsOffline.PcSpike
                 Console.WriteLine("args.txt:    " + (File.Exists(ArgsTxtStep.ArgsPath(game.Directory)) ? "present" : "absent") +
                                   (File.Exists(Path.Combine(options.DataDir, ArgsTxtStep.BackupFolder, ArgsTxtStep.StateFileName)) ? " (ours; 'stop' restores the original)" : ""));
                 Console.WriteLine("exe.config:  " + (File.Exists(RedirectStep.ConfigPath(game.Directory)) ? "present" : "absent"));
+                Console.WriteLine("spike copy:  " + (File.Exists(RedirectStep.CopyPath(game.Directory)) ? "present (" + RedirectStep.CopyPath(game.Directory) + ")" : "absent"));
                 Console.WriteLine("exe header:  " + PeHeader.Describe(game.Exe));
             }
             Console.WriteLine("redirect:    " + RedirectStep.DescribeMarker(options.DataDir));
+            if (game != null)
+            {
+                List<string> left = GameFolderState.Leftovers(game.Directory);
+                Console.WriteLine(left.Count == 0 ? "game folder: as Steam installed it (nothing of ours)" : "game folder: STILL MODIFIED");
+                WarnLeftovers(game, log);
+            }
             return 0;
+        }
+
+        /// <summary>Warns on the console (and in pc-spike.log) about each leftover of ours in the game folder.</summary>
+        private static void WarnLeftovers(GameLocation game, SpikeLog log)
+        {
+            if (game == null) return;
+            List<string> left = GameFolderState.Leftovers(game.Directory);
+            if (left.Count == 0) return;
+            Console.WriteLine();
+            Console.WriteLine("The game folder still has our changes (" + game.Directory + "):");
+            foreach (string line in left) log.Warn("game folder: " + line);   // echoed on the console
         }
 
         // ------------------------------------------------------------------------------------------------ helpers
