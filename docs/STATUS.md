@@ -61,7 +61,7 @@ HD texture probe and a Windows test kit for the Steam version.
   keeps Gameloft's icon and launch screen byte for byte (the patcher notes it).
 * **PC test kit (WP0)**: `tools/pc-spike`, one self-contained Windows exe that runs the Steam game against our server
   and packs the answers of [research/pc-port.md](research/pc-port.md) §5 into one zip; owner's guide
-  [PC-SPIKE.md](PC-SPIKE.md). Built for this build: `McvsOffline.PcSpike.exe`, 35,937,976 bytes, win-x64.
+  [PC-SPIKE.md](PC-SPIKE.md). Built for this build: `McvsOffline.PcSpike.exe`, 35,939,879 bytes, win-x64.
 
 The details of the graphics profile, the HD texture probe and the notification permission follow.
 
@@ -181,18 +181,24 @@ The details of the graphics profile, the HD texture probe and the notification p
 ### Checked (build 10)
 
 The `scripts/build.sh` steps with `MCVS_REFS`, `MCVS_REQUIRE_EMBEDDED=1`, `MCVS_REQUIRE_REAL_CLIENT=1`,
-`MCVS_REQUIRE_NODE=1` and `MCVS_REQUIRE_PC=1`: **McvsOffline.Tests 1345/1345, McvsOffline.Embed.Tests 414/414, McvsOffline.PcSpike.Tests 61/61, 0 skipped**. From the branches:
+`MCVS_REQUIRE_NODE=1` and `MCVS_REQUIRE_PC=1`: **McvsOffline.Tests 1345/1345, McvsOffline.Embed.Tests 415/415, McvsOffline.PcSpike.Tests 62/62, 0 skipped** (1,822;
+after the build-10 review fixes). From the branches:
 `ManifestTargetSdkTests`, `BinaryXmlGrowthTests`, `DexEditorTests` and `RealDexTargetSdkTests` (the 14 sites on the real
 `classes.dex`: fingerprints, only the edited code units and the header change, the edited methods read as the report
-says, P8's registers and intent, no reachable `PendingIntent` without a mutability flag, GA cannot start; d8 and dexdump
-accept the result), `ArtPatchTests`/`RealArtTests`/`ArscTableTests`/`PngTests`, `GraphicsProfileTests`,
+says, P8's registers and intent, no reachable `PendingIntent` without a mutability flag, GA cannot start, and no
+component the patched manifest declares reaches an unflagged `PendingIntent` site, by a conservative reachability from
+the Application class and every component, which with build 9's components finds GA's `zzaoa.zzyk` from the three GA
+components; d8 and dexdump accept the result), `ArtPatchTests`/`RealArtTests`/`ArscTableTests`/`PngTests`, `GraphicsProfileTests`,
 `RealGraphicsPatchTests`, `HdTexturesTests`, `NotificationPermissionTests`, the JNI table against android.jar 29 and 34,
 and `McvsOffline.PcSpike.Tests` against the real Steam files. The default full run of the patcher on the real APK now
-checks the `classes.dex` bytes and its 14 notes (103 notes in all; 107 with `--patch all`).
+checks the `classes.dex` bytes and its 14 notes (107 notes in all, 4 of them the GA removals; 111 with `--patch all`).
+`McvsOffline.PcSpike.Tests` add a copy the running game still holds (redirect-undo keeps the config, says to quit the
+game and run it again; `status` and `collect` name the leftovers on the console).
 
 The real 1.17.32 APK patched once with the defaults (57,785,115 bytes, then deleted): `aapt2 dump badging` says
 `sdkVersion:'21'`, `targetSdkVersion:'35'` and lists `POST_NOTIFICATIONS`; `xmltree` shows `exported=true` on
-XamarinMainActivity, IGPFreemiumActivity and LocalPushReceiver, `allowNativeHeapPointerTagging=false`, `<queries>` with
+XamarinMainActivity, IGPFreemiumActivity and LocalPushReceiver, no Google Analytics component (only the inert
+`globalConfigResource` meta-data), `allowNativeHeapPointerTagging=false`, `<queries>` with
 the https and http schemes, and `fitsSystemWindows=true` on the root of both browser layouts; `dexdump` parses
 `classes.dex` ("Checksum verified") and shows all 14 sites as edited; `apksigner verify` v1, v2 and v3 true;
 `zipalign -c -p 4` OK; `resources.arsc` STORED, 4-byte aligned, byte for byte the shipped one. With `--target-sdk 29`:

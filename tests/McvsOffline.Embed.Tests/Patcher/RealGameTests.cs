@@ -148,8 +148,9 @@ namespace McvsOffline.Embed.Tests.Patcher
             PatchReport report = ApkPatcher.Run(new PatcherOptions { InputApk = apk, ServerDll = server, DryRun = true }, log.Add);
             // 32 IL patch notes (hook, headless 5 + 3, physics 2, nativeonline, waits 2, geo, bottile, finder, store 2,
             // signatures 2, debloat 7, adminpage 2, adminlink, graphics), the manifest rename, res/raw/args.txt, the ABI selection,
-            // debloat's 44 + 1, and targetsdk at its default 35: 7 manifest, 2 layout and 14 classes.dex edits: 103.
-            Assert.Equal(103, ExpectedNotes(PatcherOptions.DefaultPatches));
+            // debloat's 44 + 1, and targetsdk at its default 35: 7 manifest, 2 layout, 4 Google Analytics removal and 14
+            // classes.dex edits: 107.
+            Assert.Equal(107, ExpectedNotes(PatcherOptions.DefaultPatches));
             Assert.Equal(ExpectedNotes(PatcherOptions.DefaultPatches), report.Notes.Count);
             Assert.Contains("patch targetsdk: targetSdkVersion 29 -> 35, with what that target needs in the manifest, the settings page's layouts and classes.dex", log);
             Assert.Contains(ManifestTargetSdk.DexEntry, report.Modified);
