@@ -39,7 +39,8 @@ patcher/       McvsOffline.Patcher (net8 + Mono.Cecil): turns the player's own A
 tests/         unit tests, protocol tests, and a conformance harness that drives the REAL
                Gameloft.OnlinePlatform.dll (taken from the player's APK, never committed) against the server
 tools/         content-gen (tables -> Content/), cdn-mirror (archive and verify the CDN data, offline install), pc-spike (WP0 Windows
-               test kit for the Steam build, docs/PC-SPIKE.md), hd-textures (HD texture probe zip), art (icon exporter);
+               test kit for the Steam build, docs/PC-SPIKE.md), hd-textures (PC textures to an HD pack for the phone,
+               docs/design/hd-textures.md), art (icon exporter);
                planned: datapack (decode GCBF/LZ4 + names)
 art/android/   the project's own launcher icon and launch-screen art, embedded in the patcher (empty until drawn)
 docs/          this file, protocol spec, setup guides, research/

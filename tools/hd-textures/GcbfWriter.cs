@@ -1,79 +1,100 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading.Tasks;
 using McvsOffline.Server.Core.Content;
 
 namespace McvsOffline.Tools.HdTextures
 {
     /// <summary>
-    /// Writes the engine's GCBF container (report 11 §3; the reader is server/Core/Content/DataPack.cs, the reference encoder
-    /// tools/datapack/gcbf.py): "GCBF", N, N seek-table pairs, then one 36-byte "padA" header + payload per block of up to 128 KiB.
-    /// Every block uses the 'Lz4 ' codec, the only one the 1.17.32 pack uses, with a literal-only LZ4 block (one sequence: the
-    /// token, the literal length, the bytes; valid for every LZ4 decoder, no compression needed for a probe).
+    /// Writes the engine's GCBF container (report 11 §3; the reader is server/Core/Content/DataPack.cs): "GCBF", N, N
+    /// seek-table pairs, then one 36-byte "padA" header + LZ4 payload per block. The texture files of the 1.17.32 pack are
+    /// split into <see cref="TextureBlocks"/> blocks of equal size (the last takes the remainder), so that is what
+    /// <see cref="Encode(byte[])"/> writes; a block that LZ4 cannot shrink is stored as one literal run.
     /// </summary>
     internal static class GcbfWriter
     {
-        public const int BlockSize = 131072;
+        /// <summary>Blocks per file in the pack's textures (every texture file has 9 seek-table entries).</summary>
+        public const int TextureBlocks = 8;
+
         private const uint BlockMagic = 0x41646170;   // "padA" on disk
         private const uint CodecLz4 = 0x4C7A3420;     // 'Lz4 '
 
+        /// <summary>GCBF with the pack's eight-block split.</summary>
         public static byte[] Encode(byte[] raw)
         {
-            var chunks = new List<byte[]>();
-            for (int o = 0; o < raw.Length; o += BlockSize)
+            var sizes = new List<int>();
+            int per = raw.Length / TextureBlocks;
+            if (per == 0)
             {
-                int n = Math.Min(BlockSize, raw.Length - o);
-                var c = new byte[n];
-                Buffer.BlockCopy(raw, o, c, 0, n);
-                chunks.Add(c);
+                sizes.Add(raw.Length);
             }
-            if (chunks.Count == 0) chunks.Add(new byte[0]);
-            int entries = chunks.Count + 1;
-            var blocks = new List<byte[]>();
-            foreach (byte[] c in chunks)
+            else
             {
-                byte[] payload = Lz4Literals(c);
-                using (var b = new MemoryStream())
-                {
-                    Ktx.WriteU32(b, BlockMagic);
-                    Ktx.WriteU32(b, CodecLz4);
-                    Ktx.WriteU32(b, (uint)payload.Length);
-                    Ktx.WriteU32(b, (uint)c.Length);
-                    Ktx.WriteU32(b, Crc32.Compute(payload, 1));
-                    Ktx.WriteU32(b, Crc32.Compute(c, 1));
-                    Ktx.WriteU32(b, (uint)c.Length);
-                    Ktx.WriteU32(b, 0);
-                    Ktx.WriteU32(b, 0);
-                    b.Write(payload, 0, payload.Length);
-                    blocks.Add(b.ToArray());
-                }
+                for (int i = 0; i < TextureBlocks - 1; i++) sizes.Add(per);
+                sizes.Add(raw.Length - per * (TextureBlocks - 1));
             }
+            return Encode(raw, sizes);
+        }
+
+        /// <summary>GCBF with the given block sizes (they must add up to the data length).</summary>
+        public static byte[] Encode(byte[] raw, IList<int> blockSizes)
+        {
+            var offsets = new int[blockSizes.Count];
+            int sum = 0;
+            for (int i = 0; i < blockSizes.Count; i++)
+            {
+                offsets[i] = sum;
+                sum += blockSizes[i];
+            }
+            if (sum != raw.Length) throw new ArgumentException("block sizes add up to " + sum + ", not " + raw.Length);
+            var blocks = new byte[blockSizes.Count][];
+            Parallel.For(0, blockSizes.Count, i => blocks[i] = Block(raw, offsets[i], blockSizes[i]));
+            int entries = blockSizes.Count + 1;
             using (var ms = new MemoryStream())
             {
                 ms.Write(new[] { (byte)'G', (byte)'C', (byte)'B', (byte)'F' }, 0, 4);
                 Ktx.WriteU32(ms, (uint)entries);
-                uint rawOffset = 0;
                 uint fileOffset = (uint)(8 + 8 * entries);
-                for (int i = 0; i < chunks.Count; i++)
+                for (int i = 0; i < blocks.Length; i++)
                 {
-                    Ktx.WriteU32(ms, rawOffset);
+                    Ktx.WriteU32(ms, (uint)offsets[i]);
                     Ktx.WriteU32(ms, fileOffset);
-                    rawOffset += (uint)chunks[i].Length;
                     fileOffset += (uint)blocks[i].Length;
                 }
-                Ktx.WriteU32(ms, rawOffset);
+                Ktx.WriteU32(ms, (uint)raw.Length);
                 Ktx.WriteU32(ms, fileOffset);
                 foreach (byte[] b in blocks) ms.Write(b, 0, b.Length);
                 return ms.ToArray();
             }
         }
 
-        /// <summary>An LZ4 block holding <paramref name="data"/> as one literal run.</summary>
-        public static byte[] Lz4Literals(byte[] data)
+        private static byte[] Block(byte[] raw, int offset, int count)
         {
-            using (var ms = new MemoryStream(data.Length + data.Length / 255 + 16))
+            byte[] payload = Lz4Compressor.Compress(raw, offset, count);
+            if (payload.Length > count + count / 255 + 16) payload = Lz4Literals(raw, offset, count);
+            using (var b = new MemoryStream(payload.Length + 36))
             {
-                int length = data.Length;
+                uint dataCrc = Crc32.Compute(raw, offset, count, 1);
+                Ktx.WriteU32(b, BlockMagic);
+                Ktx.WriteU32(b, CodecLz4);
+                Ktx.WriteU32(b, (uint)payload.Length);
+                Ktx.WriteU32(b, (uint)count);
+                Ktx.WriteU32(b, Crc32.Compute(payload, 1));
+                Ktx.WriteU32(b, dataCrc);
+                Ktx.WriteU32(b, (uint)count);
+                Ktx.WriteU32(b, 0);
+                Ktx.WriteU32(b, 0);
+                b.Write(payload, 0, payload.Length);
+                return b.ToArray();
+            }
+        }
+
+        /// <summary>An LZ4 block holding the bytes as one literal run (valid for every LZ4 decoder).</summary>
+        public static byte[] Lz4Literals(byte[] data, int offset, int length)
+        {
+            using (var ms = new MemoryStream(length + length / 255 + 16))
+            {
                 if (length < 15)
                 {
                     ms.WriteByte((byte)(length << 4));
@@ -89,7 +110,7 @@ namespace McvsOffline.Tools.HdTextures
                     }
                     ms.WriteByte((byte)rest);
                 }
-                ms.Write(data, 0, data.Length);
+                ms.Write(data, offset, length);
                 return ms.ToArray();
             }
         }
