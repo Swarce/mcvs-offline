@@ -31,7 +31,7 @@ namespace McvsOffline.Embedded.Hd
     }
 
     /// <summary>
-    /// A minimal zip reader for the HD texture pack (McvsOffline/hd/mcvs-hd-*.zip, docs/design/hd-textures.md): the
+    /// A minimal zip reader for the HD texture pack (McvsOffline/hd/mcvs-hd-*.zip, docs/design/hd-textures.md §2): the
     /// end-of-central-directory record, the central directory and, for stored entries, their bytes. It checks that the structure
     /// is complete, there is no ZIP64 and every entry lies inside the file. No decompression: the pack's entries are stored
     /// (the .f files are LZ4 blocks already). Throws <see cref="HdZipException"/> for anything else.

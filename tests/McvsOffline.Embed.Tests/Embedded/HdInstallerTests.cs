@@ -13,7 +13,7 @@ using Xunit.Abstractions;
 namespace McvsOffline.Embed.Tests.Embedded
 {
     /// <summary>
-    /// The HD texture installer (hosts/embedded/Hd/HdInstaller.cs, docs/design/hd-textures.md): a pack's files replace the
+    /// The HD texture installer (hosts/embedded/Hd/HdInstaller.cs, docs/design/hd-install.md): a pack's files replace the
     /// originals in Data/, and the installer's index, its saved copy and the journal list them, so the installer's own checks
     /// (every listed file with its size, every split piece in the journal; the CRCs our background check reads) accept them
     /// without SKIP_VALIDATION. Each test runs the host's order: HdInstaller.Prepare, InstallerData.Prepare, HdInstaller.Apply.

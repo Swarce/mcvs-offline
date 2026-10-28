@@ -58,10 +58,10 @@ namespace McvsOffline.Embedded.Hd
         /// <summary>The zip's file name.</summary>
         public string FileName { get; private set; }
 
-        /// <summary>The CRC-32 of the manifest (it changes with every build of a pack), or the manifest's <c>id</c> when it has one.</summary>
+        /// <summary>The CRC-32 of the manifest, as 8 hex digits (it changes with every build of a pack: <c>created</c>).</summary>
         public string Id { get; private set; }
 
-        /// <summary>For the status line: the manifest's <c>name</c> when it has one, else the file name.</summary>
+        /// <summary>For the status line: the file name.</summary>
         public string Name { get; private set; }
 
         /// <summary>The Android data pack the pack was made for ("ETC", "ASTC"), or null when the manifest does not say.</summary>
@@ -123,13 +123,10 @@ namespace McvsOffline.Embedded.Hd
                 ZipPath = zipPath,
                 FileName = System.IO.Path.GetFileName(zipPath),
                 Zip = zip,
-                Id = JsonValue.GetString(manifest, "id"),
-                Name = JsonValue.GetString(manifest, "name"),
+                Id = McvsOffline.Embedded.Install.Crc32.Update(0, raw, 0, raw.Length).ToString("x8", CultureInfo.InvariantCulture),
+                Name = System.IO.Path.GetFileName(zipPath),
                 Variant = JsonValue.GetString(manifest, "pack"),
             };
-            if (string.IsNullOrEmpty(pack.Id))
-                pack.Id = McvsOffline.Embedded.Install.Crc32.Update(0, raw, 0, raw.Length).ToString("x8", CultureInfo.InvariantCulture);
-            if (string.IsNullOrEmpty(pack.Name)) pack.Name = pack.FileName;
             if (pack.Variant != null) pack.Variant = pack.Variant.Trim().ToUpperInvariant();
             List<object> files = JsonValue.GetArray(manifest, "files");
             if (files == null || files.Count == 0) throw new HdZipException(ManifestEntry + " lists no files");

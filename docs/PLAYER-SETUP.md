@@ -338,12 +338,15 @@ with the profile and every option. If a profile misbehaves, set it back to `auto
 **HD textures** (Settings › Graphics › HD textures, `hd.enabled`, default on; applies at the next start). The Steam
 version of the game has textures at twice the resolution of the phone's for map surfaces, lightmaps, the characters
 and grenades. [tools/hd-textures](../tools/hd-textures/README.md) converts them, on your own computer from your own Steam
-copy, into an **HD pack** for the texture variant of your phone's data (ETC or ASTC; INSTALL-OFFLINE.md): a file named
-`mcvs-hd-<something>.zip`. To install it, with the game closed:
+copy, into an **HD pack** for your phone's data: a file named `mcvs-hd-<scope>.zip` (`mcvs-hd-default.zip` for the
+whole set). HD packs exist only for the **ETC** data pack for now: the converter writes ETC1 textures and refuses an ASTC
+`Data/` folder, so a phone on the ASTC pack cannot use them yet. The two variants are explained in INSTALL-OFFLINE.md;
+the start-up log line `[boot] installer data: ...` usually names the one your phone has (`ETC` or `ASTC`). To install
+it, with the game closed:
 
 ```sh
 adb shell mkdir -p /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/hd
-adb push mcvs-hd-pc.zip /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/hd/
+adb push mcvs-hd-default.zip /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/hd/
 ```
 
 At the next start MCVS Offline checks every texture the pack replaces (it must be exactly the original the pack was made
@@ -357,7 +360,9 @@ originals take extra space: roughly 1.2 GB for the full set of research/pc-textu
 files 0.45 GB more than the originals, the backups 0.15 GB). Check the free space first.
 
 To remove them: Actions › **Remove HD textures** (or turn Settings › Graphics › HD textures off) and restart: the
-originals come back from the backup and the installer's list is set back, byte for byte. The pack file stays in
+originals come back from the backup and the installer's list is set back, byte for byte. This also takes at most about
+8 seconds per start, so with a large pack it takes the first two or three starts (Status says "N originals at the next
+start" until it is done); the game works normally meanwhile. The pack file stays in
 `McvsOffline/hd/`, so turning HD textures on again reinstalls it; delete it with
 `adb shell rm /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/hd/mcvs-hd-*.zip` when you no
 longer want it. Keep the pack and `McvsOffline/hd/` in your backups (a backup of the whole `files/` folder has them);

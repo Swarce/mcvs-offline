@@ -30,8 +30,10 @@ version into the game's own data.
 
 ## Build 11 (plan): HD textures from the Steam version
 
-Branches: `feat/hd-install` (the phone side, this section) and `wip/hd-converter` (`tools/hd-textures`: the PC side that
-converts the Steam textures into an HD pack). Owner's decisions after the build-10 probe: route A (replace the files in
+Branches: `feat/hd-install` (the phone side, this section) and `wf/hd-converter` (`tools/hd-textures`: the PC side that
+converts the Steam textures into an HD pack). Their contract is the converter's
+[design/hd-textures.md](design/hd-textures.md) (the pack, its manifest, the rules), identical on both branches; the
+installer's side is [design/hd-install.md](design/hd-install.md). Owner's decisions after the build-10 probe: route A (replace the files in
 `Data/`); ETC1 for the ETC pack the S22 runs (not ASTC); scope = map surfaces, lightmaps (all of a level at once),
 third-person characters, grenades and equipment (research/pc-textures.md §7 tiers 1 and 2, about 1,750 files); the zip
 mount of route B removed entirely.
@@ -40,13 +42,14 @@ mount of route B removed entirely.
 
 * **The zip mount is gone**: `hosts/embedded/Hd/HdTextures.cs` and `EngineFiles.cs`, the `[boot] hd textures:` probe
   lines, `hd.mount`, GraphicsHooks' first-engine hook and their tests. Patch `graphics` is unchanged.
-* **HD pack installer** (`hosts/embedded/Hd/HdInstaller.cs`, format and rules in
-  [design/hd-textures.md](design/hd-textures.md)): `McvsOffline/hd/mcvs-hd-*.zip` (stored entries `Data/<h>/<rest>.f`
-  plus `mcvs-hd.json` with each file's original and new size and CRC32) is installed at start-up, before the Java
+* **HD pack installer** (`hosts/embedded/Hd/HdInstaller.cs`, [design/hd-install.md](design/hd-install.md); the pack as
+  the converter writes it, [design/hd-textures.md](design/hd-textures.md)): `McvsOffline/hd/mcvs-hd-*.zip` (stored
+  entries `Data/<h>/<rest>.f` plus `mcvs-hd.json`, format 1, with each file's original and replacement size and CRC32) is installed at start-up, before the Java
   installer runs: originals checked and backed up to `McvsOffline/hd/backup/`, `installed.json` written before any file
   changes, each new file written beside the original and renamed over it, then the installer's `pack.info`, the saved
   copy and the journal of split pieces rewritten for those files, so the installer's size check passes at every start
-  **without `SKIP_VALIDATION`**. At most 8 s per start (a level's lightmaps always together); the rest at the next start.
+  **without `SKIP_VALIDATION`**. At most 8 s per start, installing or removing (a level's lightmaps always together); the
+  rest at the next start.
   An index reset (reinstall, `gl_ver`, CDN re-sync, no index at all) is repaired at the next start; with no usable index
   the originals go back until there is one (INSTALL-OFFLINE.md, "HD textures in `Data/`").
 * **Settings and status**: `hd.enabled` (default true) now means "install the pack" and false removes it at the next
@@ -58,14 +61,21 @@ mount of route B removed entirely.
 `HdInstallerTests` (synthetic data pack and index in Gameloft's form, the host's order Prepare → InstallerData → Apply):
 install with the installer's checks (sizes, journal, every CRC) passing; second start writes nothing; removal gives
 byte-identical originals, index, saved copy and journal; a crash at five points of an install and one of a removal,
-each completed by the next start; the 8 s budget over four starts, consistent after each; reinstall, `gl_ver` mismatch,
+each completed by the next start; the 8 s budget over four starts, consistent after each, for installing, removing
+(a level's lightmaps never mixed), a new pack (removals first) and putting originals back without an index; reinstall, `gl_ver` mismatch,
 no index anywhere (rebuilt with the HD sizes, the pack recognised by the original sizes), Gameloft's index over an
 installed pack, no usable index (originals back, pack back with the index); originals that do not match, a lightmap
-group with one bad file, broken manifests, unsafe paths. On the real ETC `pack.info` (`MCVS_DATAPACK`): written back
+group with one bad file, broken manifests (also the installer's first-draft schema), unsafe paths; packs in the
+converter's exact shape (aligned entries, every manifest field of design/hd-textures.md §3). With the converter in the
+tree (`MCVS_HD_CONVERTER`, defined when `tools/hd-textures/PackBuilder.cs` exists) a pack written by its `PackBuilder` is
+installed and removed; checked on a scratch merge with `wf/hd-converter` (87/87 HD tests), and a real
+`mcvs-hd-equipment.zip` (33 files) the converter built from the PC install and the ETC pack installed on the real ETC
+`pack.info` (`Gameloft index in place (ETC, 15747 files, 16218 entries)`, every index CRC that of the HD bytes) and
+removed to the original bytes and index. On the real ETC `pack.info` (`MCVS_DATAPACK`): written back
 byte for byte (it has an empty `.\` section), two real files (the probe texture and a split file) swapped and restored to
 Gameloft's exact bytes, a pack labelled ASTC refused. page-smoke: the Remove action. The `scripts/build.sh` steps with `MCVS_REFS`, `MCVS_REQUIRE_EMBEDDED=1`,
 `MCVS_REQUIRE_REAL_CLIENT=1`, `MCVS_REQUIRE_NODE=1`, `MCVS_REQUIRE_PC=1` and `MCVS_DATAPACK` (ETC): **McvsOffline.Tests
-1345/1345, McvsOffline.Embed.Tests 437/437, McvsOffline.PcSpike.Tests 62/62, 0 skipped**.
+1345/1345, McvsOffline.Embed.Tests 442/442, McvsOffline.PcSpike.Tests 62/62, 0 skipped**.
 
 ### What to check on the phone (build 11)
 

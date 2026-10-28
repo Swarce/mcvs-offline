@@ -1,6 +1,6 @@
 // Host: embedded - owner group: EMBED (hosts/embedded, patcher/)
 // Platform-independent: compiled into the embedded DLL and into the net8 tests.
-// Design: docs/design/hd-textures.md; why route A: docs/research/pc-textures.md §5.3 and docs/STATUS.md (build 10 device test).
+// Design: docs/design/hd-install.md (the pack: docs/design/hd-textures.md); why route A: docs/research/pc-textures.md §5.3 and docs/STATUS.md (build 10 device test).
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -84,7 +84,7 @@ namespace McvsOffline.Embedded.Hd
     }
 
     /// <summary>
-    /// Installs an HD texture pack into the game's own data (docs/research/pc-textures.md route A, docs/design/hd-textures.md):
+    /// Installs an HD texture pack into the game's own data (docs/research/pc-textures.md route A, docs/design/hd-install.md):
     /// each <c>Data/&lt;h&gt;/&lt;rest&gt;.f</c> of the pack replaces the original file in place, and the Java installer's index
     /// (<c>getFilesDir()/pack.info</c>, our saved copy <c>McvsOffline/install/pack.info</c>) and its journal of split pieces
     /// (<c>d_o_w_n_l_o_a_d_e_d.txt</c>) are rewritten to list the new sizes and CRCs, so the installer's size check at every start

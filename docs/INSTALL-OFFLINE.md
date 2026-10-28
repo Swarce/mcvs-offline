@@ -141,7 +141,7 @@ Send that file with a bug report.
 ## HD textures in `Data/`
 
 An HD texture pack (`McvsOffline/hd/mcvs-hd-*.zip`, PLAYER-SETUP.md section 7, format in
-[design/hd-textures.md](design/hd-textures.md)) replaces files in `Data/` with larger ones. The installer deletes any
+[design/hd-textures.md](design/hd-textures.md), the installer in [design/hd-install.md](design/hd-install.md)) replaces files in `Data/` with larger ones. The installer deletes any
 listed file whose size is not the one in its index, so the offline build changes the index together with the files, at
 start-up, before the installer runs (`hosts/embedded/Hd/HdInstaller.cs`):
 
@@ -156,9 +156,9 @@ start-up, before the installer runs (`hosts/embedded/Hd/HdInstaller.cs`):
    offsets of the original are kept, as they only matter for a download from Gameloft's CDN.
 
 So the installer's size check passes at every start without `SKIP_VALIDATION`, and the background CRC32 check (above)
-reads the HD files' own CRCs. A start does at most about 8 seconds of copying; the rest follows at the next start, and a
-level's lightmaps always go together. Removing (Actions › Remove HD textures, or `hd.enabled` false) copies the originals
-back and gives the index, its copy and the journal their original entries again.
+reads the HD files' own CRCs. A start does at most about 8 seconds of copying, installing or removing; the rest follows
+at the next start, and a level's lightmaps always go together. Removing (Actions › Remove HD textures, or `hd.enabled`
+false) copies the originals back and gives the index, its copy and the journal their original entries again.
 
 When something resets the index, the next start first makes the index match the files again: a reinstall gives back the
 saved copy, which already lists the HD files; with no index at all, a `Data/` folder holding the complete pack plus HD

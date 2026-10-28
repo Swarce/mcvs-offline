@@ -449,7 +449,7 @@ namespace McvsOffline.Embedded
                 };
                 var locations = new McvsOffline.Embedded.Install.InstallerDataLocations(internalDir, Paths.GameRoot);
                 long now = (long)(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds;
-                // The HD texture pack (docs/design/hd-textures.md) lives in the installer's index too: its files are made to match
+                // The HD texture pack (docs/design/hd-install.md) lives in the installer's index too: its files are made to match
                 // before InstallerData looks at the data, and the pack is installed or removed after it, still before the installer.
                 var hdOptions = new HdInstallerOptions { Enabled = Settings.GetBool("hd.enabled", true), ManageInstaller = options.Manage };
                 Log hdLog = Logger.For("hd");

@@ -1,137 +1,141 @@
-# HD textures: the pack and its installer
+# Design: HD textures from the PC build (route A)
 
-How PC (Steam) textures reach the phone (docs/research/pc-textures.md, route A): a tool on the player's computer
-converts them into an **HD pack**, the player copies the pack to the phone, and the embedded host installs it into the
-game's own `Data/` folder at start-up. This page is the contract between the two sides.
+Status: **converter implemented** (`tools/hd-textures`, command `build`); the phone side (the installer that puts the files
+into `Data/`) is a separate package and reads this document. This file is the contract between the two: the pack file,
+its manifest and the rules the installer can rely on. Change it only together with both sides.
 
-> Written by the phone-side package (`feat/hd-install`) while the converter (`wip/hd-converter`, tools/hd-textures) was
-> being built in parallel and had no design page yet. The format below is what the installer reads; where the
-> converter's own design differs, one of the two is changed to match before both are merged.
+Background: [research/pc-textures.md](../research/pc-textures.md) (formats, the 2x gap, the scope tiers, the "Owner's phone:
+ETC pack" section) and [INSTALL-OFFLINE.md](../INSTALL-OFFLINE.md) (the Java installer's index and its size check).
 
-Background (device test of build 10, owner's Galaxy S22, ETC pack): a zip mounted through the engine's zip search path
-(route B) was found by the managed lookup but never reached the renderer; GCBF-wrapped ETC1 `.f` files written into
-`Data/<h>/<rest>.f` (route A) rendered, with `SKIP_VALIDATION=1`. Route B was removed; the installer below makes route A
-work without `SKIP_VALIDATION`.
+## 1. Decisions (device test of 2026-10-28, owner's Galaxy S22, build 10)
 
-## The HD pack
+* **Route A.** Replacement files written into `files/Data/<h>/<rest>.f` show in a match (13 recoloured ETC1 files, green
+  floors in Port). Route B (an override zip on the engine's zip search path) does not reach the renderer and is reverted.
+* **ETC1 for the ETC pack.** The owner's phone runs the ETC pack (`google_lowres_v162074_Nexus_9_ETC`), whose shaders keep
+  `SPLIT_ALPHA`. The converter writes exactly the shape of the file it replaces: a GCBF-wrapped ETC1 KTX, or a split-alpha
+  zip (`SPLIT` + `rgb.ktx` + `alpha.ktx`). ASTC output is not implemented; the converter refuses an ASTC `Data/` folder.
+* **Scope.** Map surfaces, lightmaps (every lightmap of a level together), third-person characters and grenades/equipment
+  (research §7 tiers 1 and 2, about 1,750 files). Never: UI (`Menus/`), first-person weapons and arms, IBL cubemaps.
+* **Legal model.** The converter runs on the player's computer and reads the player's own Steam install and the player's
+  own `Data/` folder (pulled from the phone). The repository ships only our own table of hashes, sizes, categories and
+  levels (`tools/hd-textures/hd-index.tsv`), no game data and no logical paths. The pack it writes contains derived game
+  data: it stays on the player's computer and phone and is never shared.
 
-One file, `McvsOffline/hd/mcvs-hd-<name>.zip` (the player's game root, next to `Data/`):
+## 2. The pack file
 
-* a plain zip: every entry **stored** (method 0; the `.f` files are LZ4 blocks already), no encryption, no ZIP64 (the
-  whole zip under 4 GiB), no multi-disk;
-* `mcvs-hd.json`, the manifest (UTF-8 JSON);
-* one entry per replaced file, named exactly as the file in the game's `Data/` folder: `Data/<h[0]>/<h[1:]>.f`, where
-  `h` is the lower-case, unpadded hex CRC32 of the texture's logical path (research/pc-textures.md §1.1). Its bytes are the
-  complete new file as the game reads it (GCBF-wrapped KTX, or whatever the original's container is: split-alpha zip for
-  ETC textures with alpha, raw KTX where the original is raw). Other entries are ignored.
+`mcvs-hd-<scope>.zip`, for example `mcvs-hd-default.zip`, `mcvs-hd-default-Port.zip` (default scope, Port only),
+`mcvs-hd-lightmaps.zip`.
 
-An example manifest (sizes and CRCs illustrative):
+* A plain zip: every entry **stored** (method 0), no data descriptors, no ZIP64, no encryption, no comment.
+* Entry data starts on a **4-byte boundary** (a zipalign-style extra field, id `0xD935`, pads the local header), so the
+  phone can copy an entry straight out of the file.
+* Names are ASCII. At most 65,535 entries; the whole file stays below 4 GiB (the converter refuses more).
+* Entries, in this order:
+  1. one per replaced file: `Data/<h[0]>/<h[1:]>.f`, exactly the path of the file it replaces under the game's
+     `files/` folder (`h` = lower-case hex CRC-32 of the logical path, unpadded; INSTALL-OFFLINE.md, report 11 §2). The
+     entry's bytes are the complete new file. Its zip CRC-32 equals `replacement.crc32` in the manifest.
+  2. `mcvs-hd.json`, the manifest (§3), last.
+
+What a replacement file is (§4): the same container and layout as the original, the same texture format (ETC1), the
+same KTX header fields and key/value data, at the PC resolution and with a mip chain that ends at the same smallest size
+as the original's.
+
+## 3. The manifest `mcvs-hd.json`
+
+UTF-8 JSON, one object:
 
 ```json
 {
-  "format": "mcvs-hd",
-  "version": 1,
-  "id": "2026-10-30T12:00:00Z-1a2b3c4d",
-  "name": "PC textures, tiers 1-2",
-  "pack": "ETC",
+  "format": 1,
+  "kind": "hd-textures",
+  "tool": "McvsOffline.HdTextures 1",
+  "created": "2026-10-28T20:15:00Z",
   "gameVersion": "1.17.32",
+  "pack": "ETC",
+  "scope": "default",
+  "categories": ["surfaces", "lightmaps", "characters", "equipment"],
+  "maps": ["Port"],
   "files": [
     {
-      "path": "Data/8/dbd2f1.f",
-      "original": { "size": 43301, "crc32": "1c7f0e2a" },
-      "hd": { "size": 160126, "crc32": "9b1d77e0" },
-      "group": "env"
-    },
-    {
-      "path": "Data/3/5f0e1d2.f",
-      "original": { "size": 2796360, "crc32": "0f00ba11" },
-      "hd": { "size": 11184968, "crc32": "77aa0e3c" },
-      "group": "lightmaps/Port"
+      "entry": "Data/1/9921a.f",
+      "hash": "0019921a",
+      "logicalPath": null,
+      "category": "equipment",
+      "levels": [],
+      "group": null,
+      "layout": "ktx",
+      "original": { "size": 457642, "crc32": "8c1f0e2a", "width": 1024, "height": 1024, "mipLevels": 11 },
+      "replacement": { "size": 1712345, "crc32": "0b7d33e1", "width": 2048, "height": 2048, "mipLevels": 12 },
+      "psnr": 27.0,
+      "originalPsnr": 24.4,
+      "alphaPsnr": null
     }
-  ]
+  ],
+  "totals": { "files": 1, "originalBytes": 457642, "replacementBytes": 1712345 }
 }
 ```
 
-| key | required | meaning |
-|---|---|---|
-| `format` | yes | `"mcvs-hd"` |
-| `version` | yes | `1`; a pack of another version is refused as a whole |
-| `id` | no | changes with every build of a pack (the status shows `name`; `id` is kept in the installed state). Default: the CRC32 of the manifest |
-| `name` | no | shown on Status and in the log. Default: the file name |
-| `pack` | no, recommended | the Android data pack the originals come from, `"ETC"` or `"ASTC"`. When the phone's data is recognisably the other one, the pack is refused as a whole |
-| `gameVersion` | no | informative (`"1.17.32"`) |
-| `files[].path` | yes | `Data/<dir>/<name>.f`: exactly three parts, no `.`/`..`, no backslash, no part starting with `.`; listed once |
-| `files[].original` | yes | `size` (bytes) and `crc32` (8 hex digits, or a JSON number) of the file the pack replaces, as it is in the phone's `Data/` |
-| `files[].hd` | yes | the same for the new file; must equal the zip entry's size and CRC32 |
-| `files[].group` | no | files with the same group are installed together or not at all (all lightmaps of a level: research §8.1 R7). Default: the file alone |
-
-The manifest is the only thing the installer trusts for "which original": a file whose original on the phone is not
-exactly `original` (size and CRC32) is not replaced. A pack made from another texture variant, version or a damaged copy
-therefore changes nothing. When the first 20 groups all fail that test, the rest is not tried.
-
-Packs are personal: they contain converted game files from the player's own Steam copy and are never shared or committed.
-
-## On the phone
-
-The player copies the pack with `adb push` (PLAYER-SETUP.md section 7). Only one pack is used: with several
-`mcvs-hd-*.zip`, the last by ordinal name. `hd.enabled` (settings.json, Settings › Graphics › HD textures, default true)
-installs it; false removes an installed pack at the next start. Actions › Remove HD textures sets `hd.enabled` false and
-offers the restart.
-
-### When: before the installer validates `Data/`
-
-The Java `GameInstaller` starts after the activity's `onCreate` returns; the embedded host runs inside `onCreate`
-(Bootstrap, `EmbeddedHost.PrepareInstallerData`), so everything below happens before the installer's size check, on
-every start (docs/INSTALL-OFFLINE.md):
-
-1. `HdInstaller.Prepare`: for every file in `installed.json`, read what `Data/` holds (by size; by CRC32 when the original
-   and the HD file have the same size) and make the installer's index and our saved copy list exactly that (a start cut
-   short between a file and its index entry; an index reset by a reinstall, a `gl_ver` change or a CDN re-sync). Delete
-   temporary files of a cut-short start. Hand the original sizes of the HD files to the next step.
-2. `InstallerData.Prepare` (unchanged rules, plus `HdOriginalSizes`): restores or rebuilds the installer's index as before;
-   the 1.17.32 pack is recognised by the original sizes, so a `Data/` folder with HD files still counts as complete.
-3. `HdInstaller.Apply`: removes and installs (below), then writes the index, the journal, the saved copy and the state.
-   Logs `[boot] hd: ...`. When the installer has no index it will keep (missing, unreadable, `gl_ver` not `1173200`), it
-   checks the data online and would replace every file of another size: the originals are copied back instead, and the
-   pack is installed again at the first start with an index.
-
-### Installing a group
-
-1. Plan: every file of the group must have its original in `Data/` (size and CRC32 of the manifest) or already in
-   `McvsOffline/hd/backup/` (checked the same way); the original is copied to the backup (temporary name, checked,
-   renamed). One file that fails skips the group.
-2. Record: the planned files go into `McvsOffline/hd/installed.json` (atomic write) before any of them changes.
-3. Write: each HD file is copied from the zip to `Data/<h>/.<name>.mcvs-hd-tmp`, checked (size, CRC32 against the zip and the
-   manifest), flushed and renamed over the original. A failure puts the group's originals back and ends the install for
-   this start.
-4. At most 8 s per start (`HdInstallerOptions.BudgetMs`; at least one group always): the rest is counted as "at the next
-   start" and done then. Files already installed cost one `stat` each.
-
-### The installer's index
-
-For each file taken over, the entries in `pack.info` (and `McvsOffline/install/pack.info`) are replaced in place by the
-entries for what `Data/` holds: the size; one entry, or 2 MiB pieces `name.split_NNNN` with the total after piece 1 when
-the file is over 2 MiB and not an exact multiple of 2 MiB (Gameloft's packer, `PackIndex.PieceSizes`); the CRC32 of each
-piece (0 in a rebuilt index); the archive offset and ZIP size of the original's piece N (kept for removal; they only
-matter for a CDN download). Section headers, empty sections, the order and every other entry stay byte for byte
-(`PackIndex.Replace`; checked on the real ETC index). The journal `d_o_w_n_l_o_a_d_e_d.txt` loses the old piece lines
-of a changed file and gets one line per piece of every split HD file.
-
-### Removing
-
-Every recorded file is copied back from its backup (checked against the original's CRC32), its index entries become the
-original's again (sizes, CRCs, archive offsets: Gameloft's index is byte-identical to before the install), the journal
-gets the original's pieces, then the record and the backup go. Files a new pack no longer contains are removed the same
-way. Without the pack file, installed HD files stay; a missing or damaged one gets its original back (an HD file can only
-be written from the pack).
-
-### State on the phone
-
-| path | what |
+| field | meaning |
 |---|---|
-| `McvsOffline/hd/mcvs-hd-*.zip` | the pack (the player's) |
-| `McvsOffline/hd/installed.json` | `format` `mcvs-hd-installed`, `version` 1, `pack`, `packId`, `name`, `updated`, and per file `path`, `group`, `originalSize`, `originalCrc`, `originalPieces` (CRC per piece), `originalZip` (offset and ZIP size per piece in Gameloft's index), `hdSize`, `hdCrc`, `hdPieces`. Unreadable: nothing is touched (logged) |
-| `McvsOffline/hd/backup/Data/<h>/<name>.f` | the originals, while their HD files are installed |
+| `format` | `1`. A reader refuses a higher number. |
+| `kind` | always `"hd-textures"`. |
+| `gameVersion` | the data pack version the originals belong to (`1.17.32`). |
+| `pack` | the texture pack the replacements are for: `"ETC"`. The installer refuses the pack on a phone whose `Data/` is another pack (ASTC); the `original` checks below catch it as well. |
+| `scope`, `categories`, `maps` | what the player asked for. `maps` lists the level names (`Port`, `Desert`, ...); every level when none was chosen. |
+| `files[].entry` | the zip entry, which is also the path under the game's `files/` folder. |
+| `files[].hash` | the 8-digit lower-case hex CRC-32 of the logical path (the same number the entry name spells unpadded). |
+| `files[].logicalPath` | the logical path when the converter knows it (lightmaps: built from the level name and checked against the hash), else `null`. Informational only. |
+| `files[].category` | `surfaces`, `lightmaps`, `characters`, `equipment`, or with `--scope all`: `props`, `vfx`, `menus3d`, `minimaps`. |
+| `files[].levels` | level names whose files reference this texture (surfaces: may be several; lightmaps: exactly one); empty for level-independent textures. |
+| `files[].group` | `null`, or a name shared by files that must be installed and removed **together, all or none**: `"lightmaps:<Level>"` for every lightmap file of a level (the engine loads a level's lightmaps into one texture array; research R7). |
+| `files[].layout` | `"ktx"` (a GCBF-wrapped KTX) or `"split"` (a split-alpha zip). |
+| `files[].original` | the Android file this entry replaces, as it was in the `Data/` folder the converter read: `size` in bytes, `crc32` (8 lower-case hex digits), texture `width`, `height`, `mipLevels`. |
+| `files[].replacement` | the new file: `size`, `crc32`, `width`, `height`, `mipLevels`. |
+| `files[].psnr` | the converter's self-check: PSNR in dB of the top mip level (RGB, 8 bit) of the replacement, decoded, against the PC texture it came from (99 when identical). |
+| `files[].originalPsnr` | for comparison: the PSNR of the Android original's top level against the PC texture's mip level of the same size, i.e. the quality the phone has today. |
+| `files[].alphaPsnr` | split layout: the self-check of the alpha texture against the PC alpha; `null` for the ktx layout. |
+| `totals` | the number of files and the summed sizes. |
 
-What `Data/` holds is always read from the files, never assumed from the state, so any start cut short is completed or
-undone by the next one. Status › Game host › HD textures shows the pack, the files and bytes installed, and what is left.
+CRC-32 everywhere is the standard one (zlib, `java.util.zip.CRC32`: polynomial `0xEDB88320`, initial value 0) over the
+whole file as it is stored in `Data/`. Sizes are bytes on disk.
+
+## 4. Rules the installer can rely on
+
+1. **Only replacements.** Every entry replaces a file that exists in the 1.17.32 ETC pack at the same path. No entry adds
+   or removes a file, so the pack's file list (15,747 files) does not change; only sizes and CRCs do.
+2. **Check before replacing.** A phone file whose size or CRC-32 differs from `original` is not the file the converter
+   read (another pack, a damaged file, an earlier HD install): the installer leaves it alone, and with it the whole
+   `group` it belongs to.
+3. **Groups are atomic.** All files of a `group` are installed, or none; the same on removal.
+4. **Undo is a byte copy.** Restoring the original file (from a backup, the player's mirror or the phone's own copy)
+   undoes a replacement completely; nothing else on the phone was touched by the pack.
+5. **Sizes.** Replacements are larger than the originals (about 3 to 4 times for a 2x texture); files over 2 MiB are the
+   rule for lightmaps (up to about 22 MB), so the installer index's split-piece rules (INSTALL-OFFLINE.md, points 3-4)
+   apply to them.
+
+How the installer keeps the Java installer's index consistent (`pack.info`, the split-piece journal,
+`SKIP_VALIDATION`), where it keeps backups and how the player removes the pack is the installer package's design, not
+part of this contract.
+
+## 5. What the converter does (`tools/hd-textures build`)
+
+For each texture of the chosen scope (from `hd-index.tsv`), only where the PC texture is larger than the Android one:
+
+1. Read the Android original (`Data/<h>/<rest>.f`): GCBF → KTX, or a split zip (each part GCBF → KTX). Refuse anything
+   that is not ETC1 (`0x8D64`) or the ETC pack's layouts.
+2. Read the PC file (`Data/<decimal crc>.f`, GCBF → DDS DXT1/DXT5) and decode every mip level (BC1/BC3, our own decoder).
+   Levels the PC file lacks are box-filtered from the level above.
+3. Encode each level to ETC1 at the PC size (our encoder: both subblock orientations, individual and differential
+   modes, all eight tables, least-squares base refinement; squared RGB error). The number of levels is the original's
+   plus one per doubling, so the chain ends at the same size as the original's.
+4. Write the KTX with the original's header (format, `glBaseInternalFormat`, key/value data such as
+   `KTXorientation S=r,T=d` and `CRNLIB_FOURCC`) and the new size and level count. Split-alpha textures get the same zip
+   layout as the original (`SPLIT` = 4 zero bytes, `rgb.ktx`, `alpha.ktx`; stored, no alignment, as Gameloft wrote them),
+   alpha as an ETC1 grey texture (R = G = B = alpha). Every KTX the original wraps in GCBF is wrapped in GCBF (8 LZ4
+   blocks, the engine writer's split).
+5. Decode the result and compute the PSNR against the PC texture, and the original's PSNR against the PC texture at its
+   size; flag textures below `--min-psnr` (default 24 dB: ETC1's one modifier for all three channels limits noisy
+   roughness and normal maps to about 24-30 dB, and the shipped ETC pack scores lower still on those).
+6. Add the file to the pack (§2) and its row to the manifest (§3).
+
+Lightmaps are taken per level, all files of a level or none (a level whose lightmaps cannot all be converted gets none).
