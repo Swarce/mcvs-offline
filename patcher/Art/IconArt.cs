@@ -216,7 +216,12 @@ namespace McvsOffline.Patcher.Art
                                                " (expected icon/<layer>.png masters and icon/<density>/ic_launcher*.png exports; see art/android/README.md)");
             }
             uint? backgroundColor = settings?.IconBackground;
-            if (iconFiles.Count == 0 && !backgroundColor.HasValue) return null;
+            if (iconFiles.Count == 0)
+            {
+                // A colour alone is not an icon (art.json copied from the example before the icon is drawn).
+                if (backgroundColor.HasValue) warnings?.Add("art: art.json icon.background is not used until the icon files exist (icon/foreground.png, icon/legacy.png)");
+                return null;
+            }
             if (backgroundColor.HasValue && source.Contains(MasterFile(IconLayer.Background)))
                 throw new InvalidDataException("art: both icon/background.png and art.json icon.background are given; keep one");
 

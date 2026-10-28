@@ -84,6 +84,7 @@ The patcher prints every change it makes and finishes with a signature check. Us
 | `--build-tools <dir>` | Folder with `apksigner` and `zipalign`; otherwise they are looked up on `PATH` and in `$ANDROID_HOME/build-tools`. |
 | `--signer builtin` | Do not use apksigner, even if it is installed. |
 | `--abi arm64-v8a` | Native libraries to keep. The default keeps **every ABI** the APK ships (64-bit `arm64-v8a` and 32-bit `armeabi-v7a`). `--abi arm64-v8a` drops the 32-bit copies for a 64-bit-only APK (about 14 MB smaller; a 64-bit phone never uses them). |
+| `--art stock` | Keep Gameloft's launcher icon and launch screen even when this patcher has the project's own art built in. The default, `--art auto`, uses that art when there is any (today there is none, so the icon does not change); `--art <folder>` uses a folder laid out like `art/android/` (for the artist's test builds). |
 | `--dry-run` | Check that every patch site matches, write nothing. |
 
 What the patches do:
@@ -122,6 +123,11 @@ What the patches do:
 - **forum** (not in the default set): the Forum button in Settings opens the page too.
 - **lan** (experimental): groundwork for LAN play (see the end of this guide). It changes nothing for single-device
   play.
+- **Icon and launch screen** (`--art`, not a `--patch` id): once the project's own art exists in `art/android/` and the
+  patcher is rebuilt, the offline build gets the project's launcher icon (and, if drawn, a themed icon for Android 13+)
+  and a launch-screen colour on Android 12+. Until then nothing changes. After installing a build with a new icon, the
+  home screen may keep showing the old one for a while (the launcher caches icons): reboot the phone, or clear the
+  home app's cache (Settings › Apps › your launcher › Storage).
 
 **Back up your signing key** (the patcher prints its path). Android only installs an update over an existing install
 when it is signed with the same key, and the alternative, uninstalling, deletes your saves.
@@ -394,5 +400,11 @@ For reviewers (details and evidence: `docs/research/verify-C7-integrity-patching
   used, and required by the game's `KeyProvider`) is renamed into the game's own namespace, so the re-signed APK does
   not collide with other Gameloft games (section 5). Only that one string of the compiled manifest changes; the patcher
   refuses if the text is used for anything else.
+- With project art (`--art`, see `art/android/README.md`): the 20 launcher icon PNGs (`res/mipmap*/ic_launcher*.png`)
+  are replaced in place under the same names, each checked against the shipped file's CRC first; a splash colour adds
+  `v31` (and `night-v31`) configurations of the launcher activity's theme to `resources.arsc` (no resource id moves;
+  the file stays uncompressed and aligned); a themed icon adds a `<monochrome>` layer to
+  `res/mipmap-anydpi-v26/ic_launcher.xml` and six `ic_launcher_foreground1.png` density files. Without art none of
+  these entries changes.
 - Every other entry is copied byte for byte with its original compression; the old signature files are replaced by
   yours (v1+v2, plus v3 with apksigner).

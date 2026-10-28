@@ -155,6 +155,15 @@ Recommended extra IL patches (all optional, patcher flags):
 - `lan`: P1 Finder prefix `"*"`, P2 cache a real `PublicHost` at `LocalAnubisManager.Start`, P3
   `ClientSettings.LocalAnubisFinderHost = Args.RemoteIp ?? PublicHost` (verify-C6).
 
+Project art (`--art auto|stock|<dir>`, default `auto`; not a `--patch` id; research/app-icon-and-launch-screen.md):
+`art/android/**` is embedded in the patcher. With art, `patcher/Art` replaces the 20 launcher icon PNGs in place (same
+names, CRC fingerprints, masters resampled to every density), inserts `v31`/`night-v31` configurations of the launcher
+theme 0x7f0b017e (windowSplashScreenBackground and extras) into `resources.arsc` through one table reader/writer
+(`patcher/Resources/ArscTable.cs`), and for a themed icon gives the spare `mipmap/ic_launcher_foreground1` six density
+files and the adaptive icon a `<monochrome>` layer. No resource id moves. With no art the APK is byte-identical. A later
+configuration of that theme (for example `v35`) would hide the splash items, because Android picks one configuration
+per style; edge-to-edge fixes therefore go into the browser layouts, not into a theme configuration.
+
 The three hook patches are fingerprint-verified like the others and call only `McvsOffline.AdminHooks` in the embedded
 server DLL (`hosts/embedded/Admin/AdminHooks.cs`; `AdminHooksContractTests` keeps both sides in step). **Invariant I1:
 the patched APK keeps `targetSdkVersion` 29** (`ManifestTargetSdkTests`, after every default patch): the settings

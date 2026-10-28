@@ -109,7 +109,7 @@ namespace McvsOffline.Patcher.Art
                     ZipEntry e = Original(input, stock.Name, stock.Bytes, stock.Crc, options, report);
                     IconArt.Export export = icon[(stock.Layer, stock.Density)];
                     result.Replaced[stock.Name] = export.Data;
-                    report.Notes.Add("art: " + stock.Name + ": " + Describe(e) + " -> " + export.Image.Describe() + ", " + export.Data.Length + " bytes (" + export.Source + ")");
+                    report.Notes.Add("art: " + stock.Name + ": " + DescribePng(e.GetData()) + " -> " + DescribePng(export.Data) + " (" + export.Source + ")");
                 }
             }
 
@@ -117,10 +117,10 @@ namespace McvsOffline.Patcher.Art
             {
                 ZipEntry arscEntry = Original(input, ArscEntry, ArscBytes, ArscCrc, options, report);
                 ArscTable table = ArscTable.Parse(arscEntry.GetData());
-                if (splash != null) report.Notes.Add(SplashTheme.Apply(table, splash));
+                if (splash != null) report.Notes.Add("art: " + SplashTheme.Apply(table, splash));
                 if (monochrome)
                 {
-                    report.Notes.Add(MonochromeIcon.Apply(table));
+                    report.Notes.Add("art: " + MonochromeIcon.Apply(table));
                     AddMonochrome(input, icon, result, options, report);
                 }
                 byte[] arsc = table.ToArray();
@@ -150,7 +150,7 @@ namespace McvsOffline.Patcher.Art
             ZipEntry spare = Original(input, MonochromeIcon.DefaultFile, MonochromeIcon.DefaultFileBytes, MonochromeIcon.DefaultFileCrc, options, report);
             IconArt.Export mdpi = icon[(IconLayer.Monochrome, IconDensity.Mdpi)];
             result.Replaced[MonochromeIcon.DefaultFile] = mdpi.Data;
-            report.Notes.Add("art: " + MonochromeIcon.DefaultFile + ": " + Describe(spare) + " -> " + mdpi.Image.Describe() + ", " + mdpi.Data.Length + " bytes (" + mdpi.Source + ")");
+            report.Notes.Add("art: " + MonochromeIcon.DefaultFile + ": " + DescribePng(spare.GetData()) + " -> " + DescribePng(mdpi.Data) + " (" + mdpi.Source + ")");
             foreach (IconDensity density in IconDensity.All)
             {
                 string name = MonochromeIcon.DensityFile(density);
@@ -160,7 +160,7 @@ namespace McvsOffline.Patcher.Art
                 IconArt.Export export = icon[(IconLayer.Monochrome, density)];
                 if (!result.AddedAfter.TryGetValue(anchor, out var list)) result.AddedAfter[anchor] = list = new List<(string, byte[])>();
                 list.Add((name, export.Data));
-                report.Notes.Add("art: " + name + " (new): " + export.Image.Describe() + ", " + export.Data.Length + " bytes (" + export.Source + ")");
+                report.Notes.Add("art: " + name + " (new): " + DescribePng(export.Data) + " (" + export.Source + ")");
             }
         }
 
@@ -176,16 +176,17 @@ namespace McvsOffline.Patcher.Art
             return e;
         }
 
-        private static string Describe(ZipEntry e)
+        /// <summary>"72x72 RGB, 12414 bytes", from the file's IHDR.</summary>
+        private static string DescribePng(byte[] file)
         {
             try
             {
-                var (width, height, _, colorType) = Png.ReadHeader(e.GetData());
-                return width + "x" + height + " " + Png.ColorTypeName(colorType) + ", " + e.UncompressedSize + " bytes";
+                var (width, height, _, colorType) = Png.ReadHeader(file);
+                return width + "x" + height + " " + Png.ColorTypeName(colorType) + ", " + file.Length + " bytes";
             }
             catch (InvalidDataException)
             {
-                return e.UncompressedSize + " bytes";
+                return file.Length + " bytes";
             }
         }
     }

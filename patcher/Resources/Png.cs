@@ -26,7 +26,7 @@ namespace McvsOffline.Patcher.Resources
 
         public int Height { get; private set; }
 
-        /// <summary>IHDR colour type of the file that was decoded (0, 2, 4 or 6).</summary>
+        /// <summary>IHDR colour type of the decoded file (0, 2, 4 or 6); for an image made in memory, what <see cref="Encode"/> writes (2 or 6).</summary>
         public byte ColorType { get; private set; }
 
         /// <summary>Pixels, 4 bytes (R, G, B, A) per pixel, rows top to bottom, not premultiplied.</summary>
@@ -39,7 +39,7 @@ namespace McvsOffline.Patcher.Resources
             Width = width;
             Height = height;
             Rgba = rgba;
-            ColorType = TypeRgba;
+            ColorType = HasTransparency ? TypeRgba : TypeRgb;
         }
 
         /// <summary>A single-colour opaque image (an adaptive background given as a colour in art.json).</summary>
@@ -67,11 +67,6 @@ namespace McvsOffline.Patcher.Resources
                 }
                 return false;
             }
-        }
-
-        public string Describe()
-        {
-            return Width + "x" + Height + " " + ColorTypeName(ColorType);
         }
 
         public static string ColorTypeName(byte colorType)

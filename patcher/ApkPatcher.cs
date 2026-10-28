@@ -47,6 +47,8 @@ namespace McvsOffline.Patcher
     /// installs next to other Gameloft games (<see cref="ManifestPatch"/>);</item>
     /// <item>with "debloat" (default): remove the manifest declarations of SDK components that are dead offline
     /// (<see cref="ManifestDebloat"/>) and drop the Crashlytics/Fabric files nothing loads (<see cref="DebloatDroppedEntries"/>);</item>
+    /// <item>with project art (--art, <see cref="ArtPatch"/>): replace the launcher icon PNGs in place and add the launch
+    /// screen's theme configurations to resources.arsc; with none (the default today), nothing changes;</item>
     /// <item>keep every other entry byte-identical (same compression method and bytes; lib/ stays DEFLATED, which
     /// matches the default extractNativeLibs=true of this manifest);</item>
     /// <item>align (4 / 4096 for stored .so) and sign v1+v2(+v3) with the player's key.</item>

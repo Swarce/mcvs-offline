@@ -174,6 +174,10 @@ namespace McvsOffline.Embed.Tests.Patcher
 
             Assert.Null(IconArt.Build(new MemoryArtSource(), null, null));
             Assert.Null(IconArt.Build(new MemoryArtSource(), ArtSettings.Parse(Encoding.UTF8.GetBytes(SplashJson)), null));
+            // art.json copied from the example (an icon.background colour) before any icon is drawn: no icon change.
+            var colourOnly = new List<string>();
+            Assert.Null(IconArt.Build(new MemoryArtSource(), ArtSettings.Parse(Encoding.UTF8.GetBytes("{\"icon\": {\"background\": \"#000000\"}}")), colourOnly));
+            Assert.Contains(colourOnly, w => w.Contains("icon.background is not used until the icon files exist"));
         }
 
         [Fact]
@@ -316,7 +320,7 @@ namespace McvsOffline.Embed.Tests.Patcher
             MemoryArtSource art = ArtFixtures.IconMasters(monochrome: true, artJson: SplashJson);
             string artDir = ArtFixtures.WriteDirectory(art, Path.Combine(dir, "art"));
             PatchReport report = Run(dir, artDir);
-            foreach (string n in report.Notes.Where(n => n.StartsWith("art", StringComparison.Ordinal) || n.StartsWith("resources.arsc", StringComparison.Ordinal))) output.WriteLine(n);
+            foreach (string n in report.Notes.Where(n => n.StartsWith("art", StringComparison.Ordinal))) output.WriteLine(n);
 
             // Synthetic stand-ins are not the shipped files: --force replaces them, with a note per entry.
             Assert.Equal(IconArt.StockEntries.Count + 2, report.Warnings.Count(w => w.Contains("is not the shipped file") && w.EndsWith("(--force)", StringComparison.Ordinal)));
@@ -329,8 +333,8 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Contains(MonochromeIcon.AdaptiveIconEntry, report.Modified);
             Assert.Contains(MonochromeIcon.DefaultFile, report.Modified);
             foreach (IconDensity d in IconDensity.All) Assert.Contains(MonochromeIcon.DensityFile(d), report.Added);
-            Assert.Contains(report.Notes, n => n.StartsWith("resources.arsc: style 0x7f0b017e Theme.acp.notitlebar.fullscreen", StringComparison.Ordinal) && n.Contains("+night-v31"));
-            Assert.Contains(report.Notes, n => n.StartsWith("resources.arsc: mipmap 0x7f030004", StringComparison.Ordinal));
+            Assert.Contains(report.Notes, n => n.StartsWith("art: resources.arsc: style 0x7f0b017e Theme.acp.notitlebar.fullscreen", StringComparison.Ordinal) && n.Contains("+night-v31"));
+            Assert.Contains(report.Notes, n => n.StartsWith("art: resources.arsc: mipmap 0x7f030004", StringComparison.Ordinal));
 
             ZipArchiveReader.Archive input = ZipArchiveReader.Read(Path.Combine(dir, "in.apk"));
             ZipArchiveReader.Archive patched = ZipArchiveReader.Read(Path.Combine(dir, "offline.apk"));
