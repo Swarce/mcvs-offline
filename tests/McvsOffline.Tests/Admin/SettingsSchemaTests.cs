@@ -19,7 +19,7 @@ namespace McvsOffline.Tests.Admin
         private static readonly string[] EditableKeys =
         {
             "instantBots", "devMenu", "leaderboards.virtualPlayers", "geo.country",
-            "graphics.profile", "graphics.fullProfile", "hd.enabled", "hd.mount",
+            "graphics.profile", "graphics.fullProfile", "hd.enabled",
             "economy.versusCoinsMultiplier", "economy.creditsMultiplier", "economy.xpMultiplier", "economy.priceMultiplier", "crm.dailyCapMultiplier",
             "economy.collector.enabled", "economy.collector.itemsPerCrate",
             "unlockAll", "assets.couponsEnabled", "crm.redeemCoupons", "unlocks.batchSize", "admin.redeemCode",
@@ -121,8 +121,7 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal("enable", Def("graphics.fullProfile").ConfirmWhen);
             Assert.Null(Def("graphics.fullProfile").BackupBefore);
             Assert.Equal(true, Default("hd.enabled"));
-            Assert.Equal("auto", Default("hd.mount"));
-            Assert.Equal(new[] { "auto", "save", "cache", "asset", "front" }, Def("hd.mount").Options);
+            Assert.Equal("restart", Def("hd.enabled").Apply);
         }
 
         [Theory]

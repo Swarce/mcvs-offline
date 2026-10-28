@@ -520,12 +520,9 @@ namespace McvsOffline.Server.Services.Admin
                           "This also changes the match servers inside the game: they load the levels' Physics layer and run bot AI "
                           + "twice as often. If matches stall or stutter, turn it off again.", "enable", null),
                 Bool("graphics", "hd.enabled", "HD textures", true, Restart,
-                     "Uses McvsOffline/hd/hd-textures.zip when it exists (the HD texture test zip of tools/hd-textures). "
-                     + "Without the file nothing changes."),
-                Choice("graphics", "hd.mount", "How the HD zip is mounted", "auto", Restart,
-                       "For the HD texture test: auto tries the engine's Save and then its Cache location; front uses the "
-                       + "engine's pack search path.",
-                       "auto", "save", "cache", "asset", "front"),
+                     "On: an HD texture pack you put in McvsOffline/hd/ (mcvs-hd-*.zip, made on your PC from your own Steam "
+                     + "copy) is installed into the game's data at the next start. Off: an installed pack is removed at the "
+                     + "next start and the original textures come back. Without a pack nothing changes."),
 
                 // Economy
                 Number("economy", "economy.versusCoinsMultiplier", "VersusCoins per match", 0.1, 20, 0.1, Menu,

@@ -241,6 +241,7 @@ p { margin: 4px 0 8px; }
         <div id="action-files-body" class="card" style="display:none"></div>
         <div class="row"><div class="rl"><div class="lbl">Restart the game</div><div id="action-restart-help" class="help">The page closes, the game saves your progress and starts again.</div></div><div class="rc"><button id="action-restart" type="button">Restart</button></div></div>
         <div class="row"><div class="rl"><div class="lbl">Rebuild the CRM document</div><div class="help">Shop, events and game parameters; takes effect when you close this page.</div></div><div class="rc"><button id="action-crm-reload" type="button">Rebuild</button></div></div>
+        <div id="action-hd-row" class="row" style="display:none"><div class="rl"><div class="lbl">Remove HD textures</div><div id="action-hd-help" class="help">Puts the game's original textures back at the next start (turns off HD textures).</div></div><div class="rc"><button id="action-hd-remove" type="button">Remove</button></div></div>
         <div id="action-unlock-row" class="row" style="display:none"><div class="rl"><div class="lbl">Grant unlock-all now</div><div class="help">Unlock everything is on: grant what is still missing. Starts when you close this page.</div></div><div class="rc"><button id="action-unlock-now" type="button">Grant</button></div></div>
       </div>
 
@@ -2439,6 +2440,8 @@ p { margin: 4px 0 8px; }
         (relaunchUnconfirmed() ? 'starts again. On Android 13 and later it may only close: then start it again from the home screen.' : 'starts again.')
       : 'This build cannot restart the game: close it and start it again yourself.';
     show($('action-unlock-row'), settingValue('unlockAll') === true);
+    var hd = S.status && S.status.host;
+    show($('action-hd-row'), !!(hd && hd.hdInstalled) && settingValue('hd.enabled') !== false);
     if (S.filesOpen) renderFiles();
   }
 
@@ -2553,6 +2556,22 @@ p { margin: 4px 0 8px; }
       api('POST', 'actions/crm-reload', {}, function (st, d) {
         toast(st === 200 ? 'Done: takes effect when you close this page.' : errText(st, d), 6000);
       });
+    });
+    on($('action-hd-remove'), 'click', function () {
+      confirmDialog('Remove HD textures?',
+        'At the next start the game gets its original textures back and HD textures are turned off (Settings › Graphics › HD textures). ' +
+        'The HD pack file stays in McvsOffline/hd, so you can turn them on again later.', 'Remove', function () {
+          api('POST', 'settings', { changes: { 'hd.enabled': false }, fingerprint: S.settings ? S.settings.fingerprint : null }, function (st, d) {
+            if (st !== 200) { toast(errText(st, d), 7000); return; }
+            if (d && d.settings) S.settings = d.settings;
+            else loadSettings();
+            renderActions();
+            renderBanners();
+            refreshStatusQuietly();
+            if (cap('exit')) restartDialog('settings', 'HD textures are turned off. The originals come back when the game starts again.');
+            else toast('HD textures are turned off: close the game and start it again to get the original textures back.', 9000);
+          });
+        }, true);
     });
     on($('action-unlock-now'), 'click', function () {
       api('POST', 'actions/unlock-now', {}, function (st, d) {

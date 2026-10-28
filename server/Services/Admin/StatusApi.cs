@@ -117,6 +117,7 @@ namespace McvsOffline.Server.Services.Admin
             host["notifications"] = info.Notifications;
             host["graphics"] = info.Graphics;
             host["hdTextures"] = info.HdTextures;
+            host["hdInstalled"] = info.HdInstalled;
             var missing = new List<object>();
             if (info.MissingJni != null) foreach (string m in info.MissingJni) missing.Add(m);
             host["missingJni"] = missing;

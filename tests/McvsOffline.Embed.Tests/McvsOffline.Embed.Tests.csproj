@@ -30,6 +30,11 @@
     <ProjectReference Include="../../tools/hd-textures/McvsOffline.HdTextures.csproj" />
   </ItemGroup>
 
+  <PropertyGroup Condition="Exists('../../tools/hd-textures/PackBuilder.cs')">
+    <!-- The HD converter is in the tree: HdInstallerTests also installs a pack its PackBuilder wrote (docs/design/hd-install.md). -->
+    <DefineConstants>$(DefineConstants);MCVS_HD_CONVERTER</DefineConstants>
+  </PropertyGroup>
+
   <ItemGroup>
     <!-- The embedded host's portable code (Android-only files are behind #if MCVS_EMBEDDED). -->
     <Compile Include="../../hosts/embedded/**/*.cs" LinkBase="Embedded" />

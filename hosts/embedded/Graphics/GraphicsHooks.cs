@@ -22,8 +22,7 @@ namespace McvsOffline
     /// <item><see cref="GameOptionsApplied"/> gets <c>m_options</c> after <c>ApplyGameOptions</c> (every OnCreate) and logs the
     /// effective profile and options once as the "[boot] graphics:" line.</item>
     /// </list>
-    /// The first of the two calls also runs the host's first-engine-hook action (<see cref="Configure"/>; the HD texture mount:
-    /// the native file system is up and no level has loaded yet). The signatures are part of the patch contract
+    /// The signatures are part of the patch contract
     /// (GraphicsHooksContractTests). Both run on the game thread, are cheap and never throw (the patched IL guards them too).
     /// </summary>
     public static class GraphicsHooks
@@ -32,8 +31,6 @@ namespace McvsOffline
         private static volatile bool fullProfile;
         private static volatile Log log;
         private static volatile BootTrace boot;
-        private static volatile Action firstHook;
-        private static int firstHookRan;
         private static int jsonCalls;
         private static int appliedCalls;
         private static volatile string forcedProfile;
@@ -41,13 +38,12 @@ namespace McvsOffline
         private static volatile string effective;
 
         /// <summary>Set by the embedded host once settings.json is read (before the game creates its GameDefinition).</summary>
-        public static void Configure(string profileChoice, bool full, Log hostLog, BootTrace bootTrace, Action firstEngineHook)
+        public static void Configure(string profileChoice, bool full, Log hostLog, BootTrace bootTrace)
         {
             choice = GameOptionsProfile.Normalize(profileChoice) ?? (profileChoice ?? GameOptionsProfile.Auto);
             fullProfile = full;
             log = hostLog;
             boot = bootTrace;
-            firstHook = firstEngineHook;
         }
 
         /// <summary>
@@ -58,7 +54,6 @@ namespace McvsOffline
         {
             try
             {
-                RunFirstHook();
                 int n = Interlocked.Increment(ref jsonCalls);
                 if (json == null) return null;
                 GameOptionsRewrite rewrite = GameOptionsProfile.Rewrite(json, choice, fullProfile);
@@ -81,7 +76,6 @@ namespace McvsOffline
         {
             try
             {
-                RunFirstHook();
                 int n = Interlocked.Increment(ref appliedCalls);
                 if (n > 1) return;
                 string line = DescribeApplied(options as IDictionary, NativeProfiles());
@@ -169,28 +163,6 @@ namespace McvsOffline
         {
             string v;
             return map != null && map.TryGetValue(key, out v) && !string.IsNullOrEmpty(v) ? v : null;
-        }
-
-        private static void RunFirstHook()
-        {
-            if (Interlocked.CompareExchange(ref firstHookRan, 1, 0) != 0) return;
-            Action hook = firstHook;
-            if (hook == null) return;
-            try
-            {
-                hook();
-            }
-            catch (Exception ex)
-            {
-                try
-                {
-                    Log l = log;
-                    if (l != null) l.Warn("graphics: the first engine hook failed", ex);
-                }
-                catch (Exception)
-                {
-                }
-            }
         }
 
         /// <summary>
@@ -286,8 +258,6 @@ namespace McvsOffline
             fullProfile = false;
             log = null;
             boot = null;
-            firstHook = null;
-            firstHookRan = 0;
             jsonCalls = 0;
             appliedCalls = 0;
             forcedProfile = null;

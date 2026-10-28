@@ -259,22 +259,19 @@ namespace McvsOffline.Embed.Tests.Embedded
         // ------------------------------------------------------------------ GraphicsHooks (patch 'graphics')
 
         [Fact]
-        public void TheHooksRewriteRunTheFirstHookOnceAndLogTheEffectiveOptions()
+        public void TheHooksRewriteAndLogTheEffectiveOptions()
         {
             var logger = new Logger();
             var sink = new MemoryLogSink(LogLevel.Debug, 100);
             logger.AddSink(sink);
             var boot = new BootTrace(logger.For("boot"));
-            int firstHook = 0;
             GraphicsHooks.ResetForTests();
-            GraphicsHooks.Configure("High", false, logger.For("game"), boot, () => firstHook++);
+            GraphicsHooks.Configure("High", false, logger.For("game"), boot);
             Assert.Contains("has not read GameOptions_android.json", GraphicsHooks.Describe());
 
             string json = GraphicsHooks.GameOptionsJson(LookAlike);
             Assert.Equal(GameOptionsProfile.Rewrite(LookAlike, "high", false).Json, json);
-            Assert.Equal(1, firstHook);
             Assert.Null(GraphicsHooks.GameOptionsJson(null));
-            Assert.Equal(1, firstHook);
 
             var options = new Dictionary<string, object>(StringComparer.Ordinal)
             {
@@ -283,7 +280,6 @@ namespace McvsOffline.Embed.Tests.Embedded
             GraphicsHooks.GameOptionsApplied(options);
             GraphicsHooks.GameOptionsApplied(new Dictionary<string, object>());   // later Worlds: not logged again
             GraphicsHooks.GameOptionsApplied(null);
-            Assert.Equal(1, firstHook);
             string line = GraphicsHooks.Effective;
             output.WriteLine(line);
             Assert.StartsWith("graphics: effective GPU profile unknown, settings graphics.profile high (forced HighGPU)", line);
@@ -298,14 +294,14 @@ namespace McvsOffline.Embed.Tests.Embedded
         public void TheHooksNeverThrowAndPassTheTextThroughWhenSomethingFails()
         {
             GraphicsHooks.ResetForTests();
-            GraphicsHooks.Configure("ultra", true, null, null, () => throw new InvalidOperationException("mount failed"));
+            GraphicsHooks.Configure("ultra", true, null, null);
             Assert.Equal(GameOptionsProfile.Rewrite(LookAlike, "ultra", true).Json, GraphicsHooks.GameOptionsJson(LookAlike));
             Assert.Equal("not json", GraphicsHooks.GameOptionsJson("not json"));
             GraphicsHooks.GameOptionsApplied("not a dictionary");
             Assert.Contains("options unknown", GraphicsHooks.Effective);
 
             GraphicsHooks.ResetForTests();
-            GraphicsHooks.Configure("auto", false, null, null, null);
+            GraphicsHooks.Configure("auto", false, null, null);
             Assert.Same(LookAlike, GraphicsHooks.GameOptionsJson(LookAlike));
             Assert.Contains("graphics.profile auto (the game's own choice)", GraphicsHooks.Describe());
         }
