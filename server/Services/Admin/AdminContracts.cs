@@ -73,7 +73,8 @@ namespace McvsOffline.Server.Services.Admin
         public bool RelaunchUnconfirmed { get; set; }     // Android 13+: the restart alarm may not bring the game back; not yet observed (target-sdk.md §4.6, STATUS device-test item 9)
         public string Notifications { get; set; }     // the POST_NOTIFICATIONS state, one sentence; null off Android
         public string Graphics { get; set; }          // graphics.profile and the engine's GPU profile, one line; null unknown
-        public string HdTextures { get; set; }        // the HD texture zip, one line; null unknown
+        public string HdTextures { get; set; }        // the HD texture pack (hosts/embedded/Hd/HdInstaller), one line; null unknown
+        public bool HdInstalled { get; set; }         // some Data/ files hold HD textures (the page offers "Remove HD textures")
     }
 
     public sealed class AdminShareResult

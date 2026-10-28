@@ -47,6 +47,12 @@ namespace McvsOffline.Embedded.Install
         /// <summary>install.verifyRestoredData: after giving the installer a Gameloft index back, check every file's CRC32 in the background.</summary>
         public bool VerifyRestoredData { get; set; }
 
+        /// <summary>
+        /// Files an installed HD texture pack has replaced (relative path, e.g. <c>Data/8/dbd2f1.f</c> -&gt; size of the original):
+        /// the texture variant of the data is recognised by the original sizes (hosts/embedded/Hd/HdInstaller.cs). Null: none.
+        /// </summary>
+        public IDictionary<string, long> HdOriginalSizes { get; set; }
+
         /// <summary>Tests: the complete packs a Data folder is compared with before an index is rebuilt (default <see cref="InstallerData.KnownPacks"/>).</summary>
         internal InstallerData.KnownPack[] KnownPacks { get; set; }
     }
@@ -211,6 +217,34 @@ namespace McvsOffline.Embedded.Install
             public long Bytes { get; private set; }
         }
 
+        /// <summary>
+        /// The total size <paramref name="index"/> would list if the files an HD pack replaced (relative path -&gt; size before) still had
+        /// their sizes from before: the HD files are larger, and only the original sizes say which 1.17.32 pack the data is.
+        /// </summary>
+        public static long PackBytes(PackIndex index, IDictionary<string, long> originalSizes)
+        {
+            long bytes = index.LogicalBytes;
+            if (originalSizes == null || originalSizes.Count == 0) return bytes;
+            foreach (PackEntry e in index.Entries)
+            {
+                long original;
+                if (e.Piece <= 1 && originalSizes.TryGetValue(e.RelativePath, out original)) bytes += original - (e.Piece == 0 ? e.Size : e.TotalSize);
+            }
+            return bytes;
+        }
+
+        private static long HdAdjustment(List<PackIndex.FileInfoEntry> files, IDictionary<string, long> originalSizes)
+        {
+            long delta = 0;
+            if (originalSizes == null || originalSizes.Count == 0) return 0;
+            foreach (PackIndex.FileInfoEntry f in files)
+            {
+                long original;
+                if (originalSizes.TryGetValue(f.RelativePath, out original)) delta += original - f.Size;
+            }
+            return delta;
+        }
+
         /// <summary>"ASTC", "ETC", or null when the counts are not those of a complete 1.17.32 pack.</summary>
         public static string VariantOf(int files, long bytes)
         {
@@ -272,7 +306,7 @@ namespace McvsOffline.Embedded.Install
                 {
                     // Its journal is the installer's own business: a half-finished download leaves pre-allocated split files whose
                     // size looks right, so pieces are never added to it from sizes here.
-                    SaveCopy(loc, internalIndex, log);
+                    SaveCopy(loc, internalIndex, options, log);
                     RefreshInsTime(loc, options, log, now);
                     if (options.VerifyRestoredData && File.Exists(loc.VerifyPending))
                     {
@@ -284,16 +318,16 @@ namespace McvsOffline.Embedded.Install
                         log.Info("installer data: the CRC32 check of the data given back to the installer has not finished yet; it " +
                                  "continues in the background" + (pending.Complete ? "" : " after the installer has fetched " +
                                  (pending.Missing + pending.WrongSize) + " entries (" + pending.Describe() + ")"));
-                        return "installer data: Gameloft index in place (" + Describe(internalIndex) + "), CRC check pending";
+                        return "installer data: Gameloft index in place (" + Describe(internalIndex, options) + "), CRC check pending";
                     }
-                    return "installer data: Gameloft index in place (" + Describe(internalIndex) + ")";
+                    return "installer data: Gameloft index in place (" + Describe(internalIndex, options) + ")";
                 }
                 DataCheck check = Check(internalIndex, loc.GameRoot);
                 if (check.Complete)
                 {
                     MergeJournal(loc, check.GoodPieces, log);
                     RefreshInsTime(loc, options, log, now);
-                    return "installer data: rebuilt index still matches the data (" + Describe(internalIndex) + ")";
+                    return "installer data: rebuilt index still matches the data (" + Describe(internalIndex, options) + ")";
                 }
                 log.Warn("installer data: the data no longer matches the index rebuilt from it: " + check.Describe());
                 string again = Restore(loc, prefs, options, log, now, restored);
@@ -351,9 +385,9 @@ namespace McvsOffline.Embedded.Install
                 if (check.Complete)
                 {
                     Install(loc, prefs, options, log, now, index, check, candidate[1], restored);
-                    log.Info("installer data: gave the installer its index back from the " + candidate[1] + " (" + Describe(index) +
+                    log.Info("installer data: gave the installer its index back from the " + candidate[1] + " (" + Describe(index, options) +
                              "); every file is in place, the game starts without internet");
-                    return "installer data: index restored from the " + candidate[1] + " (" + Describe(index) + ")";
+                    return "installer data: index restored from the " + candidate[1] + " (" + Describe(index, options) + ")";
                 }
                 // A few files of another size are an interrupted download (the installer deletes and fetches them again); many are
                 // another texture variant or version, and handing that index over would make the installer delete them all.
@@ -389,7 +423,7 @@ namespace McvsOffline.Embedded.Install
             }
             long bytes;
             List<PackIndex.FileInfoEntry> files = ScanData(loc.GameRoot, out bytes);
-            string variant = VariantOf(files.Count, bytes, options.KnownPacks);
+            string variant = VariantOf(files.Count, bytes + HdAdjustment(files, options.HdOriginalSizes), options.KnownPacks);
             if (variant == null)
             {
                 var sb = new StringBuilder();
@@ -413,8 +447,8 @@ namespace McvsOffline.Embedded.Install
             }
             Install(loc, prefs, options, log, now, rebuilt, rebuiltCheck, "files on the device", restored);
             log.Info("installer data: no Gameloft index on the device; the Data folder holds the complete 1.17.32 " + variant +
-                     " pack, so the installer got an index rebuilt from it (" + Describe(rebuilt) + "; sizes only, re-checked every start)");
-            return "installer data: index rebuilt from the complete " + variant + " data (" + Describe(rebuilt) + ")";
+                     " pack, so the installer got an index rebuilt from it (" + Describe(rebuilt, options) + "; sizes only, re-checked every start)");
+            return "installer data: index rebuilt from the complete " + variant + " data (" + Describe(rebuilt, options) + ")";
         }
 
         private static void Install(InstallerDataLocations loc, IInstallerPrefs prefs, InstallerDataOptions options, Log log, long now,
@@ -424,7 +458,7 @@ namespace McvsOffline.Embedded.Install
             AtomicFile.WriteAllBytes(loc.PackInfo, index.Raw);
             AtomicFile.WriteAllBytes(loc.GlVer, Encoding.ASCII.GetBytes(ApkVersionCode));
             MergeJournal(loc, check.GoodPieces, log);
-            string variant = VariantOf(index.LogicalFiles, index.LogicalBytes, options.KnownPacks);
+            string variant = VariantOf(index.LogicalFiles, PackBytes(index, options.HdOriginalSizes), options.KnownPacks);
             if (prefs != null)
             {
                 // The texture variant the data is, so a later CDN request asks for the same archive (the installer otherwise probes the GPU).
@@ -437,7 +471,7 @@ namespace McvsOffline.Embedded.Install
             RefreshInsTime(loc, options, log, now);
             if (!index.IsRebuilt)
             {
-                SaveCopy(loc, index, log);
+                SaveCopy(loc, index, options, log);
                 // Sizes only so far: the CRC32s are checked in the background (VerifyContent), resumed at later starts until done.
                 WritePending(loc, IndexHash(index), 0, log);
                 restored.Index = index;
@@ -927,7 +961,7 @@ namespace McvsOffline.Embedded.Install
         }
 
         /// <summary>Copies a Gameloft index to McvsOffline/install/ when it differs from the copy there.</summary>
-        private static void SaveCopy(InstallerDataLocations loc, PackIndex index, Log log)
+        private static void SaveCopy(InstallerDataLocations loc, PackIndex index, InstallerDataOptions options, Log log)
         {
             if (index.IsRebuilt) return;
             try
@@ -935,7 +969,7 @@ namespace McvsOffline.Embedded.Install
                 byte[] saved = ReadBytes(loc.SavedIndex);
                 if (saved != null && Same(saved, index.Raw)) return;
                 AtomicFile.WriteAllBytes(loc.SavedIndex, index.Raw);
-                string variant = VariantOf(index.LogicalFiles, index.LogicalBytes);
+                string variant = VariantOf(index.LogicalFiles, PackBytes(index, options.HdOriginalSizes));
                 AtomicFile.WriteAllText(loc.SavedIndexNote,
                     "Copy of the game installer's index of the data pack (Modern Combat Versus 1.17.32" + (variant == null ? "" : ", " + variant + " textures") +
                     ", " + index.LogicalFiles + " files, " + index.LogicalBytes.ToString(CultureInfo.InvariantCulture) + " bytes), saved by MCVS Offline on " +
@@ -950,9 +984,9 @@ namespace McvsOffline.Embedded.Install
             }
         }
 
-        private static string Describe(PackIndex index)
+        private static string Describe(PackIndex index, InstallerDataOptions options)
         {
-            string variant = VariantOf(index.LogicalFiles, index.LogicalBytes);
+            string variant = VariantOf(index.LogicalFiles, PackBytes(index, options.HdOriginalSizes));
             return (variant == null ? "" : variant + ", ") + index.LogicalFiles + " files, " + index.Entries.Count + " entries";
         }
 

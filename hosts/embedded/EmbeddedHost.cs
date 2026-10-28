@@ -9,6 +9,7 @@ using System.Threading;
 using McvsOffline.Embedded.Admin;
 using McvsOffline.Embedded.Diagnostics;
 using McvsOffline.Embedded.Graphics;
+using McvsOffline.Embedded.Hd;
 using McvsOffline.Embedded.Notifications;
 using McvsOffline.Server;
 using McvsOffline.Server.Core;
@@ -175,6 +176,7 @@ namespace McvsOffline.Embedded
                   .Append(", store items skipped: ").Append(GameHooks.StoreReports).Append('\n');
                 sb.Append(GameHooks.DescribePhysics());
                 sb.Append('\n').Append(GraphicsHooks.Describe());
+                sb.Append('\n').Append(HdInstaller.Status);
                 string extras = diagnostics == null ? null : diagnostics.StatusExtras();
                 if (!string.IsNullOrEmpty(extras)) sb.Append('\n').Append(extras);
             }
@@ -447,10 +449,25 @@ namespace McvsOffline.Embedded
                 };
                 var locations = new McvsOffline.Embedded.Install.InstallerDataLocations(internalDir, Paths.GameRoot);
                 long now = (long)(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds;
+                // The HD texture pack (docs/design/hd-textures.md) lives in the installer's index too: its files are made to match
+                // before InstallerData looks at the data, and the pack is installed or removed after it, still before the installer.
+                var hdOptions = new HdInstallerOptions { Enabled = Settings.GetBool("hd.enabled", true), ManageInstaller = options.Manage };
+                Log hdLog = Logger.For("hd");
+                options.HdOriginalSizes = HdInstaller.Prepare(locations, hdOptions, hdLog).OriginalSizes;
                 McvsOffline.Embedded.Install.InstallerDataResult result =
                     McvsOffline.Embedded.Install.InstallerData.Prepare(locations, installer.InstallerPrefs(), options, log, now);
                 Boot.Mark(result.Summary);
-                if (result.IndexToVerify != null) StartDataVerify(installer, locations, result, log);
+                HdResult hd = HdInstaller.Apply(locations, hdOptions, hdLog);
+                Boot.Mark(hd.Summary.StartsWith("hd textures: ", StringComparison.Ordinal) ? "hd: " + hd.Summary.Substring(13) : hd.Summary);
+                McvsOffline.Embedded.Install.PackIndex verify = result.IndexToVerify;
+                if (verify != null && hd.IndexChanged)
+                {
+                    // The CRC check reads the index as it is now: the HD files carry their own CRCs.
+                    string error;
+                    byte[] raw = File.Exists(locations.PackInfo) ? File.ReadAllBytes(locations.PackInfo) : null;
+                    verify = raw == null ? null : McvsOffline.Embedded.Install.PackIndex.TryParse(raw, out error);
+                }
+                if (verify != null) StartDataVerify(installer, locations, verify, result.WaitForInstaller, log);
             }
             catch (Exception ex)
             {
@@ -474,10 +491,8 @@ namespace McvsOffline.Embedded
         /// MiB. A check that does not get through resumes at the next start (InstallerData.VerifyContent, verify-pending).
         /// </summary>
         private void StartDataVerify(IInstallerPlatform installer, McvsOffline.Embedded.Install.InstallerDataLocations locations,
-                                     McvsOffline.Embedded.Install.InstallerDataResult result, Log log)
+                                     McvsOffline.Embedded.Install.PackIndex index, bool mustWait, Log log)
         {
-            McvsOffline.Embedded.Install.PackIndex index = result.IndexToVerify;
-            bool mustWait = result.WaitForInstaller;
             var thread = new Thread(() =>
             {
                 try
