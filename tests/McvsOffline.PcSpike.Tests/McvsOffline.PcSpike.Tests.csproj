@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Tests of tools/pc-spike (the WP0 kit for the Steam build) that run on any OS: the args.txt step, the .exe.config
+    writer, the Steam library search and VDF parser, the EngineBridge marker patch (against the real Steam
+    EngineBridge.dll when /home/user/mcvs-work/pc/install or MCVS_PC_INSTALL has it, executed on net8 with a Roslyn-built
+    Gameloft.Engine look-alike, and its mscorlib references resolved against the .NET Framework 4.5 reference
+    assemblies), the CSV and crash-log formats and the collector's summary. Real-file tests skip without the install
+    unless MCVS_REQUIRE_PC=1. The Steam files are only read; nothing from them is committed or shipped.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>McvsOffline.PcSpike.Tests</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
+    <!-- Only its reference assemblies are used (path below), to resolve the marker patch's mscorlib members. -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net45" Version="1.0.3" ExcludeAssets="all" PrivateAssets="all" GeneratePathProperty="true" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>Net45ReferenceAssemblies</_Parameter1>
+      <_Parameter2>$(PkgMicrosoft_NETFramework_ReferenceAssemblies_net45)/build/.NETFramework/v4.5</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../tools/pc-spike/McvsOffline.PcSpike.csproj" />
+  </ItemGroup>
+</Project>
