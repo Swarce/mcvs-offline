@@ -232,6 +232,18 @@ namespace McvsOffline.Patcher.Dex
             return stringIndex.TryGetValue(text, out int index) ? index : -1;
         }
 
+        /// <summary>The index of the type id with this exact descriptor ("Landroid/content/ComponentName;"), or -1.</summary>
+        public int FindTypeId(string descriptor)
+        {
+            int name = FindString(descriptor);
+            if (name < 0) return -1;
+            for (int i = 0; i < TypeIdsSize; i++)
+            {
+                if (U32(data, TypeIdsOff + 4 * i) == (uint)name) return i;
+            }
+            return -1;
+        }
+
         // ------------------------------------------------------------------ classes and methods
 
         /// <summary>One class_def_item.</summary>

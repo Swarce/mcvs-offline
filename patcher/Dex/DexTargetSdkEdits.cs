@@ -19,14 +19,17 @@ namespace McvsOffline.Patcher.Dex
     /// local-reminder alarms of <c>LocalPushManager</c> and P7 the reminder notification's three PendingIntents in
     /// <c>SimplifiedAndroidUtils.generateNotification</c> (one register): FLAG_UPDATE_CURRENT 0x08000000 becomes 0x0c000000.
     /// P8 is the data-download notification of <c>GameInstaller.a(ILjava/lang/String;II)V</c>, whose flags register v2 is also
-    /// the request code (0): the 10 bytes of <c>const-string v3, "android.intent.category.LAUNCHER"</c> + the
-    /// <c>addCategory</c> call whose result is unused become <c>const/high16 v6, #0x04000000</c> + 3 nops, and the
-    /// getActivity call takes v6 as its flags. The intent keeps action MAIN and its explicit component, so dropping the
-    /// category changes nothing; v3 is rewritten before any read and v6 holds nothing that is read later, handler included
-    /// (<see cref="DexEditor"/> checks both). Immutable fits all of them: no sender fills anything in (AlarmManager and the
-    /// notification send them as they are). Side effect: FLAG_IMMUTABLE is part of a
-    /// PendingIntent's identity, so reminders an earlier build scheduled are not matched by the new CancelAll and can fire
-    /// once more after the update.</item>
+    /// the request code (0): the 24 code units that build its intent (<c>new Intent(MAIN)</c>, <c>addCategory(LAUNCHER)</c>,
+    /// <c>setComponent(new ComponentName(pkg, XamarinMainActivity))</c>) build the same intent with
+    /// <c>Intent.makeMainActivity(new ComponentName(pkg, XamarinMainActivity))</c> (MAIN + LAUNCHER + component, a method id
+    /// the dex already has), which leaves room for <c>const/high16 v6, #0x04000000</c> + 9 nops, and the getActivity call
+    /// takes v6 as its flags. The category must stay: the task's root intent is the launcher's MAIN + LAUNCHER, and a
+    /// notification intent that is not filterEquals to it starts a second XamarinMainActivity on top of GameInstaller
+    /// instead of bringing the task back (ActivityStarter.complyActivityFlags). v0, v3, v4 and v5 end up as before and v6
+    /// holds nothing that is read later, handler included (<see cref="DexEditor"/> checks it). Immutable fits all of them:
+    /// no sender fills anything in (AlarmManager and the notification send them as they are). Side effect: FLAG_IMMUTABLE
+    /// is part of a PendingIntent's identity, so reminders an earlier build scheduled are not matched by the new CancelAll
+    /// and can fire once more after the update.</item>
     /// <item>P10-P11 (34+: registerReceiver without RECEIVER_EXPORTED/NOT_EXPORTED throws SecurityException unless every action
     /// of the filter is a protected broadcast, and an empty filter has none): the two non-system filters are built empty with
     /// <c>new IntentFilter()</c> instead of <c>new IntentFilter(action)</c>, the constructor id the dex already has.
@@ -51,6 +54,10 @@ namespace McvsOffline.Patcher.Dex
 
         private const string PendingIntent = "Landroid/app/PendingIntent;";
         private const string GetActivity = PendingIntent + "->getActivity(Landroid/content/Context;ILandroid/content/Intent;I)Landroid/app/PendingIntent;";
+        private const string Intent = "Landroid/content/Intent;";
+        private const string ComponentName = "Landroid/content/ComponentName;";
+        private const string InstallerPackage = "const-string v4, \"com.gameloft.android.ANMP.GloftMVHM\"";
+        private const string InstallerActivity = "const-string v5, \"com.gameloft.android.XamarinMainActivity\"";
         private const string LocalPushManager = "Lcom/gameloft/pushnotification/LocalPushManager;";
         private const string SimplifiedAndroidUtils = "Lcom/gameloft/pushnotification/SimplifiedAndroidUtils;";
         private const string GoogleAnalyticsTracker = "Lcom/gameloft/android/utils/GoogleAnalyticsTracker;";
@@ -95,11 +102,33 @@ namespace McvsOffline.Patcher.Dex
                 UpdateCurrent(0x0101, 5)),
             new DexMethodEdit("P8", "Lcom/gameloft/android/installer/GameInstaller;", "a", "(ILjava/lang/String;II)V",
                 "ee2fe57b35f84a912cf8b6bf8bb607121632498aa2fa586055f5a945f1ea540f",
-                "data-download notification: flags 0 (shared with the request code) -> FLAG_IMMUTABLE in v6; the unused LAUNCHER " +
-                "category of an explicit intent makes room for it",
-                new DexSiteEdit(0x002c,
-                    new[] { "const-string v3, \"android.intent.category.LAUNCHER\"", "invoke-virtual {v0, v3}, Landroid/content/Intent;->addCategory(Ljava/lang/String;)Landroid/content/Intent;" },
-                    new[] { "const/high16 v6, #0x04000000", "nop", "nop", "nop" }),
+                "data-download notification: flags 0 (shared with the request code) -> FLAG_IMMUTABLE in v6; the same " +
+                "MAIN + LAUNCHER + component intent, built by Intent.makeMainActivity, makes room for it",
+                new DexSiteEdit(0x0025,
+                    new[]
+                    {
+                        "new-instance v0, " + Intent,
+                        "const-string v3, \"android.intent.action.MAIN\"",
+                        "invoke-direct {v0, v3}, " + Intent + "-><init>(Ljava/lang/String;)V",
+                        "const-string v3, \"android.intent.category.LAUNCHER\"",
+                        "invoke-virtual {v0, v3}, " + Intent + "->addCategory(Ljava/lang/String;)" + Intent,
+                        "new-instance v3, " + ComponentName,
+                        InstallerPackage,
+                        InstallerActivity,
+                        "invoke-direct {v3, v4, v5}, " + ComponentName + "-><init>(Ljava/lang/String;Ljava/lang/String;)V",
+                        "invoke-virtual {v0, v3}, " + Intent + "->setComponent(" + ComponentName + ")" + Intent,
+                    },
+                    new[]
+                    {
+                        "new-instance v3, " + ComponentName,
+                        InstallerPackage,
+                        InstallerActivity,
+                        "invoke-direct {v3, v4, v5}, " + ComponentName + "-><init>(Ljava/lang/String;Ljava/lang/String;)V",
+                        "invoke-static {v3}, " + Intent + "->makeMainActivity(" + ComponentName + ")" + Intent,
+                        "move-result-object v0",
+                        "const/high16 v6, #0x04000000",
+                        "nop", "nop", "nop", "nop", "nop", "nop", "nop", "nop", "nop",
+                    }),
                 Site(0x003d, "invoke-static {v7, v2, v0, v2}, " + GetActivity, "invoke-static {v7, v2, v0, v6}, " + GetActivity)),
             new DexMethodEdit("P10", SimplifiedAndroidUtils, "Init", "(Landroid/app/Activity;)V",
                 "8c800598ce973b79cf6d2d97208fd5a8ec3f743e3d24577640d4cafc57eb984c",

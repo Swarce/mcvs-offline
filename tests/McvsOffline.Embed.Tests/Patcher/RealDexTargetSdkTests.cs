@@ -108,7 +108,7 @@ namespace McvsOffline.Embed.Tests.Patcher
             var expected = new Dictionary<string, int[]>
             {
                 ["P1"] = new[] { 0x2db230 }, ["P2"] = new[] { 0x308196 }, ["P3"] = new[] { 0x30861c }, ["P4"] = new[] { 0x30878e },
-                ["P5"] = new[] { 0x308254 }, ["P6"] = new[] { 0x308302 }, ["P7"] = new[] { 0x30a1ae }, ["P8"] = new[] { 0x2f2a70, 0x2f2a92 },
+                ["P5"] = new[] { 0x308254 }, ["P6"] = new[] { 0x308302 }, ["P7"] = new[] { 0x30a1ae }, ["P8"] = new[] { 0x2f2a62, 0x2f2a92 },
                 ["P10"] = new[] { 0x309da6 }, ["P11"] = new[] { 0x2e60ee }, ["P12"] = new[] { 0x2fe114 }, ["P13"] = new[] { 0x2fe130 },
                 ["P14"] = new[] { 0x2fe160 },
             };
@@ -131,15 +131,18 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Equal(DexTargetSdkEdits.Edits.Sum(e => e.Sites.Count), resultNotes.Count);
             Assert.All(resultNotes, n => Assert.StartsWith("classes.dex: ", n));
 
-            // The research prototype's byte table (tsdk-scripts/dexpatch.py, checked there with dexdump -c and a full d8 re-dex):
-            // applied to the original by hand it must give exactly the patcher's output.
+            // The research prototype's byte table (tsdk-scripts/dexpatch.py, checked there with dexdump -c and a full d8 re-dex),
+            // except P8's first site, which builds the same intent with Intent.makeMainActivity (method@0290) instead of
+            // dropping its LAUNCHER category: applied to the original by hand it must give exactly the patcher's output.
             byte[] original = apkEntries.Single(e => e.Name == "classes.dex").GetData();
             var table = new (int Offset, string Expected, string New)[]
             {
                 (0x2db230, "140300800000", "140300000004"),
                 (0x308254, "15020008", "1502000c"), (0x308302, "15070008", "1507000c"), (0x308196, "15050008", "1505000c"),
                 (0x30861c, "15000008", "1500000c"), (0x30878e, "15000008", "1500000c"), (0x30a1ae, "15050008", "1505000c"),
-                (0x2f2a70, "1a03a8836e2074023000", "15060004000000000000"), (0x2f2a92, "7140a3012720", "7140a3012760"),
+                (0x2f2a62, "22007e001a0394837020710230001a03a8836e20740230002203" + "6f001a04368b1a054e8b7030020243056e20ad023000",
+                           "22036f001a04368b1a054e8b7030020243057110900203000c00" + "15060004000000000000000000000000000000000000"),
+                (0x2f2a92, "7140a3012720", "7140a3012760"),
                 (0x309da6, "7020b8020200", "7010b7020200"), (0x2e60ee, "7020b8021000", "7010b7020000"),
                 (0x2fe114, "6900e444", "0e000000"), (0x2fe130, "7110a2790100", "0e0000000000"), (0x2fe160, "7110a2790100", "0e0000000000"),
             };
@@ -180,10 +183,12 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Equal("invoke-static {v8, v1, v2, v3}, Landroid/app/PendingIntent;->getActivity(Landroid/content/Context;ILandroid/content/Intent;I)Landroid/app/PendingIntent;", At(restart, 0x19));
 
             DexFile.Method installer = Find("Lcom/gameloft/android/installer/GameInstaller;", "a", "(ILjava/lang/String;II)V");
-            Assert.Equal("const/high16 v6, #0x04000000", At(installer, 0x2c));
-            Assert.Equal(new[] { "nop", "nop", "nop" }, new[] { 0x2e, 0x2f, 0x30 }.Select(pc => At(installer, pc)));
-            Assert.Equal("invoke-direct {v0, v3}, Landroid/content/Intent;-><init>(Ljava/lang/String;)V", At(installer, 0x29));   // action MAIN stays
-            Assert.Equal("invoke-virtual {v0, v3}, Landroid/content/Intent;->setComponent(Landroid/content/ComponentName;)Landroid/content/Intent;", At(installer, 0x3a));
+            Assert.Equal("new-instance v3, Landroid/content/ComponentName;", At(installer, 0x25));
+            Assert.Equal("invoke-direct {v3, v4, v5}, Landroid/content/ComponentName;-><init>(Ljava/lang/String;Ljava/lang/String;)V", At(installer, 0x2b));
+            Assert.Equal("invoke-static {v3}, Landroid/content/Intent;->makeMainActivity(Landroid/content/ComponentName;)Landroid/content/Intent;", At(installer, 0x2e));
+            Assert.Equal("move-result-object v0", At(installer, 0x31));
+            Assert.Equal("const/high16 v6, #0x04000000", At(installer, 0x32));
+            Assert.Equal(Enumerable.Repeat("nop", 9), Enumerable.Range(0x34, 9).Select(pc => At(installer, pc)));
             Assert.Equal("invoke-static {v7, v2, v0, v6}, Landroid/app/PendingIntent;->getActivity(Landroid/content/Context;ILandroid/content/Intent;I)Landroid/app/PendingIntent;", At(installer, 0x3d));
 
             Assert.Equal("invoke-direct {v2}, Landroid/content/IntentFilter;-><init>()V",
@@ -198,10 +203,11 @@ namespace McvsOffline.Embed.Tests.Patcher
         }
 
         /// <summary>
-        /// Critic note 4: P8 drops the write of v3 (const-string LAUNCHER) and starts writing v6. Both are dead there: v3 is
-        /// rewritten (new-instance ComponentName at 0x31) before any read, and v6 is written (move-result at 0x6d, const/4 at
-        /// 0x73) before any read on every path; the site lies in the try 0x04-0x5f, whose Exception handler at 0x103 reads
-        /// neither. DexEditor refuses the edit otherwise; this states the facts on the real method.
+        /// Critic note 4: P8 starts writing v6, which is dead there: it is written (move-result at 0x6d, const/4 at 0x73)
+        /// before any read on every path, and the site lies in the try 0x04-0x5f, whose Exception handler at 0x103 does not
+        /// read it. v0, v3, v4 and v5 are still written in the block and leave it holding what they held before (the intent,
+        /// the ComponentName and its two strings). DexEditor refuses the edit otherwise; this states the facts on the real
+        /// method.
         /// </summary>
         [Fact]
         public void P8OnlyUsesDeadRegisters()
@@ -213,14 +219,39 @@ namespace McvsOffline.Embed.Tests.Patcher
             DexFile.CodeItem code = dex.GetCode(installer);
             var flow = new DexFlow(code, DexInstruction.DecodeAll(code.Insns));
             Assert.Equal(new[] { (0x04, 0x5b), (0x64, 0x9f) }, code.Tries.Select(t => (t.StartAddr, t.InsnCount)));
-            Assert.Equal(new[] { 0x103 }, flow.HandlersAt(0x2c));
-            Assert.False(flow.IsLiveBefore(3, 0x31, out DexInstruction reader3), reader3?.ToString());
-            Assert.False(flow.IsLiveBefore(6, 0x2c, out DexInstruction reader6), reader6?.ToString());
-            Assert.False(flow.IsLiveBefore(3, 0x103, out reader3), reader3?.ToString());
+            Assert.Equal(new[] { 0x103 }, flow.HandlersAt(0x25));
+            Assert.Equal(new[] { 0x103 }, flow.HandlersAt(0x3a));
+            Assert.False(flow.IsLiveBefore(6, 0x25, out DexInstruction reader6), reader6?.ToString());
             Assert.False(flow.IsLiveBefore(6, 0x103, out reader6), reader6?.ToString());
             Assert.Equal(12, code.RegistersSize);
             Assert.Equal(5, code.InsSize);   // v7..v11 are this and the parameters: v6 is a local
             Assert.True(flow.IsLiveBefore(2, 0x3d, out _));   // the request code 0 stays in v2
+        }
+
+        /// <summary>
+        /// P8 must not change the notification's intent: the launcher started the task with MAIN + LAUNCHER + XamarinMainActivity,
+        /// and a content intent that is not filterEquals to that root intent (filterEquals compares the categories) starts a
+        /// second XamarinMainActivity on top of GameInstaller instead of bringing the task back (ActivityStarter.complyActivityFlags,
+        /// Task.isSameIntentFilter). The block that builds the intent, run on symbolic values before and after the edit, must
+        /// give the same action, categories and component, and getActivity must still take that intent.
+        /// </summary>
+        [Fact]
+        public void P8KeepsTheNotificationIntent()
+        {
+            if (!Load(out List<ZipEntry> apkEntries, out IReadOnlyDictionary<string, byte[]> result, out _)) return;
+            foreach (DexFile dex in new[] { Original(apkEntries, "classes.dex"), DexFile.Parse("classes.dex", result["classes.dex"]) })
+            {
+                DexFile.Method installer = dex.FindMethod("Lcom/gameloft/android/installer/GameInstaller;", "a", "(ILjava/lang/String;II)V");
+                List<DexInstruction> instructions = DexInstruction.DecodeAll(dex.GetCode(installer).Insns);
+                DexScan.IntentValue intent = DexScan.StraightLineIntent(dex, instructions, 0x25, 0x3d, 0);
+                output.WriteLine(intent.ToString());
+                Assert.Equal("android.intent.action.MAIN", intent.Action);
+                Assert.Equal(new[] { "android.intent.category.LAUNCHER" }, intent.Categories);
+                Assert.Equal("com.gameloft.android.ANMP.GloftMVHM/com.gameloft.android.XamarinMainActivity", intent.Component);
+                DexInstruction call = instructions.Single(i => i.Pc == 0x3d);
+                Assert.Equal("Landroid/app/PendingIntent;->getActivity(Landroid/content/Context;ILandroid/content/Intent;I)Landroid/app/PendingIntent;", dex.GetMethodRef(call.Index));
+                Assert.Equal(0, call.Args[2]);
+            }
         }
 
         // ------------------------------------------------------------------ what the game can still reach
@@ -434,7 +465,9 @@ namespace McvsOffline.Embed.Tests.Patcher
                 Assert.DoesNotContain("Failure", dumpErrors);
                 var sites = new Dictionary<int, string>
                 {
-                    [0x2db230] = "|0016: const v3, ", [0x2f2a70] = "|002c: const/high16 v6, ", [0x2f2a74] = "|002e: nop",
+                    [0x2db230] = "|0016: const v3, ", [0x2f2a62] = "|0025: new-instance v3, Landroid/content/ComponentName;",
+                    [0x2f2a74] = "|002e: invoke-static {v3}, Landroid/content/Intent;.makeMainActivity:(Landroid/content/ComponentName;)Landroid/content/Intent;",
+                    [0x2f2a7a] = "|0031: move-result-object v0", [0x2f2a7c] = "|0032: const/high16 v6, ", [0x2f2a80] = "|0034: nop",
                     [0x2f2a92] = "|003d: invoke-static {v7, v2, v0, v6}, Landroid/app/PendingIntent;.getActivity:",
                     [0x309da6] = "|003d: invoke-direct {v2}, Landroid/content/IntentFilter;.<init>:()V",
                     [0x2e60ee] = "|0059: invoke-direct {v0}, Landroid/content/IntentFilter;.<init>:()V",

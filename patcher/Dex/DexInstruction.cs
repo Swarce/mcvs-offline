@@ -501,8 +501,9 @@ namespace McvsOffline.Patcher.Dex
 
         /// <summary>
         /// Encodes one instruction from the text <see cref="Render"/> produces, for the few forms the patcher writes:
-        /// <c>nop</c>, <c>return-void</c>, <c>const/4</c>, <c>const/high16</c>, <c>const</c>, and the five 35c invokes. Method
-        /// references must already be in the dex's method_ids (nothing is added to a dex).
+        /// <c>nop</c>, <c>return-void</c>, <c>move-result-object</c>, <c>const/4</c>, <c>const/high16</c>, <c>const</c>,
+        /// <c>const-string</c>, <c>new-instance</c> and the five 35c invokes. Strings, types and method references must
+        /// already be in the dex's id tables (nothing is added to a dex).
         /// </summary>
         public static ushort[] Assemble(string text, DexFile dex)
         {
@@ -518,6 +519,25 @@ namespace McvsOffline.Patcher.Dex
                 case "return-void":
                     if (operands.Length > 0) throw new ArgumentException(name + " takes no operands: " + text);
                     return new[] { (ushort)op };
+                case "move-result-object":
+                {
+                    int a = Register(operands);
+                    if (a > 255) throw new ArgumentException("register out of range: " + text);
+                    return new[] { (ushort)(op | a << 8) };
+                }
+                case "const-string":
+                case "new-instance":
+                {
+                    int comma = operands.IndexOf(',');
+                    if (comma < 0) throw new ArgumentException("expected 'vA, reference': " + text);
+                    int a = Register(operands.Substring(0, comma));
+                    if (a > 255) throw new ArgumentException("register out of range: " + text);
+                    string reference = operands.Substring(comma + 1).Trim();
+                    int index = name == "const-string" ? dex.FindString(Unquote(reference, text)) : dex.FindTypeId(reference);
+                    if (index < 0) throw new InvalidDataException(dex.Name + " has no " + (name == "const-string" ? "string " : "type id ") + reference + " (the patcher never adds one)");
+                    if (index > 0xFFFF) throw new InvalidDataException("index of " + reference + " does not fit 21c");
+                    return new[] { (ushort)(op | a << 8), (ushort)index };
+                }
                 case "const/4":
                 case "const/high16":
                 case "const":
@@ -575,6 +595,29 @@ namespace McvsOffline.Patcher.Dex
             if (text.Length < 2 || text[0] != 'v' || !int.TryParse(text.Substring(1), NumberStyles.None, CultureInfo.InvariantCulture, out int r))
                 throw new ArgumentException("not a register: " + text);
             return r;
+        }
+
+        /// <summary>The text of a string operand as <see cref="Render"/> quotes it (the inverse of <see cref="Escape"/>).</summary>
+        private static string Unquote(string quoted, string context)
+        {
+            if (quoted.Length < 2 || quoted[0] != '"' || quoted[quoted.Length - 1] != '"') throw new ArgumentException("expected a quoted string: " + context);
+            var b = new StringBuilder();
+            for (int k = 1; k < quoted.Length - 1; k++)
+            {
+                char c = quoted[k];
+                if (c == '"') throw new ArgumentException("unescaped quote: " + context);
+                if (c != '\\') { b.Append(c); continue; }
+                if (k + 1 >= quoted.Length - 1) throw new ArgumentException("bad escape: " + context);
+                char e = quoted[++k];
+                if (e == '"' || e == '\\') b.Append(e);
+                else if (e == 'u' && k + 4 < quoted.Length - 1 && int.TryParse(quoted.Substring(k + 1, 4), NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out int u))
+                {
+                    b.Append((char)u);
+                    k += 4;
+                }
+                else throw new ArgumentException("bad escape: " + context);
+            }
+            return b.ToString();
         }
 
         private static long ParseLiteral(string text, string context)

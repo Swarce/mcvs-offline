@@ -238,12 +238,14 @@ namespace McvsOffline.Embed.Tests.Patcher
         [Fact]
         public void TheAssemblerWritesWhatTheDecoderReads()
         {
-            DexFile dex = Parse(Fixture());
+            DexFile dex = Parse(Fixture("a\"b\\c\u00e9\n"));
             foreach (string text in new[]
             {
                 "nop", "return-void", "const/4 v7, #-8", "const/4 v1, #7", "const/high16 v6, #0x04000000", "const v3, #0x04000000",
                 "const v200, #0xffffffff", "invoke-direct {v2}, " + EmptyFilter, "invoke-direct {v2, v0}, " + FilterWithAction,
                 "invoke-static {v4, v0, v1, v2}, " + GetBroadcast, "invoke-static {}, " + Make,
+                "move-result-object v3", "move-result-object v255", "new-instance v1, Landroid/content/Intent;", "new-instance v200, " + Ga,
+                "const-string v1, \"a\\\"b\\\\c\\u00e9\\u000a\"",   // the fixture's string, escaped as Render prints it
             })
             {
                 ushort[] units = DexInstruction.Assemble(text, dex);
@@ -256,6 +258,13 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Throws<ArgumentException>(() => DexInstruction.Assemble("goto @0004", dex));
             Assert.Throws<ArgumentException>(() => DexInstruction.Assemble("invoke-static {v16}, " + Use, dex));
             Assert.Contains("has no method id", Assert.Throws<InvalidDataException>(() => DexInstruction.Assemble("invoke-direct {v0}, Lcom/example/Nope;-><init>()V", dex)).Message);
+            Assert.Contains("has no string", Assert.Throws<InvalidDataException>(() => DexInstruction.Assemble("const-string v0, \"nope\"", dex)).Message);
+            Assert.Contains("has no type id", Assert.Throws<InvalidDataException>(() => DexInstruction.Assemble("new-instance v0, Lcom/example/Nope;", dex)).Message);
+            Assert.Throws<ArgumentException>(() => DexInstruction.Assemble("const-string v0, custom", dex));
+            Assert.Throws<ArgumentException>(() => DexInstruction.Assemble("const-string v0, \"a\"b\"", dex));
+            Assert.Throws<ArgumentException>(() => DexInstruction.Assemble("const-string v0, \"a\\x\"", dex));
+            Assert.Throws<ArgumentException>(() => DexInstruction.Assemble("move-result-object v256", dex));
+            Assert.Throws<ArgumentException>(() => DexInstruction.Assemble("new-instance v256, " + Ga, dex));
         }
 
         [Fact]
