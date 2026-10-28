@@ -172,7 +172,7 @@ namespace McvsOffline.Patcher.Dex
             var flow = new DexFlow(code, original);
             ushort[] insns = (ushort[])code.Insns.Clone();
             var ranges = new List<(int Start, int End)>();
-            var newWrites = new List<(List<DexInstruction> Before, List<DexInstruction> After)>();
+            var sites = new List<(List<DexInstruction> Before, List<DexInstruction> After)>();
 
             foreach (DexSiteEdit site in edit.Sites)
             {
@@ -229,7 +229,7 @@ namespace McvsOffline.Patcher.Dex
                     if (flow.IsLiveBefore(r, start, out DexInstruction reader))
                         throw Refused(dex, edit, "the replacement at " + DexInstruction.Hex(start) + " writes v" + r + ", whose value " + reader.Name + " at " + DexInstruction.Hex(reader.Pc) + " still reads");
                 }
-                newWrites.Add((before, after));
+                sites.Add((before, after));
                 notes.Add(dex.Name + ": " + method.DisplayName + " " + DexInstruction.Hex(start) + ": " + string.Join("; ", site.Before) + " -> " +
                           string.Join("; ", site.After) + " (" + edit.Id + ": " + edit.Reason + ")");
             }
@@ -258,8 +258,8 @@ namespace McvsOffline.Patcher.Dex
                     throw Refused(dex, edit, i.Name + " at " + DexInstruction.Hex(i.Pc) + " would no longer follow an invoke");
             }
 
-            var ourWrites = newWrites.SelectMany(w => w.After).ToList();
-            foreach (var w in newWrites)
+            var ourWrites = sites.SelectMany(w => w.After).ToList();
+            foreach (var w in sites)
             {
                 var oldReads = new HashSet<int>(w.Before.SelectMany(i => i.Reads));
                 foreach (DexInstruction reader in w.After)

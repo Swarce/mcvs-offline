@@ -15,15 +15,16 @@ namespace McvsOffline.Patcher.Dex
     /// <item>P1-P8 (31+: a PendingIntent without FLAG_IMMUTABLE or FLAG_MUTABLE throws IllegalArgumentException): every
     /// creation site the game reaches gets FLAG_IMMUTABLE (0x04000000), OR-ed into the flags it already passes. P1 is
     /// <c>MainActivity.c()</c>, the restart alarm of the graphics-setting restart and of the settings page's ViaGame restart
-    /// (it passed the Intent flag 0x8000 by mistake, which PendingIntent ignores: now 0x04000000 alone). P2-P6 are the
+    /// (it passed 0x8000, an Intent flag and no PendingIntent flag, by mistake: now 0x04000000 alone). P2-P6 are the
     /// local-reminder alarms of <c>LocalPushManager</c> and P7 the reminder notification's three PendingIntents in
     /// <c>SimplifiedAndroidUtils.generateNotification</c> (one register): FLAG_UPDATE_CURRENT 0x08000000 becomes 0x0c000000.
     /// P8 is the data-download notification of <c>GameInstaller.a(ILjava/lang/String;II)V</c>, whose flags register v2 is also
     /// the request code (0): the 10 bytes of <c>const-string v3, "android.intent.category.LAUNCHER"</c> + the
     /// <c>addCategory</c> call whose result is unused become <c>const/high16 v6, #0x04000000</c> + 3 nops, and the
     /// getActivity call takes v6 as its flags. The intent keeps action MAIN and its explicit component, so dropping the
-    /// category changes nothing; v3 is rewritten before any read, v6 is first written later (<see cref="DexEditor"/> checks
-    /// both). Immutable is right for all of them: none is filled in by its receiver. Side effect: FLAG_IMMUTABLE is part of a
+    /// category changes nothing; v3 is rewritten before any read and v6 holds nothing that is read later, handler included
+    /// (<see cref="DexEditor"/> checks both). Immutable fits all of them: no sender fills anything in (AlarmManager and the
+    /// notification send them as they are). Side effect: FLAG_IMMUTABLE is part of a
     /// PendingIntent's identity, so reminders an earlier build scheduled are not matched by the new CancelAll and can fire
     /// once more after the update.</item>
     /// <item>P10-P11 (34+: registerReceiver without RECEIVER_EXPORTED/NOT_EXPORTED throws SecurityException unless every action
@@ -41,7 +42,7 @@ namespace McvsOffline.Patcher.Dex
     /// Each method is located by class, name and descriptor in whichever classes*.dex defines it, pinned by its code
     /// fingerprint, and edited only with whole instructions of the same size; see <see cref="DexEditor"/> for the checks.
     /// Not edited, and unreachable offline: the PendingIntent sites of GCM, Play services resolution, the support library and
-    /// GA's own (scan in DexTargetSdkEditsTests), which is why a target of 31 or more needs the "debloat" patch too.
+    /// GA's own (the scan in RealDexTargetSdkTests), which is why a target of 31 or more needs the "debloat" patch too.
     /// </summary>
     public static class DexTargetSdkEdits
     {
@@ -131,11 +132,24 @@ namespace McvsOffline.Patcher.Dex
         /// For a target SDK of at least <see cref="MinTargetSdk"/>: verifies every edit against the APK's classes*.dex and
         /// returns the new content of each dex entry that changes (by entry name; for 1.17.32 only classes.dex), adding one
         /// note per edited site. Below <see cref="MinTargetSdk"/> it returns an empty map and reads nothing. Throws
-        /// <see cref="InvalidDataException"/>, before anything is written, when a dex does not parse or its checksum/signature
-        /// is wrong, when a class is defined in no dex or in several, or when any method or site is not the verified code. The
+        /// <see cref="InvalidDataException"/>, before anything is written, when a dex does not parse or its checksum is
+        /// wrong, when a class is defined in no dex or in several, or when any method or site is not the verified code. The
         /// caller replaces the entries (same compression method) and writes nothing else for them.
         /// </summary>
         public static IReadOnlyDictionary<string, byte[]> Apply(IEnumerable<ZipEntry> entries, int targetSdk, ICollection<string> notes)
+        {
+            return Apply(entries, targetSdk, notes, Edits);
+        }
+
+        /// <summary>The output entry for an edited dex: same name, same compression method as the original (DEFLATED in 1.17.32).</summary>
+        public static ZipEntry ReplacementEntry(ZipEntry original, byte[] data)
+        {
+            return original.Method == ZipEntry.MethodStored ? ZipEntry.CreateStored(original.Name, data, original) : ZipEntry.CreateDeflated(original.Name, data, original);
+        }
+
+        /// <summary><see cref="Apply(IEnumerable{ZipEntry}, int, ICollection{string})"/> with other edits (tests).</summary>
+        internal static IReadOnlyDictionary<string, byte[]> Apply(IEnumerable<ZipEntry> entries, int targetSdk, ICollection<string> notes,
+                                                                  IReadOnlyList<DexMethodEdit> edits)
         {
             var result = new SortedDictionary<string, byte[]>(StringComparer.Ordinal);
             if (targetSdk < MinTargetSdk) return result;
@@ -144,7 +158,7 @@ namespace McvsOffline.Patcher.Dex
             if (dexFiles.Count == 0) throw new InvalidDataException("the APK has no classes.dex");
 
             var byDex = new Dictionary<DexFile, List<DexMethodEdit>>();
-            foreach (DexMethodEdit edit in Edits)
+            foreach (DexMethodEdit edit in edits)
             {
                 List<DexFile> owners = dexFiles.Where(d => d.FindClass(edit.ClassDescriptor) != null).ToList();
                 if (owners.Count != 1)

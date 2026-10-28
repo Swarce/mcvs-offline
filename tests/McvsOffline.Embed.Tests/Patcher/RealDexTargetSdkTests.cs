@@ -370,6 +370,42 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.NotEmpty(DexTargetSdkEdits.Apply(apkEntries, DexTargetSdkEdits.MinTargetSdk, n));
         }
 
+        /// <summary>
+        /// The integration the 'targetsdk' patch performs, done here by hand: every entry but classes.dex is copied as it is,
+        /// classes.dex is replaced with the same compression method, and the written archive reads back that way (and passes
+        /// zipalign's check when build-tools are found).
+        /// </summary>
+        [Fact]
+        public void AnApkWithTheEditedDexKeepsEveryOtherEntry()
+        {
+            if (!Load(out List<ZipEntry> apkEntries, out IReadOnlyDictionary<string, byte[]> result, out _)) return;
+            List<ZipEntry> composed = apkEntries.Where(e => !e.Name.StartsWith("META-INF/", StringComparison.Ordinal))
+                                                .Select(e => result.TryGetValue(e.Name, out byte[] dex) ? DexTargetSdkEdits.ReplacementEntry(e, dex) : e).ToList();
+            string dir = TestEnvironment.NewTempDir("dex-apk");
+            try
+            {
+                string file = Path.Combine(dir, "unsigned.apk");
+                using (var stream = File.Create(file)) ZipArchiveWriter.Write(composed, stream);
+                ZipArchiveReader.Archive written = ZipArchiveReader.Read(file);
+                foreach (ZipEntry e in composed)
+                {
+                    ZipEntry o = written.Find(e.Name);
+                    Assert.NotNull(o);
+                    ZipEntry original = apkEntries.Single(x => x.Name == e.Name);
+                    Assert.Equal(original.Method, o.Method);
+                    if (e.Name == "classes.dex") Assert.Equal(result["classes.dex"], o.GetData());
+                    else Assert.True(o.Crc32 == original.Crc32 && o.RawData.AsSpan().SequenceEqual(original.RawData), e.Name + " changed");
+                }
+                string zipalign = TestEnvironment.BuildToolsDir == null ? null : Path.Combine(TestEnvironment.BuildToolsDir, "zipalign");
+                if (zipalign != null && File.Exists(zipalign))
+                    Assert.Equal(0, BuildTools.Run(zipalign, new[] { "-c", "-p", "4", file }, null, out _));
+            }
+            finally
+            {
+                try { Directory.Delete(dir, true); } catch (IOException) { }
+            }
+        }
+
         // ------------------------------------------------------------------ Android's own tools
 
         [Fact]
