@@ -163,7 +163,7 @@ The zip contains no game files and no passwords. Some paths in it include your W
   view, the crash-log decryption against the game's own `Gameloft.Logs.dll`, and the PE header. Without the install
   those tests skip, unless `MCVS_REQUIRE_PC=1`. The Steam files are only read.
 * Build the exe for the owner on any OS. Built on Linux with .NET SDK 8.0.426, the output is one self-contained,
-  compressed file of 35,862,347 bytes (34.2 MiB). It bundles the .NET 8 runtime, the server, the patcher and Mono.Cecil,
+  compressed file of 35,937,976 bytes (34.3 MiB; build 10). It bundles the .NET 8 runtime, the server, the patcher and Mono.Cecil,
   and no game file:
 
   ```sh

@@ -137,7 +137,10 @@ What the patches do:
   permission, finding your browser for the page's links, native memory tagging off), the MCVS Offline page's layout (kept
   clear of the navigation bar), and the game's own Java code (alarms and notifications get the flag Android 12+
   requires, two receivers that are dead offline no longer listen, Google Analytics never starts). On Android 13 and
-  later the game then asks once for the notification permission (section 7). `--target-sdk 29` turns all of this off.
+  later the game then asks once for the notification permission (section 7). Install it over your previous build as
+  usual (same key, no uninstall). Since Android 12 tapping a reminder only dismisses it (open the game from the
+  launcher), and a reminder the previous build scheduled can arrive once more after the update. `--target-sdk 29` turns
+  all of this off.
 - **forum** (not in the default set): the Forum button in Settings opens the page too.
 - **lan** (experimental): groundwork for LAN play (see the end of this guide). It changes nothing for single-device
   play.

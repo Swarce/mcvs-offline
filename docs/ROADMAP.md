@@ -27,7 +27,8 @@ Done items are struck through. Device-test history and open risks are in [STATUS
 | Priority | Item |
 |---|---|
 | High | **Economy polish**: a play path for the ~600 released items that never had an unlock source. **Implemented in build 9** as the Cosmetic crate ("CUSTOMIZATION CRATE", [ECONOMY.md](ECONOMY.md) §5, [design/economy-collector.md](design/economy-collector.md)): daily missions, weekly events and season rewards from 2026-11-09; awaiting its device test (STATUS.md, build 9, checks 14–28; crates start on 2026-11-09). Then tuned from play (`itemsPerCrate`, weights). |
-| Next | **Steam PC version**: try the same server and patches on the Steam build, which ships the same .NET assemblies and data (needs the Steam files from the owner's PC). |
+| High | **Release polish, implemented in build 10, awaiting its device test** (STATUS.md, "Build 10"): target Android 15 (`targetsdk`, default 35: no Play Protect "older version" warning; manifest, page layouts and the 14 `classes.dex` edits; `--target-sdk 29` as the fallback) with the one-time notification permission request; the project icon and launch-screen mechanism (`--art`; the art itself is still to be drawn, so the stock icon stays); the graphics setting (`graphics`, profiles auto/mid/high/ultra); the HD texture probe (`tools/hd-textures`). |
+| Next | **Steam PC version**: the WP0 test kit is implemented in build 10 (`tools/pc-spike`, one Windows exe, [PC-SPIKE.md](PC-SPIKE.md)) and awaits a run on the owner's PC. PC support itself comes next, after WP0's answers ([research/pc-port.md](research/pc-port.md)): the same server and patches on the Steam build, which ships the same .NET assemblies and data. |
 | Low | **Signature screen, half-unlocked profiles** (only if someone reports a hitch; ~0.5–0.9 s estimated, not seen in device test 7): build the avatar list once per screen refresh in `GameOfflineStore.GetKillSignItemObject` too. |
 
 ## Release checklist
@@ -36,7 +37,7 @@ Done items are struck through. Device-test history and open risks are in [STATUS
 
 ## Later
 
-- **Release polish**: quieter logging by default for player builds (the `--game-log fatal` option exists; the default is still `all` for testing); ready-to-use patcher builds for Windows/macOS/Linux; player guide; testing on more devices.
+- **Release polish** (the build-10 items are under "Next"): the project's own icon and launch-screen art (the mechanism is in); HD textures beyond the probe (research/pc-textures.md); quieter logging by default for player builds (the `--game-log fatal` option exists; the default is still `all` for testing); ready-to-use patcher builds for Windows/macOS/Linux; player guide; testing on more devices.
 - **M3 LAN multiplayer** (experimental groundwork in: the optional `lan` patches and the server's LAN mode): host's Game Server reaches each guest's profile on the guest's own embedded server; LAN discovery.
 - **M4 Internet multiplayer**: overlay VPN guide first (Tailscale/ZeroTier), then an optional relay; host-leaves handling.
 - **M5 Preservation extras** (`tools/cdn-mirror` and the offline install from copied data are done): mirror all 121 CDN builds while the CDN lives; missing maps from older builds (Barrage, Bridge, Downtown, Gym); archive the remaining online assets (news/event images); fully CDN-independent installs.
