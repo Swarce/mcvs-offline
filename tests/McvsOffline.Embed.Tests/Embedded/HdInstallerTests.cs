@@ -19,7 +19,7 @@ namespace McvsOffline.Embed.Tests.Embedded
     /// without SKIP_VALIDATION. Each test runs the host's order: HdInstaller.Prepare, InstallerData.Prepare, HdInstaller.Apply.
     /// </summary>
     [Collection("HdInstaller")]
-    public class HdInstallerTests
+    public class HdInstallerTests : IDisposable
     {
         private const int Split = PackIndex.SplitSize;
         private readonly ITestOutputHelper output;
@@ -27,6 +27,24 @@ namespace McvsOffline.Embed.Tests.Embedded
         public HdInstallerTests(ITestOutputHelper output)
         {
             this.output = output;
+        }
+
+        /// <summary>Each test leaves 10-20 MB of files; they go when it ends (the collection runs one test at a time).</summary>
+        private static readonly List<string> Created = new List<string>();
+
+        public void Dispose()
+        {
+            foreach (string dir in Created)
+            {
+                try
+                {
+                    Directory.Delete(dir, true);
+                }
+                catch (Exception)
+                {
+                }
+            }
+            Created.Clear();
         }
 
         // ------------------------------------------------------------------ fixture
@@ -46,8 +64,8 @@ namespace McvsOffline.Embed.Tests.Embedded
         private static readonly (string path, int size, string group)[] HdFiles =
         {
             ("Data/8/dbd2f1.f", 160000, null),
-            ("Data/1/0018344.f", 2 * Split + 777, null),
-            ("Data/a/4309cd.f", 4 * Split + 99, null),
+            ("Data/1/0018344.f", Split + 777, null),
+            ("Data/a/4309cd.f", 3 * Split + 99, null),
             ("Data/b/5aa.f", 12000, "lightmaps/Port"),
             ("Data/b/5ab.f", 20000, "lightmaps/Port"),
         };
@@ -65,6 +83,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             public Env(string name)
             {
                 string dir = TestEnvironment.NewTempDir(name);
+                Created.Add(dir);
                 Root = Path.Combine(dir, "external", "files");
                 Internal = Path.Combine(dir, "internal", "files");
                 Directory.CreateDirectory(Root);
@@ -279,9 +298,9 @@ namespace McvsOffline.Embed.Tests.Embedded
             var hdPaths = new HashSet<string>(HdFiles.Select(f => f.path));
             Assert.Equal(before.Entries.Where(e => !hdPaths.Contains(e.RelativePath)).Select(Key),
                          index.Entries.Where(e => !hdPaths.Contains(e.RelativePath)).Select(Key));
-            Assert.Equal(new[] { 1, 2, 3 }, index.EntriesOf("Data/1/0018344.f").Select(e => e.Piece));   // whole -> 3 pieces
-            Assert.Equal(5, index.EntriesOf("Data/a/4309cd.f").Count);                                   // 3 -> 5 pieces
-            Assert.Equal(4L * Split + 99, index.EntriesOf("Data/a/4309cd.f")[0].TotalSize);
+            Assert.Equal(new[] { 1, 2 }, index.EntriesOf("Data/1/0018344.f").Select(e => e.Piece));   // whole -> 2 pieces
+            Assert.Equal(4, index.EntriesOf("Data/a/4309cd.f").Count);                                // 3 -> 4 pieces
+            Assert.Equal(3L * Split + 99, index.EntriesOf("Data/a/4309cd.f")[0].TotalSize);
             // The saved copy follows, so a reinstall gives the installer an index that matches the HD files.
             Assert.Equal(File.ReadAllBytes(env.Loc.PackInfo), File.ReadAllBytes(env.Loc.SavedIndex));
             AssertNoTemps(env);

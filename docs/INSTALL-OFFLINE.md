@@ -17,6 +17,7 @@ smaller 64-bit-only APK (every phone from about 2017 on, such as the Galaxy S22,
 |---|---|
 | `Data/MCVS.game`, `Data/Config/EngineConfig.json`, `Data/1/` ... `Data/f/` | the data pack (15,747 files) |
 | `McvsOffline/install/pack.info` | optional but recommended: the index of the data pack (see below) |
+| `McvsOffline/hd/` | optional: an HD texture pack, and while it is installed the originals it replaced (see "HD textures" below) |
 | `McvsOffline/` (the rest) | your offline profile, settings and logs (only in a backup of an offline install) |
 
 There are two variants of the data pack, by texture format: **ASTC** and **ETC**. The installer picks ASTC when the
@@ -137,12 +138,45 @@ Send that file with a bug report.
 | `suppressUpdateCheck` | keep the installer's weekly version check from running |
 | `monitorInstaller` | the `[installer]` progress lines in the log |
 
+## HD textures in `Data/`
+
+An HD texture pack (`McvsOffline/hd/mcvs-hd-*.zip`, PLAYER-SETUP.md section 7, format in
+[design/hd-textures.md](design/hd-textures.md)) replaces files in `Data/` with larger ones. The installer deletes any
+listed file whose size is not the one in its index, so the offline build changes the index together with the files, at
+start-up, before the installer runs (`hosts/embedded/Hd/HdInstaller.cs`):
+
+1. Each original is checked against the size and CRC32 the pack was made from, and copied to
+   `McvsOffline/hd/backup/Data/<h>/<name>.f`. `McvsOffline/hd/installed.json` lists the files before any of them changes.
+2. The HD file is written next to the original under a temporary name starting with `.` and renamed over it once its size
+   and CRC32 are checked, so `Data/` never holds half a file.
+3. The installer's index (`files/pack.info` in internal storage), its copy `McvsOffline/install/pack.info` and the journal
+   `d_o_w_n_l_o_a_d_e_d.txt` are rewritten for those files: the new size, the CRC32 of the file or of each 2 MiB piece, a
+   file over 2 MiB split into pieces as Gameloft's packer does (a whole file that grows past 2 MiB becomes split, every new
+   piece is in the journal). Every other entry, and the rest of the file, stays byte for byte as it was; the archive
+   offsets of the original are kept, as they only matter for a download from Gameloft's CDN.
+
+So the installer's size check passes at every start without `SKIP_VALIDATION`, and the background CRC32 check (above)
+reads the HD files' own CRCs. A start does at most about 8 seconds of copying; the rest follows at the next start, and a
+level's lightmaps always go together. Removing (Actions › Remove HD textures, or `hd.enabled` false) copies the originals
+back and gives the index, its copy and the journal their original entries again.
+
+When something resets the index, the next start first makes the index match the files again: a reinstall gives back the
+saved copy, which already lists the HD files; with no index at all, a `Data/` folder holding the complete pack plus HD
+files is still recognised by the original sizes and gets a rebuilt index with the HD sizes; an index from Gameloft's CDN
+over installed HD files gets their entries again before the installer looks. Only when the installer is left with no index
+it can use (it then checks the data online) are the originals copied back, so it finds Gameloft's files; the pack is
+installed again at the first start with an index. `install.manageInstaller` `false` leaves the HD files and the index
+alone, as everything else on this page.
+
+Keep `McvsOffline/hd/` (the backups) in a backup of `files/`. To check such a backup on a PC with `verify.py`, check it
+against the index it carries (`McvsOffline/install/pack.info` lists the HD files), not against a mirror's.
+
 ## Last resort: the installer's own test switches
 
 A text file `files/qaTestingConfigs.txt` with one of these lines is read by the installer itself:
 
 - `SKIP_VALIDATION=1`: the installer skips every check and starts the game (if `Data/` is incomplete the game then
-  fails later). Remove the line again once the data is complete.
+  fails later). Remove the line again once the data is complete. HD textures do not need it (see above).
 - `DATA_LINK=<url>`: download from that `.amz` URL instead of Gameloft's CDN. The URL's file name must contain `.amz`,
   the server must answer HTTP Range requests, and plain `http://` only works for `*.gameloft.com` and `127.0.0.1` (the
   game's network security config).
