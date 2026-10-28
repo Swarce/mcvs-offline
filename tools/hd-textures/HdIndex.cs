@@ -69,7 +69,7 @@ namespace McvsOffline.Tools.HdTextures
             get
             {
                 int k = 0;
-                while ((AndroidWidth << k) < PcWidth) k++;
+                while (k < 15 && (AndroidWidth << k) < PcWidth) k++;
                 return k;
             }
         }

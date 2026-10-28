@@ -40,9 +40,10 @@ blocks, LZ4), then decodes the result and prints its PSNR against the PC texture
 against the PC texture at its size. A level's lightmaps are converted together, all or none.
 
 Measured on this repository's build machine (4 vCPUs, Xeon 2.8 GHz): the Port pack (`--maps Port`, 907 files,
-1,101 Mtexel) took 250 s and is 259 MB; the whole default scope is 3,250 Mtexel, about 12 to 13 minutes there and a few
-minutes on a desktop with more cores. Median PSNR against the PC textures 34 dB; the phone's own files score about 2 dB
-lower against the PC textures at their size.
+1,101 Mtexel) took 200 s (5.5 Mtexel/s) and is 259 MB; the whole default scope is 3,250 Mtexel, about 10 minutes
+there and a few minutes on a desktop with more cores. Median PSNR against the PC textures 34 dB (5 % below 24 dB:
+noisy roughness and normal maps, which ETC1's one modifier for all three channels cannot follow); per texture the
+median is 3.4 dB above what the phone's own file scores against the PC texture at its size.
 
 ## The table (`hd-index.tsv`)
 

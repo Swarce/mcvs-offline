@@ -143,104 +143,124 @@ namespace McvsOffline.Tools.HdTextures
             string partial = packPath + ".partial";
             var manifestFiles = new List<object>();
             int done = 0;
-            using (var stream = new FileStream(partial, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20))
+            try
             {
-                var zip = new StoredZipWriter(stream, true);
-                int window = Math.Max(2, options.Threads);
-                for (int start = 0; start < items.Count; start += window)
+                WritePack(partial);
+            }
+            catch
+            {
+                // No half-written pack is left behind (it would look like a pack to a careless copy).
+                try
                 {
-                    List<Item> batch = items.Skip(start).Take(window).ToList();
-                    Parallel.ForEach(batch, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, options.Threads) },
-                                     item => ConvertItem(item, options));
-                    foreach (Item item in batch)
-                    {
-                        if (item.Failure != null)
-                        {
-                            done += item.Entries.Count;
-                            string what = item.Group != null ? item.Group + " (" + item.Entries.Count + " files)" : item.Entries[0].AndroidPath;
-                            summary.Skipped.Add(what + ": " + item.Failure);
-                            log.WriteLine("skipped  " + what + ": " + item.Failure);
-                            continue;
-                        }
-                        foreach (Converted c in item.Results)
-                        {
-                            done++;
-                            HdIndexEntry e = c.Entry;
-                            ConversionResult r = c.Result;
-                            uint newCrc = Crc32.Compute(r.File);
-                            string entryName = "Data/" + e.AndroidPath;
-                            zip.Add(entryName, r.File, newCrc);
-                            summary.Files++;
-                            summary.OriginalBytes += c.Original.Length;
-                            summary.ReplacementBytes += r.File.Length;
-                            summary.Texels += r.Texels;
-                            bool low = r.Psnr < options.MinPsnr || (!double.IsNaN(r.AlphaPsnr) && r.AlphaPsnr < options.MinPsnr);
-                            string psnr = Db(r.Psnr) + (double.IsNaN(r.AlphaPsnr) ? "" : ", alpha " + Db(r.AlphaPsnr)) + " (phone " + Db(r.OriginalPsnr) + ")";
-                            if (low) summary.LowPsnr.Add(e.AndroidPath + " (" + e.Category + "): " + psnr);
-                            string name;
-                            names.TryGetValue(e.Hash, out name);
-                            log.WriteLine("[" + done.ToString(CultureInfo.InvariantCulture).PadLeft(Width(selected.Count)) + "/" + selected.Count + "] " +
-                                          e.AndroidPath.PadRight(12) + " " + e.Category.PadRight(10) + " " + r.Layout.PadRight(5) + " " +
-                                          (r.OriginalWidth + "x" + r.OriginalHeight).PadLeft(9) + " -> " + (r.Width + "x" + r.Height).PadRight(9) + " " +
-                                          Kb(c.Original.Length).PadLeft(9) + " -> " + Kb(r.File.Length).PadLeft(9) + "  PSNR " + psnr +
-                                          (low ? "  LOW" : "") + "  " + r.Elapsed.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture) + " s");
-                            manifestFiles.Add(new Dictionary<string, object>(StringComparer.Ordinal)
-                            {
-                                ["entry"] = entryName,
-                                ["hash"] = e.Hash,
-                                ["logicalPath"] = name,
-                                ["category"] = e.Category,
-                                ["levels"] = e.Levels.Cast<object>().ToList(),
-                                ["group"] = e.Group,
-                                ["layout"] = r.Layout,
-                                ["original"] = new Dictionary<string, object>(StringComparer.Ordinal)
-                                {
-                                    ["size"] = (long)c.Original.Length,
-                                    ["crc32"] = Hex(Crc32.Compute(c.Original)),
-                                    ["width"] = (long)r.OriginalWidth,
-                                    ["height"] = (long)r.OriginalHeight,
-                                    ["mipLevels"] = (long)r.OriginalMipLevels,
-                                },
-                                ["replacement"] = new Dictionary<string, object>(StringComparer.Ordinal)
-                                {
-                                    ["size"] = (long)r.File.Length,
-                                    ["crc32"] = Hex(newCrc),
-                                    ["width"] = (long)r.Width,
-                                    ["height"] = (long)r.Height,
-                                    ["mipLevels"] = (long)r.MipLevels,
-                                },
-                                ["psnr"] = Round(r.Psnr),
-                                ["originalPsnr"] = Round(r.OriginalPsnr),
-                                ["alphaPsnr"] = double.IsNaN(r.AlphaPsnr) ? null : (object)Round(r.AlphaPsnr),
-                            });
-                        }
-                        item.Results = null;
-                    }
+                    File.Delete(partial);
                 }
-                if (summary.Files == 0) throw new InvalidDataException("no texture could be converted (" + summary.Skipped.Count + " skipped)");
-                var manifest = new Dictionary<string, object>(StringComparer.Ordinal)
+                catch (IOException)
                 {
-                    ["format"] = 1L,
-                    ["kind"] = "hd-textures",
-                    ["tool"] = ToolName,
-                    ["created"] = options.NowUtc.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture),
-                    ["gameVersion"] = HdIndex.GameVersion,
-                    ["pack"] = HdIndex.Pack,
-                    ["scope"] = scope,
-                    ["categories"] = options.Categories.Cast<object>().ToList(),
-                    ["maps"] = (options.Maps ?? index.Levels.Select(l => l.Name).ToArray()).Cast<object>().ToList(),
-                    ["files"] = manifestFiles,
-                    ["totals"] = new Dictionary<string, object>(StringComparer.Ordinal)
+                }
+                throw;
+            }
+
+            void WritePack(string target)
+            {
+                using (var stream = new FileStream(target, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20))
+                {
+                    var zip = new StoredZipWriter(stream, true);
+                    int window = Math.Max(2, options.Threads);
+                    for (int start = 0; start < items.Count; start += window)
                     {
-                        ["files"] = (long)summary.Files,
-                        ["originalBytes"] = summary.OriginalBytes,
-                        ["replacementBytes"] = summary.ReplacementBytes,
-                    },
-                };
-                summary.Manifest = manifest;
-                zip.Add(ManifestEntry, Encoding.UTF8.GetBytes(MiniJson.Serialize(manifest, true) + "\n"));
-                zip.Finish();
-                summary.PackBytes = zip.Length;
+                        List<Item> batch = items.Skip(start).Take(window).ToList();
+                        Parallel.ForEach(batch, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, options.Threads) },
+                                         item => ConvertItem(item, options));
+                        foreach (Item item in batch)
+                        {
+                            if (item.Failure != null)
+                            {
+                                done += item.Entries.Count;
+                                string what = item.Group != null ? item.Group + " (" + item.Entries.Count + " files)" : item.Entries[0].AndroidPath;
+                                summary.Skipped.Add(what + ": " + item.Failure);
+                                log.WriteLine("skipped  " + what + ": " + item.Failure);
+                                continue;
+                            }
+                            foreach (Converted c in item.Results)
+                            {
+                                done++;
+                                HdIndexEntry e = c.Entry;
+                                ConversionResult r = c.Result;
+                                uint newCrc = Crc32.Compute(r.File);
+                                string entryName = "Data/" + e.AndroidPath;
+                                zip.Add(entryName, r.File, newCrc);
+                                summary.Files++;
+                                summary.OriginalBytes += c.Original.Length;
+                                summary.ReplacementBytes += r.File.Length;
+                                summary.Texels += r.Texels;
+                                bool low = r.Psnr < options.MinPsnr || (!double.IsNaN(r.AlphaPsnr) && r.AlphaPsnr < options.MinPsnr);
+                                string psnr = Db(r.Psnr) + (double.IsNaN(r.AlphaPsnr) ? "" : ", alpha " + Db(r.AlphaPsnr)) + " (phone " + Db(r.OriginalPsnr) + ")";
+                                if (low) summary.LowPsnr.Add(e.AndroidPath + " (" + e.Category + "): " + psnr);
+                                string name;
+                                names.TryGetValue(e.Hash, out name);
+                                log.WriteLine("[" + done.ToString(CultureInfo.InvariantCulture).PadLeft(Width(selected.Count)) + "/" + selected.Count + "] " +
+                                              e.AndroidPath.PadRight(12) + " " + e.Category.PadRight(10) + " " + r.Layout.PadRight(5) + " " +
+                                              (r.OriginalWidth + "x" + r.OriginalHeight).PadLeft(9) + " -> " + (r.Width + "x" + r.Height).PadRight(9) + " " +
+                                              Kb(c.Original.Length).PadLeft(9) + " -> " + Kb(r.File.Length).PadLeft(9) + "  PSNR " + psnr +
+                                              (low ? "  LOW" : "") + "  " + r.Elapsed.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture) + " s");
+                                manifestFiles.Add(new Dictionary<string, object>(StringComparer.Ordinal)
+                                {
+                                    ["entry"] = entryName,
+                                    ["hash"] = e.Hash,
+                                    ["logicalPath"] = name,
+                                    ["category"] = e.Category,
+                                    ["levels"] = e.Levels.Cast<object>().ToList(),
+                                    ["group"] = e.Group,
+                                    ["layout"] = r.Layout,
+                                    ["original"] = new Dictionary<string, object>(StringComparer.Ordinal)
+                                    {
+                                        ["size"] = (long)c.Original.Length,
+                                        ["crc32"] = Hex(Crc32.Compute(c.Original)),
+                                        ["width"] = (long)r.OriginalWidth,
+                                        ["height"] = (long)r.OriginalHeight,
+                                        ["mipLevels"] = (long)r.OriginalMipLevels,
+                                    },
+                                    ["replacement"] = new Dictionary<string, object>(StringComparer.Ordinal)
+                                    {
+                                        ["size"] = (long)r.File.Length,
+                                        ["crc32"] = Hex(newCrc),
+                                        ["width"] = (long)r.Width,
+                                        ["height"] = (long)r.Height,
+                                        ["mipLevels"] = (long)r.MipLevels,
+                                    },
+                                    ["psnr"] = Round(r.Psnr),
+                                    ["originalPsnr"] = Round(r.OriginalPsnr),
+                                    ["alphaPsnr"] = double.IsNaN(r.AlphaPsnr) ? null : (object)Round(r.AlphaPsnr),
+                                });
+                            }
+                            item.Results = null;
+                        }
+                    }
+                    if (summary.Files == 0) throw new InvalidDataException("no texture could be converted (" + summary.Skipped.Count + " skipped)");
+                    var manifest = new Dictionary<string, object>(StringComparer.Ordinal)
+                    {
+                        ["format"] = 1L,
+                        ["kind"] = "hd-textures",
+                        ["tool"] = ToolName,
+                        ["created"] = options.NowUtc.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture),
+                        ["gameVersion"] = HdIndex.GameVersion,
+                        ["pack"] = HdIndex.Pack,
+                        ["scope"] = scope,
+                        ["categories"] = options.Categories.Cast<object>().ToList(),
+                        ["maps"] = (options.Maps ?? index.Levels.Select(l => l.Name).ToArray()).Cast<object>().ToList(),
+                        ["files"] = manifestFiles,
+                        ["totals"] = new Dictionary<string, object>(StringComparer.Ordinal)
+                        {
+                            ["files"] = (long)summary.Files,
+                            ["originalBytes"] = summary.OriginalBytes,
+                            ["replacementBytes"] = summary.ReplacementBytes,
+                        },
+                    };
+                    summary.Manifest = manifest;
+                    zip.Add(ManifestEntry, Encoding.UTF8.GetBytes(MiniJson.Serialize(manifest, true) + "\n"));
+                    zip.Finish();
+                    summary.PackBytes = zip.Length;
+                }
             }
             if (File.Exists(packPath)) File.Delete(packPath);
             File.Move(partial, packPath);
@@ -278,9 +298,11 @@ namespace McvsOffline.Tools.HdTextures
                     if (r.Layout != e.Layout) throw new InvalidDataException("the Android file is a " + r.Layout + " texture, the table says " + e.Layout);
                     results.Add(new Converted { Entry = e, Original = original, Result = r });
                 }
-                catch (Exception ex) when (ex is IOException || ex is InvalidDataException || ex is DataPackException || ex is UnauthorizedAccessException)
+                catch (Exception ex) when (!(ex is OutOfMemoryException))
                 {
-                    item.Failure = (item.Group != null ? e.AndroidPath + ": " : "") + ex.Message;
+                    // A file that cannot be read or converted skips its item (or its level's lightmaps), not the whole run.
+                    bool expected = ex is IOException || ex is InvalidDataException || ex is DataPackException || ex is UnauthorizedAccessException;
+                    item.Failure = (item.Group != null ? e.AndroidPath + ": " : "") + (expected ? ex.Message : ex.GetType().Name + ": " + ex.Message);
                     return;
                 }
             }
