@@ -1,8 +1,8 @@
 # Design: the Cosmetic crate ("economy collector")
 
-Status: **design, revised after review round 2, ready to implement; owner set 5 items per crate (O3); integration review
-round 3 applied (§0.5)** (October 2026, `main-dev` `e4bff79`). Roadmap item
-"economy polish". This document is the contract between the work packages in §6: anything another package relies on
+Status: **implemented in build 9 (WP-0, A–H; integration review round 3 applied, §0.5), awaiting its device test (§7,
+STATUS.md build 9 checks 14–28; crates start 2026-11-09)**; owner set 5 items per crate (O3) (October 2026, designed on
+`main-dev` `e4bff79`). Roadmap item "economy polish". Player and tester guide: [../ECONOMY.md](../ECONOMY.md) §5. This document is the contract between the work packages in §6: anything another package relies on
 (content file schemas, CRM cells, C# signatures, settings keys, test names) is fixed here. Change it only through the
 integrator (WP-I). §0.4 lists what changed in round 2 and why, §0.5 what the integration review (round 3) changed.
 

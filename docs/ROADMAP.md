@@ -19,16 +19,20 @@ Done items are struck through. Device-test history and open risks are in [STATUS
 - ~~**Unlock-all reward-popup stalls** (18–27 s per batch in device test 5): the same list builder; below a second per batch with build 7.~~ ✅ (the level jump to ~46 itself is the game's own behaviour: every new mod gives XP)
 - ~~**Server write speed / load times**: saves and the return to the menu are fast since build 6 (the CRM refetch after every save is ~78% smaller for unlock-all profiles; confirmed in device tests 6 and 7).~~ ✅
 - ~~**Patcher tooling**: `--game-log fatal` for quiet player builds, `--abi`, `--dry-run`, fingerprint-verified IL patches.~~ ✅
+- ~~**Settings and diagnostics page** (build 9, [design/settings-page.md](design/settings-page.md)): game options without editing settings.json, save backup/restore/export/import (also from one phone to another), logs viewable and shareable from the phone, opened from the inbox, Settings › Account or the code `MCVSOFFLINE`.~~ ✅ (confirmed in device test 8)
 - ~~**Debloat** (build 8): 44 dead manifest elements (ad screens, GCM push, Crashlytics/Facebook start-up providers, dead receivers, location permission), the Crashlytics/Fabric files, and no Crashlytics, push-token, Play Games or Facebook start at boot.~~ ✅ (confirmed in device test 7)
 
 ## Next
 
 | Priority | Item |
 |---|---|
-| High | **Settings and diagnostics page** served by the embedded server: game options without editing settings.json, save backup/restore/export/import, logs viewable and shareable from the phone (the log uploads keep arriving as 0 bytes). **Implemented in build 9** ([design/settings-page.md](design/settings-page.md)); awaiting its device test (STATUS.md, "Build 9"). |
-| High | **Economy polish**: progression paths (reward tracks, crates, live-ops rewards) for the ~1,600 items that never had an unlock source; tuned from play. In progress. |
+| High | **Economy polish**: a play path for the ~600 released items that never had an unlock source. **Implemented in build 9** as the Cosmetic crate ("CUSTOMIZATION CRATE", [ECONOMY.md](ECONOMY.md) §5, [design/economy-collector.md](design/economy-collector.md)): daily missions, weekly events and season rewards from 2026-11-09; awaiting its device test (STATUS.md, build 9, checks 14–28; crates start on 2026-11-09). Then tuned from play (`itemsPerCrate`, weights). |
 | Next | **Steam PC version**: try the same server and patches on the Steam build, which ships the same .NET assemblies and data (needs the Steam files from the owner's PC). |
 | Low | **Signature screen, half-unlocked profiles** (only if someone reports a hitch; ~0.5–0.9 s estimated, not seen in device test 7): build the avatar list once per screen refresh in `GameOfflineStore.GetKillSignItemObject` too. |
+
+## Release checklist
+
+- [ ] **`collector.since`**: before publishing a player build, set `collector.since` in `tools/content-gen/liveops_tuning.json` to the first Monday at least 7 days after the publication date, regenerate the content (`python3 -I tools/content-gen/content_gen.py`, which warns otherwise) and update `CollectorGuard.ShippedSince` to match (`GeneratedContentTests` checks they agree; `CollectorPlanTests` and `GoldenScenarios.Since` pin the date too). Never bump `revision` for it (LIVEOPS.md §7a).
 
 ## Later
 
