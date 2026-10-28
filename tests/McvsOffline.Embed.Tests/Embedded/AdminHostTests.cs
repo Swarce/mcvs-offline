@@ -37,6 +37,10 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.Empty(info.MissingJni);
                 Assert.False(info.CanOpenPage || info.CanShareFile || info.CanSaveToDownloads || info.CanShareText || info.CanCopy ||
                              info.CanToast || info.CanSave || info.CanExit);
+                Assert.False(info.RelaunchBlocked);
+                Assert.Null(info.Notifications);
+                Assert.StartsWith("graphics: graphics.profile", info.Graphics);
+                Assert.StartsWith("hd textures:", info.HdTextures);
 
                 string file = Path.Combine(TestEnvironment.NewTempDir("adminhost-file"), "mcvs-logs-x.zip");
                 File.WriteAllText(file, "zip");
@@ -70,6 +74,12 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.Equal("/storage/emulated/0/Download/MCVS-Offline", info.PublicLogsDir);
                 Assert.True(info.CanOpenPage && info.CanShareFile && info.CanSaveToDownloads && info.CanShareText && info.CanCopy && info.CanToast && info.CanExit);
                 Assert.False(info.CanSave);   // no game: GameReflection unbound
+                Assert.True(info.RelaunchBlocked);   // Android 13+: the restart alarm brings nothing back (target-sdk.md §4.6)
+                host.NotificationStatus = () => "allowed";
+                Assert.Equal("allowed", host.Describe().Notifications);
+                host.NotificationStatus = () => throw new InvalidOperationException("jni");
+                Assert.Null(host.Describe().Notifications);
+                host.NotificationStatus = null;
 
                 platform.Missing.Add(AndroidJni.ClipboardSetPrimary.Key);
                 info = host.Describe();
@@ -86,6 +96,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                 platform.Missing.Clear();
                 platform.Sdk = 28;   // Android 9: file:// shares, no Downloads
                 info = host.Describe();
+                Assert.False(info.RelaunchBlocked);
                 Assert.True(info.CanShareFile);
                 Assert.False(info.CanSaveToDownloads);
                 platform.Missing.Add(AndroidJni.StrictSetVmPolicy.Key);

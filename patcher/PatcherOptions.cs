@@ -37,17 +37,19 @@ namespace McvsOffline.Patcher
         /// Optional patches applied when --patch is not given. "debloat" is not only IL: it also removes dead SDK components
         /// from the manifest (Manifest.ManifestDebloat) and drops the Crashlytics/Fabric files (ApkPatcher.DebloatDroppedEntries).
         /// "adminpage" and "adminlink" open the settings page (Settings › Account button, inbox message) through
-        /// McvsOffline.AdminHooks of the embedded server.
+        /// McvsOffline.AdminHooks of the embedded server. "graphics" passes GameOptions_android.json through
+        /// McvsOffline.GraphicsHooks (settings graphics.profile; auto leaves it unchanged) and logs the effective options.
         /// </summary>
         public static readonly string[] DefaultPatches =
         {
-            "nativeonline", "waits", "geo", "bottile", "finder", "store", "signatures", "debloat", "adminpage", "adminlink",
+            "nativeonline", "waits", "geo", "bottile", "finder", "store", "signatures", "debloat", "adminpage", "adminlink", "graphics",
         };
 
         /// <summary>Every id --patch accepts; "lan" and "forum" are the ones not in <see cref="DefaultPatches"/>.</summary>
         public static readonly string[] OptionalPatches =
         {
             "nativeonline", "waits", "geo", "bottile", "finder", "lan", "store", "signatures", "debloat", "adminpage", "adminlink", "forum",
+            "graphics",
         };
 
         /// <summary>

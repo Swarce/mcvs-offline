@@ -723,6 +723,11 @@ async function fullRun(url, jar, mode, fx) {
   await screenCheck(p, 'actions', () => !!p.el('action-files'), '#action-files');
   await screenCheck(p, 'about', () => p.text('about-ua') === UA && p.text('about-version') !== '–', '#about-ua / #about-version');
   await screenCheck(p, 'status', () => /Player/.test(p.text('status-body')), '#status-body');
+  if (mode === 'fixtures') {
+    check(/Notifications\s*not allowed yet; the game asks once at the main menu/.test(p.text('status-body')), 'fixtures: no notification row');
+    check(/Graphics\s*graphics\.profile high, forced HighGPU/.test(p.text('status-body')), 'fixtures: no graphics row');
+    check(/HD textures\s*none/.test(p.text('status-body')), 'fixtures: no HD textures row');
+  }
   check((mode === 'fixtures' ? /Cosmetic crate\s*guard \(live ops are off\)/ : /Cosmetic crate\s*(dormant|guard|active)/).test(p.text('status-body')),
     'run 1: Status does not show the Cosmetic crate phase');
   await p.tap('status-storage');
@@ -987,8 +992,11 @@ async function fixtureExtras(p, fx) {
   await p.tap('nav-actions');
   await p.tap('action-crm-reload');
   check(/takes effect/.test(p.text('toast-text')), 'fixtures: CRM rebuild not confirmed');
+  check(/closes; start it again from the home screen/.test(p.text('action-restart-help')),
+        'fixtures: Android 13+ restart wording missing (' + p.text('action-restart-help') + ')');
   await p.tap('action-restart');
   check(p.isShown('dialog') && /Restart/.test(p.text('dialog-title')), 'fixtures: Restart did not ask first');
+  check(/and closes\. Start it again from the home screen/.test(p.text('dialog-body')), 'fixtures: the restart dialog does not say the game closes (Android 13+)');
   const box = [...walk(p.byId('dialog-body'))].find((n) => n.tag === 'input');
   if (check(box, 'fixtures: no "restart even if the game does not save" checkbox')) await p.tap(box);
   await p.tap('dialog-ok', 'restart');
@@ -1231,7 +1239,10 @@ function startFixtures(html) {
   const statusBody = (storage) => ({
     version: '0.1.0-dev', build: '9',
     server: { started: ISO(started), uptimeSeconds: Math.round((Date.now() - started) / 1000) + 3600, instance: 'mcvs1a2b3c4d', port, bind: '127.0.0.1', lanMode: false, hostCheck: true, dataDir: '/storage/emulated/0/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline', dataPack: '/storage/emulated/0/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/Data' },
-    host: { platform: 'android', sdkInt: 36, deviceId: 'dev', logsDir: '/storage/emulated/0/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/logs', fallbackLogsDir: null, publicLogsDir: '/storage/emulated/0/Download/MCVS-Offline', mirror: 'active, 3 files, last copy 12 s ago', watchdog: 'game thread tid 1234, paused for the page', browser: 'initialized', browserOpen: true, freeBytes: 12345678901, gameCredential: 'anonymous:a1b2…f9e8', restartVia: 'game', missingJni: [], capabilities: caps },
+    host: { platform: 'android', sdkInt: 36, deviceId: 'dev', logsDir: '/storage/emulated/0/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/logs', fallbackLogsDir: null, publicLogsDir: '/storage/emulated/0/Download/MCVS-Offline', mirror: 'active, 3 files, last copy 12 s ago', watchdog: 'game thread tid 1234, paused for the page', browser: 'initialized', browserOpen: true, freeBytes: 12345678901, gameCredential: 'anonymous:a1b2…f9e8', restartVia: 'game', missingJni: [], capabilities: caps,
+            relaunchBlocked: true, notifications: 'not allowed yet; the game asks once at the main menu',
+            graphics: 'graphics: graphics.profile high, forced HighGPU; GPU profile HighGPU (device optimum MidGPU)',
+            hdTextures: 'hd textures: none (no McvsOffline/hd/hd-textures.zip)' },
     settings: { file: '/data/McvsOffline/settings.json', fallback: state.fallback, error: null, restartPending: restartPending().length },
     player: { account: ACCOUNT, fedId: 'fed_id:' + ACCOUNT, alias: 'Player0815', source: 'game', level: 37, revision: 512, modified: ISO(Date.now() - 420000), lastGameSave: ISO(Date.now() - 420000), hasGameProfile: true },
     staged: { pending: state.staged, probation: null, last: state.last },

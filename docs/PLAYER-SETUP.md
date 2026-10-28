@@ -255,7 +255,9 @@ when it is closed. **Saves › Save the game now** closes the page, lets the gam
 "The game did not save" if it did not). **Actions › Restart the game** (and the Restart buttons of a staged import or
 a restart setting) first lets the game save, then restarts it; when the game does not save it does not restart, unless
 you tick "Restart even if the game does not save". If the game does not come back by itself after about 20 seconds,
-start it again from the home screen.
+start it again from the home screen. **On Android 13 and later the game does not come back by itself** (Android no longer
+lets an alarm start an app's screen, whatever the app): "Restart" closes it after the save and you start it again; the
+page says so there. The same holds for the game's own graphics-setting dialog, whose text the page cannot change.
 
 **Backups** (Saves): automatic ones (`storage.backups.keep`, default 20), one before every import, restore and risky
 setting, and your own (**Back up now**, at most 10, never deleted automatically). Restore one, or delete your own.
@@ -291,6 +293,31 @@ Settings for the page (in `settings.json` only): `admin.enabled` (`false` turns 
 message off), `crm.newsfeedLink` (the inbox message, also on the page), `admin.openVia` (`auto`, `game`, `jni`, `post`:
 how the browser is opened; for testing), `admin.restartVia` (`game`, `host`, `none`), `security.hostCheck` (keep `true`:
 it stops web pages from reaching the server through a hostile DNS name).
+
+### Graphics profile, HD textures and the notification permission
+
+**Graphics profile** (Settings › Graphics › Graphics profile, `graphics.profile`, applies after a restart; needs the
+default patch `graphics`). The game picks one of Gameloft's own GPU profiles from a list of phone models; phones it does
+not know, like the Galaxy S22, get the middle one. `auto` keeps that choice; `mid`, `high` and `ultra` force Gameloft's
+`MidGPU`, `HighGPU` and `High_Ultra` profiles. High adds normal maps, the full lightmaps with their direction maps, the
+levels' high-detail layers, shadow maps, bloom, 2x anisotropic filtering and a render scale that follows the screen size;
+Ultra also the richest shader set (`GOD_END`), high-resolution assets and cube maps and 3x anisotropic filtering. Expect
+more heat and less battery. Two options of those profiles also change the match servers that run inside the game (the
+levels' Physics layer, how often bots think); they stay at the Mid values unless you also switch on "High profiles change
+world loading too" (`graphics.fullProfile`). The start-up log says what the game really got: a `[boot] graphics:` line
+with the profile and every option. If a profile misbehaves, set it back to `auto` (or edit `settings.json`) and restart.
+
+**HD textures** (`hd.enabled`, default on; `hd.mount`). If `McvsOffline/hd/hd-textures.zip` exists, the game mounts it at
+start-up and textures inside it replace the ones in `Data/`. Today this is only a test: [tools/hd-textures](../tools/hd-textures/README.md)
+builds a probe zip from your own data in which one concrete texture is magenta, green or blue (one colour per file
+naming the engine might use); [STATUS.md](STATUS.md), "HD texture probe", has the steps. Without the file nothing
+changes; delete the file to undo. Never share the zip: it holds a copy of a game file.
+
+**Notifications** (Android 13 and later). A build that targets Android 13 or later must ask for the notification
+permission, or the game's reminders are silently dropped. The game asks **once**, at the main menu, with Android's own
+dialog. If you said no, allow it later in Android's settings (Apps › Modern Combat Versus › Notifications); it is not
+asked again. Status › Game host › Notifications shows the state. `notifications.request` `false` in `settings.json`
+turns the question off; `notifications.requestedAt` records when it was asked.
 
 ## 8. Saves, settings and backups
 
@@ -380,7 +407,7 @@ For reviewers (details and evidence: `docs/research/verify-C7-integrity-patching
   only; physics: `PhysicsComponent`'s constructor asks `McvsPhysics.UseMultithreading(this)` instead of reading the
   game option, and `UpdateSimulationSteps` runs inside a process-wide, time-bounded gate). Optional: `Gameloft.Engine.dll`
   (nativeonline, waits: `WaitHandle.WaitAny(handles)` -> `WaitAny(handles, 100)` in both `TaskExtension.WaitAndWork`
-  overloads, finder, lan), `Gameloft.Util.dll` (geo), `Game.dll` (bottile; store: `KillSignatureRewardItem.GetAvailableId` handles sounds, the `GameUnifiedStoreComponent.SelectItems` availability filter skips an item that throws; signatures: set lookups in `GetSignatureAssetsList`, one list per `GetKillSignItems` call; adminpage: `PlayerProfileComponent.GetAccountMenuButtonList` passes its list through `McvsOffline.AdminHooks.AccountMenuButtons`, and `ProcessAccountMenuButtonAction("mcvs_offline")` calls `AdminHooks.OpenPage`; forum: `UIComponent.GoToForum` calls `AdminHooks.OpenPage`), `Gameloft.Engine.dll` (adminlink: `BrowserComponent.OpenUrl` first asks `AdminHooks.OpenIfPageMarker`, which handles only the inbox message's fixed link). Each site is checked against the exact code
+  overloads, finder, lan), `Gameloft.Util.dll` (geo), `Game.dll` (bottile; store: `KillSignatureRewardItem.GetAvailableId` handles sounds, the `GameUnifiedStoreComponent.SelectItems` availability filter skips an item that throws; signatures: set lookups in `GetSignatureAssetsList`, one list per `GetKillSignItems` call; adminpage: `PlayerProfileComponent.GetAccountMenuButtonList` passes its list through `McvsOffline.AdminHooks.AccountMenuButtons`, and `ProcessAccountMenuButtonAction("mcvs_offline")` calls `AdminHooks.OpenPage`; forum: `UIComponent.GoToForum` calls `AdminHooks.OpenPage`), `Gameloft.Engine.dll` (adminlink: `BrowserComponent.OpenUrl` first asks `AdminHooks.OpenIfPageMarker`, which handles only the inbox message's fixed link; graphics: `GameOptionPerformanceProfileComponent.OnCreate` passes the GameOptions_android.json text through `McvsOffline.GraphicsHooks.GameOptionsJson` before the engine reads it, and reports the resolved options to `GraphicsHooks.GameOptionsApplied`). Each site is checked against the exact code
   of 1.17.32 first (the device-test-2 patches against an IL fingerprint of the whole method); if anything differs, the
   patcher stops without writing.
 - `res/raw/args.txt` (with `--game-log all`, the default): `-LogCategoryFilter Fatal` is replaced by a line the game

@@ -152,6 +152,18 @@ Recommended extra IL patches (all optional, patcher flags):
   `AdminHooks.OpenIfPageMarker(url, this)`: the CRM inbox item's fixed link `http://127.0.0.1:<port>/_mcvs/ui/#news`
   (no secret) opens the page with a fresh ticket; every other URL runs the original body (§9.3).
 - `forum` (optional): Game.dll `UIComponent.GoToForum` opens the page (`AdminHooks.OpenPage("forum", World)`, §9.4).
+- `graphics` (default): Gameloft.Engine.dll `GameOptionPerformanceProfileComponent.OnCreate` passes the GameOptions_android.json
+  text through `McvsOffline.GraphicsHooks.GameOptionsJson` before `GameOptionManager.InitializeGameOption` and reports
+  `m_options` after `ApplyGameOptions` (the `[boot] graphics:` line). settings.json `graphics.profile` (`auto` = unchanged,
+  `mid`/`high`/`ultra` = Gameloft's MidGPU/HighGPU/High_Ultra block as the only selection rule, no priority step;
+  `hosts/embedded/Graphics/GameOptionsProfile.cs`); the process-wide world options `excludedLoadingLayers` and
+  `reducedAiUpdateFrequency` stay at the MidGPU values unless `graphics.fullProfile`, because the in-process TS/GS Worlds
+  share them. The same first call mounts `McvsOffline/hd/hd-textures.zip` through the engine's zip search path when it exists
+  (`hosts/embedded/Hd`, `hd.enabled`, `hd.mount`; the WP1 probe of docs/research/pc-textures.md, built by `tools/hd-textures`).
+  STATUS.md, "Graphics profile, HD texture probe, notification permission".
+
+The embedded host also asks once for `POST_NOTIFICATIONS` at the first main menu on Android 13+, when the build targets 33+
+and declares it (`hosts/embedded/Notifications`, settings `notifications.request` / `notifications.requestedAt`).
 - `lan`: P1 Finder prefix `"*"`, P2 cache a real `PublicHost` at `LocalAnubisManager.Start`, P3
   `ClientSettings.LocalAnubisFinderHost = Args.RemoteIp ?? PublicHost` (verify-C6).
 

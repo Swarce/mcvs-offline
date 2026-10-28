@@ -29,7 +29,7 @@ namespace McvsOffline.Embed.Tests.Patcher
         {
             ["hook"] = 1, ["headless"] = 5, ["headless-engine"] = 3, ["physics"] = 2, ["nativeonline"] = 1, ["waits"] = 2, ["geo"] = 1,
             ["bottile"] = 1, ["finder"] = 1, ["lan"] = 3, ["store"] = 2, ["signatures"] = 2, ["debloat"] = 7, ["adminpage"] = 2,
-            ["adminlink"] = 1, ["forum"] = 1,
+            ["adminlink"] = 1, ["forum"] = 1, ["graphics"] = 1,
         };
 
         /// <summary>
@@ -131,9 +131,9 @@ namespace McvsOffline.Embed.Tests.Patcher
             }
             var log = new List<string>();
             PatchReport report = ApkPatcher.Run(new PatcherOptions { InputApk = apk, ServerDll = server, DryRun = true }, log.Add);
-            // 31 IL patch notes (hook, headless 5 + 3, physics 2, nativeonline, waits 2, geo, bottile, finder, store 2,
-            // signatures 2, debloat 7, adminpage 2, adminlink), the manifest rename, res/raw/args.txt, the ABI selection,
-            // debloat's 44 + 1: 79.
+            // 32 IL patch notes (hook, headless 5 + 3, physics 2, nativeonline, waits 2, geo, bottile, finder, store 2,
+            // signatures 2, debloat 7, adminpage 2, adminlink, graphics), the manifest rename, res/raw/args.txt, the ABI selection,
+            // debloat's 44 + 1: 80.
             Assert.Equal(ExpectedNotes(PatcherOptions.DefaultPatches), report.Notes.Count);
             Assert.DoesNotContain(report.Notes, n => n.Contains("LocalAnubisManager"));
 

@@ -162,6 +162,8 @@ namespace McvsOffline.Patcher
                 "                          adminlink  the 'MCVS Offline' inbox message opens the settings page (without it the\n" +
                 "                                   message shows a view-only page)\n" +
                 "                          forum    Settings > Forum opens the settings page (not in the default set)\n" +
+                "                          graphics settings.json graphics.profile (auto, mid, high, ultra) picks Gameloft's own GPU\n" +
+                "                                   profile in GameOptions_android.json; the effective options are logged\n" +
                 "                        'none' = only the mandatory patches (server hook, headless TS/GS fixes, server physics),\n" +
                 "                        'all' = everything (the default set plus lan and forum), 'default' = the default set,\n" +
                 "                        e.g. default,forum\n" +

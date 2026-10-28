@@ -113,6 +113,10 @@ namespace McvsOffline.Server.Services.Admin
             host["freeBytes"] = info.FreeBytes;
             host["gameCredential"] = AdminApi.MaskCredential(info.GameCredential);
             host["restartVia"] = info.RestartVia;
+            host["relaunchBlocked"] = info.RelaunchBlocked;
+            host["notifications"] = info.Notifications;
+            host["graphics"] = info.Graphics;
+            host["hdTextures"] = info.HdTextures;
             var missing = new List<object>();
             if (info.MissingJni != null) foreach (string m in info.MissingJni) missing.Add(m);
             host["missingJni"] = missing;

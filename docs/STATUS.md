@@ -22,6 +22,148 @@ the return to the menu was fast**, and a thread dump finally caught the kill-sig
 in-game MCVS Offline page: settings, saves (also from one phone to another) and logs, without a PC (**device test 8:
 it works**), and the Cosmetic crate, a play path for the ~600 items that never had a source (from 2026-11-09).
 
+## Graphics profile, HD texture probe, notification permission (October 2026, not yet on a device)
+
+Branch `wf/android-gfx-hd-notif`: docs/research/pc-textures.md WP0 and WP1/WP3 route B (prepared for one device test) and
+docs/research/target-sdk.md WP-T5, host side. Player guide: [PLAYER-SETUP.md](PLAYER-SETUP.md) section 7, "Graphics
+profile, HD textures and the notification permission".
+
+### Graphics profile (`graphics.profile`, new default patch `graphics`)
+
+* **How.** The game resolves its GPU profile natively, once per process: `GameOptionPerformanceProfileComponent.OnCreate`
+  hands the whole `GameOptions_android.json` to `GameOptionManager.InitializeGameOption`. Patch `graphics` (Gameloft.Engine.dll,
+  IL fingerprint of `OnCreate` checked) passes that text through `McvsOffline.GraphicsHooks.GameOptionsJson` and reports
+  `m_options` after `ApplyGameOptions` to `GraphicsHooks.GameOptionsApplied`; a missing or failing server DLL leaves the
+  text as read. `hosts/embedded/Graphics/GameOptionsProfile.cs` rewrites it for `mid`/`high`/`ultra`: the GPU `selection`
+  becomes the single rule `[{"<profile>": [[["CORES>1"]]]}]` (Gameloft's own catch-all condition), the chosen block's
+  `priority` entry becomes `["", ""]` (no step up or down, as already for High_Ultra/VeryLowGPU), and every option value
+  stays Gameloft's. `auto` (the default) passes the text through untouched. Settings page: group **Graphics**, apply
+  "After a restart" (the native options are initialised once per process; nothing re-applies them live).
+* **What each choice changes**, against the MidGPU profile the S22 gets today (the effective GPU options; checked on the
+  real file by `GraphicsProfileTests`, which also prints this list):
+  * `mid`: nothing on the S22 (MidGPU is its catch-all profile); on phones that Gameloft rated High or Low it moves them to MidGPU.
+  * `high` (HighGPU): `addShaderDefine` MID_END → HIGH_END (normal mapping, full lightmap), `lowLightMap` → false (the
+    `_N.tga` + `.dirirr.tga` lightmaps instead of `.lowend`), `enableLowResMaps` → false (`HighEndOnly` layers and the
+    full `.StaticGeo` instead of the `_lowend` ones), `enableShadowMap`, `enableBloom`, `disableUseSampler2DShadow` false,
+    `disableColorTablePostProcess` false, `renderTargetPixelFormat` R8G8B8A8_SRGB → B10F_G11F_R11F,
+    `dynamicRenderTargetSizeScale` → true (scene scale from the screen's DPI instead of 0.6), `anisotropicFiltering` 1 → 2,
+    `lowHudEffects` → false, `FontScale` 1.0 → 1.5, `GlyphTextureCacheSize` 1024 → 2048.
+  * `ultra` (High_Ultra): the same with GOD_END shaders and `anisotropicFiltering` 3, plus `lowResAssets`, `lowCubeMap`,
+    `lowEndSpecular`, `pruneSkeleton`, `exposureSkipFrame`, `AnimationCullerLowEndDevice` → false and
+    `skipLodByPresetName` "LODPreset_Characters 1".
+  * Never changed by any choice (asserted): `enableRenderThread` true and `renderThreadMode` 3 (identical in every block
+    the S22 can get), `deferredPhysics`, `multithreadedPhysics`/`multithreadedAnimations` (not in the GPU blocks),
+    `ThreadPoolSize`, `PostProcessMutex`. The physics fixes of device test 2 stay as they are under every profile:
+    server Worlds get single-threaded Havok from `GameHooks.PhysicsMultithreading` (the game's `multithreadedPhysics` is
+    not in any GPU block), and the step gate serialises every World's Havok step.
+* **Process-wide statics (pc-textures.md critic note 1).** The applied options are statics shared by the client and the
+  in-process TS/GS Worlds. HighGPU and High_Ultra set `excludedLoadingLayers` "-" (MidGPU "Physics"; it feeds
+  `World.GlobalExcludeLayers`, so the server Worlds would load the levels' Physics layer into their single-threaded Havok)
+  and `reducedAiUpdateFrequency` false (`BT_Root.AiModulo` 4 → 2: bots think twice as often on the game thread). **By default
+  `high` and `ultra` keep both at the MidGPU values** (`excludedLoadingLayers` "Physics", `reducedAiUpdateFrequency` true);
+  `graphics.fullProfile` true applies Gameloft's blocks unchanged, for an A/B run. What stays process-wide even then:
+  `enableLowResMaps` false makes every World, server Worlds included, load the `HighEndOnly` layers instead of the
+  `LowEndOnly` ones, and `skipLodByPresetName`/`pruneSkeleton`/`AnimationCullerLowEndDevice` (ultra) change animation and
+  LOD work for every World. A bot match at `high` and at `ultra` is therefore part of the device test below.
+* **Log.** `[boot] graphics: graphics.profile high: GameOptions GPU profile forced to HighGPU (...)` when the text is read,
+  then `[boot] graphics: effective GPU profile HighGPU (device optimum MidGPU), settings graphics.profile high (forced HighGPU);
+  device GPU '...', model '...'; in-game graphic setting GameOptions_SelectedProfile 0; N options: a=..., b=...` with every resolved
+  option (`GameOptionManager.GetLoadedProfileName("GPU")`/`GetOptimalProfileName`, settles pc-textures.md U1). The status
+  line and Status › Game host › Graphics repeat the short form.
+* **The game's own graphics setting** (Settings › Graphic setting, `GameOptions_SelectedProfile`, read natively, presumably as a step
+  along the priority chain; it restarts the game) should not move a forced profile, since its priority entry has no step (the native stepping is not decompiled: check 4 below); with `auto` it
+  works as before. The `[boot] graphics:` line shows its stored value.
+
+### HD texture probe (pc-textures.md WP1 + WP3 route B)
+
+* **Host.** At the first call of patch `graphics` (the engine's file system is up, no level has loaded) the host checks
+  `McvsOffline/hd/hd-textures.zip` (`hd.enabled`, default true: used whenever the file exists). It reads the zip's
+  directory itself (stored entries, no ZIP64, everything inside the file); a missing file gives one quiet line, a broken one
+  "not a usable zip ... the game uses Data/"; nothing else changes either way. Then it mounts the zip through the engine's
+  own API, by reflection: `hd.mount` `auto` (default) tries `SaveStream.PushZip` (LocationType Save) and then
+  `CacheStream.PushZip`, each with the zip's path relative to that root (`GlfStream.SavePath`/`CachePath`, logged; "../"
+  segments when the root is elsewhere); `save`, `cache`, `asset` (`AssetStream.PushZip`, relative to Data/) and `front`
+  (`GlfStream_private.PushZipSearchPathFront`, the call PackManager uses for its packs) force one way. For a probe zip it
+  then reads the probe texture back through the engine's own lookup (`AssetStream.ReadAllBytes`) and names the copy that came
+  back by its CRC-32 (manifest `mcvs-hd.json`).
+* **Tool.** `tools/hd-textures` (net8, `dotnet run --project tools/hd-textures -- probe ...`, [README](../tools/hd-textures/README.md))
+  builds the zip from the player's own `Data/8/dbd2f1.f` (`3d/Environment/01_WorkTextures/ENV_GenericConcrete05_bc.tga`): the
+  texture three times, solid magenta under its logical name, green as `8/dbd2f1.f`, blue as `Data/8/dbd2f1.f` (with `--raw`,
+  bare KTX instead of GCBF: yellow, cyan, orange), each in the original's format (ASTC 6x6 on the S22's pack: void-extent
+  blocks; ETC1 on the ETC pack), size and mip chain. Checked here on the real ETC1 file and on a synthetic ASTC 6x6 one.
+
+**HD texture probe: the device test** (one run answers U2; a second run with `--raw` answers U3)
+
+1. On the PC, with build tools for the repository:
+   `adb pull /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/Data/8/dbd2f1.f`, then
+   `dotnet run --project tools/hd-textures -- probe --file dbd2f1.f --out hd-textures.zip`. The tool prints the texture's
+   format: it should say `ASTC 6x6 256x256, 9 mip levels (ASTC pack)` on the S22 (`ETC1 ... (ETC pack)` means the phone
+   has the ETC pack: the probe still works, in ETC1).
+2. Game closed: `adb shell mkdir -p /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/hd` and
+   `adb push hd-textures.zip /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/hd/hd-textures.zip`.
+3. `adb logcat -s McvsOffline mono mono-stdout > probe.txt`, start the game. In the log (also `McvsOffline/logs/bootstrap.log`
+   and Status › Game host › HD textures):
+   * `[boot] hd textures: hd-textures.zip 4 entries, ... kind probe; engine roots: Save '...', Cache '...', Data '...'; hd.mount auto`
+     (the Save/Cache roots answer U2's third question);
+   * `[boot] hd textures: mounted through Save '...'` (or Cache, or `the engine did not mount the zip (...)`);
+   * `[boot] hd textures: probe 3d/Environment/01_WorkTextures/ENV_GenericConcrete05_bc.tga: ...` naming the copy the
+     engine's lookup returned: a zip entry (its naming and colour, "GCBF-decoded" or "bytes as stored") or "another copy ...:
+     Data/, so the zip is not searched before Data/ for this name".
+4. Play a bot match on a map with plain concrete surfaces (walls, floors; the texture is a generic concrete base colour
+   used on several maps). Magenta, green or blue surfaces tell which naming the renderer used, and that a zip entry renders
+   at all (mips, orientation); normal-looking concrete means the renderer still reads Data/. Screenshot it.
+5. If nothing changed: `hd.mount` `front` on the settings page (Graphics › How the HD zip is mounted), restart, repeat
+   3–4. Then, if still nothing, rebuild with `--raw` (yellow, cyan, orange) for the unwrapped-KTX question (U3) and repeat.
+6. Remove it: `adb shell rm /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/hd/hd-textures.zip`.
+   Send `probe.txt`, the `[boot] hd textures:` lines and the screenshots.
+
+### Notification permission (target-sdk.md WP-T5, host side)
+
+* On Android 13+ the host asks for `POST_NOTIFICATIONS` **once**, at the first main menu: when the build targets API 33+
+  and declares the permission (the manifest change belongs to the `targetsdk` patch; at target 29 Android prompts by itself
+  when the game creates its first notification channel, and the host does not ask), the permission is not granted, and
+  `notifications.requestedAt` is empty. A thread polls (on the game thread) whether the client World plays its main-menu
+  level (`World.CurrentLevelPath == World.Client.MainMenuScene`); after three polls in a row with the settings page closed it
+  writes `notifications.requestedAt` into settings.json first, then calls `Activity.requestPermissions` on the game's
+  activity with a 120 s watchdog lease. `MainActivity` has no `onRequestPermissionsResult`, so the answer is read back with
+  `checkSelfPermission`. `notifications.request` false turns it off. JNI table group `notify` (resolved on API 33+ only),
+  checked against android.jar 29 for the members and an API 33+ jar for `POST_NOTIFICATIONS`, `PERMISSION_GRANTED`,
+  `GET_PERMISSIONS` and `TIRAMISU`.
+* Status › Game host › Notifications shows the state ("allowed", "not allowed (asked once on ...)", "not needed on Android
+  12", "this build targets API 29, so Android asks by itself ...").
+* **Restart wording on Android 13+** (target-sdk.md §4.6 and critic note 3): AlarmManager starts no activity for an alarm
+  since Android 13, whatever the target, so the page's Restart texts (Actions, the restart dialog, the restart banner, its
+  toast) say that the game closes and must be started again; Status shows it next to "Restart via". The game's own
+  graphics-setting dialog uses the same relaunch and cannot be reworded by the host: the same holds there.
+
+### Checked
+
+`scripts/build.sh` steps with `MCVS_REFS`, `MCVS_REQUIRE_EMBEDDED=1`, `MCVS_REQUIRE_REAL_CLIENT=1`, `MCVS_REQUIRE_NODE=1`
+(results in the commit message of this branch's head). New: `GraphicsProfileTests` (look-alike and the real
+GameOptions_android.json for every choice, with and without fullProfile), `RealGraphicsPatchTests` (fingerprint, IL,
+executed against recording hooks and without the server DLL, the real embedded DLL's imports), the patch in the
+default-set JIT and re-patch tests, `HdTexturesTests` (LZ4/GCBF round trips through the server's decoder, ASTC void-extent
+and ETC1 blocks, the probe zip read back by the host's reader, mounts and probe verdicts against a fake engine, the real
+ETC1 texture through the CLI), `EngineFiles.Verify` and the main-menu members against the real assemblies,
+`NotificationPermissionTests`, the JNI table against android.jar 29 and 34, AdminHost and the page (node smoke on fixtures).
+
+### What to check on the phone
+
+1. `graphics.profile` auto: the `[boot] graphics: effective GPU profile ...` line (U1: which profile the S22 really gets),
+   nothing else changes.
+2. `high`, restart: the `[boot] graphics:` lines say forced HighGPU; Port and Desert look sharper (normal maps, shadows,
+   bloom); frame rate and heat over 10 minutes; a bot match plays through, no `[watchdog] STALL`, no `physics step gate:
+   ... without the gate` warning, `[status]` step-gate counters as at `auto`.
+3. `ultra`, the same. Then `graphics.fullProfile` true at `ultra` (the page asks first): a bot match, the same checks
+   (A/B for the Physics layer and the AI rate in the server Worlds).
+4. The game's own Settings › Graphic setting with a forced profile: it should not change the `[boot] graphics:` profile.
+5. The HD texture probe (above).
+6. Android 16 with a target-35 build (after the `targetsdk` patch is merged): the notification dialog appears once at the
+   main menu, not over the settings page or the age gate; answer "Allow", Status shows "allowed"; on a second phone or after
+   clearing `notifications.requestedAt`, answer "Don't allow": not asked again at the next start, Status says so. With a
+   target-29 build: no dialog from the host.
+7. Actions › Restart on Android 16: the dialog says the game closes; it closes after saving; start it again.
+
 ## Device test 8 (October 2026): the MCVS Offline page works
 
 The owner installed build 9 (`feat/economy` `6bcb3d8`, both features) and reports that everything works ("it works

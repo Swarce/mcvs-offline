@@ -8,6 +8,9 @@ using System.Net.Sockets;
 using System.Threading;
 using McvsOffline.Embedded.Admin;
 using McvsOffline.Embedded.Diagnostics;
+using McvsOffline.Embedded.Graphics;
+using McvsOffline.Embedded.Hd;
+using McvsOffline.Embedded.Notifications;
 using McvsOffline.Server;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Http;
@@ -76,6 +79,7 @@ namespace McvsOffline.Embedded
         private SafeLogFile gameLogFile;
         private IPlatformDiagnostics diagnostics;
         private IAdminPlatform adminPlatform;
+        private INotificationPlatform notificationPlatform;
         private MemoryLogSink problemSink;
         private volatile AdminHost adminHost;
         private string fallbackLogDir;
@@ -171,6 +175,8 @@ namespace McvsOffline.Embedded
                   .Append(", headless-World exceptions: ").Append(GameHooks.HeadlessReports)
                   .Append(", store items skipped: ").Append(GameHooks.StoreReports).Append('\n');
                 sb.Append(GameHooks.DescribePhysics());
+                sb.Append('\n').Append(GraphicsHooks.Describe());
+                sb.Append('\n').Append(HdTextures.Status);
                 string extras = diagnostics == null ? null : diagnostics.StatusExtras();
                 if (!string.IsNullOrEmpty(extras)) sb.Append('\n').Append(extras);
             }
@@ -295,11 +301,13 @@ namespace McvsOffline.Embedded
             AddEmbeddedDefaults();
             GameHooks.Configure(Settings.GetBool("embedded.nativeOnlineSdk", false), Logger.For("game"), Boot);
             ConfigurePhysics();
+            ConfigureGraphics();
             ApplyGameLog();
             // Before the Java GameInstaller (it starts after OnCreate returns): data already on the device must be accepted
             // without Gameloft's CDN (docs/INSTALL-OFFLINE.md).
             PrepareInstallerData(platform);
             ResolveAdminPlatform(platform);
+            notificationPlatform = platform as INotificationPlatform;
 
             int port = options.Port ?? Settings.Port;
             if (port <= 0 || port > 65535)
@@ -383,6 +391,37 @@ namespace McvsOffline.Embedded
             {
                 Log.Warn("settings page: the host side could not be set up", ex);
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// The one-time notification permission request at the first main menu (Android 13+, target-sdk.md WP-T5): the decision
+        /// reads the server's copy of settings.json (the page edits that one; notifications.requestedAt is written there), the
+        /// main menu is read on the game thread, and the dialog gets a watchdog lease. The page's status row follows it.
+        /// </summary>
+        private void StartNotificationPrompt(McvsServer created, AdminHost admin)
+        {
+            if (notificationPlatform == null) return;
+            try
+            {
+                Settings serverSettings = created.Context.Settings;
+                GameReflection game = admin != null ? admin.Game : GameReflection.Load();
+                var prompt = new NotificationPrompt(notificationPlatform, () => serverSettings, Logger.For("notifications"))
+                {
+                    AtMainMenu = () => game.AtMainMenu(2000),
+                    BrowserOpen = () => adminPlatform != null && adminPlatform.IsInGameBrowserOpen(),
+                    Mark = s => Boot.Mark(s),
+                };
+                if (admin != null)
+                {
+                    prompt.Lease = (ms, reason) => admin.Lease(ms, reason);
+                    admin.NotificationStatus = prompt.Describe;
+                }
+                prompt.Start();
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("notifications: the permission request could not be set up", ex);
             }
         }
 
@@ -499,6 +538,29 @@ namespace McvsOffline.Embedded
                 Log.Warn("settings embedded.physics differs from the defaults: serverMultithreaded " + server + ", clientMultithreaded " + client +
                          ", stepGate " + gate + ", stepGateTimeoutMs " + timeout + " (A/B run; the defaults are the device-test-2 fix)");
             }
+        }
+
+        /// <summary>
+        /// settings.json "graphics" and "hd" (patch 'graphics', docs/research/pc-textures.md WP0, WP1/WP3): which of Gameloft's GPU
+        /// profiles the engine gets (GameOptionsProfile), and the HD texture zip, mounted by the first call of the patched
+        /// GameOptions component (the engine's file system is up, no level has loaded). Both apply at the next start.
+        /// </summary>
+        private void ConfigureGraphics()
+        {
+            string profile = Settings.GetString("graphics.profile", GameOptionsProfile.Auto);
+            bool full = Settings.GetBool("graphics.fullProfile", false);
+            bool hdEnabled = Settings.GetBool("hd.enabled", true);
+            string hdMount = Settings.GetString("hd.mount", "auto");
+            string zip = HdTextures.ZipPath(Paths.DataDir);
+            BootTrace boot = Boot;
+            GraphicsHooks.Configure(profile, full, Logger.For("game"), boot,
+                                    () => HdTextures.Mount(zip, hdEnabled, hdMount, new EngineFiles(), s => boot.Mark(s)));
+            string normalized = GameOptionsProfile.Normalize(profile);
+            if (normalized == null)
+                Log.Warn("settings graphics.profile '" + profile + "' is not one of auto, mid, high, ultra: the game picks its GPU profile itself");
+            else if (normalized != GameOptionsProfile.Auto || full)
+                Log.Info("settings graphics.profile " + normalized + (full ? ", graphics.fullProfile true" : "") +
+                         " (applied when the game reads GameOptions_android.json; needs patch 'graphics')");
         }
 
         private SafeLogFileOptions LogFileOptions()
@@ -657,6 +719,12 @@ namespace McvsOffline.Embedded
             changed |= AddDefault("install.rebuildIndex", true);
             changed |= AddDefault("install.verifyRestoredData", true);
             changed |= AddDefault("install.monitorInstaller", true);
+            changed |= AddDefault("graphics.profile", GameOptionsProfile.Auto);
+            changed |= AddDefault("graphics.fullProfile", false);
+            changed |= AddDefault("hd.enabled", true);
+            changed |= AddDefault("hd.mount", "auto");
+            changed |= AddDefault(NotificationPermission.RequestKey, true);
+            changed |= AddDefault(NotificationPermission.RequestedAtKey, "");
             if (!changed) return;
             if (Settings.IsFallback)
             {
@@ -740,6 +808,7 @@ namespace McvsOffline.Embedded
                         server = created;
                         // The game's hooks (Settings › Account button, inbox marker) work from here on.
                         if (admin != null) AdminHooks.Host = admin;
+                        StartNotificationPrompt(created, admin);
                         Log.Info("offline server running at " + created.Context.BaseUrl);
                         Boot.Mark("offline server listening at " + created.Context.BaseUrl);
                         return;
