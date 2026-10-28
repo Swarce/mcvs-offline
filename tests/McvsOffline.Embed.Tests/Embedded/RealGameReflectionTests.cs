@@ -43,6 +43,12 @@ namespace McvsOffline.Embed.Tests.Embedded
                 foreach (string p in problems) output.WriteLine(p);
                 Assert.Empty(problems);
 
+                // The HD texture mount (hosts/embedded/Hd/EngineFiles.cs): GlfStream roots, the three PushZip entry points, the
+                // front search path and AssetStream.ReadAllBytes.
+                var files = McvsOffline.Embedded.Hd.EngineFiles.Verify(resolve);
+                foreach (string p in files) output.WriteLine(p);
+                Assert.Empty(files);
+
                 // The host binds to the real static side; without a running game there is no instance and no game thread.
                 var reflection = new GameReflection();
                 Assert.True(reflection.Bind(resolve("Gameloft.Engine.GameApplication"), resolve("Game.PlayerProfileComponent")));

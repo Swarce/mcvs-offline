@@ -25,7 +25,7 @@ namespace McvsOffline.Embed.Tests.Embedded
         {
             AndroidJni.Common, AndroidJni.Browser, AndroidJni.Post, AndroidJni.Downloads, AndroidJni.Send, AndroidJni.FileUri,
             AndroidJni.StrictModeUse, AndroidJni.Clipboard, AndroidJni.Toast, AndroidJni.ShareTextUse, AndroidJni.ExitGame,
-            AndroidJni.ExitHost, AndroidJni.Scan, AndroidJni.Storage,
+            AndroidJni.ExitHost, AndroidJni.Scan, AndroidJni.Storage, AndroidJni.Notify,
         };
 
         private readonly ITestOutputHelper output;
@@ -54,7 +54,8 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.DoesNotContain('.', m.Class);
                 if (m.IsField)
                 {
-                    Assert.True(m.IsStatic, m.Key);   // the table reads static fields only
+                    // Static fields, and the notification group's instance fields (ApplicationInfo, PackageInfo).
+                    Assert.True(m.IsStatic || m.Use == AndroidJni.Notify, m.Key);
                     Assert.False(m.Descriptor.StartsWith("(", StringComparison.Ordinal), m.Key);
                     Assert.NotNull(JavaType(m.Descriptor, out int end));
                 }
@@ -67,6 +68,66 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.Equal(29, AndroidJni.DownloadsUri.MinSdk);
             Assert.Equal("android/content/Intent.addFlags(I)Landroid/content/Intent;", AndroidJni.IntentAddFlags.Key);
             Assert.Equal("com/gameloft/ingamebrowser/InGameBrowser.b:Z", AndroidJni.IgbShown.Key);
+            // The notification group is resolved on Android 13+ only (nothing goes missing on older phones).
+            Assert.All(AndroidJni.Table.Where(m => m.Use == AndroidJni.Notify), m => Assert.Equal(AndroidJni.Tiramisu, m.MinSdk));
+            Assert.Equal("android/content/pm/ApplicationInfo.targetSdkVersion:I", AndroidJni.AppInfoTargetSdk.Key);
+            Assert.True(AndroidJni.Available(33, new List<string>(), AndroidJni.Notify));
+            Assert.False(AndroidJni.Available(32, new List<string>(), AndroidJni.Notify));
+        }
+
+        /// <summary>
+        /// The constants the notification request passes (AndroidJni.PostNotifications, PermissionGranted, GetPermissions,
+        /// Tiramisu) are android.jar's own, from an API 33+ jar: MCVS_ANDROID_JAR_33, or platforms/android-NN (NN &gt;= 33) next to
+        /// the API 29 jar. Skipped when none is installed (only API 29 is required by the build).
+        /// </summary>
+        [Fact]
+        public void NotificationConstantsMatchAnApi33AndroidJar()
+        {
+            string jar = AndroidJar33();
+            if (jar == null)
+            {
+                output.WriteLine("no android.jar of API 33 or later (MCVS_ANDROID_JAR_33, platforms/android-33+): skipped");
+                return;
+            }
+            output.WriteLine(jar);
+            using (ZipArchive zip = ZipFile.OpenRead(jar))
+            {
+                Func<string, ClassFile> load = name =>
+                {
+                    ZipArchiveEntry entry = zip.GetEntry(name + ".class");
+                    if (entry == null) return null;
+                    using (Stream s = entry.Open())
+                    using (var ms = new MemoryStream())
+                    {
+                        s.CopyTo(ms);
+                        return ClassFile.Parse(ms.ToArray());
+                    }
+                };
+                Assert.Equal(AndroidJni.PostNotifications, load("android/Manifest$permission").Fields.Single(f => f.Name == "POST_NOTIFICATIONS").Constant);
+                Assert.Equal(AndroidJni.Tiramisu, load("android/os/Build$VERSION_CODES").Fields.Single(f => f.Name == "TIRAMISU").Constant);
+                ClassFile pm = load("android/content/pm/PackageManager");
+                Assert.Equal(AndroidJni.PermissionGranted, pm.Fields.Single(f => f.Name == "PERMISSION_GRANTED").Constant);
+                Assert.Equal(AndroidJni.GetPermissions, pm.Fields.Single(f => f.Name == "GET_PERMISSIONS").Constant);
+                // And every notification entry also exists there with the same static-ness.
+                foreach (JniMember m in AndroidJni.Table.Where(x => x.Use == AndroidJni.Notify))
+                {
+                    ClassFile.Member found = Find(load, m.Class, m.Name, m.Descriptor, m.IsField);
+                    Assert.True(found != null && found.IsStatic == m.IsStatic && found.IsPublic, m.Key);
+                }
+            }
+        }
+
+        private static string AndroidJar33()
+        {
+            string jar = Environment.GetEnvironmentVariable("MCVS_ANDROID_JAR_33");
+            if (!string.IsNullOrEmpty(jar) && File.Exists(jar)) return jar;
+            string jar29 = AndroidJar();
+            string platforms = jar29 == null ? null : Path.GetDirectoryName(Path.GetDirectoryName(jar29));
+            if (platforms == null || !Directory.Exists(platforms)) return null;
+            return Directory.GetDirectories(platforms, "android-*")
+                            .Select(d => new { Dir = d, Api = int.TryParse(Path.GetFileName(d).Substring("android-".Length), out int api) ? api : 0 })
+                            .Where(x => x.Api >= 33 && File.Exists(Path.Combine(x.Dir, "android.jar")))
+                            .OrderBy(x => x.Api).Select(x => Path.Combine(x.Dir, "android.jar")).FirstOrDefault();
         }
 
         [Fact]
@@ -270,6 +331,9 @@ namespace McvsOffline.Embed.Tests.Embedded
                 public int Access;
                 public bool IsStatic { get { return (Access & 0x0008) != 0; } }
                 public bool IsPublic { get { return (Access & 0x0001) != 0; } }
+
+                /// <summary>A field's ConstantValue (string or int), or null.</summary>
+                public object Constant;
             }
 
             public string Name;
@@ -290,6 +354,8 @@ namespace McvsOffline.Embed.Tests.Embedded
                 int count = u2();
                 var utf8 = new string[count];
                 var classIndex = new int[count];
+                var stringIndex = new int[count];
+                var ints = new int?[count];
                 for (int i = 1; i < count; i++)
                 {
                     int tag = u1();
@@ -301,8 +367,10 @@ namespace McvsOffline.Embed.Tests.Embedded
                             p += length;
                             break;
                         case 7: classIndex[i] = u2(); break;
-                        case 8: case 16: case 19: case 20: u2(); break;
-                        case 3: case 4: case 9: case 10: case 11: case 12: case 17: case 18: p += 4; break;
+                        case 8: stringIndex[i] = u2(); break;
+                        case 16: case 19: case 20: u2(); break;
+                        case 3: ints[i] = (int)u4(); break;
+                        case 4: case 9: case 10: case 11: case 12: case 17: case 18: p += 4; break;
                         case 5: case 6: p += 8; i++; break;
                         case 15: p += 3; break;
                         default: throw new InvalidDataException("constant pool tag " + tag);
@@ -326,8 +394,13 @@ namespace McvsOffline.Embed.Tests.Embedded
                         int attributes = u2();
                         for (int a = 0; a < attributes; a++)
                         {
-                            u2();
+                            string attribute = utf8[u2()];
                             int length = (int)u4();   // read before adding: u4 moves p itself
+                            if (kind == 0 && attribute == "ConstantValue" && length == 2)
+                            {
+                                int index = (data[p] << 8) | data[p + 1];
+                                m.Constant = stringIndex[index] != 0 ? utf8[stringIndex[index]] : (object)ints[index];
+                            }
                             p += length;
                         }
                         (kind == 0 ? cls.Fields : cls.Methods).Add(m);

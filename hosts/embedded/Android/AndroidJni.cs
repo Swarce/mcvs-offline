@@ -67,7 +67,7 @@ namespace McvsOffline.Embedded.Android
     /// and reports misses (<c>Describe().MissingJni</c>); a capability whose members are missing is off
     /// (<see cref="Available"/>). The trimmed Mono.Android has no Intent/ContentResolver bindings, but
     /// <c>Android.Runtime.JNIEnv</c> is complete and <c>JNIEnv.FindClass</c> uses the app class loader, so it works from any
-    /// thread. Framework entries are checked against android.jar (API 29) and the game's against the APK's dex by
+    /// thread. Framework entries are checked against android.jar (API 29; the notification constants against API 33+) and the game's against the APK's dex by
     /// JniTableTests. None needs a manifest change.
     /// </summary>
     internal static partial class AndroidJni
@@ -87,6 +87,19 @@ namespace McvsOffline.Embedded.Android
         public const string ExitHost = "exit-host";
         public const string Scan = "scan";
         public const string Storage = "statfs";
+        public const string Notify = "notify";
+
+        /// <summary>Manifest.permission.POST_NOTIFICATIONS (API 33; checked against an android.jar of API 33+ by JniTableTests).</summary>
+        public const string PostNotifications = "android.permission.POST_NOTIFICATIONS";
+
+        /// <summary>PackageManager.PERMISSION_GRANTED.</summary>
+        public const int PermissionGranted = 0;
+
+        /// <summary>PackageManager.GET_PERMISSIONS (fills PackageInfo.requestedPermissions).</summary>
+        public const int GetPermissions = 4096;
+
+        /// <summary>Build.VERSION_CODES.TIRAMISU (Android 13): the notification permission's first API level.</summary>
+        public const int Tiramisu = 33;
 
         private const string Context = "android/content/Context";
         private const string ContentResolver = "android/content/ContentResolver";
@@ -178,6 +191,16 @@ namespace McvsOffline.Embedded.Android
         public static readonly JniMember StatFsNew = M("android/os/StatFs", "<init>", "(Ljava/lang/String;)V", Storage);
         public static readonly JniMember StatFsAvailable = M("android/os/StatFs", "getAvailableBytes", "()J", Storage);
 
+        // The one-time notification permission request (target-sdk.md WP-T5): only resolved on Android 13+, where it exists.
+        // With GetPackageManager and GetPackageName of the host's restart group.
+        public static readonly JniMember CheckSelfPermission = N(Context, "checkSelfPermission", "(Ljava/lang/String;)I", false);
+        public static readonly JniMember RequestPermissions = N(Activity, "requestPermissions", "([Ljava/lang/String;I)V", false);
+        public static readonly JniMember GetApplicationInfo = N(Context, "getApplicationInfo", "()Landroid/content/pm/ApplicationInfo;", false);
+        public static readonly JniMember AppInfoTargetSdk = N("android/content/pm/ApplicationInfo", "targetSdkVersion", "I", true);
+        public static readonly JniMember GetPackageInfo = N("android/content/pm/PackageManager", "getPackageInfo",
+            "(Ljava/lang/String;I)Landroid/content/pm/PackageInfo;", false);
+        public static readonly JniMember PackageInfoPermissions = N("android/content/pm/PackageInfo", "requestedPermissions", "[Ljava/lang/String;", true);
+
         /// <summary>Every entry, in declaration order.</summary>
         public static readonly JniMember[] Table =
         {
@@ -191,6 +214,7 @@ namespace McvsOffline.Embedded.Android
             MainActivityInstance, MainActivityRestart,
             GetPackageManager, GetPackageName, LaunchIntent, PendingGetActivity, AlarmSet, CurrentTimeMillis, MyPid, KillProcess, FinishAndRemoveTask,
             ScanFile, StatFsNew, StatFsAvailable,
+            CheckSelfPermission, RequestPermissions, GetApplicationInfo, AppInfoTargetSdk, GetPackageInfo, PackageInfoPermissions,
         };
 
         /// <summary>
@@ -234,6 +258,12 @@ namespace McvsOffline.Embedded.Android
         private static JniMember F(string cls, string name, string descriptor, string use)
         {
             return new JniMember(cls, name, descriptor, true, true, 0, use);
+        }
+
+        /// <summary>An instance method or instance field of the notification group, resolved on Android 13+ only.</summary>
+        private static JniMember N(string cls, string name, string descriptor, bool isField)
+        {
+            return new JniMember(cls, name, descriptor, false, isField, Tiramisu, Notify);
         }
 
 #if MCVS_EMBEDDED
@@ -388,6 +418,20 @@ namespace McvsOffline.Embedded.Android
         {
             IntPtr id = Id(m);
             return JNIEnv.GetStaticBooleanField(m.ClassRef, id);
+        }
+
+        /// <summary>An instance int field.</summary>
+        public static int GetInt(IntPtr target, JniMember m)
+        {
+            IntPtr id = Id(m);
+            return JNIEnv.GetIntField(target, id);
+        }
+
+        /// <summary>An instance object field (a new local reference, the caller's to delete).</summary>
+        public static IntPtr GetObject(IntPtr target, JniMember m)
+        {
+            IntPtr id = Id(m);
+            return JNIEnv.GetObjectField(target, id);
         }
 
         /// <summary>A new local reference to a Java string (IntPtr.Zero for null).</summary>

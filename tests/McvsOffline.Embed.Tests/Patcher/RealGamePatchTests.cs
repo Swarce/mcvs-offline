@@ -69,6 +69,27 @@ namespace McvsOffline
         public static void StoreItemException(object item, System.Exception exception) { StoreCalls++; LastStoreItem = item; LastStoreException = exception; }
     }
 
+    // patch 'graphics': records its calls; JsonAnswer null = return null, JsonThrows = throw
+    public static class GraphicsHooks
+    {
+        public static int JsonCalls;
+        public static string LastJson;
+        public static string JsonAnswer;
+        public static bool JsonThrows;
+        public static int AppliedCalls;
+        public static object LastOptions;
+
+        public static string GameOptionsJson(string json)
+        {
+            JsonCalls++;
+            LastJson = json;
+            if (JsonThrows) throw new System.InvalidOperationException(""hook failed"");
+            return JsonAnswer;
+        }
+
+        public static void GameOptionsApplied(object options) { AppliedCalls++; LastOptions = options; }
+    }
+
     // patches 'adminpage', 'adminlink', 'forum': pass-through stand-ins (the recording ones: RealAdminPagePatchTests.HooksSource)
     public static class AdminHooks
     {
@@ -126,7 +147,7 @@ namespace McvsOffline
         internal static readonly IlPatch[] DefaultGamePatches =
         {
             new HeadlessGamePatch(), new HeadlessEnginePatch(), new PhysicsPatch(), new NativeOnlinePatch(), new WaitsPatch(), new BotTilePatch(), new FinderPatch(),
-            new StorePatch(), new SignaturesPatch(), new AdminPagePatch(), new DebloatEnginePatch(), new AdminLinkPatch(),
+            new StorePatch(), new SignaturesPatch(), new AdminPagePatch(), new DebloatEnginePatch(), new AdminLinkPatch(), new GraphicsPatch(),
         };
 
         [Fact]
@@ -341,6 +362,11 @@ namespace McvsOffline
                     ("Game", "Game.PlayerProfileComponent", "GetSignatureAssetsList"), ("Game", "Game.GameOfflineStore", "GetKillSignItems"),
                     ("Game", "Game.PlayerProfileComponent", "GetAccountMenuButtonList"), ("Game", "Game.PlayerProfileComponent", "ProcessAccountMenuButtonAction"),
                     ("Gameloft.Engine", "Gameloft.Engine.BrowserComponent", "OpenUrl"),
+                    ("Gameloft.Engine", "Gameloft.Engine.GameOptionPerformanceProfileComponent", "OnCreate"),
+                    ("Gameloft.Engine", "Gameloft.Engine.McvsGraphics", "GameOptionsJson"),
+                    ("Gameloft.Engine", "Gameloft.Engine.McvsGraphics", "OptionsApplied"),
+                    ("Gameloft.Engine", "Gameloft.Engine.McvsGraphics", "ForwardJson"),
+                    ("Gameloft.Engine", "Gameloft.Engine.McvsGraphics", "ForwardApplied"),
                 };
                 foreach (var (assembly, type, name) in sites)
                 {
@@ -375,6 +401,7 @@ namespace McvsOffline
             Assert.Contains("already patched", Assert.Throws<PatchException>(() => PatchReal(dir, server, null, new DebloatEnginePatch())).Message);   // its helper type is there
             Assert.Contains("IL fingerprint", Assert.Throws<PatchException>(() => PatchReal(dir, server, null, new AdminPagePatch())).Message);
             Assert.Contains("IL fingerprint", Assert.Throws<PatchException>(() => PatchReal(dir, server, null, new AdminLinkPatch())).Message);
+            Assert.Contains("already patched", Assert.Throws<PatchException>(() => PatchReal(dir, server, null, new GraphicsPatch())).Message);   // McvsGraphics is there
 
             // A different Init_private body (ldarg.2 -> ldarg.1) is refused, and so is a server without GameHooks.
             string changed = TestEnvironment.NewTempDir("changed");

@@ -12,7 +12,7 @@ namespace McvsOffline.Server.Services.Admin
     {
         public string Key { get; internal set; }
 
-        /// <summary>Group id: gameplay, economy, unlocks, liveops, diagnostics.</summary>
+        /// <summary>Group id: gameplay, graphics, economy, unlocks, liveops, diagnostics.</summary>
         public string Group { get; internal set; }
 
         public string Label { get; internal set; }
@@ -114,6 +114,7 @@ namespace McvsOffline.Server.Services.Admin
         private static readonly SettingGroup[] GroupList =
         {
             new SettingGroup("gameplay", "Gameplay"),
+            new SettingGroup("graphics", "Graphics"),
             new SettingGroup("economy", "Economy"),
             new SettingGroup("unlocks", "Unlocks & codes"),
             new SettingGroup("liveops", "Live ops"),
@@ -149,6 +150,8 @@ namespace McvsOffline.Server.Services.Admin
             "auth.requireSuperPassword", "Require the super password", "admin.enabled", "This page",
             "admin.openVia", "How the page opens", "admin.restartVia", "How the game restarts",
             "security.hostCheck", "Host check",
+            "notifications.request", "Ask for the notification permission (Android 13+)",
+            "notifications.requestedAt", "Notification permission asked",
         };
 
         /// <summary>Never editable, whatever the schema says (design §3.2); prefixes end with '.'.</summary>
@@ -503,6 +506,26 @@ namespace McvsOffline.Server.Services.Admin
                      "Division leaderboards are filled with generated players."),
                 Text("gameplay", "geo.country", "Country", "US", Restart, "Two-letter country code reported to the game.",
                      "^[A-Z]{2}$", 2, IsCountry, "Two capital letters, for example US."),
+
+                // Graphics (patch 'graphics' and the embedded host read them at the next start; docs/research/pc-textures.md)
+                Choice("graphics", "graphics.profile", "Graphics profile", "auto", Restart,
+                       "Which of Gameloft's own GPU profiles the game uses. Auto: the game's choice for this phone (MidGPU on "
+                       + "phones it does not know). Mid: MidGPU. High: HighGPU (normal maps, full lightmaps, shadows, bloom). "
+                       + "Ultra: High_Ultra (everything; the heaviest). Needs a build with the 'graphics' patch.",
+                       "auto", "mid", "high", "ultra"),
+                Confirmed(Bool("graphics", "graphics.fullProfile", "High profiles change world loading too", false, Restart,
+                               "Off: High and Ultra keep two options at the Mid values because the match servers in the game share "
+                               + "them (the levels' Physics layer stays unloaded, bots think at the usual rate). On: Gameloft's "
+                               + "profile as it is."),
+                          "This also changes the match servers inside the game: they load the levels' Physics layer and run bot AI "
+                          + "twice as often. If matches stall or stutter, turn it off again.", "enable", null),
+                Bool("graphics", "hd.enabled", "HD textures", true, Restart,
+                     "Uses McvsOffline/hd/hd-textures.zip when it exists (the HD texture test zip of tools/hd-textures). "
+                     + "Without the file nothing changes."),
+                Choice("graphics", "hd.mount", "How the HD zip is mounted", "auto", Restart,
+                       "For the HD texture test: auto tries the engine's Save and then its Cache location; front uses the "
+                       + "engine's pack search path.",
+                       "auto", "save", "cache", "asset", "front"),
 
                 // Economy
                 Number("economy", "economy.versusCoinsMultiplier", "VersusCoins per match", 0.1, 20, 0.1, Menu,

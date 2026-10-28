@@ -29,7 +29,7 @@ namespace McvsOffline.Embed.Tests.Patcher
         {
             ["hook"] = 1, ["headless"] = 5, ["headless-engine"] = 3, ["physics"] = 2, ["nativeonline"] = 1, ["waits"] = 2, ["geo"] = 1,
             ["bottile"] = 1, ["finder"] = 1, ["lan"] = 3, ["store"] = 2, ["signatures"] = 2, ["debloat"] = 7, ["adminpage"] = 2,
-            ["adminlink"] = 1, ["forum"] = 1,
+            ["adminlink"] = 1, ["forum"] = 1, ["graphics"] = 1,
         };
 
         /// <summary>
@@ -137,10 +137,10 @@ namespace McvsOffline.Embed.Tests.Patcher
             }
             var log = new List<string>();
             PatchReport report = ApkPatcher.Run(new PatcherOptions { InputApk = apk, ServerDll = server, DryRun = true }, log.Add);
-            // 31 IL patch notes (hook, headless 5 + 3, physics 2, nativeonline, waits 2, geo, bottile, finder, store 2,
-            // signatures 2, debloat 7, adminpage 2, adminlink), the manifest rename, res/raw/args.txt, the ABI selection,
-            // debloat's 44 + 1, and nothing from targetsdk at its default 29 (until the classes.dex edits are in): 79.
-            Assert.Equal(79, ExpectedNotes(PatcherOptions.DefaultPatches));
+            // 32 IL patch notes (hook, headless 5 + 3, physics 2, nativeonline, waits 2, geo, bottile, finder, store 2,
+            // signatures 2, debloat 7, adminpage 2, adminlink, graphics), the manifest rename, res/raw/args.txt, the ABI selection,
+            // debloat's 44 + 1, and nothing from targetsdk at its default 29 (until the classes.dex edits are in): 80.
+            Assert.Equal(80, ExpectedNotes(PatcherOptions.DefaultPatches));
             Assert.Equal(ExpectedNotes(PatcherOptions.DefaultPatches), report.Notes.Count);
             Assert.Contains("patch targetsdk: --target-sdk 29: the shipped targetSdkVersion, manifest and layouts stay as they are", log);
             Assert.DoesNotContain(report.Notes, n => n.Contains("LocalAnubisManager"));

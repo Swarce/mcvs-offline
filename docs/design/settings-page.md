@@ -56,6 +56,14 @@ Found while implementing and reviewing the packages and at the integration (WP8)
 | Host details: UI-thread calls are bounded and withdrawn when not started in time (`UiCall`); thread dumps and ANR traces are mirrored again while they grow; the watchdog's `paused`/`resumed` lines are INFO. | Review of WP5. | §7.5, §8.5, §8.6, §8.8 |
 | Integration: `ServiceRegistry.RegisterAll(router, context, include)` registers a subset of the modules (tests); the standalone console prints the page URL; `TokenService.RevokeCredential` logs the masked credential (`Credential.Mask`, the form of `AdminApi.MaskCredential`); `HttpStatus` has 303, 415 and 429. | | §8.9, §8.10, §10.9 |
 
+## Additions after build 9: graphics, HD textures, notifications
+
+| Change | Why | Section |
+|---|---|---|
+| New group **Graphics** (after Gameplay): `graphics.profile` (enum auto/mid/high/ultra, restart), `graphics.fullProfile` (bool, restart, confirmed on enable), `hd.enabled` (bool, restart), `hd.mount` (enum auto/save/cache/asset/front, restart). Advanced (read-only): `notifications.request`, `notifications.requestedAt`. | docs/research/pc-textures.md WP0, WP1/WP3; target-sdk.md WP-T5. All are read by the embedded host at boot (patch `graphics` hands it the GameOptions text once per process), so they apply after a restart. | §3.1, §3.2 |
+| `AdminHostInfo` gains `RelaunchUnconfirmed` (Android 13+), `Notifications`, `Graphics`, `HdTextures`; `GET status` returns them as `host.relaunchUnconfirmed`, `host.notifications`, `host.graphics`, `host.hdTextures`; Status › Game host shows the three rows. | The status row of the notification permission, and what the engine really got. | §4.3, §8.1 |
+| On Android 13+ (`host.relaunchUnconfirmed`) every Restart text (Actions, the restart dialog and its toast, the restart banner, Status' "Restart via") says the game may close without coming back and then must be started again; none says it will not come back. | Since Android 13 AlarmManager is expected to start no activity for an alarm, at any target (target-sdk.md §4.6, critic note 3), but STATUS device-test item 9 has not been observed on its own (device test 8 passed checks 1–13 only as a whole). Reword to a firm "closes" only after item 9 or WP-T7 shows no relaunch. | §4.5, §8.8 |
+
 ## 0. Decisions already taken (not reopened here) and invariants
 
 | # | Decision | Consequence for the design |
@@ -1619,8 +1627,8 @@ and deletes `logs/restart-requested.txt` and logs `[boot] previous exit: restart
 
 | Copy | Loaded | Read by | Written by |
 |---|---|---|---|
-| Host (`EmbeddedHost.Settings`) | `EmbeddedHost.Prepare`, UI thread, before args.txt | host keys at boot only: `gameLog.*`, `diagnostics.*`, `embedded.*`, `install.*`, `port`, `lanMode`, `bind` | `AddEmbeddedDefaults` (missing keys only, before the server loads; never when `IsFallback`) |
-| Server (`ServerContext.Settings`) | `McvsServer.Create` | every module, on use; the host's `PageOpener`/`AdminHost` for `admin.openVia`/`admin.restartVia` | the page (`Set` + `Save`), `MoveAsideAndReset` |
+| Host (`EmbeddedHost.Settings`) | `EmbeddedHost.Prepare`, UI thread, before args.txt | host keys at boot only: `gameLog.*`, `diagnostics.*`, `embedded.*`, `install.*`, `graphics.*`, `hd.*`, `port`, `lanMode`, `bind` | `AddEmbeddedDefaults` (missing keys only, before the server loads; never when `IsFallback`) |
+| Server (`ServerContext.Settings`) | `McvsServer.Create` | every module, on use; the host's `PageOpener`/`AdminHost` for `admin.openVia`/`admin.restartVia`; the host's `NotificationPrompt` for `notifications.*` | the page (`Set` + `Save`), `MoveAsideAndReset`, `NotificationPrompt` (`notifications.requestedAt`, `SetAndSave`) |
 
 No reload, no watcher. The `restart` class in §3 is exactly the set of keys that only the host copy or boot-time code
 reads; changing them through the server copy is harmless until the restart applies them.

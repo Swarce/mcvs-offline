@@ -37,7 +37,8 @@ namespace McvsOffline.Embedded.Android
     /// (<see cref="AndroidShare"/>, <see cref="AndroidExit"/>).
     /// </para>
     /// </summary>
-    internal sealed class AndroidPlatform : IEmbeddedPlatform, IPlatformDiagnostics, IInstallerPlatform, IAdminPlatform
+    internal sealed class AndroidPlatform : IEmbeddedPlatform, IPlatformDiagnostics, IInstallerPlatform, IAdminPlatform,
+                                            McvsOffline.Embedded.Notifications.INotificationPlatform
     {
         public const string PackageName = "com.gameloft.android.ANMP.GloftMVHM";
         private const string PreferencesName = "MainActivityPrefs";   // GameInstaller.mPreferencesName
@@ -446,6 +447,28 @@ namespace McvsOffline.Embedded.Android
             {
                 return null;
             }
+        }
+
+        // ------------------------------------------------------------------ INotificationPlatform (target-sdk.md WP-T5)
+
+        public int TargetSdk()
+        {
+            return AndroidNotifications.TargetSdk();
+        }
+
+        public bool? Declared()
+        {
+            return AndroidNotifications.Declared();
+        }
+
+        public bool? Granted()
+        {
+            return AndroidNotifications.Granted();
+        }
+
+        public bool Request()
+        {
+            return AndroidNotifications.Request(Warn);
         }
 
         /// <summary>new StatFs(path).getAvailableBytes(), -1 on failure.</summary>

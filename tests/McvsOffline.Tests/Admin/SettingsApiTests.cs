@@ -70,8 +70,9 @@ namespace McvsOffline.Tests.Admin
             Assert.Matches("^[0-9]+:[0-9]+$", (string)body["fingerprint"]);
             Assert.Empty((List<object>)body["restartPending"]);
             var groups = ((List<object>)body["groups"]).Cast<Dictionary<string, object>>().ToList();
-            Assert.Equal(new[] { "gameplay", "economy", "unlocks", "liveops", "diagnostics", "advanced" }, groups.Select(g => (string)g["id"]));
-            Assert.Equal("Unlocks & codes", groups[2]["label"]);
+            Assert.Equal(new[] { "gameplay", "graphics", "economy", "unlocks", "liveops", "diagnostics", "advanced" }, groups.Select(g => (string)g["id"]));
+            Assert.Equal("Graphics", groups[1]["label"]);
+            Assert.Equal("Unlocks & codes", groups[3]["label"]);
 
             var coins = Entry(body, "economy.versusCoinsMultiplier");
             Assert.Equal("number", coins["type"]);
@@ -88,7 +89,7 @@ namespace McvsOffline.Tests.Admin
             var items = Entry(body, "economy.collector.itemsPerCrate");
             Assert.Equal(("int", 5L, 5L, 1L, 10L, 1L, "menu"),
                          ((string)items["type"], items["value"], items["default"], items["min"], items["max"], items["step"], (string)items["apply"]));
-            var economy = (List<object>)groups[1]["keys"];
+            var economy = (List<object>)groups[2]["keys"];
             Assert.Equal(new[] { "economy.collector.enabled", "economy.collector.itemsPerCrate" },
                          economy.Cast<Dictionary<string, object>>().Select(k => (string)k["key"]).Where(k => k.StartsWith("economy.collector.")));
             Assert.Equal("enable", Entry(body, "devMenu")["confirmWhen"]);

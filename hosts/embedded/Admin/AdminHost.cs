@@ -98,6 +98,9 @@ namespace McvsOffline.Embedded.Admin
         /// <summary>Flushes the host, server and game logs (bounded by the argument in ms).</summary>
         public Func<int, bool> FlushLogs { get; set; }
 
+        /// <summary>The notification permission's state for the status page (NotificationPrompt.Describe); null: no row.</summary>
+        public Func<string> NotificationStatus { get; set; }
+
         /// <summary>How long the game's restart may take before the host's restart runs (§8.8: 3 s).</summary>
         public int ExitFallbackMs { get; set; }
 
@@ -217,6 +220,16 @@ namespace McvsOffline.Embedded.Admin
             };
             try
             {
+                info.Graphics = McvsOffline.GraphicsHooks.Describe();
+                info.HdTextures = McvsOffline.Embedded.Hd.HdTextures.Status;
+                Func<string> notifications = NotificationStatus;
+                if (notifications != null) info.Notifications = notifications();
+            }
+            catch (Exception)
+            {
+            }
+            try
+            {
                 Func<string> mirror = MirrorStatus;
                 string text = mirror == null ? null : mirror();
                 if (!string.IsNullOrEmpty(text)) info.MirrorStatus = text;
@@ -238,6 +251,10 @@ namespace McvsOffline.Embedded.Admin
                 List<string> missing = platform.MissingJniMembers() ?? new List<string>();
                 info.SdkInt = sdk;
                 info.MissingJni = missing;
+                // From Android 13 AlarmManager is expected to start no activity for an alarm, whatever the target
+                // (target-sdk.md §4.6), but no device has shown it yet (STATUS device-test item 9; device test 8 passed
+                // checks 1-13 only as a whole). The page says the game may close without coming back, not that it will.
+                info.RelaunchUnconfirmed = sdk >= 33;
                 info.PublicLogsDir = platform.PublicDownloadsDir();
                 info.BrowserOpen = platform.IsInGameBrowserOpen();
                 info.FreeBytes = FreeBytes();
