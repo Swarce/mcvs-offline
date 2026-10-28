@@ -204,6 +204,12 @@ namespace McvsOffline.Embed.Tests.Patcher
             warnings.Clear();
             IconArt.Build(big, null, warnings);
             Assert.Contains(warnings, w => w.Contains("outside the visible 72 dp square"));
+
+            MemoryArtSource holes = ArtFixtures.IconMasters();
+            holes.Content["icon/background.png"] = ArtFixtures.Disc(432, 0x204060, 0.5).Encode();
+            warnings.Clear();
+            IconArt.Build(holes, null, warnings);
+            Assert.Contains(warnings, w => w.StartsWith("art: icon/background.png has transparent pixels", StringComparison.Ordinal));
         }
 
         [Fact]

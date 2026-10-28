@@ -331,6 +331,11 @@ namespace McvsOffline.Patcher.Art
                 else if (outsideSafe > 0)
                     warnings?.Add("art: " + file + ": " + Percent(outsideSafe) + " of the drawn pixels lie outside the 66 dp safe circle (round masks cut them)");
             }
+            else if (layer == IconLayer.Background)
+            {
+                if (image.HasTransparency)
+                    warnings?.Add("art: " + file + " has transparent pixels; launchers draw the background layer opaque (they show as black or as the wallpaper, depending on the phone)");
+            }
             else if (layer == IconLayer.Monochrome)
             {
                 if (!image.HasTransparency) throw new InvalidDataException("art: " + file + " has no transparent pixels; the themed icon is a white shape on transparency");
