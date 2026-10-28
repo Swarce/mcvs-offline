@@ -9,7 +9,6 @@ using System.Threading;
 using McvsOffline.Embedded.Admin;
 using McvsOffline.Embedded.Diagnostics;
 using McvsOffline.Embedded.Graphics;
-using McvsOffline.Embedded.Hd;
 using McvsOffline.Embedded.Notifications;
 using McvsOffline.Server;
 using McvsOffline.Server.Core;
@@ -176,7 +175,6 @@ namespace McvsOffline.Embedded
                   .Append(", store items skipped: ").Append(GameHooks.StoreReports).Append('\n');
                 sb.Append(GameHooks.DescribePhysics());
                 sb.Append('\n').Append(GraphicsHooks.Describe());
-                sb.Append('\n').Append(HdTextures.Status);
                 string extras = diagnostics == null ? null : diagnostics.StatusExtras();
                 if (!string.IsNullOrEmpty(extras)) sb.Append('\n').Append(extras);
             }
@@ -541,20 +539,14 @@ namespace McvsOffline.Embedded
         }
 
         /// <summary>
-        /// settings.json "graphics" and "hd" (patch 'graphics', docs/research/pc-textures.md WP0, WP1/WP3): which of Gameloft's GPU
-        /// profiles the engine gets (GameOptionsProfile), and the HD texture zip, mounted by the first call of the patched
-        /// GameOptions component (the engine's file system is up, no level has loaded). Both apply at the next start.
+        /// settings.json "graphics" (patch 'graphics', docs/research/pc-textures.md WP0): which of Gameloft's GPU profiles the engine
+        /// gets (GameOptionsProfile). Applies at the next start.
         /// </summary>
         private void ConfigureGraphics()
         {
             string profile = Settings.GetString("graphics.profile", GameOptionsProfile.Auto);
             bool full = Settings.GetBool("graphics.fullProfile", false);
-            bool hdEnabled = Settings.GetBool("hd.enabled", true);
-            string hdMount = Settings.GetString("hd.mount", "auto");
-            string zip = HdTextures.ZipPath(Paths.DataDir);
-            BootTrace boot = Boot;
-            GraphicsHooks.Configure(profile, full, Logger.For("game"), boot,
-                                    () => HdTextures.Mount(zip, hdEnabled, hdMount, new EngineFiles(), s => boot.Mark(s)));
+            GraphicsHooks.Configure(profile, full, Logger.For("game"), Boot);
             string normalized = GameOptionsProfile.Normalize(profile);
             if (normalized == null)
                 Log.Warn("settings graphics.profile '" + profile + "' is not one of auto, mid, high, ultra: the game picks its GPU profile itself");
@@ -722,7 +714,6 @@ namespace McvsOffline.Embedded
             changed |= AddDefault("graphics.profile", GameOptionsProfile.Auto);
             changed |= AddDefault("graphics.fullProfile", false);
             changed |= AddDefault("hd.enabled", true);
-            changed |= AddDefault("hd.mount", "auto");
             changed |= AddDefault(NotificationPermission.RequestKey, true);
             changed |= AddDefault(NotificationPermission.RequestedAtKey, "");
             if (!changed) return;

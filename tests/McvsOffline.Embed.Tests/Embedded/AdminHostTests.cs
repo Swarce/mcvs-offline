@@ -40,7 +40,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.False(info.RelaunchUnconfirmed);
                 Assert.Null(info.Notifications);
                 Assert.StartsWith("graphics: graphics.profile", info.Graphics);
-                Assert.StartsWith("hd textures:", info.HdTextures);
+                Assert.Null(info.HdTextures);
 
                 string file = Path.Combine(TestEnvironment.NewTempDir("adminhost-file"), "mcvs-logs-x.zip");
                 File.WriteAllText(file, "zip");

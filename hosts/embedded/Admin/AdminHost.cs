@@ -221,7 +221,6 @@ namespace McvsOffline.Embedded.Admin
             try
             {
                 info.Graphics = McvsOffline.GraphicsHooks.Describe();
-                info.HdTextures = McvsOffline.Embedded.Hd.HdTextures.Status;
                 Func<string> notifications = NotificationStatus;
                 if (notifications != null) info.Notifications = notifications();
             }
