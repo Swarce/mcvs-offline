@@ -29,7 +29,7 @@ already in `patcher/Patches`, exception-handler bodies included.
 | DNS rebinding and web-page abuse of the Federation routes; redeem trigger fired by anyone (major) | The Host allowlist applies to **every** route while the listener is bound to loopback and LAN mode is off (file-only kill switch); the redeem trigger needs loopback, a token for the current player, no browser open, at most once per 30 s. | §5.2, §9.5 |
 | Landscape geometry assumed 320–480 px; the browser leaves 250–330 px (major) | Designed for 250–330 px: no page top bar, a non-scrolling action bar, steppers and selects over typed fields, dialogs that scroll inside, system font scale respected. | §2.1 |
 | The logs zip (25–45 MB stored) is too big for Discord and Gmail (major) | Deflated entries, default scope "recent" with a hard 8 MiB cap, build first and show the size, then share. | §7.2 |
-| Minor findings | Idempotent apply with recorded steps (§6.4); strict identifiers (§4.2); current player from the game's own credential (§6.6); one redaction pipeline for every logger (§5.4); header-time body limits and ticket-first rate limiting (§5.2, §5.3); masked settings file, backup before `force` (§4.4); backups before risky settings (§3.1); ticket handling on activity re-creation (§2.5); JNI fallbacks exercised deliberately (C3); inbox works when the native browser is not initialised (§9.1); WebView UX and Back guard (§2.1); share targets and the freezer (§8.5); Download pruning and `CanSaveToDownloads` (§8.7); wording for loop-dependent actions (§2.2); one JNI table, checked against `android.jar` and the APK's dex (§8.6); package ownership (§10); apply duration budget (§6.4); `targetSdkVersion 29` as a tested invariant (§0). | as listed |
+| Minor findings | Idempotent apply with recorded steps (§6.4); strict identifiers (§4.2); current player from the game's own credential (§6.6); one redaction pipeline for every logger (§5.4); header-time body limits and ticket-first rate limiting (§5.2, §5.3); masked settings file, backup before `force` (§4.4); backups before risky settings (§3.1); ticket handling on activity re-creation (§2.5); JNI fallbacks exercised deliberately (C3); inbox works when the native browser is not initialised (§9.1); WebView UX and Back guard (§2.1); share targets and the freezer (§8.5); Download pruning and `CanSaveToDownloads` (§8.7); wording for loop-dependent actions (§2.2); one JNI table, checked against `android.jar` and the APK's dex (§8.6); package ownership (§10); apply duration budget (§6.4); the target SDK as a tested invariant (§0: I1, since replaced by I1'). | as listed |
 
 Not taken: "accept restart only while `PageAlive` was seen in the last 15 s". It defended against a second holder of
 the news ticket; with no multi-use ticket left, a session exists only in the game's own WebView, and the restart request
@@ -72,11 +72,16 @@ Found while implementing and reviewing the packages and at the integration (WP8)
 
 **Invariants** (every package keeps them; tests named in §10 guard them):
 
-* **I1 — target SDK 29.** The patched APK keeps `targetSdkVersion="29"` (`AndroidManifest.xml:13`). The design relies on
-  it: `PendingIntent` without `FLAG_IMMUTABLE` in the game's own restart (`MainActivity.c()`, flag 32768), no package
-  visibility filtering for the share chooser, the Android 10 background-activity-start rules for the relaunch alarm, no
-  forced edge-to-edge in the browser activity, and the StrictMode `file://` share on Android 7–9. A patcher test asserts
-  it after every default patch (WP6, `ManifestTargetSdkTests`).
+* **I1' — target SDK** (replaces I1, "target SDK 29"; normative text: [ARCHITECTURE.md](../ARCHITECTURE.md) §2 and
+  [research/target-sdk.md](../research/target-sdk.md) §6). The patched APK targets 35 by default (`targetsdk` patch;
+  `--target-sdk 29` is the fallback and gives the shipped manifest and layouts, `AndroidManifest.xml:13`). The design
+  relied on 29 for five things; at 35: the game's own restart `PendingIntent` without `FLAG_IMMUTABLE`
+  (`MainActivity.c()`, flag 32768) needs the `classes.dex` edit P1, and the patcher refuses 31+ unless `classes.dex`
+  was edited in the same run, so until those edits are in the default stays 29; the share chooser and the StrictMode
+  `file://` share on Android 7–9 were never target-bound; the relaunch alarm is blocked on Android 13+ at any target;
+  the browser activity's edge-to-edge is handled by `fitsSystemWindows` on both layouts. `ManifestTargetSdkTests`
+  asserts it (the target, `exported`, `POST_NOTIFICATIONS`, `<queries>`, the layouts, and the refusal without the dex
+  edits).
 * **I2 — no stored secret.** No ticket, cookie or other bearer secret is ever written to a file, the CRM document, a
   profile, a log line or a share. The only secrets are one-time tickets (memory, ≤ 120 s, URL fragment or form body of
   the game's own WebView) and session cookies (memory and the game's private WebView cookie store).
@@ -1771,7 +1776,7 @@ unit-tested with a recording fake `IAdminHost`; timings in `ExitTimings`):
   kill at once, which is fine); then `Process.killProcess(myPid())` 200 ms later.
 * `none` — `CanExit` false; the page offers no restart, only "close the game yourself".
 
-Whether the relaunch happens on Android 10+ (background activity start rules for an alarm of a dead app, I1) and how
+Whether the relaunch happens on Android 10+ (background activity start rules for an alarm of a dead app, I1') and how
 many processes and boots one restart produces is device check C12; the decision between `game` and `host` as the
 default is taken there, not both. The page always says "If the game does not come back by itself, start it again from
 the home screen." Should one restart still produce an extra short-lived start, nothing is lost: `ApplyPending` resumes
@@ -2244,7 +2249,7 @@ ids); tests `tests/McvsOffline.Embed.Tests/Patcher/RealAdminPagePatchTests.cs`,
 `RealGamePatchTests.HookServerSource`), `tests/McvsOffline.Embed.Tests/Patcher/RealGamePatchTests.cs` (add the two new
 patches to the default patch lists it applies together).
 
-Details: §9.2, §9.3, §9.4, I1.
+Details: §9.2, §9.3, §9.4, I1'.
 
 Depends on: nothing (the hook signatures are in §8.1).
 
@@ -2263,8 +2268,9 @@ differential outcome equals the unpatched assembly's; `ForumPatch`: fingerprint,
 calls the hook with `"forum"`; every patched method JITs (`RuntimeHelpers.PrepareMethod`); ILVerify clean when `ilverify`
 is installed (as `RealDebloatPatchTests`); a second patch run throws `PatchException`; all default patches still apply
 together; `--dry-run` on the real APK lists `adminpage` and `adminlink`. `ManifestTargetSdkTests` (`TestEnvironment.GameApk`)
-— after the default patch set (debloat's manifest edit included) the binary manifest's `uses-sdk` still has
-`targetSdkVersion` 29 and `minSdkVersion` 21.
+— as built, it asserts I1' instead of I1: the default target (35 once the `classes.dex` edits are in, 29 until then),
+`minSdkVersion` 21, `exported`, `POST_NOTIFICATIONS`, `<queries>` and the browser layouts at 35 and 36, `--target-sdk 29`
+equal to the output without the patch, and 31+ refused without the dex edits.
 
 ### 10.8 WP7 — Server-side triggers: CRM inbox item, redeem code (`server/Services/Crm`, `…/Assets`)
 
@@ -2305,7 +2311,7 @@ Files: `server/Services/ServiceRegistry.cs` (after `unlocks`: `Register("admin",
 `docs/PLAYER-SETUP.md` (page, triggers, which import path works on which Android version (§6.8), transfer text, share,
 save now and restart, Chrome unsupported, `adminlink`), `docs/PROTOCOL.md` (endpoint map, the Host check on every
 route), `docs/MODULES.md` (admin modules, features `IAdminHost`/`IAdminPortal`/`AdminApi`, gate rules),
-`docs/DEV-LOOP.md` (`-H 'X-MCVS: 1'`, Host check, `security.hostCheck`), `docs/ARCHITECTURE.md` (patch list, I1),
+`docs/DEV-LOOP.md` (`-H 'X-MCVS: 1'`, Host check, `security.hostCheck`), `docs/ARCHITECTURE.md` (patch list, I1'),
 `docs/ROADMAP.md`, `docs/protocol/content.md` (newsfeeds marker, redeem code), `docs/protocol/storage.md` (backup pools,
 `keep` semantics, staged operations, probation), `docs/design/settings-page.md` (as-built notes); tests
 `tests/McvsOffline.Tests/Admin/AdminEndToEndTests.cs`, `tests/McvsOffline.Embed.Tests/Embedded/AdminHooksContractTests.cs`
@@ -2345,7 +2351,7 @@ own clock as it is, offering larger parts or a file after an export 413 and read
    apply (create → stage → dispose → create), probation over three `Create`s.
 3. **Real client / real assemblies** (MCVS_REFS): newsfeed parsing (`NewsFeedData`, `InboxMessage`, `StandardCrm`),
    the `adminpage`/`adminlink`/`forum` IL (fingerprints, executed hooks, differential, JIT, ILVerify), the game members
-   `GameReflection` uses, the JNI table against `android.jar` and the APK's dex, `targetSdkVersion` 29 after patching.
+   `GameReflection` uses, the JNI table against `android.jar` and the APK's dex, the target SDK after patching (I1').
 4. **Page**: static checks + ES5/CSS lint always; node smoke against a live in-process server when node exists (incl.
    the re-creation boot, view mode, transfer round trip and Back guard).
 5. **Embedded build**: `scripts/build.sh` with the game's assemblies; `EmbeddedAssemblyTests`,

@@ -20,7 +20,9 @@ namespace McvsOffline.Embed.Tests.Support
         {
             ["name"] = 0x01010003, ["permission"] = 0x01010006, ["protectionLevel"] = 0x01010009, ["exported"] = 0x01010010,
             ["authorities"] = 0x01010018, ["value"] = 0x01010024, ["minSdkVersion"] = 0x0101020c, ["targetSdkVersion"] = 0x01010270,
-            ["maxSdkVersion"] = 0x01010271,
+            ["maxSdkVersion"] = 0x01010271, ["scheme"] = 0x01010027, ["fitsSystemWindows"] = 0x010100dd,
+            ["allowNativeHeapPointerTagging"] = 0x01010612, ["layout_width"] = 0x010100f4, ["layout_height"] = 0x010100f5, ["id"] = 0x010100d0,
+            ["appCategory"] = 0x01010545, ["enableOnBackInvokedCallback"] = 0x0101066c,
         };
 
         public sealed class Element
@@ -36,6 +38,9 @@ namespace McvsOffline.Embed.Tests.Support
             public List<(string Ns, string Name, object Value)> Attributes { get; }
 
             public List<Element> Children { get; } = new List<Element>();
+
+            /// <summary>Line number of its nodes; null: the next one in document order (each element gets its own).</summary>
+            public int? Line { get; set; }
 
             /// <summary>Text written as a CDATA node right after the start element, or null.</summary>
             public string Text { get; set; }
@@ -131,7 +136,7 @@ namespace McvsOffline.Embed.Tests.Support
 
         private static void WriteElement(Stream output, Element e, List<string> pool, ref int nextLine)
         {
-            int line = nextLine++;
+            int line = e.Line ?? nextLine++;
             foreach (var ns in e.Namespaces)
                 Chunk(output, 0x0100, 16, w => { w.Write(line); w.Write(-1); w.Write(pool.IndexOf(ns.Prefix)); w.Write(pool.IndexOf(ns.Uri)); });
             Chunk(output, 0x0102, 16, w =>

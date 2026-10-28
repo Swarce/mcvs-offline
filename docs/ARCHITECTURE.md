@@ -154,13 +154,31 @@ Recommended extra IL patches (all optional, patcher flags):
 - `forum` (optional): Game.dll `UIComponent.GoToForum` opens the page (`AdminHooks.OpenPage("forum", World)`, §9.4).
 - `lan`: P1 Finder prefix `"*"`, P2 cache a real `PublicHost` at `LocalAnubisManager.Start`, P3
   `ClientSettings.LocalAnubisFinderHost = Args.RemoteIp ?? PublicHost` (verify-C6).
+- `targetsdk` (default; [research/target-sdk.md](research/target-sdk.md)): no IL. `targetSdkVersion` 29 -> `--target-sdk`
+  (35 or 36; 35 becomes the default together with the `classes.dex` edits, until then the default is 29), so Play
+  Protect stops warning "built for an older version of Android" (it warns more than 2 API
+  levels below the device). Manifest (`patcher/Manifest/ManifestTargetSdk.cs`, attribute and element insertion in
+  `BinaryXml`): `exported="true"` on every intent-filter component lacking it (after debloat: `XamarinMainActivity`,
+  `IGPFreemiumActivity`, `LocalPushReceiver`), `allowNativeHeapPointerTagging="false"`, `POST_NOTIFICATIONS`, `<queries>`
+  for VIEW/BROWSABLE http and https (InGameBrowser's browser lookup); at 36 also `enableOnBackInvokedCallback="false"`
+  and `appCategory="game"`. Layouts (`BrowserLayoutInsets.cs`): `fitsSystemWindows="true"` on the root of both
+  `activity_in_game_browser` layouts, so the edge-to-edge settings page stays clear of the navigation bar (no v35 theme
+  opt-out: it would hide the v31 launch-screen items). Fingerprinted on the shipped manifest and layouts; refused at 31+
+  without `debloat`; `--target-sdk 29` leaves the manifest and layouts exactly as without the patch. The `PendingIntent`
+  flags, dynamic receivers and Google Analytics need `classes.dex` edits of their own (target-sdk.md WP-T3; "T2 alone
+  is not shippable"): `ApkPatcher.CheckDexEdits` refuses 31+ unless `classes.dex` was edited in the same run, so this
+  patcher, which has no dex edits yet, refuses 35 and 36 and keeps 29 as the default.
 
 The three hook patches are fingerprint-verified like the others and call only `McvsOffline.AdminHooks` in the embedded
-server DLL (`hosts/embedded/Admin/AdminHooks.cs`; `AdminHooksContractTests` keeps both sides in step). **Invariant I1:
-the patched APK keeps `targetSdkVersion` 29** (`ManifestTargetSdkTests`, after every default patch): the settings
-page's restart (the game's own `PendingIntent` without `FLAG_IMMUTABLE`), the share chooser (no package-visibility
-filtering), the relaunch alarm (Android 10 background-start rules), the browser layout (no forced edge-to-edge) and the
-`file://` share on Android 7–9 all rely on it.
+server DLL (`hosts/embedded/Admin/AdminHooks.cs`; `AdminHooksContractTests` keeps both sides in step). **Invariant I1'
+(replaces I1, target 29; target-sdk.md §6): the patched APK targets 35 by default** (`--target-sdk 36`, or 29 as the
+fallback, which gives the shipped manifest and layouts) with `minSdkVersion` 21, every intent-filter component has
+`exported`, `POST_NOTIFICATIONS` and the browser `<queries>` are declared, both browser layouts fit the system windows,
+`resources.arsc` stays STORED and 4-byte aligned (`ManifestTargetSdkTests`), and **no target of 31 or more is written
+without the `classes.dex` edits of the same run** (`ApkPatcher.CheckDexEdits`). Of I1's five reasons, the game's own
+restart `PendingIntent` needs that dex fix (P1); the share chooser and the `file://` share on Android 7–9 were never
+target-bound; the relaunch alarm is blocked on Android 13+ at any target; the browser layout is fixed above. Until the
+dex edits are in the patcher the default stays 29 (the output of every build before `targetsdk`) and 35/36 are refused.
 
 ## 3. Server behaviour (normative summary — details in docs/PROTOCOL.md and research/)
 

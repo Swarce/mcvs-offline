@@ -34,6 +34,18 @@ namespace McvsOffline.Embed.Tests.Support
             return XmlTree(MinimalApk(manifest));
         }
 
+        /// <summary><c>aapt2 dump xmltree --file <paramref name="entry"/></c> of a compiled res/ XML file (in a zip with a stub manifest).</summary>
+        public static string XmlTree(byte[] document, string entry)
+        {
+            string path = Path.Combine(TestEnvironment.NewTempDir("aapt2"), "r.apk");
+            byte[] manifest = AxmlWriter.Write(new AxmlWriter.Element("manifest", (null, "package", "app")));
+            File.WriteAllBytes(path, ZipArchiveWriter.Write(new List<ZipEntry>
+            {
+                ZipEntry.CreateDeflated(ManifestPatch.EntryName, manifest, null), ZipEntry.CreateDeflated(entry, document, null),
+            }));
+            return Run("dump", "xmltree", "--file", entry, path);
+        }
+
         /// <summary><c>aapt2 dump badging</c>, without aapt2's "warn:" lines (missing res/ files of a minimal APK).</summary>
         public static string Badging(string apk)
         {
@@ -88,7 +100,8 @@ namespace McvsOffline.Embed.Tests.Support
             return line.Length - line.TrimStart(' ').Length;
         }
 
-        private static string Run(params string[] arguments)
+        /// <summary>Runs aapt2 (which must succeed) and returns its output without "warn:" lines.</summary>
+        internal static string Run(params string[] arguments)
         {
             int code = BuildTools.Run(TestEnvironment.Aapt2, arguments, null, out string text);
             Assert.True(code == 0, "aapt2 " + string.Join(" ", arguments) + " failed (exit " + code + "): " + text);

@@ -61,7 +61,9 @@ The settings and diagnostics page of [design/settings-page.md](design/settings-p
   with acorn); end-to-end tests over a socket (ticket → cookie → settings → CRM, the Host check, the early 413, an import
   from another phone applied at the next start and confirmed by the game's save); the three hook patches on the real
   1.17.32 assemblies (fingerprints, IL, executed against recording hooks with a differential, JIT, ILVerify) and
-  against the real embedded DLL; `targetSdkVersion` 29 after every default patch.
+  against the real embedded DLL; the target SDK after patching (invariant I1' in ARCHITECTURE.md §2, which replaced
+  "`targetSdkVersion` 29 after every default patch": 35 by default once the `classes.dex` edits are in, `--target-sdk 29`
+  as the fallback; until then 29 stays the default and 35/36 are refused).
 * **The Cosmetic crate** ([ECONOMY.md](ECONOMY.md) §5, [design/economy-collector.md](design/economy-collector.md)):
   the unused `Crate_Event_Special`, named "CUSTOMIZATION CRATE", filled by CRM cells (39 rows: avatars, backgrounds,
   sounds on background carriers, the 16 skins, 12 hidden jerseys, Witch and Bli-P, camos, jerseys; 70 VersusCoins
