@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using McvsOffline.Embed.Tests.Support;
 using McvsOffline.Patcher;
+using McvsOffline.Patcher.Manifest;
 using McvsOffline.Patcher.Patches;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
@@ -286,16 +287,17 @@ namespace McvsOffline.Embed.Tests.Patcher
                          ApkPatcher.SelectPatches(PatcherOptions.ParsePatchList("default")).Select(p => p.Id));
             Assert.Equal(new[] { "finder", "lan" }, PatcherOptions.ParsePatchList("lan"));
             Assert.Empty(PatcherOptions.ParsePatchList("none"));
-            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "forum", "geo", "lan", "nativeonline", "signatures", "store", "waits" },
+            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "forum", "geo", "lan", "nativeonline", "signatures", "store", "targetsdk", "waits" },
                          PatcherOptions.ParsePatchList("all"));
-            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "geo", "nativeonline", "signatures", "store", "waits" },
+            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "geo", "nativeonline", "signatures", "store", "targetsdk", "waits" },
                          PatcherOptions.ParsePatchList("default"));
+            Assert.Equal(new[] { "targetsdk" }, PatcherOptions.ParsePatchList("targetsdk"));
             Assert.Equal(new[] { "signatures" }, PatcherOptions.ParsePatchList("signatures"));
             Assert.Equal(new[] { "debloat" }, PatcherOptions.ParsePatchList("debloat"));
             Assert.Throws<ArgumentException>(() => PatcherOptions.ParsePatchList("geo,unlockall"));
 
             // The settings-page triggers: adminpage and adminlink by default, forum only on request (--patch default,forum).
-            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "forum", "geo", "nativeonline", "signatures", "store", "waits" },
+            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "forum", "geo", "nativeonline", "signatures", "store", "targetsdk", "waits" },
                          PatcherOptions.ParsePatchList("default,forum"));
             Assert.Equal(new[] { "forum" }, PatcherOptions.ParsePatchList("FORUM"));
             Assert.DoesNotContain("forum", PatcherOptions.DefaultPatches);
@@ -309,8 +311,11 @@ namespace McvsOffline.Embed.Tests.Patcher
         public void EveryOptionalPatchIdHasItsPatchAndEveryPatchIdIsUnique()
         {
             Assert.Equal(ApkPatcher.AllPatches.Length, ApkPatcher.AllPatches.Select(p => p.Id).Distinct().Count());
-            foreach (string id in PatcherOptions.OptionalPatches.Concat(PatcherOptions.MandatoryPatches))
+            // "targetsdk" edits the manifest and two layouts only (ManifestTargetSdk, BrowserLayoutInsets): no IL patch.
+            foreach (string id in PatcherOptions.OptionalPatches.Concat(PatcherOptions.MandatoryPatches).Where(id => id != ManifestTargetSdk.PatchId))
                 Assert.Contains(ApkPatcher.AllPatches, p => p.Id == id);
+            Assert.Contains(ManifestTargetSdk.PatchId, PatcherOptions.DefaultPatches);
+            Assert.DoesNotContain(ApkPatcher.AllPatches, p => p.Id == ManifestTargetSdk.PatchId);
             Assert.Equal("Game.dll", Assert.Single(ApkPatcher.AllPatches, p => p.Id == "adminpage").AssemblyFile);
             Assert.Equal("Gameloft.Engine.dll", Assert.Single(ApkPatcher.AllPatches, p => p.Id == "adminlink").AssemblyFile);
             Assert.Equal("Game.dll", Assert.Single(ApkPatcher.AllPatches, p => p.Id == "forum").AssemblyFile);

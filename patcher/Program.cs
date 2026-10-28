@@ -64,6 +64,7 @@ namespace McvsOffline.Patcher
                     case "--out": o.OutputApk = Value(args, ref i); break;
                     case "--patch": o.Patches = PatcherOptions.ParsePatchList(Value(args, ref i)); break;
                     case "--port": o.Port = PatcherOptions.ParsePort(Value(args, ref i)); break;
+                    case "--target-sdk": o.TargetSdk = PatcherOptions.ParseTargetSdk(Value(args, ref i)); break;
                     case "--keystore": o.Keystore = Value(args, ref i); break;
                     case "--ks-pass": o.KeystorePassword = Password(Value(args, ref i)); break;
                     case "--ks-alias": o.KeyAlias = Value(args, ref i); break;
@@ -161,6 +162,9 @@ namespace McvsOffline.Patcher
                 "                          adminpage  Settings > Account: an 'MCVS Offline' button that opens the offline settings page\n" +
                 "                          adminlink  the 'MCVS Offline' inbox message opens the settings page (without it the\n" +
                 "                                   message shows a view-only page)\n" +
+                "                          targetsdk  raise targetSdkVersion to --target-sdk (no Play Protect 'built for an older\n" +
+                "                                   version of Android' warning) with what that target needs in the manifest and\n" +
+                "                                   the settings page's layouts; needs debloat\n" +
                 "                          forum    Settings > Forum opens the settings page (not in the default set)\n" +
                 "                        'none' = only the mandatory patches (server hook, headless TS/GS fixes, server physics),\n" +
                 "                        'all' = everything (the default set plus lan and forum), 'default' = the default set,\n" +
@@ -168,6 +172,8 @@ namespace McvsOffline.Patcher
                 "  --game-log <m>        all (default): the game logs every level to logcat (mono-stdout); fatal: Fatal only,\n" +
                 "                        as shipped (res/raw/args.txt unchanged)\n" +
                 "  --port <n>            port of the embedded server baked into the geo URL (default 51780)\n" +
+                "  --target-sdk <n>      35 (default, no warning up to Android 17), 36, or 29: the shipped manifest and layouts,\n" +
+                "                        unchanged (the fallback if the higher target misbehaves; installs over a 35 build)\n" +
                 "  --keystore <file>     signing keystore (.p12; .jks needs apksigner). Default: a key generated once in\n" +
                 "                        " + Signing.SigningKey.DefaultPath() + "\n" +
                 "  --ks-pass <pw>        keystore password: pass:<pw>, env:<VAR> or plain (default " + Signing.SigningKey.DefaultPassword + ")\n" +
