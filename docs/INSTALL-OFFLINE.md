@@ -17,7 +17,8 @@ smaller 64-bit-only APK (every phone from about 2017 on, such as the Galaxy S22,
 |---|---|
 | `Data/MCVS.game`, `Data/Config/EngineConfig.json`, `Data/1/` ... `Data/f/` | the data pack (15,747 files) |
 | `McvsOffline/install/pack.info` | optional but recommended: the index of the data pack (see below) |
-| `McvsOffline/hd/` | optional: an HD texture pack, and while it is installed the originals it replaced (see "HD textures" below) |
+| `McvsOffline/hd/` | optional: an HD texture pack (a drop folder: only read, any tool may make it; see "HD textures" below) |
+| `McvsOffline/hd-install/` | made by the game while an HD pack is installed: the list of replaced files and their originals |
 | `McvsOffline/` (the rest) | your offline profile, settings and logs (only in a backup of an offline install) |
 
 There are two variants of the data pack, by texture format: **ASTC** and **ETC**. The installer picks ASTC when the
@@ -146,7 +147,10 @@ listed file whose size is not the one in its index, so the offline build changes
 start-up, before the installer runs (`hosts/embedded/Hd/HdInstaller.cs`):
 
 1. Each original is checked against the size and CRC32 the pack was made from, and copied to
-   `McvsOffline/hd/backup/Data/<h>/<name>.f`. `McvsOffline/hd/installed.json` lists the files before any of them changes.
+   `McvsOffline/hd-install/backup/Data/<h>/<name>.f`. `McvsOffline/hd-install/installed.json` lists the files before any of
+   them changes. The drop folder `McvsOffline/hd/` is only read (on Android 11+ a folder made with adb or a file manager
+   belongs to that tool); when `hd-install/` cannot be written either, the game's internal storage is used, and when
+   nothing can be written `Data/` is left alone and Status says why ([design/hd-install.md](design/hd-install.md)).
 2. The HD file is written next to the original under a temporary name starting with `.` and renamed over it once its size
    and CRC32 are checked, so `Data/` never holds half a file.
 3. The installer's index (`files/pack.info` in internal storage), its copy `McvsOffline/install/pack.info` and the journal
@@ -168,7 +172,7 @@ it can use (it then checks the data online) are the originals copied back, so it
 installed again at the first start with an index. `install.manageInstaller` `false` leaves the HD files and the index
 alone, as everything else on this page.
 
-Keep `McvsOffline/hd/` (the backups) in a backup of `files/`. To check such a backup on a PC with `verify.py`, check it
+Keep `McvsOffline/hd/` (the pack) and `McvsOffline/hd-install/` (the backups) in a backup of `files/`. To check such a backup on a PC with `verify.py`, check it
 against the index it carries (`McvsOffline/install/pack.info` lists the HD files), not against a mirror's.
 
 ## Last resort: the installer's own test switches

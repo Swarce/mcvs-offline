@@ -44,6 +44,13 @@ namespace McvsOffline.Embedded.Hd
         /// </summary>
         internal Action<string> Checkpoint { get; set; }
 
+        /// <summary>
+        /// Tests: called with every path the installer is about to create, write, rename onto or delete; true makes that write
+        /// fail as an Android folder owned by another uid does (<see cref="UnauthorizedAccessException"/>). Tests run as root,
+        /// where chmod denies nothing.
+        /// </summary>
+        internal Func<string, bool> WriteDenied { get; set; }
+
         internal void Reached(string point)
         {
             Action<string> hook = Checkpoint;
@@ -97,9 +104,11 @@ namespace McvsOffline.Embedded.Hd
     /// <item><see cref="Apply"/>, after it: removes (hd.enabled false, files the pack no longer has) and installs (the pack, group
     /// by group within <see cref="HdInstallerOptions.BudgetMs"/>), then writes both index copies, the journal and the state.</item>
     /// </list>
-    /// Every original is checked against the pack's size and CRC-32 and copied to <c>McvsOffline/hd/backup/</c> before it is
-    /// replaced; every file is written to a temporary file next to it, checked and renamed over it, so Data/ never holds half a
-    /// file. <c>McvsOffline/hd/installed.json</c> names the files taken over before any of them changes; what each file holds is
+    /// The player's drop folder <c>McvsOffline/hd/</c> is only read (<see cref="HdPlaces"/>); our files go to
+    /// <c>McvsOffline/hd-install/</c> (or its twin in internal storage), and nothing in Data/ changes unless that folder and the
+    /// Data/ folders take a probe file. Every original is checked against the pack's size and CRC-32 and copied to
+    /// <c>hd-install/backup/</c> before it is replaced; every file is written to a temporary file next to it, checked and renamed
+    /// over it, so Data/ never holds half a file. <c>hd-install/installed.json</c> names the files taken over before any of them changes; what each file holds is
     /// always read from the file itself, so a run cut short anywhere is completed or undone by the next one. When the installer
     /// has no usable index after InstallerData (it then goes online and would replace every file of another size), the originals
     /// are put back and the pack is installed again once there is one. Never throws.
@@ -124,20 +133,57 @@ namespace McvsOffline.Embedded.Hd
         /// <summary>Some Data/ files held HD textures at the last start (the settings page offers to remove them).</summary>
         public static bool Installed { get { return installed; } }
 
-        /// <summary>&lt;game root&gt;/McvsOffline/hd: where the player puts the pack, and our state and backups.</summary>
+        /// <summary>
+        /// &lt;game root&gt;/McvsOffline/hd: where the player puts the pack. Read only: a folder made there with a file manager or
+        /// adb belongs to another uid on Android 11+, so nothing is ever written inside it (<see cref="HdPlaces"/>).
+        /// </summary>
         public static string HdDir(InstallerDataLocations loc)
         {
             return Path.Combine(Path.Combine(loc.GameRoot, EmbeddedPaths.DataFolderName), FolderName);
         }
 
-        internal static string StatePath(InstallerDataLocations loc)
+        /// <summary>&lt;game root&gt;/McvsOffline/hd-install: our state and backups (the internal-storage twin when it cannot be written).</summary>
+        public static string WorkDir(InstallerDataLocations loc)
         {
-            return Path.Combine(HdDir(loc), StateFile);
+            return HdPlaces.For(loc).Primary;
         }
 
+        /// <summary>installed.json in McvsOffline/hd-install.</summary>
+        internal static string StatePath(InstallerDataLocations loc)
+        {
+            return Path.Combine(WorkDir(loc), StateFile);
+        }
+
+        /// <summary>The backup of a Data/ file in McvsOffline/hd-install.</summary>
         internal static string BackupPath(InstallerDataLocations loc, string relativePath)
         {
-            return Path.Combine(Path.Combine(HdDir(loc), BackupFolder), relativePath.Replace('/', Path.DirectorySeparatorChar));
+            return HdPlaces.Backup(WorkDir(loc), relativePath);
+        }
+
+        [ThreadStatic] private static Func<string, bool> writeDenied;
+        private static string loggedPlaces;
+
+        /// <summary>Every write of the installer passes here first (<see cref="HdInstallerOptions.WriteDenied"/>).</summary>
+        internal static void Guard(string path)
+        {
+            Func<string, bool> denied = writeDenied;
+            if (denied != null && denied(path)) throw new UnauthorizedAccessException("Access to the path '" + path + "' is denied.");
+        }
+
+        /// <summary>The folders, chosen and logged (once per process while the choice stays the same); the state of an earlier folder taken over.</summary>
+        private static HdPlaces Places(InstallerDataLocations loc, Log log)
+        {
+            HdPlaces places = HdPlaces.For(loc);
+            places.Choose();
+            string line = places.Describe();
+            if (line != loggedPlaces)
+            {
+                loggedPlaces = line;
+                if (places.Work == null || places.IsFallback) log.Warn("hd: " + line);
+                else log.Info("hd: " + line);
+            }
+            places.Migrate(log);
+            return places;
         }
 
         internal static string DataPath(InstallerDataLocations loc, string relativePath)
@@ -150,6 +196,7 @@ namespace McvsOffline.Embedded.Hd
         {
             status = "hd textures: not checked (the host did not run the installer step)";
             installed = false;
+            loggedPlaces = null;
         }
 
         // ------------------------------------------------------------------ step 1: before InstallerData
@@ -158,11 +205,17 @@ namespace McvsOffline.Embedded.Hd
         public static HdPreparation Prepare(InstallerDataLocations loc, HdInstallerOptions options, Log log)
         {
             options = options ?? new HdInstallerOptions();
+            writeDenied = options.WriteDenied;
             try
             {
                 if (!options.ManageInstaller) return new HdPreparation(null);
-                HdState state = HdState.Load(StatePath(loc));
-                DeleteTemps(loc, state, log);
+                HdPlaces places = HdPlaces.For(loc);
+                if (!places.AnyState()) return new HdPreparation(null);
+                places = Places(loc, log);
+                if (places.Blocked != null) return new HdPreparation(null);
+                // With no folder to write to, the index is still made to match Data/ (it lives in the installer's storage).
+                HdState state = HdState.Load(places.ReadableStatePath());
+                DeleteTemps(loc, places, state, log);
                 if (state.Records.Count == 0) return new HdPreparation(null);
                 var contents = new Dictionary<string, Content>(StringComparer.Ordinal);
                 var originals = new Dictionary<string, long>(StringComparer.Ordinal);
@@ -191,6 +244,10 @@ namespace McvsOffline.Embedded.Hd
                 log.Warn("hd: checking the installed HD files failed", ex);
                 return new HdPreparation(null);
             }
+            finally
+            {
+                writeDenied = null;
+            }
         }
 
         // ------------------------------------------------------------------ step 2: after InstallerData
@@ -200,6 +257,7 @@ namespace McvsOffline.Embedded.Hd
         {
             options = options ?? new HdInstallerOptions();
             HdResult result;
+            writeDenied = options.WriteDenied;
             try
             {
                 result = new Run(loc, options, log).Execute();
@@ -208,6 +266,10 @@ namespace McvsOffline.Embedded.Hd
             {
                 log.Warn("hd: the HD texture step failed; Data/ is left as it is", ex);
                 result = new HdResult("hd textures: failed (" + ex.GetType().Name + ": " + ex.Message + ")", false, installed);
+            }
+            finally
+            {
+                writeDenied = null;
             }
             status = result.Summary;
             installed = result.Installed;
@@ -256,6 +318,7 @@ namespace McvsOffline.Embedded.Hd
             private readonly Log log;
             private readonly int started = Environment.TickCount;
             private HdState state;
+            private HdPlaces places;
             private IndexSession session;
             private readonly Dictionary<string, Content> contents = new Dictionary<string, Content>(StringComparer.Ordinal);
             private readonly List<string> notes = new List<string>();
@@ -281,21 +344,35 @@ namespace McvsOffline.Embedded.Hd
                     log.Info("hd: install.manageInstaller is false: HD textures are neither installed nor removed");
                     return new HdResult("hd textures: not managed (install.manageInstaller false)", false, false);
                 }
+                List<string> candidates = HdPack.Candidates(hdDir);
+                places = HdPlaces.For(loc);
+                if (!places.AnyState() && !(options.Enabled && candidates.Count > 0))
+                {
+                    // Nothing installed, nothing to install: no folder is created.
+                    state = new HdState();
+                    session = new IndexSession(loc, log);
+                    return Finish(null, null, null, candidates.Count);
+                }
+                places = Places(loc, log);
+                if (places.Blocked != null)
+                {
+                    log.Warn("hd: " + places.Blocked + ": HD textures are left exactly as they are (delete it when no HD files are installed)");
+                    return new HdResult("hd textures: " + places.Blocked + "; nothing changed", false, false);
+                }
                 try
                 {
-                    state = HdState.Load(StatePath(loc));
+                    state = HdState.Load(places.ReadableStatePath());
                 }
                 catch (FormatException ex)
                 {
                     log.Warn("hd: " + ex.Message + ": HD textures are left exactly as they are (the originals are in " +
-                             Path.Combine(hdDir, BackupFolder) + ")");
+                             (places.Work == null ? places.Display(places.Primary) : places.BackupDir) + ")");
                     return new HdResult("hd textures: " + StateFile + " cannot be read; nothing changed", false, false);
                 }
                 foreach (HdRecord r in state.Records) contents[r.Path] = Classify(DataPath(loc, r.Path), r);
 
                 HdPack pack = null;
                 string packProblem = null;
-                List<string> candidates = HdPack.Candidates(hdDir);
                 if (options.Enabled && candidates.Count > 0)
                 {
                     string chosen = candidates[candidates.Count - 1];
@@ -314,6 +391,11 @@ namespace McvsOffline.Embedded.Hd
 
                 session = new IndexSession(loc, log);
                 if (session.Installer == null && state.Records.Count == 0 && pack == null) return Finish(null, null, packProblem, candidates.Count);
+
+                // Nothing is done to Data/ unless our folder and every Data/ folder to be touched take a probe file.
+                string writeProblem = places.Problem ?? DataProblem(pack);
+                if (writeProblem != null) return NotWritable(writeProblem);
+
                 if (session.Installer == null)
                 {
                     PutOriginalsBack();
@@ -363,6 +445,80 @@ namespace McvsOffline.Embedded.Hd
                 }
 
                 return Finish(null, pack, packProblem, candidates.Count);
+            }
+
+            private void SaveState()
+            {
+                Guard(places.StatePath);
+                state.Save(places.StatePath);
+            }
+
+            /// <summary>
+            /// Null when Data/ and every Data/&lt;h&gt; folder of an installed file or of the pack take a probe file; else one line
+            /// ("cannot write Data/9: permission denied").
+            /// </summary>
+            private string DataProblem(HdPack pack)
+            {
+                var dirs = new List<string> { loc.DataDir };
+                var seen = new HashSet<string>(StringComparer.Ordinal) { loc.DataDir };
+                var paths = new List<string>();
+                foreach (HdRecord r in state.Records) paths.Add(r.Path);
+                if (pack != null) foreach (HdPackFile f in pack.Files) paths.Add(f.Path);
+                foreach (string rel in paths)
+                {
+                    string dir = Path.GetDirectoryName(DataPath(loc, rel));
+                    if (seen.Add(dir)) dirs.Add(dir);
+                }
+                foreach (string dir in dirs)
+                {
+                    if (!Directory.Exists(dir)) continue;
+                    try
+                    {
+                        HdPlaces.ProbeIn(dir);
+                    }
+                    catch (Exception ex)
+                    {
+                        return "cannot write " + places.Display(dir) + ": " + HdPlaces.Reason(ex);
+                    }
+                }
+                return null;
+            }
+
+            /// <summary>
+            /// Our folder or Data/ cannot be written: nothing in Data/ is changed. The index copies and the journal are still made to
+            /// match what Data/ holds (InstallerData may have replaced the index since <see cref="Prepare"/>, e.g. with Gameloft's
+            /// own after a reinstall: its original sizes would make the installer delete and download every HD file). They live in
+            /// the installer's storage and McvsOffline/install, never in Data/, the drop folder or our folder.
+            /// </summary>
+            private HdResult NotWritable(string problem)
+            {
+                log.Warn("hd: " + problem + ": nothing in Data/ is changed");
+                int fixedInstaller = 0;
+                try
+                {
+                    fixedInstaller = session.Installer == null ? 0 : session.Reconcile(session.Installer, state.Records, contents);
+                    if (session.Saved != null) session.Reconcile(session.Saved, state.Records, contents);
+                    session.EnsureJournal(state.Records, contents);
+                    session.Commit();
+                    if (fixedInstaller > 0) log.Info("hd: the installer's index entries of " + fixedInstaller + " HD files were made to match Data/");
+                }
+                catch (Exception ex)
+                {
+                    log.Warn("hd: making the installer's index match Data/ failed", ex);
+                }
+                int hdFiles = 0;
+                long hdBytes = 0;
+                foreach (HdRecord r in state.Records)
+                {
+                    if (contents[r.Path] != Content.Hd) continue;
+                    hdFiles++;
+                    hdBytes += r.HdSize;
+                }
+                string summary = hdFiles > 0
+                    ? "hd textures: " + (state.PackName ?? state.PackFile ?? "HD pack") + ", " + Count(hdFiles, "file", "files") + " installed (" + Mib(hdBytes) +
+                      "); nothing changed now: " + problem
+                    : "hd textures: none installed; " + problem + "; nothing changed";
+                return new HdResult(summary, session.InstallerChanged, hdFiles > 0);
             }
 
             private string DataVariant()
@@ -449,25 +605,34 @@ namespace McvsOffline.Embedded.Hd
             /// <summary>Copies the backup of <paramref name="r"/> over its Data/ file (checked against the original's CRC-32).</summary>
             private bool CopyBackup(HdRecord r)
             {
-                string backup = BackupPath(loc, r.Path);
-                if (Length(backup) != r.OriginalSize)
+                // Our folder first, then the folders of earlier starts (build 11 kept the backups in McvsOffline/hd/backup).
+                List<string> backups = places.BackupCandidates(r.Path, r.OriginalSize);
+                if (backups.Count == 0)
                 {
-                    log.Warn("hd: the backup of " + r.Path + " is missing or has another size (" + backup + "): the HD file stays");
+                    log.Warn("hd: the backup of " + r.Path + " is missing or has another size (" + places.BackupPath(r.Path) + "): the HD file stays");
                     return false;
                 }
-                try
+                foreach (string backup in backups)
                 {
-                    uint[] pieces;
-                    CopyChecked(backup, DataPath(loc, r.Path), r.OriginalSize, r.OriginalCrc, out pieces);
-                    r.OriginalPieceCrcs = pieces;
-                    contents[r.Path] = Content.Original;
-                    return true;
+                    try
+                    {
+                        uint[] pieces;
+                        CopyChecked(backup, DataPath(loc, r.Path), r.OriginalSize, r.OriginalCrc, out pieces);
+                        r.OriginalPieceCrcs = pieces;
+                        contents[r.Path] = Content.Original;
+                        return true;
+                    }
+                    catch (HdZipException ex)
+                    {
+                        log.Warn("hd: the backup " + backup + " of " + r.Path + " " + ex.Message);
+                    }
+                    catch (Exception ex)
+                    {
+                        log.Warn("hd: cannot put the original of " + r.Path + " back", ex);
+                        return false;
+                    }
                 }
-                catch (Exception ex)
-                {
-                    log.Warn("hd: cannot put the original of " + r.Path + " back", ex);
-                    return false;
-                }
+                return false;
             }
 
             private void Install(HdPack pack)
@@ -585,15 +750,18 @@ namespace McvsOffline.Embedded.Hd
                         return null;
                     }
                     var plan = new Plan { File = f, Record = r };
-                    string backup = BackupPath(loc, f.Path);
+                    string backup = places.BackupPath(f.Path);
                     if (Length(backup) == f.OriginalSize && FileCrc(backup) == f.OriginalCrc)
                     {
                         plan.BackedUp = true;
                     }
                     else
                     {
+                        // From Data/; when Data/ does not hold the original, from a backup of an earlier start (build 11 kept them
+                        // in McvsOffline/hd/backup), copied into our folder so a record never depends on a folder we do not own.
                         long length = Length(dataPath);
-                        if (length != f.OriginalSize)
+                        string source = length == f.OriginalSize ? dataPath : places.FindCheckedBackup(f.Path, f.OriginalSize, f.OriginalCrc);
+                        if (source == null)
                         {
                             Skip(group, f.Path + (length < 0 ? " is missing" : " has " + length + " bytes, not the " + f.OriginalSize + " of the original the pack was made from"));
                             return null;
@@ -601,7 +769,7 @@ namespace McvsOffline.Embedded.Hd
                         try
                         {
                             uint[] pieces;
-                            CopyChecked(dataPath, backup, f.OriginalSize, f.OriginalCrc, out pieces);
+                            CopyChecked(source, backup, f.OriginalSize, f.OriginalCrc, out pieces);
                             plan.BackedUp = true;
                         }
                         catch (HdZipException ex)
@@ -651,14 +819,18 @@ namespace McvsOffline.Embedded.Hd
                         r.HdSize = p.File.HdSize;
                         r.HdCrc = p.File.HdCrc;
                         if (r.OriginalZip == null) r.OriginalZip = session.ZipRefs(r.Path, r.OriginalSize);
-                        if (r.OriginalPieceCrcs == null) r.OriginalPieceCrcs = PieceCrcsOf(BackupPath(loc, r.Path), r.OriginalSize);
+                        if (r.OriginalPieceCrcs == null)
+                        {
+                            string backup = places.FindBackup(r.Path, r.OriginalSize);
+                            if (backup != null) r.OriginalPieceCrcs = PieceCrcsOf(backup, r.OriginalSize);
+                        }
                         state.Put(r);
                         p.Record = r;
                         // Against the record as it is now (a file of an older pack version is "other" until it is written).
                         contents[r.Path] = Classify(DataPath(loc, r.Path), r);
                     }
                 }
-                state.Save(StatePath(loc));
+                SaveState();
                 options.Reached("recorded");
                 foreach (List<Plan> plans in batch)
                 {
@@ -708,10 +880,15 @@ namespace McvsOffline.Embedded.Hd
                 foreach (string path in dropped)
                 {
                     state.Remove(path);
-                    string backup = BackupPath(loc, path);
+                    // Only our own copy goes; a backup in a folder of an earlier start is never written to.
+                    string backup = places.BackupPath(path);
                     try
                     {
-                        if (File.Exists(backup)) File.Delete(backup);
+                        if (File.Exists(backup))
+                        {
+                            Guard(backup);
+                            File.Delete(backup);
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -724,8 +901,27 @@ namespace McvsOffline.Embedded.Hd
                     state.PackId = null;
                     state.PackName = null;
                 }
-                state.Save(StatePath(loc));
-                if (state.Records.Count == 0) DeleteEmptyDirs(Path.Combine(HdDir(loc), BackupFolder));
+                if (places.Work != null)
+                {
+                    SaveState();
+                    if (state.Records.Count == 0)
+                    {
+                        DeleteEmptyDirs(places.BackupDir);
+                        places.CleanTwin(log);
+                    }
+                }
+                if (state.Records.Count == 0)
+                {
+                    List<string> old = places.OldBackupFolders();
+                    if (old.Count > 0)
+                    {
+                        var names = new List<string>();
+                        foreach (string dir in old) names.Add(places.Display(dir));
+                        string list = string.Join(", ", names.ToArray());
+                        notes.Add(list + " (and its " + StateFile + ") of an earlier build " + (old.Count == 1 ? "is" : "are") + " no longer used and may be deleted");
+                        log.Info("hd: " + list + " of an earlier build " + (old.Count == 1 ? "is" : "are") + " no longer used and may be deleted (the installer never writes there)");
+                    }
+                }
 
                 int hdFiles = 0;
                 long hdBytes = 0;
@@ -774,6 +970,11 @@ namespace McvsOffline.Embedded.Hd
                     if (skipped > 0) sb.Append("; ").Append(skipped).Append(" skipped");
                     if (failed > 0) sb.Append("; ").Append(failed).Append(" failed (see the log)");
                     if (changedInstaller > 0 && written == 0 && restored == 0) sb.Append("; index entries of ").Append(Count(changedInstaller, "file", "files")).Append(" corrected");
+                    if (places.IsFallback && state.Records.Count > 0)
+                    {
+                        sb.Append("; backups in the app's internal storage");
+                        if (places.PrimaryProblem != null) sb.Append(" (").Append(places.Display(places.Primary)).Append(": ").Append(places.PrimaryProblem).Append(')');
+                    }
                     foreach (string note in notes) sb.Append("; ").Append(note);
                     summary = sb.ToString();
                 }
@@ -789,6 +990,8 @@ namespace McvsOffline.Embedded.Hd
                 var crc = new PieceCrc(f.HdSize);
                 try
                 {
+                    Guard(temp);
+                    Guard(target);
                     using (var output = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
                     {
                         f.Zip.CopyStored(f.Entry, (b, o, n) =>
@@ -960,6 +1163,7 @@ namespace McvsOffline.Embedded.Hd
             {
                 if (Installer != null && Installer.Changed)
                 {
+                    Guard(Installer.Path);
                     AtomicFile.WriteAllBytes(Installer.Path, Installer.Index.Raw);
                     InstallerChanged = true;
                     Installer.Changed = false;
@@ -967,6 +1171,7 @@ namespace McvsOffline.Embedded.Hd
                 UpdateJournal();
                 if (Saved != null && Saved.Changed)
                 {
+                    Guard(Saved.Path);
                     AtomicFile.WriteAllBytes(Saved.Path, Saved.Index.Raw);
                     Saved.Changed = false;
                 }
@@ -1019,6 +1224,7 @@ namespace McvsOffline.Embedded.Hd
                 foreach (string l in lines) sb.Append(l).Append('\n');
                 try
                 {
+                    Guard(loc.Journal);
                     AtomicFile.WriteAllBytes(loc.Journal, Encoding.UTF8.GetBytes(sb.ToString()));
                 }
                 catch (Exception ex)
@@ -1099,8 +1305,14 @@ namespace McvsOffline.Embedded.Hd
         internal static void CopyChecked(string source, string target, long size, uint crc, out uint[] pieces)
         {
             string dir = Path.GetDirectoryName(target);
-            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+            {
+                Guard(dir);
+                Directory.CreateDirectory(dir);
+            }
             string temp = TempFor(target);
+            Guard(temp);
+            Guard(target);
             var check = new PieceCrc(size);
             try
             {
@@ -1175,8 +1387,11 @@ namespace McvsOffline.Embedded.Hd
             return Path.Combine(Path.GetDirectoryName(target), "." + Path.GetFileName(target) + TempSuffix);
         }
 
-        /// <summary>Temporary files a start cut short left behind: next to every recorded Data/ file, and anywhere in the backup folder.</summary>
-        private static void DeleteTemps(InstallerDataLocations loc, HdState state, Log log)
+        /// <summary>
+        /// Temporary files a start cut short left behind: next to every recorded Data/ file, and anywhere in our backup folder
+        /// (never in a folder of an earlier start).
+        /// </summary>
+        private static void DeleteTemps(InstallerDataLocations loc, HdPlaces places, HdState state, Log log)
         {
             int deleted = 0;
             foreach (HdRecord r in state.Records)
@@ -1184,11 +1399,11 @@ namespace McvsOffline.Embedded.Hd
                 string temp = TempFor(DataPath(loc, r.Path));
                 if (File.Exists(temp) && TryDelete(temp)) deleted++;
             }
-            string backups = Path.Combine(HdDir(loc), BackupFolder);
+            string backups = places.BackupDir;
             try
             {
                 var pending = new Stack<string>();
-                if (Directory.Exists(backups)) pending.Push(backups);
+                if (backups != null && Directory.Exists(backups)) pending.Push(backups);
                 while (pending.Count > 0)
                 {
                     string dir = pending.Pop();
@@ -1205,13 +1420,17 @@ namespace McvsOffline.Embedded.Hd
             if (deleted > 0) log.Info("hd: deleted " + deleted + " temporary files of a start that was cut short");
         }
 
-        private static void DeleteEmptyDirs(string root)
+        internal static void DeleteEmptyDirs(string root)
         {
             try
             {
                 if (!Directory.Exists(root)) return;
                 foreach (string dir in Directory.GetDirectories(root)) DeleteEmptyDirs(dir);
-                if (Directory.GetFiles(root).Length == 0 && Directory.GetDirectories(root).Length == 0) Directory.Delete(root, false);
+                if (Directory.GetFiles(root).Length == 0 && Directory.GetDirectories(root).Length == 0)
+                {
+                    Guard(root);
+                    Directory.Delete(root, false);
+                }
             }
             catch (Exception)
             {
@@ -1257,7 +1476,11 @@ namespace McvsOffline.Embedded.Hd
         {
             try
             {
-                if (File.Exists(path)) File.Delete(path);
+                if (File.Exists(path))
+                {
+                    Guard(path);
+                    File.Delete(path);
+                }
                 return true;
             }
             catch (Exception)

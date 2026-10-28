@@ -46,6 +46,61 @@ The player copies the pack with `adb push` (PLAYER-SETUP.md section 7). Only one
 installs it; false removes an installed pack at the next start. Actions › Remove HD textures sets `hd.enabled` false and
 offers the restart.
 
+### Where the installer writes: never in the drop folder
+
+Device test of build 11 (owner's Galaxy S22, Android 16, targetSdk 35): `cannot back up Data/9/705cf.f to
+.../files/McvsOffline/hd/backup/Data/9/705cf.f`, `UnauthorizedAccessException ... Permission denied`, `[boot] hd: none
+installed; 906 files at the next start; 1 failed`. The owner had made `McvsOffline/hd/` with adb (Shizuku); on Android 11+
+a folder under `Android/data/<package>/` made by another tool (adb's `shell` uid, a file manager through MediaStore)
+belongs to that uid, so the app can read the pack in it but create nothing inside it. `McvsOffline/` itself and `Data/`
+were made by the app and are writable. So:
+
+* **`McvsOffline/hd/` is a read-only drop folder.** The installer reads the pack (and, from build 11, an old
+  `installed.json` and `backup/`) there and never creates, writes, renames or deletes anything inside it. Any tool may
+  make it.
+* **Our files go to a folder the app makes itself** (`HdPlaces`): `McvsOffline/hd-install/` (`installed.json`, `backup/`,
+  `imported.txt`). The folder is created when missing and must take a probe file (`.mcvs-hd-probe`: created, flushed,
+  deleted). When it cannot (it was made by another tool too, or the storage refuses), the same folder in the app's
+  internal storage, `getFilesDir()/McvsOffline/hd-install/`, is used; the log says which (`hd: installer files in
+  McvsOffline/hd-install`, or a warning `hd: installer files in the app's internal storage <path> (McvsOffline/hd-install:
+  permission denied)`), and while files are installed Status adds "backups in the app's internal storage". The folder
+  that holds the current `installed.json` is used first. When both hold one, the internal one is current only when it
+  took over `McvsOffline/hd-install`'s (its `imported.txt` lists that file exactly as it is now): `McvsOffline/hd-install`
+  keeps the copy it had when it could not be written, and that stale copy never wins once it can be written again (the
+  internal folder stays in use; `McvsOffline/hd-install` is still probed so Status gives its reason). Nothing is created
+  at all while there is neither a pack (with `hd.enabled`) nor a state anywhere.
+* **Probe first, then change `Data/`.** Before anything is removed or installed, `Data/` and every `Data/<h>/` folder of an
+  installed file or of the pack take a probe file too. When our folder (both places) or one of those cannot be written,
+  nothing in `Data/` changes and the reason is the one line on Status › Game host › HD textures and in `[boot] hd:`:
+  `none installed; cannot write McvsOffline/hd-install: permission denied (nor the app's internal storage: permission
+  denied); nothing changed`, `none installed; cannot write Data/8: permission denied; nothing changed`, or, with HD files
+  installed, `<pack>, N files installed (...); nothing changed now: cannot write ...`. Both steps still make the
+  installer's index, our saved copy and the journal match what `Data/` holds (they live in the installer's storage and
+  `McvsOffline/install/`, never in `Data/` or our folder), reading the state wherever it is: step 2 too, because
+  `InstallerData` may have replaced the index between the steps (after a reinstall, Gameloft's own index from
+  `files/pack.info` lists the original sizes, and the installer would delete and download every HD file).
+* **The state of an earlier start is taken over once.** Another place's `installed.json` (build 11's
+  `McvsOffline/hd/installed.json`, or the other `hd-install` folder) that `imported.txt` (in either `hd-install`
+  folder) does not list is read and checked like our own (`HdState.Load`; one that cannot be read is left alone,
+  logged, and tried again at the next start; while we have no state of our own nothing changes until then, as with our
+  own unreadable state: `McvsOffline/hd/installed.json of an earlier build cannot be read; nothing changed`). Then:
+  * our folder has no `installed.json`: it is copied byte for byte into our folder (atomically);
+  * it took over ours as ours is now (its `imported.txt` lists our `installed.json`): it is the newer one (that folder was
+    in use while ours could not be written) and replaces ours byte for byte;
+  * otherwise (two states neither took from the other): its records for files ours does not list are added to ours
+    (ours wins for a file both list), so no record, and no original only it knows, is ever dropped.
+
+  Its CRC-32, size and folder are added to `imported.txt`, so a later start never takes it again (also once our own
+  state is gone after a removal). The backups stay where they are: **removal and the "already backed up" check look in our
+  `backup/` first, then in the old places** (each copy checked against the original's CRC-32 on the way back). A new
+  backup is always made in our folder: from `Data/` when it holds the original, else copied (checked) from an old backup,
+  so a record never depends on a folder we do not own. Backups in the drop folder are never deleted (that would be a
+  write there); once nothing is installed, and build 11's `installed.json` there is gone or was taken over, Status and
+  the log add `McvsOffline/hd/backup (and its installed.json) of an earlier build is no longer used and may be deleted`.
+  The other `hd-install` folder is the app's own: once nothing is installed, its `installed.json` (when it was taken
+  over) and its backups are deleted by the installer (left as they are when that folder cannot be written); it is
+  never offered for deletion.
+
 ### When: before the installer validates `Data/`
 
 The Java `GameInstaller` starts after the activity's `onCreate` returns; the embedded host runs inside `onCreate`
@@ -66,9 +121,10 @@ every start (docs/INSTALL-OFFLINE.md):
 ### Installing a group
 
 1. Plan: every file of the group must have its original in `Data/` (size and CRC32 of the manifest) or already in
-   `McvsOffline/hd/backup/` (checked the same way); the original is copied to the backup (temporary name, checked,
-   renamed). One file that fails skips the group.
-2. Record: the planned files go into `McvsOffline/hd/installed.json` (atomic write) before any of them changes.
+   `hd-install/backup/` (checked the same way; an old backup of build 11 in `McvsOffline/hd/backup/` is copied into
+   ours when `Data/` does not hold the original); the original is copied to the backup (temporary name, checked,
+   renamed). One file that fails skips the group; one that cannot be written ends the install for this start.
+2. Record: the planned files go into `hd-install/installed.json` (atomic write) before any of them changes.
 3. Write: each HD file is copied from the zip to `Data/<h>/.<name>.mcvs-hd-tmp`, checked (size, CRC32 against the zip and the
    manifest), flushed and renamed over the original. A failure puts the group's originals back and ends the install for
    this start.
@@ -88,9 +144,9 @@ of a changed file and gets one line per piece of every split HD file.
 
 ### Removing
 
-Every recorded file is copied back from its backup (checked against the original's CRC32), its index entries become the
-original's again (sizes, CRCs, archive offsets: Gameloft's index is byte-identical to before the install), the journal
-gets the original's pieces, then the record and the backup go. Files a new pack no longer contains are removed the same
+Every recorded file is copied back from its backup (ours, else an old one of build 11; checked against the original's
+CRC32), its index entries become the original's again (sizes, CRCs, archive offsets: Gameloft's index is byte-identical
+to before the install), the journal gets the original's pieces, then the record and our backup go (an old backup stays). Files a new pack no longer contains are removed the same
 way. Without the pack file, installed HD files stay; a missing or damaged one gets its original back (an HD file can only
 be written from the pack).
 
@@ -104,9 +160,12 @@ time removing installs nothing new. The same holds when the installer has no usa
 
 | path | what |
 |---|---|
-| `McvsOffline/hd/mcvs-hd-*.zip` | the pack (the player's) |
-| `McvsOffline/hd/installed.json` | `format` `mcvs-hd-installed`, `version` 1, `pack`, `packId`, `name`, `updated`, and per file `path`, `group`, `originalSize`, `originalCrc`, `originalPieces` (CRC per piece), `originalZip` (offset and ZIP size per piece in Gameloft's index), `hdSize`, `hdCrc`, `hdPieces`. Unreadable: nothing is touched (logged) |
-| `McvsOffline/hd/backup/Data/<h>/<name>.f` | the originals, while their HD files are installed |
+| `McvsOffline/hd/mcvs-hd-*.zip` | the pack (the player's). The folder is only read; any tool may make it |
+| `McvsOffline/hd-install/` | made by the app; when it cannot be written, `getFilesDir()/McvsOffline/hd-install/` instead (the log and Status say so) |
+| `McvsOffline/hd-install/installed.json` | `format` `mcvs-hd-installed`, `version` 1, `pack`, `packId`, `name`, `updated`, and per file `path`, `group`, `originalSize`, `originalCrc`, `originalPieces` (CRC per piece), `originalZip` (offset and ZIP size per piece in Gameloft's index), `hdSize`, `hdCrc`, `hdPieces`. Unreadable: nothing is touched (logged) |
+| `McvsOffline/hd-install/backup/Data/<h>/<name>.f` | the originals, while their HD files are installed |
+| `McvsOffline/hd-install/imported.txt` | `<crc32> <size> <folder>` per `installed.json` of another place taken over (copied, replacing ours, or merged into ours), so it is taken over once; also how the current state is told from a stale copy |
+| `McvsOffline/hd/installed.json`, `McvsOffline/hd/backup/` | build 11 only: taken over / read, never written or deleted; may be deleted once Status says so |
 
 What `Data/` holds is always read from the files, never assumed from the state, so any start cut short is completed or
 undone by the next one. Status › Game host › HD textures shows the pack, the files and bytes installed, and what is left.
