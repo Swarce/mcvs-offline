@@ -165,9 +165,8 @@ request; `--art` is a separate option):
   `mid`/`high`/`ultra` = Gameloft's MidGPU/HighGPU/High_Ultra block as the only selection rule, no priority step;
   `hosts/embedded/Graphics/GameOptionsProfile.cs`); the process-wide world options `excludedLoadingLayers` and
   `reducedAiUpdateFrequency` stay at the MidGPU values unless `graphics.fullProfile`, because the in-process TS/GS Worlds
-  share them. The same first call mounts `McvsOffline/hd/hd-textures.zip` through the engine's zip search path when it exists
-  (`hosts/embedded/Hd`, `hd.enabled`, `hd.mount`; the WP1 probe of docs/research/pc-textures.md, built by `tools/hd-textures`).
-  STATUS.md, "Build 10".
+  share them. STATUS.md, "Build 10". (Build 10 also mounted an HD texture zip from here; the device test showed the
+  renderer never reads a mounted zip, so HD textures are installed into `Data/` instead, below.)
 - `lan`: P1 Finder prefix `"*"`, P2 cache a real `PublicHost` at `LocalAnubisManager.Start`, P3
   `ClientSettings.LocalAnubisFinderHost = Args.RemoteIp ?? PublicHost` (verify-C6).
 - `targetsdk` (default, build 10; [research/target-sdk.md](research/target-sdk.md)): no IL. `targetSdkVersion` 29 ->

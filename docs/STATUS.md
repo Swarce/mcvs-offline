@@ -51,8 +51,8 @@ HD texture probe and a Windows test kit for the Steam version.
   33+ and declares the permission (details below).
 * **Graphics profile** (new default patch `graphics`, settings group Graphics: `graphics.profile`
   auto/mid/high/ultra, `graphics.fullProfile`) and the `[boot] graphics:` log line (details below).
-* **HD texture probe**: the host mounts `McvsOffline/hd/hd-textures.zip` through the engine's zip search path;
-  `tools/hd-textures` builds a probe zip with one coloured texture (details below).
+* **HD texture probe**: the host mounted `McvsOffline/hd/hd-textures.zip` through the engine's zip search path;
+  `tools/hd-textures` built a probe zip with one coloured texture (result below; removed again for build 11).
 * **Status and restart wording**: Status › Game host gains Graphics, HD textures and Notifications rows and "Restart via"
   says that on Android 13+ the game may only close (`host.relaunchUnconfirmed`).
 * **Project icon and launch screen, mechanism only** (`--art auto|stock|<dir>`, `patcher/Art`,
@@ -63,7 +63,7 @@ HD texture probe and a Windows test kit for the Steam version.
   and packs the answers of [research/pc-port.md](research/pc-port.md) §5 into one zip; owner's guide
   [PC-SPIKE.md](PC-SPIKE.md). Built for this build: `McvsOffline.PcSpike.exe`, 35,939,879 bytes, win-x64.
 
-The details of the graphics profile, the HD texture probe and the notification permission follow.
+The details of the graphics profile, the HD texture probe's result and the notification permission follow.
 
 ### Graphics profile (`graphics.profile`, new default patch `graphics`)
 
@@ -111,48 +111,18 @@ The details of the graphics profile, the HD texture probe and the notification p
   along the priority chain; it restarts the game) should not move a forced profile, since its priority entry has no step (the native stepping is not decompiled: check 4 below); with `auto` it
   works as before. The `[boot] graphics:` line shows its stored value.
 
-### HD texture probe (pc-textures.md WP1 + WP3 route B)
+### HD texture probe (pc-textures.md WP1): result
 
-* **Host.** At the first call of patch `graphics` (the engine's file system is up, no level has loaded) the host checks
-  `McvsOffline/hd/hd-textures.zip` (`hd.enabled`, default true: used whenever the file exists). It reads the zip's
-  directory itself (stored entries, no ZIP64, everything inside the file); a missing file gives one quiet line, a broken one
-  "not a usable zip ... the game uses Data/"; nothing else changes either way. Then it mounts the zip through the engine's
-  own API, by reflection: `hd.mount` `auto` (default) tries `SaveStream.PushZip` (LocationType Save) and then
-  `CacheStream.PushZip`, each with the zip's path relative to that root (`GlfStream.SavePath`/`CachePath`, logged; "../"
-  segments when the root is elsewhere); `save`, `cache`, `asset` (`AssetStream.PushZip`, relative to Data/) and `front`
-  (`GlfStream_private.PushZipSearchPathFront`, the call PackManager uses for its packs) force one way. For a probe zip it
-  then reads the probe texture back through the engine's own lookup (`AssetStream.ReadAllBytes`) and names the copy that came
-  back by its CRC-32 (manifest `mcvs-hd.json`).
-* **Tool.** `tools/hd-textures` (net8, `dotnet run --project tools/hd-textures -- probe ...`, [README](../tools/hd-textures/README.md))
-  builds the zip from the player's own `Data/8/dbd2f1.f` (`3d/Environment/01_WorkTextures/ENV_GenericConcrete05_bc.tga`): the
-  texture three times, solid magenta under its logical name, green as `8/dbd2f1.f`, blue as `Data/8/dbd2f1.f` (with `--raw`,
-  bare KTX instead of GCBF: yellow, cyan, orange), each in the original's format (ASTC 6x6 on the S22's pack: void-extent
-  blocks; ETC1 on the ETC pack), size and mip chain. Checked here on the real ETC1 file and on a synthetic ASTC 6x6 one.
+Device session of 2026-10-28 on the owner's S22 (SM-S901E, Adreno 730, build 10; the phone runs the **ETC** pack,
+byte-identical to our copy, with the game's Graphic setting on "quality"):
 
-**HD texture probe: the device test** (one run answers U2; a second run with `--raw` answers U3)
-
-1. On the PC, with build tools for the repository:
-   `adb pull /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/Data/8/dbd2f1.f`, then
-   `dotnet run --project tools/hd-textures -- probe --file dbd2f1.f --out hd-textures.zip`. The tool prints the texture's
-   format: it should say `ASTC 6x6 256x256, 9 mip levels (ASTC pack)` on the S22 (`ETC1 ... (ETC pack)` means the phone
-   has the ETC pack: the probe still works, in ETC1).
-2. Game closed: `adb shell mkdir -p /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/hd` and
-   `adb push hd-textures.zip /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/hd/hd-textures.zip`.
-3. `adb logcat -s McvsOffline mono mono-stdout > probe.txt`, start the game. In the log (also `McvsOffline/logs/bootstrap.log`
-   and Status › Game host › HD textures):
-   * `[boot] hd textures: hd-textures.zip 4 entries, ... kind probe; engine roots: Save '...', Cache '...', Data '...'; hd.mount auto`
-     (the Save/Cache roots answer U2's third question);
-   * `[boot] hd textures: mounted through Save '...'` (or Cache, or `the engine did not mount the zip (...)`);
-   * `[boot] hd textures: probe 3d/Environment/01_WorkTextures/ENV_GenericConcrete05_bc.tga: ...` naming the copy the
-     engine's lookup returned: a zip entry (its naming and colour, "GCBF-decoded" or "bytes as stored") or "another copy ...:
-     Data/, so the zip is not searched before Data/ for this name".
-4. Play a bot match on a map with plain concrete surfaces (walls, floors; the texture is a generic concrete base colour
-   used on several maps). Magenta, green or blue surfaces tell which naming the renderer used, and that a zip entry renders
-   at all (mips, orientation); normal-looking concrete means the renderer still reads Data/. Screenshot it.
-5. If nothing changed: `hd.mount` `front` on the settings page (Graphics › How the HD zip is mounted), restart, repeat
-   3–4. Then, if still nothing, rebuild with `--raw` (yellow, cyan, orange) for the unwrapped-KTX question (U3) and repeat.
-6. Remove it: `adb shell rm /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/hd/hd-textures.zip`.
-   Send `probe.txt`, the `[boot] hd textures:` lines and the screenshots.
+* **Route B failed**: the zip mounted through `SaveStream.PushZip`, and the engine's managed lookup returned the zip's copy
+  of the probe texture, but nothing changed on screen: the renderer does not read through that search path. The mount,
+  `hd.mount` and the probe lines were removed again (build 11).
+* **Route A works**: 13 GCBF-wrapped ETC1 `.f` files (same 256x256, 9 mips, recoloured) written into
+  `files/Data/<h>/<rest>.f` gave green floors in a Port match, with `files/qaTestingConfigs.txt` = `SKIP_VALIDATION=1`
+  (without it the installer deletes every `Data/` file whose size differs from its index at each start). Build 11 installs
+  HD packs this way and keeps the installer's index in line instead ("Build 11 (plan)").
 
 ### Notification permission (target-sdk.md WP-T5, host side)
 
@@ -233,13 +203,7 @@ Install build 10 **over** build 9 (same key; never uninstall: that deletes the s
    MidGPU/HighGPU/High_Ultra", a bot match plays through, then 10 minutes of play for frame rate and heat; no `[watchdog]
    STALL`, no `physics step gate: ... without the gate`. Then `graphics.fullProfile` on at `ultra`: one bot match. With a
    forced profile, the game's own Graphic setting should not change the `[boot] graphics:` profile. Back to `auto` at the end.
-7. **HD texture probe** (steps in "HD texture probe: the device test" above, under "Build 10"): on the PC `adb pull` the phone's
-   `Data/8/dbd2f1.f`, build the zip with `dotnet run --project tools/hd-textures -- probe --file dbd2f1.f --out
-   hd-textures.zip` (it should say ASTC 6x6 on the S22), game closed: `adb push` it to
-   `.../files/McvsOffline/hd/hd-textures.zip`. Start the game: the `[boot] hd textures:` lines (zip read, mounted through
-   which root, which copy the engine's lookup returned; also Status › Game host › HD textures). In a bot match plain
-   concrete walls and floors turn **magenta** (the logical name), **green** (`8/dbd2f1.f`) or **blue**
-   (`Data/8/dbd2f1.f`); normal concrete means `Data/` still wins. Screenshot, then delete the zip.
+7. **HD texture probe**: done on 2026-10-28; route B failed, route A works ("HD texture probe: result" above).
 8. **Reminders**: with notifications allowed, leave the game so it schedules its local reminders and wait for one: it
    arrives. Tapping it only dismisses it on Android 12+ (expected; open the game from the launcher). After a reboot
    reminders still come. A reminder that build 9 scheduled may arrive once more after the update (expected).
