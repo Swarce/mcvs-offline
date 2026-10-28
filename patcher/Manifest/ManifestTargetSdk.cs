@@ -26,7 +26,8 @@ namespace McvsOffline.Patcher.Manifest
     /// </list>
     /// compileSdkVersion and platformBuildVersion* stay as shipped (informational). The settings page's layouts get their
     /// edge-to-edge fix from <see cref="BrowserLayoutInsets"/>; the dex side (PendingIntent flags, receivers, Google Analytics)
-    /// is a separate edit of classes.dex. Target 29 changes nothing at all. A target of 31 or more needs "debloat": the
+    /// is a separate edit of classes.dex, without which ApkPatcher refuses 31+ (<see cref="DefaultTarget"/>). Target 29
+    /// changes nothing at all. A target of 31 or more needs "debloat": the
     /// GCM and ad components it removes would otherwise need their own exported values and PendingIntent fixes.
     /// </summary>
     public static class ManifestTargetSdk
@@ -37,13 +38,31 @@ namespace McvsOffline.Patcher.Manifest
         /// <summary>The shipped targetSdkVersion: --target-sdk 29 keeps the manifest exactly as without the patch.</summary>
         public const int ShippedTarget = 29;
 
-        public const int DefaultTarget = 35;
+        /// <summary>
+        /// The target without --target-sdk. The owner's choice is 35, but the manifest is only half of it: from
+        /// <see cref="DexEditsRequiredFrom"/> on the game's own classes.dex throws (a PendingIntent without a mutability flag,
+        /// a receiver registered without an exported flag; target-sdk.md §7: "T2 alone is not shippable"), and those edits
+        /// (WP-T3) are not in this patcher yet. Until they are, the default stays the shipped 29 (the default output is
+        /// today's) and ApkPatcher refuses 31+ unless classes.dex was edited in the same run; the change that adds them
+        /// sets 35 here.
+        /// </summary>
+        public const int DefaultTarget = ShippedTarget;
 
         /// <summary>The values --target-sdk accepts.</summary>
         public static readonly IReadOnlyList<int> SupportedTargets = new[] { 29, 35, 36 };
 
         /// <summary>From this target on, PackageManager refuses an intent-filter component without android:exported.</summary>
         public const int ExportedRequiredFrom = 31;
+
+        /// <summary>
+        /// From this target on the game's classes.dex needs the targetsdk edits (Android 12 throws IllegalArgumentException
+        /// for MainActivity's restart PendingIntent, flags 0x8000 only; Android 14 throws SecurityException for receivers
+        /// registered without an exported flag at 34+).
+        /// </summary>
+        public const int DexEditsRequiredFrom = 31;
+
+        /// <summary>The dex entry holding the PendingIntent and receiver sites (MainActivity, GMPHelper).</summary>
+        public const string DexEntry = "classes.dex";
 
         /// <summary>SHA-256 of 1.17.32's AndroidManifest.xml as shipped (23,092 bytes, CRC32 717fdb3c).</summary>
         public const string ShippedManifestSha256 = "8c28916b39da66c1980f3335bb19c0a4eb7a72bb2c33810e29fc584dc02a3db2";

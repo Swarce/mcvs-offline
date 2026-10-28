@@ -452,8 +452,8 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Equal(libsIn, result.Entries.Select(e => e.Name).Where(n => n.StartsWith("lib/", StringComparison.Ordinal)));
             Assert.Contains(report.Notes, n => n.StartsWith("debloat: dropped 9 Crashlytics/Fabric files", StringComparison.Ordinal));
 
-            // The manifest is the permission rename plus the debloat, one note per removed element, then the default
-            // targetsdk edits (ManifestTargetSdkTests).
+            // The manifest is the permission rename plus the debloat, one note per removed element, then the targetsdk edits
+            // of the default target (none at 29; ManifestTargetSdkTests).
             byte[] original = input.Find(ManifestPatch.EntryName).GetData();
             Assert.Equal(ManifestTargetSdk.Edit(ManifestDebloat.Apply(ManifestPatch.Apply(original, null), null), ManifestTargetSdk.DefaultTarget, null),
                          result.Find(ManifestPatch.EntryName).GetData());
@@ -467,7 +467,8 @@ namespace McvsOffline.Embed.Tests.Patcher
             string badging = Aapt2Dump.Badging(outApk);
             Assert.Contains("package: name='" + KnownBuild.PackageName + "' versionCode='1173200' versionName='1.17.32'", badging);
             Assert.Contains("launchable-activity: name='com.gameloft.android.XamarinMainActivity'", badging);
-            Assert.Equal(ManifestDebloatTests.KeptPermissions.Concat(new[] { ManifestTargetSdk.PostNotifications }), Aapt2Dump.UsesPermissions(badging));
+            var notification = ManifestTargetSdk.DefaultTarget >= 33 ? new[] { ManifestTargetSdk.PostNotifications } : new string[0];   // 29 until the dex edits are in
+            Assert.Equal(ManifestDebloatTests.KeptPermissions.Concat(notification), Aapt2Dump.UsesPermissions(badging));
             Assert.Contains("native-code: 'arm64-v8a' 'armeabi-v7a'", badging);
         }
 

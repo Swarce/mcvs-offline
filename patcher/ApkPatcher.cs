@@ -46,9 +46,10 @@ namespace McvsOffline.Patcher
     /// installs next to other Gameloft games (<see cref="ManifestPatch"/>);</item>
     /// <item>with "debloat" (default): remove the manifest declarations of SDK components that are dead offline
     /// (<see cref="ManifestDebloat"/>) and drop the Crashlytics/Fabric files nothing loads (<see cref="DebloatDroppedEntries"/>);</item>
-    /// <item>with "targetsdk" (default): raise targetSdkVersion to --target-sdk (default 35) with what that target needs in the
-    /// manifest (<see cref="ManifestTargetSdk"/>) and the settings page's two browser layouts (<see cref="BrowserLayoutInsets"/>);
-    /// --target-sdk 29 leaves both as shipped;</item>
+    /// <item>with "targetsdk" (default): raise targetSdkVersion to --target-sdk with what that target needs in the manifest
+    /// (<see cref="ManifestTargetSdk"/>) and the settings page's two browser layouts (<see cref="BrowserLayoutInsets"/>);
+    /// 29, the default until the classes.dex edits are in (31+ is refused without them, <see cref="CheckDexEdits"/>), leaves
+    /// both as shipped;</item>
     /// <item>keep every other entry byte-identical (same compression method and bytes; lib/ stays DEFLATED, which
     /// matches the default extractNativeLibs=true of this manifest);</item>
     /// <item>align (4 / 4096 for stored .so) and sign v1+v2(+v3) with the player's key.</item>
@@ -132,7 +133,8 @@ namespace McvsOffline.Patcher
                 CheckDebloatEntries(input);
                 manifest = ManifestDebloat.Apply(manifest ?? manifestEntry.GetData(), report.Notes);
             }
-            var layouts = new SortedDictionary<string, byte[]>(StringComparer.Ordinal);
+            // Entries "targetsdk" replaces under the same name: the two browser layouts (and classes.dex once the dex edits are in).
+            var replaced = new SortedDictionary<string, byte[]>(StringComparer.Ordinal);
             if (options.Patches != null && options.Patches.Contains(ManifestTargetSdk.PatchId))
             {
                 int target = options.EffectiveTargetSdk;
@@ -149,20 +151,21 @@ namespace McvsOffline.Patcher
                     {
                         ZipEntry layout = input.Find(name) ?? throw new InvalidDataException(options.InputApk + " has no " + name + ": not the verified " + KnownBuild.Version +
                                                                                               " APK (use --target-sdk " + ManifestTargetSdk.ShippedTarget + ")");
-                        layouts[name] = BrowserLayoutInsets.Apply(name, layout.GetData(), report.Notes);
+                        replaced[name] = BrowserLayoutInsets.Apply(name, layout.GetData(), report.Notes);
                     }
                 }
             }
+            CheckDexEdits(options, replaced.Keys);
 
             byte[] rawArgs = RawArgsFor(input, options, report);
 
             CheckAbis(input, options.Abis, report);
-            List<ZipEntry> output = ComposeEntries(input, modifiedAssemblies, manifest, layouts, rawArgs, serverBytes, options.StripAot, options.Abis, debloat, report);
+            List<ZipEntry> output = ComposeEntries(input, modifiedAssemblies, manifest, replaced, rawArgs, serverBytes, options.StripAot, options.Abis, debloat, report);
             report.Warnings.AddRange(StaleAotNotes(input, output, modifiedAssemblies.Keys));
             byte[] unsigned = ZipArchiveWriter.Write(output);
             var modifiedEntries = modifiedAssemblies.Keys.Select(f => KnownBuild.AssembliesDir + f).ToList();
             if (manifest != null) modifiedEntries.Add(ManifestPatch.EntryName);
-            modifiedEntries.AddRange(layouts.Keys);
+            modifiedEntries.AddRange(replaced.Keys);
             if (rawArgs != null) modifiedEntries.Add(KnownBuild.RawArgsEntry);
             VerifyUnchanged(input, ZipArchiveReader.Read(unsigned), modifiedEntries, report);
 
@@ -265,6 +268,23 @@ namespace McvsOffline.Patcher
                                             "declared and are not ready for target " + ManifestTargetSdk.ExportedRequiredFrom + "+): add debloat to --patch, or use --target-sdk " +
                                             ManifestTargetSdk.ShippedTarget);
             }
+        }
+
+        /// <summary>
+        /// A target of <see cref="ManifestTargetSdk.DexEditsRequiredFrom"/> or more is only written with the game's
+        /// classes.dex edited in the same run (<paramref name="replaced"/>, the entries "targetsdk" replaced): the manifest
+        /// alone would give an APK whose restart PendingIntent and billing receiver throw on Android 12+ / 14+
+        /// (target-sdk.md §4.2, §4.10). This patcher has no dex edits yet, so it refuses such a target (before anything is
+        /// written, dry run included); <see cref="ManifestTargetSdk.DefaultTarget"/> stays 29 until it has them.
+        /// </summary>
+        internal static void CheckDexEdits(PatcherOptions options, IEnumerable<string> replaced)
+        {
+            int target = options.EffectiveTargetSdk;
+            if (target < ManifestTargetSdk.DexEditsRequiredFrom || options.TestOnlyTargetSdkWithoutDex) return;
+            if (replaced.Contains(ManifestTargetSdk.DexEntry, StringComparer.Ordinal)) return;
+            throw new InvalidOperationException("target SDK " + target + " needs the '" + ManifestTargetSdk.PatchId + "' edits of " + ManifestTargetSdk.DexEntry +
+                                                " (PendingIntent flags, receiver export flags; docs/research/target-sdk.md WP-T3), which this patcher " +
+                                                "does not have yet: nothing was written, use --target-sdk " + ManifestTargetSdk.ShippedTarget);
         }
 
         /// <summary>lib/&lt;abi&gt;/... -> abi, or null for any other entry.</summary>
