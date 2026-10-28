@@ -583,9 +583,14 @@ namespace McvsOffline.Embed.Tests.Embedded
             string list = "# test\nmcvs-replaced\t1\tASTC\t1.17.32\nData/1/0018344.f\t" + hd.Length + "\t" + Crc32.Update(0, hd, 0, hd.Length).ToString("x8") + "\t" +
                           original.Length + "\t" + Crc32.Update(0, original, 0, original.Length).ToString("x8") + "\n";
             File.WriteAllText(env.Loc.ReplacedList, list);
+            // A damaged list of the old data's background check: it says nothing about the new data.
+            File.WriteAllText(env.Loc.DamagedList, "Data/a/4309cd.f\nData/1/0018344.f\n");
 
             InstallerDataResult result = InstallerData.Prepare(env.Loc, env.Prefs, options(), env.Log, 10);
             output.WriteLine(env.Text);
+            Assert.False(File.Exists(env.Loc.DamagedList));
+            Assert.True(File.Exists(env.Path_("Data/a/4309cd.f")));
+            Assert.Equal(hd, File.ReadAllBytes(env.Path_("Data/1/0018344.f")));
             string described = "ASTC with 1 replaced files, 4 files, " + shipped.Entries.Count + " entries";
             Assert.Equal("installer data: index switched to the saved index (" + described + ")", result.Summary);
             Assert.Equal(shipped.Raw, File.ReadAllBytes(env.Loc.PackInfo));

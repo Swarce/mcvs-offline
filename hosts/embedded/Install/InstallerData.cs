@@ -338,14 +338,18 @@ namespace McvsOffline.Embedded.Install
             string parseError = null;
             PackIndex internalIndex = internalRaw == null ? null : PackIndex.TryParse(internalRaw, out parseError);
             bool hasData = Directory.Exists(loc.DataDir);
+            if (internalIndex != null && glVer == ApkVersionCode && !internalIndex.IsRebuilt)
+            {
+                // First, as the damaged list of the old data must not be checked against the old index.
+                string switched = SwitchToSavedIndex(loc, prefs, options, log, now, internalIndex, restored);
+                if (switched != null) return switched;
+            }
             RemoveDamaged(loc, internalIndex != null && !internalIndex.IsRebuilt ? internalIndex : null, log);
 
             if (internalIndex != null && glVer == ApkVersionCode)
             {
                 if (!internalIndex.IsRebuilt)
                 {
-                    string switched = SwitchToSavedIndex(loc, prefs, options, log, now, internalIndex, restored);
-                    if (switched != null) return switched;
                     // Its journal is the installer's own business: a half-finished download leaves pre-allocated split files whose
                     // size looks right, so pieces are never added to it from sizes here.
                     SaveCopy(loc, internalIndex, options, log);
@@ -424,6 +428,12 @@ namespace McvsOffline.Embedded.Install
                 log.Info("installer data: the data matches neither the installer's index (" + current.Describe() + ") nor the saved index (" +
                          check.Describe() + "); the installer's is kept");
                 return null;
+            }
+            if (File.Exists(loc.DamagedList))
+            {
+                // Found by the background check of the data that was there before: it says nothing about this data.
+                log.Info("installer data: " + loc.DamagedList + " lists files of the data that was there before; removed");
+                TryDelete(loc.DamagedList, log);
             }
             Install(loc, prefs, options, log, now, saved, check, "saved index", restored);
             log.Info("installer data: the data on the device is the pack of the saved index " + loc.SavedIndex + " (" + Describe(saved, options) +

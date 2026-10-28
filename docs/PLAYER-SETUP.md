@@ -339,8 +339,10 @@ with the profile and every option. If a profile misbehaves, set it back to `auto
 version of the game has textures at twice the resolution of the phone's for map surfaces, lightmaps, the characters
 and grenades. [tools/hd-textures](../tools/hd-textures/README.md) converts them, on your own computer from your own Steam
 copy, into an **HD pack** for your phone's data: a file named `mcvs-hd-<scope>.zip` (`mcvs-hd-default.zip` for the
-whole set). HD packs exist only for the **ETC** data pack for now: the converter writes ETC1 textures and refuses an ASTC
-`Data/` folder, so a phone on the ASTC pack cannot use them yet. The two variants are explained in INSTALL-OFFLINE.md;
+whole set). HD packs are for the **ETC** data pack: the converter writes ETC1 textures and refuses an ASTC `Data/`
+folder. For a phone with ASTC (the Galaxy S22) the same tool writes a whole **ASTC HD data pack** instead
+(`astc-pack`: Gameloft's ASTC pack with every sharper PC texture in it, all categories), which replaces `Data/` as a
+whole; installing it is in INSTALL-OFFLINE.md, "The ASTC HD data pack". The two variants are explained there too;
 the start-up log line `[boot] installer data: ...` usually names the one your phone has (`ETC` or `ASTC`). To install
 it, with the game closed:
 

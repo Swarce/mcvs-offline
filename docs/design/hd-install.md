@@ -22,7 +22,7 @@ reason on Status and in the log, when any of this does not hold:
 |---|---|
 | `kind` | must be `"hd-textures"` |
 | `format` | must be the number `1`; a higher one is refused ("this build reads format 1") |
-| `pack` | `"ETC"` today. When the phone's index is recognisably the other data pack (ASTC), the pack is refused as a whole |
+| `pack` | `"ETC"` today. When the phone's index is recognisably the other data pack (ASTC, also the ASTC HD data pack of hd-textures.md §6, recognised through its `McvsOffline/install/replaced.tsv`), the pack is refused as a whole |
 | `files` | at least one |
 | `files[].entry` | `Data/<dir>/<name>.f`: exactly three parts, no `.`/`..`, no backslash, no part starting with `.`; listed once; a stored zip entry of that name whose size and CRC-32 are `replacement`'s |
 | `files[].original` | `size` and `crc32` (8 hex digits; a JSON number is read too) of the file it replaces, as it is in the phone's `Data/`. `width`, `height`, `mipLevels` are not used |
