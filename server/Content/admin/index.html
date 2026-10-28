@@ -159,7 +159,7 @@ p { margin: 4px 0 8px; }
         </div>
         <div id="settings-repairpanel" style="display:none">
           <h2>settings.json cannot be read</h2>
-          <p>The game runs with the default settings and leaves your file as it is.</p>
+          <p>The game runs with the default settings and leaves your file as it is. The Cosmetic crate is off until then (its switch cannot be read); the repaired file starts from the defaults, where it is on.</p>
           <div class="kv"><span class="k">Problem</span><span id="settings-error" class="v mono"></span></div>
           <div class="kv"><span class="k">File</span><span id="settings-path" class="v mono"></span></div>
           <div class="btnrow"><button id="settings-showfile" type="button">Show the file</button><button id="settings-repair" class="danger" type="button">Move the broken file aside and start from the defaults</button></div>
@@ -1339,7 +1339,7 @@ p { margin: 4px 0 8px; }
     var left = add(row, el('div', 'rl'));
     add(left, el('div', 'lbl', k.label || k.key));
     if (k.help) add(left, el('div', 'help', k.help));
-    if (k.invalidStored) add(left, el('div', 'rowerr', 'The value in settings.json is not valid; the default is used.'));
+    if (k.invalidStored) add(left, el('div', 'rowerr', k.invalidNote || 'The value in settings.json is not valid; the default is used.'));
     var meta = add(left, el('div', 'meta'));
     var errLine = add(left, el('div', 'rowerr'));
     var right = add(row, el('div', 'rc'));

@@ -30,7 +30,9 @@ namespace McvsOffline.Server.Services.Crm.Collector
     /// "yes"/"no", and <c>"collector": false</c> (a bool instead of the object) is read as <c>enabled: false</c>, so the
     /// plain ways of writing the opt-out (O7) switch it off. The kill switch fails toward today's behaviour (owner
     /// decision on O7): an <c>enabled</c> value that cannot be read, or a <c>collector</c> that is neither an object nor
-    /// a bool, switches the collector <b>off</b>, logged as an error. Absent or null means the default, on.
+    /// a bool, switches the collector <b>off</b>, logged as an error; so does a settings.json the server cannot parse at
+    /// all (<see cref="Settings.IsFallback"/>: its in-memory defaults say on, but the player's switch is unknown). Absent or
+    /// null means the default, on.
     /// </summary>
     public sealed class CollectorOptions
     {
@@ -143,6 +145,15 @@ namespace McvsOffline.Server.Services.Crm.Collector
         {
             log = log ?? Log.Null;
             var o = new CollectorOptions();
+            if (settings != null && settings.IsFallback)
+            {
+                // The running settings are the defaults (enabled: true), not the player's file: the kill switch in it
+                // cannot be read, so it counts as off (O7) until the file is fixed or repaired.
+                o.Enabled = false;
+                log.Error("settings: settings.json cannot be read, so neither can " + SettingsPath + ".enabled; the collector is "
+                          + "switched off (an unreadable kill switch restores the original rewards) until the file is fixed");
+                return o;
+            }
             object raw = settings == null ? null : settings.Get(SettingsPath);
             if (raw == null) return o;
             var s = raw as Dictionary<string, object>;
@@ -294,7 +305,7 @@ namespace McvsOffline.Server.Services.Crm.Collector
         /// A bool as <see cref="JsonValue.AsBool"/> reads it (true/false, 1/0, "true"/"false"/"1"/"0"), and also the words
         /// "on"/"off" and "yes"/"no" (any case): someone switching the collector off with one of them means off. Null otherwise.
         /// </summary>
-        private static bool? Switch(object raw)
+        internal static bool? Switch(object raw)
         {
             bool? value = JsonValue.AsBool(raw);
             if (value.HasValue) return value;

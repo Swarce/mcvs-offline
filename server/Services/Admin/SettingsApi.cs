@@ -8,6 +8,7 @@ using McvsOffline.Server.Core.Http;
 using McvsOffline.Server.Core.Json;
 using McvsOffline.Server.Core.Storage;
 using McvsOffline.Server.Services.Assets;
+using McvsOffline.Server.Services.Crm.Collector;
 using McvsOffline.Server.Services.Storage;
 
 namespace McvsOffline.Server.Services.Admin
@@ -94,9 +95,13 @@ namespace McvsOffline.Server.Services.Admin
                     {
                         if (def.Group != group.Id) continue;
                         Dictionary<string, object> entry = SettingsSchema.Describe(def);
-                        bool invalid;
-                        entry["value"] = SettingsSchema.Coerce(def, Settings.Get(def.Key), out invalid);
-                        if (invalid) entry["invalidStored"] = true;
+                        string invalidNote;
+                        entry["value"] = SettingsSchema.Read(def, Settings, out invalidNote);
+                        if (invalidNote != null)
+                        {
+                            entry["invalidStored"] = true;
+                            entry["invalidNote"] = invalidNote;
+                        }
                         keys.Add(entry);
                     }
                 }
@@ -266,8 +271,8 @@ namespace McvsOffline.Server.Services.Admin
                 foreach (var kv in normalized)
                 {
                     SettingDefinition def = SettingsSchema.Find(kv.Key);
-                    bool invalid;
-                    object old = SettingsSchema.Coerce(def, Settings.Get(kv.Key), out invalid);
+                    string invalidNote;
+                    object old = SettingsSchema.Read(def, Settings, out invalidNote);
                     oldValues[kv.Key] = old;
                     if (def.BackupBefore == "any" && !JsonValue.DeepEquals(old, kv.Value)) backupWanted = true;
                     if (def.BackupBefore == "enable" && Equals(old, false) && Equals(kv.Value, true)) backupWanted = true;
@@ -278,7 +283,7 @@ namespace McvsOffline.Server.Services.Admin
                 // 5. Write everything or nothing.
                 try
                 {
-                    Settings.SetAndSave(normalized);
+                    Settings.SetAndSave(Writes(normalized));
                 }
                 catch (Exception ex)
                 {
@@ -310,6 +315,38 @@ namespace McvsOffline.Server.Services.Admin
                 result["settings"] = Describe();
                 return AdminJson.Ok(result);
             }
+        }
+
+        /// <summary>
+        /// What step 5 writes: the changes, except that a Cosmetic crate key written while <c>economy.collector</c> is not
+        /// an object (the shorthand <c>"collector": false</c>, or a value the collector cannot read, which is off) first
+        /// turns it into <c>{"enabled": &lt;what the collector read&gt;}</c>. Writing the sub-key alone would replace the
+        /// value with an object without <c>enabled</c>, and so switch the crate back on.
+        /// </summary>
+        private Dictionary<string, object> Writes(Dictionary<string, object> normalized)
+        {
+            object collector = Settings.Get(CollectorOptions.SettingsPath);
+            bool touchesCollector = false;
+            foreach (string key in normalized.Keys)
+            {
+                if (key.StartsWith(CollectorOptions.SettingsPath + ".", StringComparison.Ordinal)) touchesCollector = true;
+            }
+            if (!touchesCollector || collector == null || collector is Dictionary<string, object>) return normalized;
+
+            var block = new Dictionary<string, object>(StringComparer.Ordinal);
+            block["enabled"] = CollectorOptions.FromSettings(Settings, null).Enabled;
+            api.Log.Info("admin: settings " + CollectorOptions.SettingsPath + " " + MiniJson.Serialize(collector) + " is written as an object "
+                         + "with enabled = " + ((bool)block["enabled"] ? "true" : "false") + " (the kill switch kept)");
+            var writes = new Dictionary<string, object>(StringComparer.Ordinal);
+            foreach (var kv in normalized)
+            {
+                // The catalogue's collector keys are direct children of economy.collector.
+                if (kv.Key.StartsWith(CollectorOptions.SettingsPath + ".", StringComparison.Ordinal))
+                    block[kv.Key.Substring(CollectorOptions.SettingsPath.Length + 1)] = kv.Value;
+                else writes[kv.Key] = kv.Value;
+            }
+            writes[CollectorOptions.SettingsPath] = block;
+            return writes;
         }
 
         private object TakeBackup(List<object> warnings)

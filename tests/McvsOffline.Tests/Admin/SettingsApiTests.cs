@@ -160,8 +160,86 @@ namespace McvsOffline.Tests.Admin
                 var entry = Entry(AdminTestClient.Json(rig.Client.Get("settings")), "economy.collector.enabled");
                 Assert.Equal(false, entry["value"]);
                 Assert.Equal(true, entry["invalidStored"]);
+                Assert.Equal("settings.json holds \"maybe\", which the server cannot read as on or off: the Cosmetic crate is off.", entry["invalidNote"]);
                 Assert.False(McvsOffline.Server.Services.Crm.Collector.CollectorRuntime.For(rig.Server.Context).Options.Enabled);
             }
+        }
+
+        /// <summary>
+        /// The kill switch's shorthand <c>"collector": false</c> (ECONOMY.md §5): the page shows the crate off, and saving
+        /// the item count keeps it off (economy.collector becomes {"enabled": false, "itemsPerCrate": N}). A collector
+        /// value the server cannot read is shown off, flagged, and kept off the same way (O7).
+        /// </summary>
+        [Theory]
+        [InlineData("false", false, false)]
+        [InlineData("\"off\"", false, true)]
+        [InlineData("\"maybe\"", false, true)]
+        [InlineData("2.5", false, true)]
+        [InlineData("true", true, false)]
+        public void TheKillSwitchShorthandSurvivesAnItemsEdit(string collector, bool enabled, bool flagged)
+        {
+            using var rig = new Rig("{\"economy\":{\"collector\":" + collector + "}}");
+            var runtime = McvsOffline.Server.Services.Crm.Collector.CollectorRuntime.For(rig.Server.Context);
+            Assert.Equal(enabled, runtime.Options.Enabled);
+            var settings = AdminTestClient.Json(rig.Client.Get("settings"));
+            var entry = Entry(settings, "economy.collector.enabled");
+            Assert.Equal(enabled, entry["value"]);
+            Assert.Equal(flagged, entry.ContainsKey("invalidStored"));
+            Assert.Equal(5L, Entry(settings, "economy.collector.itemsPerCrate")["value"]);
+
+            Assert.Equal(200, rig.Save(new Dictionary<string, object> { ["economy.collector.itemsPerCrate"] = 3L }).StatusCode);
+            Assert.Equal(enabled, JsonPath.Get(rig.Disk(), "economy.collector.enabled"));
+            Assert.Equal(3L, JsonPath.Get(rig.Disk(), "economy.collector.itemsPerCrate"));
+            Assert.Equal(enabled, runtime.Options.Enabled);
+            Assert.Equal(3, runtime.Options.ItemsPerCrate);
+            Assert.True(rig.Logs.Contains("admin: settings economy.collector " + collector + " is written as an object with enabled = "
+                                          + (enabled ? "true" : "false") + " (the kill switch kept)"));
+            settings = AdminTestClient.Json(rig.Client.Get("settings"));
+            Assert.Equal(enabled, Entry(settings, "economy.collector.enabled")["value"]);
+            Assert.False(Entry(settings, "economy.collector.enabled").ContainsKey("invalidStored"));
+
+            // A reset of the item count goes the same way.
+            Assert.Equal(200, rig.Client.Post("settings/reset", new Dictionary<string, object> { ["keys"] = new List<object> { "economy.collector.itemsPerCrate" } }).StatusCode);
+            Assert.Equal(enabled, runtime.Options.Enabled);
+        }
+
+        /// <summary>The page shows the item count the collector uses: a numeric string, a clamped value, flagged.</summary>
+        [Fact]
+        public void TheItemCountIsShownAsTheCollectorReadsIt()
+        {
+            using (var rig = new Rig("{\"economy\":{\"collector\":{\"itemsPerCrate\":\"8\"}}}"))
+            {
+                var entry = Entry(AdminTestClient.Json(rig.Client.Get("settings")), "economy.collector.itemsPerCrate");
+                Assert.Equal(8L, entry["value"]);
+                Assert.Equal(true, entry["invalidStored"]);
+                Assert.Equal(8, McvsOffline.Server.Services.Crm.Collector.CollectorRuntime.For(rig.Server.Context).Options.ItemsPerCrate);
+            }
+            using (var rig = new Rig("{\"economy\":{\"collector\":{\"itemsPerCrate\":15}}}"))
+            {
+                var entry = Entry(AdminTestClient.Json(rig.Client.Get("settings")), "economy.collector.itemsPerCrate");
+                Assert.Equal(10L, entry["value"]);
+                Assert.Equal("settings.json holds 15; the server uses 10.", entry["invalidNote"]);
+                Assert.Equal(10, McvsOffline.Server.Services.Crm.Collector.CollectorRuntime.For(rig.Server.Context).Options.ItemsPerCrate);
+            }
+        }
+
+        /// <summary>
+        /// A settings.json the server cannot parse leaves the kill switch unreadable: the Cosmetic crate is off (O7) until
+        /// the file is repaired, which starts from the defaults (on).
+        /// </summary>
+        [Fact]
+        public void ABrokenFileSwitchesTheCosmeticCrateOff()
+        {
+            using var rig = new Rig("{\"economy\":{\"collector\":{\"enabled\":false}}, \"instantBots\": true,, }");
+            var runtime = McvsOffline.Server.Services.Crm.Collector.CollectorRuntime.For(rig.Server.Context);
+            Assert.True(rig.Server.Context.Settings.IsFallback);
+            Assert.False(runtime.Options.Enabled);
+            var entry = Entry(AdminTestClient.Json(rig.Client.Get("settings")), "economy.collector.enabled");
+            Assert.Equal(false, entry["value"]);
+            Assert.Equal("settings.json cannot be read, so the Cosmetic crate is off until it is repaired.", entry["invalidNote"]);
+
+            Assert.Equal(200, rig.Client.Post("settings/repair", new Dictionary<string, object> { ["confirm"] = "move-aside" }).StatusCode);
+            Assert.True(runtime.Options.Enabled);
         }
 
         [Fact]

@@ -256,8 +256,9 @@ namespace McvsOffline.Tests.Admin
 
         /// <summary>
         /// The Cosmetic crate's two keys (docs/design/economy-collector.md §4.4): a switch and a 1-10 stepper in the Economy
-        /// group, read at the next CRM fetch. A stored kill switch the collector cannot read shows what the collector does
-        /// with it, off (O7), not the default.
+        /// group, read at the next CRM fetch; switching asks first (the running events restart). Both show what the
+        /// collector reads (<see cref="SettingsSchema.Read"/>), flagged when settings.json holds something else: a kill
+        /// switch it cannot read is off (O7), not the default; the shorthand <c>"collector": false</c> is off.
         /// </summary>
         [Fact]
         public void TheCosmeticCrateKeys()
@@ -266,7 +267,8 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal(("economy", "bool", "menu", "Cosmetic crate"), (enabled.Group, enabled.Type, enabled.Apply, enabled.Label));
             Assert.Contains("daily missions, weekly events and season rewards", enabled.Help);
             Assert.Contains("Off restores the original rewards", enabled.Help);
-            Assert.Null(enabled.Confirm);
+            Assert.Contains("progress is lost", enabled.Confirm);
+            Assert.Equal(("any", null), (enabled.ConfirmWhen, enabled.BackupBefore));
             SettingDefinition items = Def("economy.collector.itemsPerCrate");
             Assert.Equal(("economy", "int", "menu", "Items per Cosmetic crate"), (items.Group, items.Type, items.Apply, items.Label));
             Assert.Equal((1.0, 10.0, 1.0), (items.Min.Value, items.Max.Value, items.Step.Value));
@@ -276,18 +278,62 @@ namespace McvsOffline.Tests.Admin
             Assert.False(Check("economy.collector.itemsPerCrate", 2.5).ok);
             Assert.False(Check("economy.collector.enabled", "off").ok);
 
-            foreach (var (stored, shown) in new (object, bool)[] { ("maybe", false), (2.5, false), ("off", false), (0L, false), ("yes", true), (1L, true) })
+            object Shown(SettingDefinition def, object collector, out string note)
             {
-                Assert.Equal(shown, SettingsSchema.Coerce(enabled, stored, out bool invalid));
-                Assert.True(invalid, MiniJson.Serialize(stored));
-                Assert.Equal(shown, CollectorOptions.ReadEnabled(stored));
+                var settings = new Settings();
+                settings.Override("economy.collector", collector);
+                return SettingsSchema.Read(def, settings, out note);
             }
-            Assert.Equal(true, SettingsSchema.Coerce(enabled, null, out bool unset));
-            Assert.False(unset);
-            Assert.Equal(false, SettingsSchema.Coerce(enabled, false, out unset));
-            Assert.False(unset);
-            Assert.Equal(5L, SettingsSchema.Coerce(items, "many", out unset));
-            Assert.True(unset);
+            Dictionary<string, object> Block(string key, object value) => new Dictionary<string, object> { [key] = value };
+            string n;
+
+            foreach (var (stored, shown, readable) in new (object, bool, bool)[]
+                     { ("maybe", false, false), (2.5, false, false), ("off", false, true), (0L, false, true), ("yes", true, true), (1L, true, true) })
+            {
+                Assert.Equal(shown, Shown(enabled, Block("enabled", stored), out n));
+                Assert.Equal("settings.json holds " + MiniJson.Serialize(stored)
+                             + (readable ? ", which the server reads as " + (shown ? "on." : "off.") : ", which the server cannot read as on or off: the Cosmetic crate is off."), n);
+                Assert.Equal(shown, CollectorOptions.ReadEnabled(stored));
+
+                // The same values as the whole of economy.collector (the shorthand).
+                Assert.Equal(shown, Shown(enabled, stored, out n));
+                Assert.StartsWith("settings.json holds " + MiniJson.Serialize(stored) + " as economy.collector, which ", n);
+                Assert.Equal(5L, Shown(items, stored, out n));
+                Assert.Null(n);
+            }
+            Assert.Equal(true, Shown(enabled, null, out n));
+            Assert.Null(n);
+            Assert.Equal(false, Shown(enabled, Block("enabled", false), out n));
+            Assert.Null(n);
+            // "collector": false is the documented shorthand: off, and not flagged.
+            Assert.Equal(false, Shown(enabled, false, out n));
+            Assert.Null(n);
+            Assert.Equal(true, Shown(enabled, true, out n));
+            Assert.Null(n);
+            Assert.Equal(true, Shown(enabled, Block("itemsPerCrate", 3L), out n));
+            Assert.Null(n);
+
+            // itemsPerCrate as the collector reads it: numeric strings, clamped to 1..10, the default for the rest.
+            Assert.Equal(3L, Shown(items, Block("itemsPerCrate", 3L), out n));
+            Assert.Null(n);
+            Assert.Equal(3L, Shown(items, Block("itemsPerCrate", 3.0), out n));
+            Assert.Null(n);
+            Assert.Equal(8L, Shown(items, Block("itemsPerCrate", "8"), out n));
+            Assert.Equal("settings.json holds \"8\"; the server uses 8.", n);
+            Assert.Equal(10L, Shown(items, Block("itemsPerCrate", 15L), out n));
+            Assert.Equal("settings.json holds 15; the server uses 10.", n);
+            Assert.Equal(1L, Shown(items, Block("itemsPerCrate", 0L), out n));
+            Assert.Equal("settings.json holds 0; the server uses 1.", n);
+            Assert.Equal(5L, Shown(items, Block("itemsPerCrate", "many"), out n));
+            Assert.Equal("settings.json holds \"many\"; the server uses 5.", n);
+            Assert.Equal(5L, Shown(items, Block("itemsPerCrate", true), out n));
+            Assert.NotNull(n);
+
+            // The other keys: the default for a value of the wrong type, with the generic note.
+            var other = new Settings();
+            other.Override("instantBots", "maybe");
+            Assert.Equal(true, SettingsSchema.Read(Def("instantBots"), other, out n));
+            Assert.Equal(SettingsSchema.InvalidNote, n);
 
             // The presets keep to the currency keys.
             foreach (SettingPreset preset in SettingsSchema.Presets)

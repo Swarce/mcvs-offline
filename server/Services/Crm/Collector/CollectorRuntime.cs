@@ -90,17 +90,18 @@ namespace McvsOffline.Server.Services.Crm.Collector
             }
         }
 
-        /// <summary>The options of the current settings (parsed again only when <c>economy.collector</c> changed).</summary>
+        /// <summary>The options of the current settings (parsed again only when <c>economy.collector</c> or <see cref="Settings.IsFallback"/> changed).</summary>
         public CollectorOptions Options
         {
             get
             {
-                string key = MiniJson.Serialize(context.Settings.Get(CollectorOptions.SettingsPath));
+                Settings settings = context.Settings;
+                string key = (settings.IsFallback ? "fallback|" : "") + MiniJson.Serialize(settings.Get(CollectorOptions.SettingsPath));
                 lock (gate)
                 {
                     if (options == null || !string.Equals(optionsKey, key, StringComparison.Ordinal))
                     {
-                        options = CollectorOptions.FromSettings(context.Settings, log);
+                        options = CollectorOptions.FromSettings(settings, log);
                         optionsKey = key;
                     }
                     return options;
@@ -171,7 +172,8 @@ namespace McvsOffline.Server.Services.Crm.Collector
             bool? patch = StorePatch;
 
             string why = null;
-            if (!o.Enabled) why = "economy.collector.enabled is false";
+            if (!o.Enabled)
+                why = context.Settings.IsFallback ? "settings.json cannot be read (the kill switch counts as off)" : "economy.collector.enabled is false";
             else if (!liveOpsOn) why = "live ops are off";
             else if (c == null) why = CollectorContent.FileName + ": " + problem;
             else if (patch == false) why = "store patch missing";
