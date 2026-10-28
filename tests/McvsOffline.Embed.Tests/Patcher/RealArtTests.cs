@@ -104,6 +104,25 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Single(report.Warnings);   // "no project art built in"
         }
 
+        /// <summary>The art committed to art/android/ (what every player's default run applies) patches the real APK unforced.</summary>
+        [Fact]
+        public void TheBuiltInArtPatchesTheRealApk()
+        {
+            string apk = Apk();
+            if (apk == null) return;
+            var embedded = new EmbeddedArtSource();
+            if (embedded.Files.Count == 0)
+            {
+                output.WriteLine("art/android/ holds no art yet: skipped");
+                return;
+            }
+            var report = new PatchReport();
+            ArtResult result = ArtPatch.Prepare(ZipArchiveReader.Read(apk), new PatcherOptions(), report, output.WriteLine, embedded);
+            foreach (string n in report.Notes.Concat(report.Warnings)) output.WriteLine(n);
+            Assert.True(result != null, string.Join("; ", report.Warnings));
+            Assert.DoesNotContain(report.Warnings, w => w.Contains("--force", StringComparison.Ordinal));
+        }
+
         /// <summary>
         /// The real APK with every art option (icon from masters, themed icon, light and dark splash): the replaced and added
         /// entries, and aapt2's dumps: the resource table gains exactly the expected lines, badging is unchanged, the adaptive

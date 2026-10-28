@@ -43,6 +43,10 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.True(s.Splash.HasNight);
             Assert.Null(s.IconBackground);
 
+            // UTF-8 with a byte-order mark (older Windows Notepad) reads the same.
+            byte[] bom = new byte[] { 0xEF, 0xBB, 0xBF }.Concat(Encoding.UTF8.GetBytes(SplashJson)).ToArray();
+            Assert.Equal(0x10181Fu, ArtSettings.Parse(bom).Splash.Background);
+
             ArtSettings icon = ArtSettings.Parse(Encoding.UTF8.GetBytes("{\"icon\": {\"background\": \"#ff8800\"}, \"splash\": null}"));
             Assert.Equal(0xFF8800u, icon.IconBackground);
             Assert.Null(icon.Splash);
@@ -245,6 +249,37 @@ namespace McvsOffline.Embed.Tests.Patcher
             string example = Path.Combine(folder, "art.example.json");
             Assert.True(File.Exists(example));
             Assert.NotNull(ArtSettings.Parse(File.ReadAllBytes(example)).Splash);
+        }
+
+        [Fact]
+        public void TheBuiltInArtIsAcceptedByThePatcher()
+        {
+            // Whatever is committed to art/android/ is what every player's default run (--art auto) applies, and art the patcher
+            // refuses there stops every run: check it here as the patcher will. (Until the art exists, the check runs on fixtures.)
+            var embedded = new EmbeddedArtSource();
+            if (embedded.Files.Count == 0) output.WriteLine("art/android/ holds no art yet: only fixture art is checked");
+            else Accepted(embedded);
+
+            Accepted(ArtFixtures.IconMasters());
+            var bomSettings = new MemoryArtSource();
+            bomSettings.Content["art.json"] = new byte[] { 0xEF, 0xBB, 0xBF }.Concat(Encoding.UTF8.GetBytes(SplashJson)).ToArray();
+            Accepted(bomSettings);
+            MemoryArtSource licensed = ArtFixtures.IconMasters();
+            licensed.Content["LICENSE"] = Encoding.ASCII.GetBytes("CC-BY 4.0");
+            Assert.Contains("unknown file(s) LICENSE", Assert.Throws<InvalidDataException>(() => Accepted(licensed)).Message);
+        }
+
+        /// <summary>
+        /// The art patch with <paramref name="builtIn"/> as the built-in art, on the synthetic APK (--force: its pictures are
+        /// not Gameloft's). Advisory warnings about the pictures are printed, not failed: the spec leaves them to the artist.
+        /// </summary>
+        private void Accepted(ArtSource builtIn)
+        {
+            var report = new PatchReport();
+            ArtResult result = ArtPatch.Prepare(ZipArchiveReader.Read(SyntheticApk()), new PatcherOptions { Force = true }, report, s => output.WriteLine(s), builtIn);
+            Assert.True(result != null, string.Join("; ", report.Warnings));   // null: the art changes nothing
+            foreach (string warning in report.Warnings.Where(w => !w.EndsWith("replaced anyway (--force)", StringComparison.Ordinal)))
+                output.WriteLine("warning: " + warning);
         }
 
         // ---- the whole patcher on a synthetic APK ----

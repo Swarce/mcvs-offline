@@ -164,10 +164,12 @@ namespace McvsOffline.Patcher.Art
         public static ArtSettings Parse(byte[] json)
         {
             var settings = new ArtSettings();
+            // Some editors (older Windows Notepad) save UTF-8 with a byte-order mark, which JsonDocument does not skip.
+            ReadOnlyMemory<byte> text = json.Length >= 3 && json[0] == 0xEF && json[1] == 0xBB && json[2] == 0xBF ? json.AsMemory(3) : json;
             JsonDocument doc;
             try
             {
-                doc = JsonDocument.Parse(json, new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip });
+                doc = JsonDocument.Parse(text, new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip });
             }
             catch (JsonException ex)
             {

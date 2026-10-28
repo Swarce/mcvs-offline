@@ -68,7 +68,7 @@ def px(dp, dpi):
 
 def load_jsonc(path):
     """art.json allows // and /* */ comments and trailing commas (like the patcher)."""
-    text = open(path, encoding="utf-8").read()
+    text = open(path, encoding="utf-8-sig").read()   # -sig: also UTF-8 saved with a byte-order mark
     out, i, n = [], 0, len(text)
     while i < n:
         c = text[i]
