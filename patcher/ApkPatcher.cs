@@ -6,6 +6,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Text;
+using McvsOffline.Patcher.Art;
 using McvsOffline.Patcher.Manifest;
 using McvsOffline.Patcher.Patches;
 using McvsOffline.Patcher.Signing;
@@ -50,6 +51,8 @@ namespace McvsOffline.Patcher
     /// (<see cref="ManifestTargetSdk"/>) and the settings page's two browser layouts (<see cref="BrowserLayoutInsets"/>);
     /// 29, the default until the classes.dex edits are in (31+ is refused without them, <see cref="CheckDexEdits"/>), leaves
     /// both as shipped;</item>
+    /// <item>with project art (--art, <see cref="ArtPatch"/>): replace the launcher icon PNGs in place and add the launch
+    /// screen's theme configurations to resources.arsc; with none (the default today), nothing changes;</item>
     /// <item>keep every other entry byte-identical (same compression method and bytes; lib/ stays DEFLATED, which
     /// matches the default extractNativeLibs=true of this manifest);</item>
     /// <item>align (4 / 4096 for stored .so) and sign v1+v2(+v3) with the player's key.</item>
@@ -158,15 +161,20 @@ namespace McvsOffline.Patcher
             CheckDexEdits(options, replaced.Keys);
 
             byte[] rawArgs = RawArgsFor(input, options, report);
+            ArtResult art = ArtPatch.Prepare(input, options, report, log);
+            string bothReplace = art == null ? null : replaced.Keys.FirstOrDefault(art.Replaced.ContainsKey);
+            if (bothReplace != null)
+                throw new InvalidOperationException("internal error: both \"" + ManifestTargetSdk.PatchId + "\" and the art patch replace " + bothReplace);
 
             CheckAbis(input, options.Abis, report);
-            List<ZipEntry> output = ComposeEntries(input, modifiedAssemblies, manifest, replaced, rawArgs, serverBytes, options.StripAot, options.Abis, debloat, report);
+            List<ZipEntry> output = ComposeEntries(input, modifiedAssemblies, manifest, replaced, rawArgs, art, serverBytes, options.StripAot, options.Abis, debloat, report);
             report.Warnings.AddRange(StaleAotNotes(input, output, modifiedAssemblies.Keys));
             byte[] unsigned = ZipArchiveWriter.Write(output);
             var modifiedEntries = modifiedAssemblies.Keys.Select(f => KnownBuild.AssembliesDir + f).ToList();
             if (manifest != null) modifiedEntries.Add(ManifestPatch.EntryName);
             modifiedEntries.AddRange(replaced.Keys);
             if (rawArgs != null) modifiedEntries.Add(KnownBuild.RawArgsEntry);
+            if (art != null) modifiedEntries.AddRange(art.Replaced.Keys);
             VerifyUnchanged(input, ZipArchiveReader.Read(unsigned), modifiedEntries, report);
 
             if (options.DryRun)
@@ -324,8 +332,8 @@ namespace McvsOffline.Patcher
         }
 
         private static List<ZipEntry> ComposeEntries(ZipArchiveReader.Archive input, Dictionary<string, byte[]> modified, byte[] manifest,
-                                                     IDictionary<string, byte[]> resources, byte[] rawArgs, byte[] serverBytes, AotStripMode stripAot,
-                                                     SortedSet<string> keepAbis, bool debloat, PatchReport report)
+                                                     IDictionary<string, byte[]> resources, byte[] rawArgs, ArtResult art, byte[] serverBytes,
+                                                     AotStripMode stripAot, SortedSet<string> keepAbis, bool debloat, PatchReport report)
         {
             var removeAot = new HashSet<string>(modified.Keys.Select(f => "libaot-" + f + ".so"), StringComparer.Ordinal);
             var output = new List<ZipEntry>();
@@ -381,6 +389,18 @@ namespace McvsOffline.Patcher
                 {
                     output.Add(e.Method == ZipEntry.MethodStored ? ZipEntry.CreateStored(e.Name, rawArgs, e) : ZipEntry.CreateDeflated(e.Name, rawArgs, e));
                     report.Modified.Add(e.Name);
+                    continue;
+                }
+                if (art != null && art.Replaced.ContainsKey(e.Name))
+                {
+                    // Icon PNGs and resources.arsc stay STORED, the adaptive-icon XML DEFLATED, as shipped.
+                    output.Add(art.Entry(e));
+                    report.Modified.Add(e.Name);
+                    foreach (ZipEntry added in art.Additions(e))
+                    {
+                        output.Add(added);
+                        report.Added.Add(added.Name);
+                    }
                     continue;
                 }
                 if (manifest != null && e.Name == ManifestPatch.EntryName)

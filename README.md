@@ -103,6 +103,8 @@ patcher/           McvsOffline.Patcher (net8 + Mono.Cecil): your APK -> the offl
 tests/             McvsOffline.Tests (server modules, core, real-client conformance) and
                    McvsOffline.Embed.Tests (embedded host, patcher, real parser and geo checks)
 tools/content-gen/ generator for server/Content from the decoded data pack (Python, stdlib only)
+tools/art/        owner-side icon exporter and previews (Python, Pillow)
+art/android/      the project's own launcher icon and launch-screen art, built into the patcher (empty until drawn)
 scripts/           build.sh, run-standalone.sh
 docs/              architecture, module guide, protocol notes, status, guides, research
 ```

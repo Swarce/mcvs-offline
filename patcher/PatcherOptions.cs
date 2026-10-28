@@ -116,6 +116,13 @@ namespace McvsOffline.Patcher
             }
         }
 
+        /// <summary>
+        /// --art: the project's own launcher icon and launch screen (Art.ArtPatch): "auto" (default) uses the art built in from
+        /// art/android/ when there is any and otherwise keeps the stock icon and splash; "stock" never touches them; any other
+        /// value is a folder laid out like art/android/ (the artist's test builds).
+        /// </summary>
+        public string Art { get; set; } = "auto";
+
         /// <summary>Patch even when the APK is not the verified 1.17.32 build (locators still verify every site).</summary>
         public bool Force { get; set; }
 
