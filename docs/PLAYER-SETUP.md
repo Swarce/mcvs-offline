@@ -79,7 +79,7 @@ The patcher prints every change it makes and finishes with a signature check. Us
 | Option | Meaning |
 |---|---|
 | `--patch nativeonline,waits,geo,bottile,finder,store,signatures,debloat,adminpage,adminlink,graphics,targetsdk` | The optional patches (this is the default set; `debloat` removes dead ad/analytics/social/push pieces, see ARCHITECTURE.md §2; `adminpage` and `adminlink` open the MCVS Offline page, section 7; `graphics` is needed for the graphics profile and the HD textures, section 7; `targetsdk` raises the app's target Android version, see `--target-sdk`). `none` keeps only the mandatory patches (the server hook, the headless-server fixes and the server physics), `all` adds `lan` and `forum`, `default,forum` adds only `forum`. |
-| `--target-sdk 29` | The Android version the app declares it was built for (`targetsdk` patch). 35 avoids Play Protect's "built for an older version of Android" warning up to Android 17, and 36 also covers Android 18. They become available, with 35 as the default, once the patcher also fixes the game's own code for them. Until then the patcher refuses 35 and 36, and the default 29 keeps the game's own value, exactly as builds before this option. 29 stays the fallback if something misbehaves: by Android's rules it installs over a 35 build signed with the same key, but this has not been tried on a phone yet. 35 and 36 need `debloat`. |
+| `--target-sdk 29` | The Android version the app declares it was built for (`targetsdk` patch). The default, 35, avoids Play Protect's "built for an older version of Android" warning up to Android 17; 36 also covers Android 18. For both the patcher also fixes the game's own Java code (`classes.dex`) where a newer target would make Android refuse it. `--target-sdk 29` keeps the game's own value and files, exactly as builds 9 and earlier: the fallback if something misbehaves on 35. By Android's rules a 29 build installs over a 35 build signed with the same key, but this has not been tried on a phone yet. 35 and 36 need `debloat` (so `--patch` without `debloat` also needs `--target-sdk 29`). |
 | `--game-log all` | The game's own log at every level in logcat (`mono-stdout`), for bug reports; this is the default while the offline build is being tested. `--game-log fatal` keeps the game's original setting (fatal errors only). |
 | `--keystore <file.p12>` | Your signing key. Without it a key is created once in `~/.config/McvsOffline/` (Windows: `%APPDATA%\McvsOffline\`) and reused. |
 | `--build-tools <dir>` | Folder with `apksigner` and `zipalign`; otherwise they are looked up on `PATH` and in `$ANDROID_HOME/build-tools`. |
@@ -131,6 +131,13 @@ What the patches do:
   gets a `[boot] graphics:` line with what the game really got. With `graphics.profile` `auto` and no HD zip nothing
   changes. Without this patch both settings do nothing, and Status › Game host says so: its Graphics and HD textures
   rows say the game has not gone through patch 'graphics' (section 7).
+- **targetsdk**: the app declares Android 15 (`--target-sdk`, default 35) instead of Android 10 as its target, so Play
+  Protect no longer warns that it was "built for an older version of Android". A newer target changes some of Android's
+  rules for the app, so the patch also adapts what they touch: the manifest (exported components, the notification
+  permission, finding your browser for the page's links, native memory tagging off), the MCVS Offline page's layout (kept
+  clear of the navigation bar), and the game's own Java code (alarms and notifications get the flag Android 12+
+  requires, two receivers that are dead offline no longer listen, Google Analytics never starts). On Android 13 and
+  later the game then asks once for the notification permission (section 7). `--target-sdk 29` turns all of this off.
 - **forum** (not in the default set): the Forum button in Settings opens the page too.
 - **lan** (experimental): groundwork for LAN play (see the end of this guide). It changes nothing for single-device
   play.
@@ -439,13 +446,20 @@ For reviewers (details and evidence: `docs/research/verify-C7-integrity-patching
 - `AndroidManifest.xml`: the vendor-wide signature permission `glshare.permission.ACCESS_SHARED_DATA` (declared,
   used, and required by the game's `KeyProvider`) is renamed into the game's own namespace, so the re-signed APK does
   not collide with other Gameloft games (section 5). Only that one string of the compiled manifest changes; the patcher
-  refuses if the text is used for anything else. With `targetsdk` at `--target-sdk 35` or 36 (not available yet, see
-  `--target-sdk` in section 4) the manifest also gets the target version,
+  refuses if the text is used for anything else. With `targetsdk` at `--target-sdk 35` (the default) or 36 the
+  manifest also gets the target version,
   `exported` on the three components that receive intents (the launcher activity, the cross-promotion screen and the
   local-reminder receiver), the notification permission, a declaration that lets the in-game browser find your browser,
   and heap-pointer tagging off; the two `res/layout-*/activity_in_game_browser.xml` files (the browser that shows the
   MCVS Offline page) keep the page clear of the navigation bar. The patcher checks the shipped manifest and layouts
   byte for byte first.
+- `classes.dex` (the game's Java code), also with `targetsdk` at 35 or 36: 14 places in 13 methods are changed in
+  place, each method checked against its verified fingerprint first (docs/research/target-sdk.md, P1-P14): the restart
+  alarm, the local reminders and the download notification create their `PendingIntent`s with `FLAG_IMMUTABLE`
+  (Android 12+ throws without a mutability flag), the push relay and Play billing receivers are registered with an empty
+  filter (at target 34+ Android 14 refuses a registration without an export flag; both receive nothing offline anyway), and the
+  game's three Google Analytics entry points return at once. Nothing else in the file moves; the dex checksum and
+  signature are recomputed.
 - With project art (`--art`, see `art/android/README.md`): the 20 launcher icon PNGs (`res/mipmap*/ic_launcher*.png`)
   are replaced in place under the same names, each checked against the shipped file's CRC first; a splash colour adds
   `v31` (and `night-v31`) configurations of the launcher activity's theme to `resources.arsc` (no resource id moves;

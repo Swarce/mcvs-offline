@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using McvsOffline.Embed.Tests.Support;
 using McvsOffline.Patcher;
+using McvsOffline.Patcher.Dex;
 using McvsOffline.Patcher.Manifest;
 using McvsOffline.Patcher.Zip;
 using Xunit;
@@ -36,8 +37,8 @@ namespace McvsOffline.Embed.Tests.Patcher
         /// The notes of a run on the real APK: those of its IL patches, the manifest permission rename, the res/raw/args.txt
         /// rewrite (--game-log all), the ABI selection, for "debloat" one per removed manifest element plus one for the
         /// dropped Crashlytics/Fabric files, and for "targetsdk" at <paramref name="target"/> 35 the target, the three exported
-        /// components, heap tagging, POST_NOTIFICATIONS, &lt;queries&gt; and the two browser layouts (none at 29, the default
-        /// until the classes.dex edits are in).
+        /// components, heap tagging, POST_NOTIFICATIONS, &lt;queries&gt;, the two browser layouts and the 14 classes.dex sites
+        /// (<see cref="DexNotes"/>; none of them at 29).
         /// </summary>
         internal static int ExpectedNotes(IEnumerable<string> optionalPatches, bool gameLogAll = true, int target = ManifestTargetSdk.DefaultTarget)
         {
@@ -46,8 +47,12 @@ namespace McvsOffline.Embed.Tests.Patcher
             notes += 1 + (gameLogAll ? 1 : 0) + 1;
             if (ids.Contains(ManifestDebloat.PatchId)) notes += ManifestDebloat.Targets.Count + 1;
             if (ids.Contains(ManifestTargetSdk.PatchId) && target != ManifestTargetSdk.ShippedTarget) notes += 1 + 3 + 1 + 1 + 1 + BrowserLayoutInsets.Layouts.Count;
+            if (ids.Contains(ManifestTargetSdk.PatchId) && target >= DexTargetSdkEdits.MinTargetSdk) notes += DexNotes;
             return notes;
         }
+
+        /// <summary>One note per edited classes.dex site (P1-P8, P10-P14; P8 is two): 14.</summary>
+        internal static int DexNotes => DexTargetSdkEdits.Edits.Sum(e => e.Sites.Count);
 
         [Fact]
         public void EveryPatchSiteIsFoundInTheRealApk()
@@ -66,19 +71,20 @@ namespace McvsOffline.Embed.Tests.Patcher
                 Patches = PatcherOptions.ParsePatchList("all"),
                 Abis = new SortedSet<string>(new[] { PatcherOptions.Arm64 }, StringComparer.Ordinal),   // --abi arm64-v8a
                 TargetSdk = 35,
-                TestOnlyTargetSdkWithoutDex = true,   // the manifest and layout sites at 35; no classes.dex edits yet
                 DryRun = true,
             };
             PatchReport report = ApkPatcher.Run(options, s => output.WriteLine(s));
             foreach (string note in report.Notes) output.WriteLine(note);
 
             Assert.Equal(new[] { "AndroidManifest.xml", "assemblies/Game.dll", "assemblies/Gameloft.Engine.dll", "assemblies/Gameloft.Util.dll", "assemblies/NicePlaySDK.dll",
-                                 "res/layout-land/activity_in_game_browser.xml", "res/layout-port/activity_in_game_browser.xml", "res/raw/args.txt" },
+                                 "classes.dex", "res/layout-land/activity_in_game_browser.xml", "res/layout-port/activity_in_game_browser.xml", "res/raw/args.txt" },
                          report.Modified.OrderBy(m => m, StringComparer.Ordinal));
             Assert.Equal(new[] { "assemblies/McvsOffline.Server.dll" }, report.Added);
-            // 35 IL patch notes, the manifest permission rename, the res/raw/args.txt rewrite, the ABI selection, debloat's
-            // 44 manifest removals and file drop, and targetsdk's 7 manifest and 2 layout edits: 92 (see IlPatchNotes / ExpectedNotes).
-            Assert.Equal(92, ExpectedNotes(options.Patches, target: 35));
+            // 36 IL patch notes, the manifest permission rename, the res/raw/args.txt rewrite, the ABI selection, debloat's
+            // 44 manifest removals and file drop, and targetsdk's 7 manifest, 2 layout and 14 classes.dex edits: 107 (see
+            // IlPatchNotes / ExpectedNotes).
+            Assert.Equal(14, DexNotes);
+            Assert.Equal(107, ExpectedNotes(options.Patches, target: 35));
             Assert.Equal(ExpectedNotes(options.Patches, target: 35), report.Notes.Count);
             Assert.Equal(ManifestDebloat.Targets.Count, report.Notes.Count(n => n.StartsWith("manifest: removed <", StringComparison.Ordinal)));
             Assert.Contains(report.Notes, n => n.StartsWith("debloat: dropped 8 Crashlytics/Fabric files", StringComparison.Ordinal));   // armeabi-v7a's went with its ABI
@@ -104,6 +110,8 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Contains(report.Notes, n => n.Contains("PlayerProfileComponent::ProcessAccountMenuButtonAction") && n.Contains("OpenPage(\"account\", World)"));
             Assert.Contains(report.Notes, n => n.Contains("BrowserComponent::OpenUrl") && n.Contains("OpenIfPageMarker(url, this)"));
             Assert.Contains(report.Notes, n => n.Contains("UIComponent::GoToForum") && n.Contains("OpenPage(\"forum\", World)"));
+            Assert.Equal(DexNotes, report.Notes.Count(n => n.StartsWith("classes.dex: ", StringComparison.Ordinal)));
+            Assert.Equal(BrowserLayoutInsets.Layouts.Count, report.Notes.Count(n => n.Contains("activity_in_game_browser.xml: ")));
             // arm64-v8a loses the AOT images of exactly the four modified assemblies; v1 signature files go.
             var aot = report.Removed.Where(r => r.Contains("(AOT image")).Select(r => r.Split(' ')[0]).OrderBy(r => r).ToList();
             Assert.Equal(4, aot.Count);
@@ -139,10 +147,11 @@ namespace McvsOffline.Embed.Tests.Patcher
             PatchReport report = ApkPatcher.Run(new PatcherOptions { InputApk = apk, ServerDll = server, DryRun = true }, log.Add);
             // 32 IL patch notes (hook, headless 5 + 3, physics 2, nativeonline, waits 2, geo, bottile, finder, store 2,
             // signatures 2, debloat 7, adminpage 2, adminlink, graphics), the manifest rename, res/raw/args.txt, the ABI selection,
-            // debloat's 44 + 1, and nothing from targetsdk at its default 29 (until the classes.dex edits are in): 80.
-            Assert.Equal(80, ExpectedNotes(PatcherOptions.DefaultPatches));
+            // debloat's 44 + 1, and targetsdk at its default 35: 7 manifest, 2 layout and 14 classes.dex edits: 103.
+            Assert.Equal(103, ExpectedNotes(PatcherOptions.DefaultPatches));
             Assert.Equal(ExpectedNotes(PatcherOptions.DefaultPatches), report.Notes.Count);
-            Assert.Contains("patch targetsdk: --target-sdk 29: the shipped targetSdkVersion, manifest and layouts stay as they are", log);
+            Assert.Contains("patch targetsdk: targetSdkVersion 29 -> 35, with what that target needs in the manifest, the settings page's layouts and classes.dex", log);
+            Assert.Contains(ManifestTargetSdk.DexEntry, report.Modified);
             Assert.DoesNotContain(report.Notes, n => n.Contains("LocalAnubisManager"));
 
             // The settings-page triggers are verified and listed by the default dry run; the Forum button is not touched.

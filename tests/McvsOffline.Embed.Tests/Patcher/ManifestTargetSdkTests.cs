@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using McvsOffline.Embed.Tests.Support;
 using McvsOffline.Patcher;
+using McvsOffline.Patcher.Dex;
 using McvsOffline.Patcher.Manifest;
 using McvsOffline.Patcher.Zip;
 using Xunit;
@@ -16,9 +17,9 @@ namespace McvsOffline.Embed.Tests.Patcher
     /// the patched APK targets that and keeps minSdkVersion 21; every activity/receiver/service with an intent filter has
     /// android:exported; POST_NOTIFICATIONS is declared; &lt;queries&gt; makes a browser visible; native heap pointer tagging
     /// is off; both browser layouts fit the system windows; resources.arsc stays STORED and 4-byte aligned. --target-sdk 29
-    /// (or leaving the patch out) gives the shipped manifest and layouts, exactly as before the patch existed. Until the
-    /// classes.dex edits (WP-T3) are in, 29 is also the default and a run at 35 or 36 is refused (the manifest alone would
-    /// ship a game that throws on Android 12+); the full runs at 35 below pass TestOnlyTargetSdkWithoutDex. Checked on
+    /// (or leaving the patch out) gives the shipped manifest, layouts and classes.dex, exactly as before the patch existed.
+    /// 35 is the default, and a target of 31+ is only written with the classes.dex edits (WP-T3, Dex.DexTargetSdkEdits) of
+    /// the same run (the manifest alone would ship a game that throws on Android 12+). Checked on
     /// synthetic manifests, on the player's real manifest and layouts, and on full runs of the patcher over the real APK
     /// (aapt2 badging/xmltree and apksigner when build-tools are available).
     /// </summary>
@@ -171,9 +172,9 @@ namespace McvsOffline.Embed.Tests.Patcher
         public void TheOptionsRefuseATargetWithoutItsPatchesBeforeAnyWork()
         {
             PatcherOptions Options(string patches, int? target) => new PatcherOptions { Patches = PatcherOptions.ParsePatchList(patches), TargetSdk = target };
-            // 29 by default until the classes.dex edits are in (ManifestTargetSdk.DefaultTarget), then 35.
-            Assert.Equal(ManifestTargetSdk.ShippedTarget, ManifestTargetSdk.DefaultTarget);
-            Assert.Equal(29, Options("default", null).EffectiveTargetSdk);
+            // 35 by default (ManifestTargetSdk.DefaultTarget), with the classes.dex edits.
+            Assert.Equal(35, ManifestTargetSdk.DefaultTarget);
+            Assert.Equal(35, Options("default", null).EffectiveTargetSdk);
             Assert.Equal(35, Options("default", 35).EffectiveTargetSdk);
             Assert.Equal(36, Options("default", 36).EffectiveTargetSdk);
             Assert.Equal(29, Options("default", 29).EffectiveTargetSdk);
@@ -186,7 +187,9 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Contains("needs the 'targetsdk' patch", Assert.Throws<ArgumentException>(() => ApkPatcher.CheckTargetSdk(Options("debloat", 35))).Message);
             Assert.Contains("needs the 'debloat' patch", Assert.Throws<ArgumentException>(() => ApkPatcher.CheckTargetSdk(Options("targetsdk", 35))).Message);
             var withoutDebloat = new SortedSet<string>(PatcherOptions.DefaultPatches.Where(p => p != ManifestDebloat.PatchId), StringComparer.Ordinal);
-            ApkPatcher.CheckTargetSdk(new PatcherOptions { Patches = withoutDebloat });
+            // Leaving debloat out of the default set needs --target-sdk 29 (the default 35 needs it).
+            Assert.Contains("needs the 'debloat' patch", Assert.Throws<ArgumentException>(() => ApkPatcher.CheckTargetSdk(new PatcherOptions { Patches = withoutDebloat })).Message);
+            ApkPatcher.CheckTargetSdk(new PatcherOptions { Patches = withoutDebloat, TargetSdk = 29 });
             Assert.Throws<ArgumentException>(() => ApkPatcher.CheckTargetSdk(new PatcherOptions { Patches = withoutDebloat, TargetSdk = 36 }));
 
             // The command line: --target-sdk is parsed and checked by ApkPatcher.Run.
@@ -206,17 +209,15 @@ namespace McvsOffline.Embed.Tests.Patcher
             // Android 14+ at 34+). Only a run that also replaced classes.dex may write such a target.
             PatcherOptions Options(int? target) => new PatcherOptions { Patches = PatcherOptions.ParsePatchList("default"), TargetSdk = target };
             string[] layouts = BrowserLayoutInsets.Layouts.Keys.ToArray();
-            ApkPatcher.CheckDexEdits(Options(null), new string[0]);
             ApkPatcher.CheckDexEdits(Options(29), new string[0]);
             ApkPatcher.CheckDexEdits(new PatcherOptions { Patches = PatcherOptions.ParsePatchList("debloat"), TargetSdk = 35 }, new string[0]);   // targetsdk off: 29
-            foreach (int target in new[] { 35, 36 })
+            foreach (int? target in new int?[] { null, 35, 36 })
             {
                 var refused = Assert.Throws<InvalidOperationException>(() => ApkPatcher.CheckDexEdits(Options(target), layouts));
-                Assert.Equal("target SDK " + target + " needs the 'targetsdk' edits of classes.dex (PendingIntent flags, receiver export flags; " +
-                             "docs/research/target-sdk.md WP-T3), which this patcher does not have yet: nothing was written, use --target-sdk 29", refused.Message);
+                Assert.Equal("target SDK " + (target ?? 35) + " needs the 'targetsdk' edits of classes.dex (PendingIntent flags, receiver export flags; " +
+                             "docs/research/target-sdk.md WP-T3), which were not made: nothing was written, use --target-sdk 29", refused.Message);
                 Assert.Throws<InvalidOperationException>(() => ApkPatcher.CheckDexEdits(Options(target), layouts.Concat(new[] { "classes2.dex" })));   // P1 is in classes.dex
                 ApkPatcher.CheckDexEdits(Options(target), layouts.Concat(new[] { ManifestTargetSdk.DexEntry }));
-                ApkPatcher.CheckDexEdits(new PatcherOptions { Patches = PatcherOptions.ParsePatchList("default"), TargetSdk = target, TestOnlyTargetSdkWithoutDex = true }, layouts);
             }
         }
 
@@ -329,7 +330,7 @@ namespace McvsOffline.Embed.Tests.Patcher
             return false;
         }
 
-        private PatchReport Run(string apk, string server, int? target, out string outApk, out List<string> log, bool withoutDex = false)
+        private PatchReport Run(string apk, string server, int? target, out string outApk, out List<string> log)
         {
             string dir = TestEnvironment.NewTempDir("target-sdk");
             outApk = Path.Combine(dir, "offline.apk");
@@ -339,7 +340,6 @@ namespace McvsOffline.Embed.Tests.Patcher
                 ServerDll = server,
                 OutputApk = outApk,
                 TargetSdk = target,
-                TestOnlyTargetSdkWithoutDex = withoutDex,
                 Keystore = Path.Combine(dir, "key.p12"),   // never the player's default key
                 BuildToolsDir = TestEnvironment.BuildToolsDir,
             };
@@ -361,27 +361,18 @@ namespace McvsOffline.Embed.Tests.Patcher
         }
 
         [Fact]
-        public void Target35WithoutTheDexEditsIsRefusedAndNothingIsWritten()
+        public void TheDefaultTarget35WritesTheManifestLayoutsAndClassesDex()
         {
-            // The review finding behind ApkPatcher.CheckDexEdits: a target-35 APK whose classes.dex is the shipped one.
+            // I1' on a full run with the defaults (no --target-sdk): manifest, layouts and the classes.dex edits.
             if (!Inputs(out string apk, out string server)) return;
-            string outApk = null;
-            var refused = Assert.Throws<InvalidOperationException>(() => Run(apk, server, 35, out outApk, out List<string> log));
-            Assert.StartsWith("target SDK 35 needs the 'targetsdk' edits of classes.dex", refused.Message);
-            Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(outApk)));
-        }
-
-        [Fact]
-        public void Target35WritesTheManifestAndLayouts()
-        {
-            // The manifest and layout half of I1' on a full run; TestOnlyTargetSdkWithoutDex stands in for the dex edits.
-            if (!Inputs(out string apk, out string server)) return;
-            PatchReport report = Run(apk, server, 35, out string outApk, out List<string> log, withoutDex: true);
+            PatchReport report = Run(apk, server, null, out string outApk, out List<string> log);
             foreach (string id in PatcherOptions.DefaultPatches)
                 Assert.Contains(log, l => l.StartsWith("patch " + id + ": ", StringComparison.Ordinal));
-            Assert.Contains("patch targetsdk: targetSdkVersion 29 -> 35, with what that target needs in the manifest and the settings page's layouts", log);
+            Assert.Contains("patch targetsdk: targetSdkVersion 29 -> 35, with what that target needs in the manifest, the settings page's layouts and classes.dex", log);
             Assert.Contains(ManifestPatch.EntryName, report.Modified);
             foreach (string layout in BrowserLayoutInsets.Layouts.Keys) Assert.Contains(layout, report.Modified);
+            Assert.Contains(ManifestTargetSdk.DexEntry, report.Modified);
+            Assert.Equal(RealGameTests.DexNotes, report.Notes.Count(n => n.StartsWith("classes.dex: ", StringComparison.Ordinal)));
             Assert.Equal(7 + 2, report.Notes.Count(n => n.StartsWith("manifest: <uses-sdk", StringComparison.Ordinal) || n.StartsWith("manifest: android:", StringComparison.Ordinal) ||
                                                         n.StartsWith("manifest: + <", StringComparison.Ordinal) || n.Contains("activity_in_game_browser.xml: ")));
 
@@ -395,6 +386,13 @@ namespace McvsOffline.Embed.Tests.Patcher
                 Assert.Equal(input.Find(layout.Key).Method, result.Find(layout.Key).Method);
                 Assert.Equal(BrowserLayoutInsets.Edit(layout.Key, input.Find(layout.Key).GetData(), null), result.Find(layout.Key).GetData());
             }
+            // classes.dex: exactly DexTargetSdkEdits' result, same compression method; every other dex as shipped.
+            IReadOnlyDictionary<string, byte[]> dex = DexTargetSdkEdits.Apply(input.Entries, 35, null);
+            Assert.Equal(new[] { ManifestTargetSdk.DexEntry }, dex.Keys);
+            Assert.Equal(input.Find(ManifestTargetSdk.DexEntry).Method, result.Find(ManifestTargetSdk.DexEntry).Method);
+            Assert.Equal(dex[ManifestTargetSdk.DexEntry], result.Find(ManifestTargetSdk.DexEntry).GetData());
+            foreach (ZipEntry other in input.Entries.Where(e => DexTargetSdkEdits.IsDexEntry(e.Name) && e.Name != ManifestTargetSdk.DexEntry))
+                Assert.Equal(other.RawData, result.Find(other.Name).RawData);
             AssertResourcesStoredAndAligned(outApk, apk);
             Assert.Contains("zipalign -c -p 4: OK", report.Verification);
 
@@ -415,15 +413,13 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Contains("android:fitsSystemWindows(0x010100dd)=true", land);
         }
 
-        [Theory]
-        [InlineData(null)]   // the default, until the classes.dex edits are in
-        [InlineData(29)]
-        public void TargetSdk29IsTheOutputWithoutThePatch(int? target)
+        [Fact]
+        public void TargetSdk29IsTheOutputWithoutThePatch()
         {
             if (!Inputs(out string apk, out string server)) return;
-            PatchReport report = Run(apk, server, target, out string outApk, out List<string> log);
+            PatchReport report = Run(apk, server, 29, out string outApk, out List<string> log);
             Assert.Contains("patch targetsdk: --target-sdk 29: the shipped targetSdkVersion, manifest and layouts stay as they are", log);
-            Assert.DoesNotContain(report.Notes, n => n.Contains("targetSdkVersion") || n.Contains("activity_in_game_browser"));
+            Assert.DoesNotContain(report.Notes, n => n.Contains("targetSdkVersion") || n.Contains("activity_in_game_browser") || n.StartsWith("classes.dex: ", StringComparison.Ordinal));
 
             ZipArchiveReader.Archive input = ZipArchiveReader.Read(apk), result = ZipArchiveReader.Read(outApk);
             byte[] shipped = input.Find(ManifestPatch.EntryName).GetData();

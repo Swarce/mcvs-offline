@@ -334,7 +334,7 @@ namespace McvsOffline.Embed.Tests.Patcher
         public void EveryOptionalPatchIdHasItsPatchAndEveryPatchIdIsUnique()
         {
             Assert.Equal(ApkPatcher.AllPatches.Length, ApkPatcher.AllPatches.Select(p => p.Id).Distinct().Count());
-            // "targetsdk" edits the manifest and two layouts only (ManifestTargetSdk, BrowserLayoutInsets): no IL patch.
+            // "targetsdk" edits the manifest, two layouts and classes.dex (ManifestTargetSdk, BrowserLayoutInsets, DexTargetSdkEdits): no IL patch.
             foreach (string id in PatcherOptions.OptionalPatches.Concat(PatcherOptions.MandatoryPatches).Where(id => id != ManifestTargetSdk.PatchId))
                 Assert.Contains(ApkPatcher.AllPatches, p => p.Id == id);
             Assert.Contains(ManifestTargetSdk.PatchId, PatcherOptions.DefaultPatches);

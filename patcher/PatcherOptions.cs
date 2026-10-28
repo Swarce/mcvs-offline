@@ -39,7 +39,7 @@ namespace McvsOffline.Patcher
         /// "adminpage" and "adminlink" open the settings page (Settings › Account button, inbox message) through
         /// McvsOffline.AdminHooks of the embedded server. "targetsdk" is no IL patch: it raises the manifest's targetSdkVersion to
         /// <see cref="TargetSdk"/> with what that target needs (Manifest.ManifestTargetSdk, Manifest.BrowserLayoutInsets); by
-        /// default that is still the shipped 29 (Manifest.ManifestTargetSdk.DefaultTarget). "graphics" passes
+        /// default 35 (Manifest.ManifestTargetSdk.DefaultTarget), with the classes.dex edits that needs (Dex.DexTargetSdkEdits). "graphics" passes
         /// GameOptions_android.json through McvsOffline.GraphicsHooks (settings graphics.profile; auto leaves it unchanged) and
         /// logs the effective options.
         /// </summary>
@@ -102,9 +102,9 @@ namespace McvsOffline.Patcher
 
         /// <summary>
         /// --target-sdk: the targetSdkVersion the "targetsdk" patch writes (29, 35 or 36); null means
-        /// <see cref="Manifest.ManifestTargetSdk.DefaultTarget"/>. 29 is the shipped value: the manifest and layouts then stay
-        /// exactly as without the patch. Another value needs "targetsdk" in <see cref="Patches"/>, and 31 or more also needs
-        /// "debloat" and the classes.dex edits, which this patcher does not have yet (ApkPatcher refuses the run otherwise).
+        /// <see cref="Manifest.ManifestTargetSdk.DefaultTarget"/> (35). 29 is the shipped value: the manifest, layouts and
+        /// classes.dex then stay exactly as without the patch. Another value needs "targetsdk" in <see cref="Patches"/>, and
+        /// 31 or more also needs "debloat" (ApkPatcher refuses the run otherwise); "targetsdk" then also edits classes.dex.
         /// </summary>
         public int? TargetSdk { get; set; }
 
@@ -142,12 +142,6 @@ namespace McvsOffline.Patcher
         /// engine to fingerprint).
         /// </summary>
         internal bool TestOnlyDebloatWithoutIl { get; set; }
-
-        /// <summary>
-        /// Tests only: let "targetsdk" write a target of 31+ without the classes.dex edits ApkPatcher.CheckDexEdits otherwise
-        /// requires (the manifest and layout tests at 35 and 36; such an APK is not for a phone).
-        /// </summary>
-        internal bool TestOnlyTargetSdkWithoutDex { get; set; }
 
         /// <summary>Tests only: accept a server assembly built for net8 (look-alike fixtures cannot reference the game BCL).</summary>
         internal bool SkipServerReferenceCheck { get; set; }

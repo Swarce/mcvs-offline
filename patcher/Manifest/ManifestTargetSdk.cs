@@ -26,7 +26,7 @@ namespace McvsOffline.Patcher.Manifest
     /// </list>
     /// compileSdkVersion and platformBuildVersion* stay as shipped (informational). The settings page's layouts get their
     /// edge-to-edge fix from <see cref="BrowserLayoutInsets"/>; the dex side (PendingIntent flags, receivers, Google Analytics)
-    /// is a separate edit of classes.dex, without which ApkPatcher refuses 31+ (<see cref="DefaultTarget"/>). Target 29
+    /// is a separate edit of classes.dex (Dex.DexTargetSdkEdits, same run), without which ApkPatcher refuses 31+. Target 29
     /// changes nothing at all. A target of 31 or more needs "debloat": the
     /// GCM and ad components it removes would otherwise need their own exported values and PendingIntent fixes.
     /// </summary>
@@ -39,14 +39,13 @@ namespace McvsOffline.Patcher.Manifest
         public const int ShippedTarget = 29;
 
         /// <summary>
-        /// The target without --target-sdk. The owner's choice is 35, but the manifest is only half of it: from
-        /// <see cref="DexEditsRequiredFrom"/> on the game's own classes.dex throws (a PendingIntent without a mutability flag,
-        /// a receiver registered without an exported flag; target-sdk.md §7: "T2 alone is not shippable"), and those edits
-        /// (WP-T3) are not in this patcher yet. Until they are, the default stays the shipped 29 (the default output is
-        /// today's) and ApkPatcher refuses 31+ unless classes.dex was edited in the same run; the change that adds them
-        /// sets 35 here.
+        /// The target without --target-sdk: 35 (no Play Protect warning up to Android 17; target-sdk.md §7). The manifest is
+        /// only half of it: from <see cref="DexEditsRequiredFrom"/> on the game's own classes.dex would throw (a PendingIntent
+        /// without a mutability flag, a receiver registered without an exported flag; "T2 alone is not shippable"), so
+        /// "targetsdk" also edits classes.dex in the same run (Dex.DexTargetSdkEdits, WP-T3) and ApkPatcher refuses 31+
+        /// without that edit.
         /// </summary>
-        public const int DefaultTarget = ShippedTarget;
+        public const int DefaultTarget = 35;
 
         /// <summary>The values --target-sdk accepts.</summary>
         public static readonly IReadOnlyList<int> SupportedTargets = new[] { 29, 35, 36 };
