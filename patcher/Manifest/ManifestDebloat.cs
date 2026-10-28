@@ -16,7 +16,9 @@ namespace McvsOffline.Patcher.Manifest
     /// the permissions are unused (location), pre-Android-4.1 GCM leftovers or capped at maxSdkVersion 18 below minSdk 21.
     /// Only declarations go: every class stays in the dex (AppLinksActivity and IReferrerReceiver are read by other code),
     /// and what still works offline stays declared (FacebookActivity, GoogleApiActivity, the local push receiver and
-    /// services, KeyProvider, the Mono providers, the Google Analytics components, the Play Games and Facebook ids).
+    /// services, KeyProvider, the Mono providers, the Google Analytics components, the Play Games and Facebook ids). From
+    /// target 31 on "targetsdk" removes the four Google Analytics components too (<see cref="ManifestTargetSdk.GoogleAnalyticsComponents"/>):
+    /// GA is off there, and GA started by the system would create a PendingIntent Android 12+ refuses.
     /// </para>
     /// <para>
     /// Like the IL locators, it changes nothing unless each element is found exactly once where 1.17.32 has it (same parent,

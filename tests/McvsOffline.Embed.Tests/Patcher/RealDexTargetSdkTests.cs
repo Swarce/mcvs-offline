@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using McvsOffline.Embed.Tests.Support;
 using McvsOffline.Patcher.Dex;
+using McvsOffline.Patcher.Manifest;
 using McvsOffline.Patcher.Tools;
 using McvsOffline.Patcher.Zip;
 using Xunit;
@@ -286,7 +287,8 @@ namespace McvsOffline.Embed.Tests.Patcher
         private const string SupportLibrary = "support-library helper the game never calls";
         private const string Gcm = "GCM remote push: no token request offline (debloat), its receiver and service are out of the manifest";
         private const string PlayServices = "Play services sign-in/resolution UI: Play Games and Facebook are not initialised offline (debloat)";
-        private const string GoogleAnalytics = "GA's dispatch alarm (report P9): GA never starts once P12-P14 return at once";
+        private const string GoogleAnalytics = "GA's dispatch alarm (report P9): the game's entry points into GA return at once (P12-P14), and from target 31 " +
+                                               "the GA components are out of the manifest, so the system cannot start GA either";
 
         /// <summary>The sites the edits fix: P1-P8 (P7 is one register for three calls).</summary>
         private static readonly string[] FixedSites =
@@ -361,6 +363,99 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.All(entriesFromGame, c => Assert.True(c.StartsWith(Tracker, StringComparison.Ordinal) ||
                                                          c == "Lcom/gameloft/android/ANMP/GloftMVHM/installer/IReferrerReceiver;->onReceive", c));
             Assert.Equal(new[] { Tracker + "->Init(Landroid/content/Context;)V" }, getTrackerCallers);
+        }
+
+        /// <summary>
+        /// A conservative reachability over the edited dex files (<see cref="DexScan.Reachability"/>) whose entry classes are
+        /// the &lt;application&gt; class and the components of <paramref name="manifest"/> that <paramref name="include"/>
+        /// selects (it sees the application element too).
+        /// </summary>
+        private static DexScan.Reachability Reach(List<ZipEntry> apkEntries, IReadOnlyDictionary<string, byte[]> result, byte[] manifest,
+                                                  Func<BinaryXml.Element, bool> include, List<string> entryNames)
+        {
+            var dexFiles = apkEntries.Where(e => DexTargetSdkEdits.IsDexEntry(e.Name))
+                                     .Select(e => DexFile.Parse(e.Name, result.TryGetValue(e.Name, out byte[] p) ? p : e.GetData())).ToList();
+            var reach = new DexScan.Reachability(dexFiles);
+            foreach (BinaryXml.Element e in BinaryXml.Parse(manifest).Elements())
+            {
+                bool component = e.Parent != null && e.Parent.Path == "manifest/application" && ComponentTags.Contains(e.Name);
+                if (!(e.Path == "manifest/application" || component) || !include(e)) continue;
+                string descriptor = "L" + e.AndroidName.Replace('.', '/') + ";";
+                Assert.True(reach.Defines(descriptor), e.AndroidName + " is not in the dex files");
+                reach.AddEntry(descriptor, e.Name + " " + e.AndroidName);
+                entryNames.Add(e.Name + " " + e.AndroidName);
+            }
+            reach.Run();
+            return reach;
+        }
+
+        private static readonly string[] ComponentTags = { "activity", "activity-alias", "receiver", "service", "provider" };
+        private const string GoogleApiActivity = "com.google.android.gms.common.api.GoogleApiActivity";
+        private const string GaDispatchAlarm = "Lcom/google/android/gms/internal/zzaoa;->zzyk()Landroid/app/PendingIntent;";
+
+        /// <summary>
+        /// Review finding (build 10): no component the system can start on its own reaches a PendingIntent creation site
+        /// without a mutability flag. Entries: the Application class and every activity, receiver, service and provider of
+        /// the patched target-35 manifest but GoogleApiActivity; a reached unflagged site would throw IllegalArgumentException
+        /// on Android 12+ in whatever the system started (a leftover job or alarm, a boot broadcast, a provider at process
+        /// start). GoogleApiActivity, the Play services resolution screen, does reach unflagged sites (its own and the
+        /// resolution helpers'), but it is not exported and nothing reachable instantiates or names it: only a resolution
+        /// PendingIntent of a Play services connection starts it, and none is made offline. With the build-9 component set
+        /// (debloat only, the four GA components still declared) the same analysis finds GA's dispatch alarm (zzaoa.zzyk,
+        /// flags 0) from AnalyticsReceiver and AnalyticsJobService: the crash this removal prevents.
+        /// </summary>
+        [Fact]
+        public void NoDeclaredComponentReachesAPendingIntentWithoutAMutabilityFlag()
+        {
+            if (!Load(out List<ZipEntry> apkEntries, out IReadOnlyDictionary<string, byte[]> result, out _)) return;
+            byte[] shipped = apkEntries.Single(e => e.Name == ManifestPatch.EntryName).GetData();
+            byte[] debloated = ManifestDebloat.Apply(ManifestPatch.Apply(shipped, null), null);
+            byte[] manifest = ManifestTargetSdk.Edit(debloated, 35, null);
+            List<DexScan.PendingIntentSite> unflagged = apkEntries.Where(e => DexTargetSdkEdits.IsDexEntry(e.Name))
+                .SelectMany(e => DexScan.PendingIntentSites(DexFile.Parse(e.Name, result.TryGetValue(e.Name, out byte[] p) ? p : e.GetData())))
+                .Where(s => !s.HasMutabilityFlag).ToList();
+            Assert.Equal(new SortedSet<string>(UnreachableSites.Keys, StringComparer.Ordinal), new SortedSet<string>(unflagged.Select(s => s.Key), StringComparer.Ordinal));
+
+            List<string> Reached(DexScan.Reachability r)
+            {
+                var found = new List<string>();
+                foreach (DexScan.PendingIntentSite site in unflagged.Where(s => r.Reached.ContainsKey(s.Method)))
+                {
+                    found.Add(site.Method);
+                    output.WriteLine("reached: " + site);
+                    foreach (string step in r.PathTo(site.Method)) output.WriteLine("    " + step);
+                }
+                return found;
+            }
+
+            var entries = new List<string>();
+            DexScan.Reachability reach = Reach(apkEntries, result, manifest, e => e.AndroidName != GoogleApiActivity, entries);
+            foreach (string e in entries) output.WriteLine("entry: " + e);
+            output.WriteLine(reach.Reached.Count + " methods reached");
+            Assert.Contains("application com.gameloft.android.FrameworkApplication", entries);
+            Assert.Contains("receiver com.gameloft.pushnotification.LocalPushReceiver", entries);
+            Assert.DoesNotContain(entries, e => e.Contains(".analytics."));
+            Assert.Empty(Reached(reach));
+            Assert.True(reach.Reached.ContainsKey("Lcom/gameloft/pushnotification/LocalPushManager;->TriggerAlarm(Landroid/content/Context;Ljava/lang/String;)V"));   // P4: the analysis sees the reminders
+            Assert.DoesNotContain(reach.Reached.Keys, k => k.StartsWith("L" + GoogleApiActivity.Replace('.', '/') + ";->", StringComparison.Ordinal));
+            BinaryXml.Element api = Assert.Single(BinaryXml.Parse(manifest).Elements(), e => e.AndroidName == GoogleApiActivity);
+            Assert.Equal(0u, Assert.Single(api.Attributes, a => a.ResourceId == ManifestTargetSdk.ExportedId).Data);
+
+            // The components build 9 declared (GA still there): GA's dispatch alarm is reached, from the GA components only.
+            var before = new List<string>();
+            DexScan.Reachability withGa = Reach(apkEntries, result, debloated, e => e.AndroidName != GoogleApiActivity, before);
+            Assert.Equal(new[] { GaDispatchAlarm }, Reached(withGa));
+            Assert.StartsWith("entry: receiver com.google.android.gms.analytics.", withGa.PathTo(GaDispatchAlarm)[0]);
+            // Each of the three the system starts (a broadcast, a job, a service start) reaches it on its own; the Application
+            // class alone does not.
+            Assert.Empty(Reached(Reach(apkEntries, result, debloated, e => e.Name == "application", new List<string>())));
+            foreach (string ga in new[] { "AnalyticsReceiver", "AnalyticsJobService", "AnalyticsService" })
+            {
+                var one = new List<string>();
+                DexScan.Reachability alone = Reach(apkEntries, result, debloated, e => e.Name == "application" || e.AndroidName == "com.google.android.gms.analytics." + ga, one);
+                Assert.Equal(2, one.Count);
+                Assert.Equal(new[] { GaDispatchAlarm }, Reached(alone));
+            }
         }
 
         // ------------------------------------------------------------------ refusals on the real file

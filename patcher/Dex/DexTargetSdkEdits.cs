@@ -39,8 +39,12 @@ namespace McvsOffline.Patcher.Dex
     /// <item>P12-P14 (Google Analytics off): <c>GoogleAnalyticsTracker.Init</c>, <c>activityStart</c> and <c>activityStop</c>, the
     /// game's only entry points into GA, return at once (their first instruction becomes return-void, the rest of the
     /// instruction padded with nops); <c>trackEvent</c> already returns while no tracker exists. GA could never send anything
-    /// offline; this also keeps its dispatch alarm (a PendingIntent without a mutability flag, report P9), its
-    /// RADIO_POWERED receiver (34+) and its JobScheduler use from ever running.</item>
+    /// offline; with the game no longer starting it, GA schedules no new dispatch alarm (a PendingIntent without a mutability
+    /// flag, report P9), registers no RADIO_POWERED receiver (34+) and schedules no new dispatch job. That does not cover
+    /// what an earlier build (GA on, same package) already left with the system: a dispatch job or alarm survives an update
+    /// and would start GA through its declared AnalyticsJobService/AnalyticsReceiver, whose init reaches the P9 site. So
+    /// from 31 on the manifest part removes the GA components (Manifest.ManifestTargetSdk.GoogleAnalyticsComponents), and
+    /// RealDexTargetSdkTests checks that no declared component reaches an unflagged PendingIntent site.</item>
     /// </list>
     /// Each method is located by class, name and descriptor in whichever classes*.dex defines it, pinned by its code
     /// fingerprint, and edited only with whole instructions of the same size; see <see cref="DexEditor"/> for the checks.

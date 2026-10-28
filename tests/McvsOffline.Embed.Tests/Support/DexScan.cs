@@ -189,5 +189,183 @@ namespace McvsOffline.Embed.Tests.Support
             });
             return callers;
         }
+
+        /// <summary>
+        /// A conservative reachability (rapid type analysis) over the Java code of several dex files, from entry classes the
+        /// system instantiates on its own (manifest components, the Application class). A class is instantiated by an entry,
+        /// a reached new-instance, or a reached const-class (an explicit intent, a JobInfo, a reflective start). A method is
+        /// reached when it is the target of a reached invoke-static/direct/super (resolved through the in-dex superclass
+        /// chain), the implementation in an instantiated subtype of a reached invoke-virtual/interface, a static initializer of
+        /// a class reached code uses, or a method the framework can call on an instantiated object: every instance method of a
+        /// class with a supertype outside the dex files other than java.lang.Object (a component, a Runnable, a Handler; which
+        /// of them overrides a framework method is not known here), and the Object overrides (toString, equals, hashCode,
+        /// finalize) of the others. Inside a method only the instructions reachable from its entry count (a method that now
+        /// starts with return-void reaches nothing). Not seen: classes instantiated by name strings (Class.forName, layouts)
+        /// and calls from native or managed code.
+        /// </summary>
+        public sealed class Reachability
+        {
+            private const string JavaObject = "Ljava/lang/Object;";
+            private const uint AccStatic = 0x0008;
+            private static readonly string[] ObjectMethods = { "toString()Ljava/lang/String;", "equals(Ljava/lang/Object;)Z", "hashCode()I", "finalize()V" };
+
+            private readonly Dictionary<string, (DexFile Dex, DexFile.ClassDef Class, List<DexFile.Method> Methods)> classes =
+                new Dictionary<string, (DexFile, DexFile.ClassDef, List<DexFile.Method>)>(StringComparer.Ordinal);
+            private readonly Dictionary<string, HashSet<string>> supertypes = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+            private readonly HashSet<string> instantiated = new HashSet<string>(StringComparer.Ordinal);
+            private readonly HashSet<string> initialized = new HashSet<string>(StringComparer.Ordinal);
+            private readonly HashSet<(string Owner, string Signature)> virtualCalls = new HashSet<(string, string)>();
+            private readonly Queue<(DexFile Dex, DexFile.Method Method)> work = new Queue<(DexFile, DexFile.Method)>();
+
+            /// <summary>Reached method reference -> the reference it was reached from ("entry: ..." for an entry class).</summary>
+            public Dictionary<string, string> Reached { get; } = new Dictionary<string, string>(StringComparer.Ordinal);
+
+            public Reachability(IEnumerable<DexFile> dexFiles)
+            {
+                foreach (DexFile dex in dexFiles)
+                {
+                    foreach (DexFile.ClassDef cls in dex.Classes())
+                    {
+                        if (!classes.ContainsKey(cls.Descriptor)) classes[cls.Descriptor] = (dex, cls, dex.GetMethods(cls));
+                    }
+                }
+            }
+
+            public bool Defines(string descriptor)
+            {
+                return classes.ContainsKey(descriptor);
+            }
+
+            /// <summary>An entry class: the system instantiates it and calls its methods.</summary>
+            public void AddEntry(string descriptor, string why)
+            {
+                Instantiate(descriptor, "entry: " + why);
+            }
+
+            /// <summary>The type itself and all its supertypes (superclasses and interfaces, transitively; types outside the dex files included).</summary>
+            private HashSet<string> Supertypes(string descriptor)
+            {
+                if (supertypes.TryGetValue(descriptor, out HashSet<string> set)) return set;
+                set = new HashSet<string>(StringComparer.Ordinal) { descriptor };
+                supertypes[descriptor] = set;
+                if (classes.TryGetValue(descriptor, out var c))
+                {
+                    foreach (string parent in (c.Class.Superclass == null ? new string[0] : new[] { c.Class.Superclass }).Concat(c.Class.Interfaces))
+                        set.UnionWith(Supertypes(parent));
+                }
+                return set;
+            }
+
+            private void Instantiate(string descriptor, string from)
+            {
+                if (!classes.ContainsKey(descriptor) || !instantiated.Add(descriptor)) return;
+                Initialize(descriptor, from);
+                HashSet<string> types = Supertypes(descriptor);
+                bool framework = types.Any(t => t != JavaObject && !classes.ContainsKey(t));
+                var seen = new HashSet<string>(StringComparer.Ordinal);
+                for (string d = descriptor; d != null && classes.TryGetValue(d, out var c); d = c.Class.Superclass)
+                {
+                    foreach (DexFile.Method m in c.Methods.Where(m => (m.AccessFlags & AccStatic) == 0 && m.Name != "<init>"))
+                    {
+                        string signature = m.Name + m.Descriptor;
+                        if (seen.Add(signature) && (framework || ObjectMethods.Contains(signature))) Reach(c.Dex, m, from);
+                    }
+                }
+                foreach (var call in virtualCalls.Where(v => types.Contains(v.Owner)).ToList()) Dispatch(descriptor, call.Signature, from);
+            }
+
+            private void Initialize(string descriptor, string from)
+            {
+                for (string d = descriptor; d != null && classes.TryGetValue(d, out var c); d = c.Class.Superclass)
+                {
+                    if (!initialized.Add(d)) break;
+                    foreach (DexFile.Method m in c.Methods.Where(m => m.Name == "<clinit>")) Reach(c.Dex, m, from);
+                }
+            }
+
+            private void Reach(DexFile dex, DexFile.Method method, string from)
+            {
+                if (Reached.ContainsKey(method.Reference)) return;
+                Reached[method.Reference] = from;
+                work.Enqueue((dex, method));
+            }
+
+            /// <summary>Reaches the method <paramref name="signature"/> resolves to from <paramref name="descriptor"/> up its in-dex superclass chain.</summary>
+            private void Dispatch(string descriptor, string signature, string from)
+            {
+                for (string d = descriptor; d != null && classes.TryGetValue(d, out var c); d = c.Class.Superclass)
+                {
+                    DexFile.Method m = c.Methods.FirstOrDefault(x => x.Name + x.Descriptor == signature);
+                    if (m == null) continue;
+                    Reach(c.Dex, m, from);
+                    return;
+                }
+            }
+
+            public void Run()
+            {
+                while (work.Count > 0)
+                {
+                    (DexFile dex, DexFile.Method method) = work.Dequeue();
+                    if (method.CodeOff == 0) continue;
+                    DexFile.CodeItem code = dex.GetCode(method);
+                    var flow = new DexFlow(code, DexInstruction.DecodeAll(code.Insns));
+                    HashSet<int> live = flow.Reachable();
+                    string from = method.Reference;
+                    foreach (DexInstruction i in flow.Instructions.Where(x => live.Contains(x.Pc) && !x.IsPayload))
+                    {
+                        if (i.IsInvoke && i.IndexKind == DexIndexKind.Method)
+                        {
+                            string target = dex.GetMethodRef(i.Index);
+                            int arrow = target.IndexOf("->", StringComparison.Ordinal);
+                            string owner = target.Substring(0, arrow), signature = target.Substring(arrow + 2);
+                            switch (i.Opcode)
+                            {
+                                case 0x6e: case 0x72: case 0x74: case 0x78:   // invoke-virtual, invoke-interface (and /range)
+                                    if (virtualCalls.Add((owner, signature)))
+                                    {
+                                        foreach (string x in instantiated.Where(x => Supertypes(x).Contains(owner)).ToList()) Dispatch(x, signature, from);
+                                    }
+                                    break;
+                                case 0x71: case 0x77:                         // invoke-static
+                                    Initialize(owner, from);
+                                    Dispatch(owner, signature, from);
+                                    break;
+                                default:                                      // invoke-direct, invoke-super
+                                    Dispatch(owner, signature, from);
+                                    break;
+                            }
+                        }
+                        else if (i.Opcode == 0x22 || i.Opcode == 0x1c)   // new-instance, const-class
+                        {
+                            Instantiate(dex.GetTypeDescriptor(i.Index), from);
+                        }
+                        else if (i.Opcode >= 0x60 && i.Opcode <= 0x6d)   // sget*, sput*
+                        {
+                            string field = dex.GetFieldRef(i.Index);
+                            Initialize(field.Substring(0, field.IndexOf("->", StringComparison.Ordinal)), from);
+                        }
+                    }
+                }
+            }
+
+            /// <summary>The chain of methods from an entry to <paramref name="reference"/>, the entry first.</summary>
+            public List<string> PathTo(string reference)
+            {
+                var path = new List<string>();
+                string r = reference;
+                while (r != null && path.Count < 200 && Reached.TryGetValue(r, out string from))
+                {
+                    path.Insert(0, r);
+                    if (from.StartsWith("entry: ", StringComparison.Ordinal))
+                    {
+                        path.Insert(0, from);
+                        break;
+                    }
+                    r = from;
+                }
+                return path;
+            }
+        }
     }
 }

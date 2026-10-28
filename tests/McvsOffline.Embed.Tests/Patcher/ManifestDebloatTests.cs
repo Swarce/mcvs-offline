@@ -52,6 +52,11 @@ namespace McvsOffline.Embed.Tests.Patcher
                      .Add(Filter("android.intent.action.MAIN").Add(Named("category", "android.intent.category.LAUNCHER"))))
                 .Add(Named("provider", "mono.MonoRuntimeProvider", (Ns, "exported", false)))
                 .Add(Named("activity", "com.facebook.FacebookActivity"))
+                .Add(Named("receiver", "com.google.android.gms.analytics.AnalyticsReceiver", (Ns, "enabled", true), (Ns, "exported", false)))
+                .Add(Named("service", "com.google.android.gms.analytics.AnalyticsService", (Ns, "enabled", true), (Ns, "exported", false)))
+                .Add(Named("service", "com.google.android.gms.analytics.AnalyticsJobService", (Ns, "permission", "android.permission.BIND_JOB_SERVICE"),
+                           (Ns, "enabled", true), (Ns, "exported", false)))
+                .Add(Named("service", "com.google.android.gms.analytics.CampaignTrackingService"))
                 .Add(Named("receiver", "com.gameloft.pushnotification.LocalPushReceiver").Add(Filter("android.intent.action.BOOT_COMPLETED")))
                 .Add(Named("provider", Package + ".KeyProvider", (Ns, "permission", Vendor), (Ns, "exported", true), (Ns, "authorities", Package + ".KeyProvider")))
                 .Add(Named("meta-data", "com.google.android.gms.version", (Ns, "value", "12451000")));

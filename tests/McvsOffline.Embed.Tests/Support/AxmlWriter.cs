@@ -18,7 +18,7 @@ namespace McvsOffline.Embed.Tests.Support
 
         private static readonly Dictionary<string, uint> FrameworkIds = new Dictionary<string, uint>(StringComparer.Ordinal)
         {
-            ["name"] = 0x01010003, ["permission"] = 0x01010006, ["protectionLevel"] = 0x01010009, ["exported"] = 0x01010010,
+            ["name"] = 0x01010003, ["permission"] = 0x01010006, ["protectionLevel"] = 0x01010009, ["enabled"] = 0x0101000e, ["exported"] = 0x01010010,
             ["authorities"] = 0x01010018, ["value"] = 0x01010024, ["minSdkVersion"] = 0x0101020c, ["targetSdkVersion"] = 0x01010270,
             ["maxSdkVersion"] = 0x01010271, ["scheme"] = 0x01010027, ["fitsSystemWindows"] = 0x010100dd,
             ["allowNativeHeapPointerTagging"] = 0x01010612, ["layout_width"] = 0x010100f4, ["layout_height"] = 0x010100f5, ["id"] = 0x010100d0,

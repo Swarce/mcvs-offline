@@ -20,6 +20,12 @@ namespace McvsOffline.Patcher.Manifest
     /// notification need it declared; the host asks for it at run time);</item>
     /// <item>&lt;queries&gt; for VIEW + BROWSABLE http/https intents (from target 30 InGameBrowser's queryIntentActivities sees
     /// no browser without it and external links do nothing; the share sheet queries nothing and needs no entry);</item>
+    /// <item>from 31 on: the four Google Analytics components (AnalyticsReceiver, AnalyticsService, AnalyticsJobService,
+    /// CampaignTrackingService) leave the manifest. GA is off from 31 (classes.dex P12-P14), so nothing of this build uses
+    /// them, but the system can still start them on its own: a dispatch job or alarm an earlier build (GA on, same package)
+    /// left with JobScheduler or AlarmManager survives the update, and GA's init in their onCreate/onReceive reaches
+    /// zzaoa.zzyk(), a PendingIntent.getBroadcast with flags 0 (report P9): IllegalArgumentException on Android 12+, which
+    /// kills the process, a running game included. Without the declarations the system drops such a job or broadcast.</item>
     /// <item>at 36 only: android:enableOnBackInvokedCallback="false" (predictive back would stop delivering KEYCODE_BACK to
     /// MainActivity and onBackPressed to InGameBrowser) and android:appCategory="game" (keeps the fixed orientation on
     /// large screens).</item>
@@ -78,6 +84,19 @@ namespace McvsOffline.Patcher.Manifest
 
         public const string PostNotifications = "android.permission.POST_NOTIFICATIONS";
 
+        /// <summary>
+        /// The Google Analytics components removed from target <see cref="DexEditsRequiredFrom"/> on (tag, android:name), in
+        /// manifest order: GA is off there (classes.dex P12-P14), and a job, alarm or broadcast an earlier build left with the
+        /// system would otherwise start GA, whose init creates a PendingIntent without a mutability flag (zzaoa.zzyk).
+        /// </summary>
+        public static readonly IReadOnlyList<(string Tag, string Name)> GoogleAnalyticsComponents = new[]
+        {
+            ("receiver", "com.google.android.gms.analytics.AnalyticsReceiver"),
+            ("service", "com.google.android.gms.analytics.AnalyticsService"),
+            ("service", "com.google.android.gms.analytics.AnalyticsJobService"),
+            ("service", "com.google.android.gms.analytics.CampaignTrackingService"),
+        };
+
         /// <summary>Components the exported rule applies to (PackageParser reads exported on these).</summary>
         private static readonly string[] ComponentTags = { "activity", "activity-alias", "receiver", "service" };
 
@@ -114,7 +133,7 @@ namespace McvsOffline.Patcher.Manifest
         /// The manifest edits for <paramref name="target"/> with one note each (none for <see cref="ShippedTarget"/>, which
         /// returns the input). Checks the shape it relies on first (one &lt;uses-sdk&gt; with integer minSdkVersion 21 and
         /// targetSdkVersion 29, one &lt;application&gt;, no POST_NOTIFICATIONS or &lt;queries&gt; yet, none of the
-        /// application attributes it adds) and refuses (<see cref="InvalidDataException"/>) anything else; afterwards it
+        /// application attributes it adds, each of the <see cref="GoogleAnalyticsComponents"/> once) and refuses (<see cref="InvalidDataException"/>) anything else; afterwards it
         /// re-reads the result and checks every edit and that nothing else moved.
         /// </summary>
         public static byte[] Edit(byte[] manifest, int target, ICollection<string> notes)
@@ -141,6 +160,16 @@ namespace McvsOffline.Patcher.Manifest
             }
             if (elements.Any(e => e.Path == ManifestPath + "/uses-permission" && e.AndroidName == PostNotifications)) problems.Add("POST_NOTIFICATIONS is already declared");
             if (elements.Any(e => e.Path == ManifestPath + "/queries")) problems.Add("<queries> already exists");
+            var analytics = new List<BinaryXml.Element>();
+            if (target >= DexEditsRequiredFrom)
+            {
+                foreach (var (tag, name) in GoogleAnalyticsComponents)
+                {
+                    List<BinaryXml.Element> found = elements.Where(e => e.Parent != null && e.Parent.Path == ApplicationPath && e.Name == tag && e.AndroidName == name).ToList();
+                    if (found.Count == 1) analytics.Add(found[0]);
+                    else problems.Add("<" + tag + " android:name=\"" + name + "\"> occurs " + found.Count + " times");
+                }
+            }
             if (problems.Count > 0) throw Refused(string.Join("; ", problems));
 
             // 1. The target.
@@ -156,6 +185,15 @@ namespace McvsOffline.Patcher.Manifest
                 xml.InsertAttribute(c, BinaryXml.NewAttribute.Android("exported", ExportedId, BinaryXml.Value.Boolean(true)));
                 notes?.Add("manifest: android:exported=\"true\" on " + c + " (it has an intent filter: from target " + ExportedRequiredFrom +
                            " Android refuses to install without exported; true is the old default, nothing changes)");
+            }
+
+            // 2b. Google Analytics out of the manifest (GA is off from 31: classes.dex P12-P14).
+            foreach (BinaryXml.Element ga in analytics)
+            {
+                xml.Remove(ga);
+                notes?.Add("manifest: - <" + ga.Name + " android:name=\"" + ga.AndroidName + "\"> in <application> (Google Analytics is off from target " + DexEditsRequiredFrom + ", classes.dex P12-P14: " +
+                           "a dispatch job, alarm or broadcast an earlier build left with the system would start GA here, and its init creates a " +
+                           "PendingIntent without a mutability flag, which kills the process on Android 12+; undeclared, the system drops it)");
             }
 
             // 3. <application> attributes.
@@ -191,7 +229,7 @@ namespace McvsOffline.Patcher.Manifest
                        "external links do nothing; the share sheet needs no entry)");
 
             byte[] result = xml.ToArray();
-            Verify(manifest, result, target, components);
+            Verify(manifest, result, target, components, analytics);
             return result;
         }
 
@@ -218,8 +256,11 @@ namespace McvsOffline.Patcher.Manifest
                            .ToList();
         }
 
-        /// <summary>Re-reads the result: the edits are there, and the elements of the input are all still there, in order.</summary>
-        private static void Verify(byte[] input, byte[] result, int target, List<BinaryXml.Element> exported)
+        /// <summary>
+        /// Re-reads the result: the edits are there, and the elements of the input are all still there, in order, except the
+        /// <paramref name="removed"/> Google Analytics components.
+        /// </summary>
+        private static void Verify(byte[] input, byte[] result, int target, List<BinaryXml.Element> exported, List<BinaryXml.Element> removed)
         {
             IReadOnlyList<BinaryXml.Element> before = BinaryXml.Parse(input).Elements();
             IReadOnlyList<BinaryXml.Element> after = BinaryXml.Parse(result).Elements();
@@ -238,7 +279,11 @@ namespace McvsOffline.Patcher.Manifest
             if (queries.Count != 1 + 2 * 4) problems.Add("<queries>");
             var kept = after.Where(e => !queries.Contains(e) && !(e.Path == ManifestPath + "/uses-permission" && e.AndroidName == PostNotifications))
                             .Select(e => e.Path + " " + e.AndroidName + " " + e.Line).ToList();
-            if (!kept.SequenceEqual(before.Select(e => e.Path + " " + e.AndroidName + " " + e.Line))) problems.Add("the input's elements changed");
+            var removedKeys = new HashSet<string>(removed.Select(e => e.Path + " " + e.AndroidName + " " + e.Line), StringComparer.Ordinal);
+            if (!kept.SequenceEqual(before.Select(e => e.Path + " " + e.AndroidName + " " + e.Line).Where(k => !removedKeys.Contains(k)))) problems.Add("the input's elements changed");
+            if (removed.Count != (target >= DexEditsRequiredFrom ? GoogleAnalyticsComponents.Count : 0) ||
+                after.Any(e => e.Parent != null && e.Parent.Path == ApplicationPath && GoogleAnalyticsComponents.Any(g => g.Tag == e.Name && g.Name == e.AndroidName)))
+                problems.Add("the Google Analytics components");
             foreach (BinaryXml.Element e in exported)
             {
                 BinaryXml.Element now = after.Single(x => x.Path == e.Path && x.AndroidName == e.AndroidName && x.Line == e.Line);

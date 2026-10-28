@@ -41,6 +41,12 @@ namespace McvsOffline.Embed.Tests.Patcher
             this.output = output;
         }
 
+        /// <summary>One of the Google Analytics components "targetsdk" removes from 31 on.</summary>
+        internal static bool IsGoogleAnalyticsComponent(BinaryXml.Element e)
+        {
+            return e.Depth == 2 && ManifestTargetSdk.GoogleAnalyticsComponents.Any(g => g.Tag == e.Name && g.Name == e.AndroidName);
+        }
+
         /// <summary>The <c>uses-sdk</c> element's android:minSdkVersion and android:targetSdkVersion (integer values).</summary>
         internal static (uint Min, uint Target) UsesSdk(byte[] manifest)
         {
@@ -71,6 +77,7 @@ namespace McvsOffline.Embed.Tests.Patcher
                 Assert.Equal(0xFFFFFFFFu, Assert.Single(component.Attributes, a => a.ResourceId == ManifestTargetSdk.ExportedId).Data);
             }
             Assert.Single(elements, e => e.Path == "manifest/uses-permission" && e.AndroidName == ManifestTargetSdk.PostNotifications);
+            Assert.DoesNotContain(elements, IsGoogleAnalyticsComponent);   // GA is off from 31 (classes.dex P12-P14): nothing may start it
 
             BinaryXml.Element queries = Assert.Single(elements, e => e.Path == "manifest/queries");
             List<BinaryXml.Element> intents = elements.Where(e => ReferenceEquals(e.Parent, queries)).ToList();
@@ -114,13 +121,16 @@ namespace McvsOffline.Embed.Tests.Patcher
 
             AssertInvariant(result, target, new[] { "com.gameloft.android.XamarinMainActivity", "com.gameloft.pushnotification.LocalPushReceiver" });
             foreach (string n in notes) output.WriteLine(n);
-            Assert.Equal(1 + 2 + 1 + 1 + 1 + (target >= 36 ? 2 : 0), notes.Count);
+            Assert.Equal(1 + 2 + 4 + 1 + 1 + 1 + (target >= 36 ? 2 : 0), notes.Count);
+            Assert.Equal(ManifestTargetSdk.GoogleAnalyticsComponents.Select(g => "manifest: - <" + g.Tag + " android:name=\"" + g.Name + "\"> in <application> (Google Analytics"),
+                         notes.Where(n => n.StartsWith("manifest: - <", StringComparison.Ordinal)).Select(n => n.Substring(0, n.IndexOf(" (Google Analytics", StringComparison.Ordinal) + 18)));
             Assert.StartsWith("manifest: <uses-sdk android:targetSdkVersion> 29 -> " + target + " (", notes[0]);
             Assert.All(notes, n => Assert.StartsWith("manifest: ", n));
 
-            // Nothing else changed: the elements of the input, in order, with their attributes (plus exported and the
-            // application attributes), and the two new top-level elements.
-            List<string> before = BinaryXml.Parse(manifest).Elements().Select(e => e.Path + " " + e.AndroidName).ToList();
+            // Nothing else changed: the elements of the input but the four GA components, in order, with their attributes (plus
+            // exported and the application attributes), and the two new top-level elements.
+            List<string> before = BinaryXml.Parse(manifest).Elements().Where(e => !IsGoogleAnalyticsComponent(e)).Select(e => e.Path + " " + e.AndroidName).ToList();
+            Assert.Equal(4, BinaryXml.Parse(manifest).Elements().Count(IsGoogleAnalyticsComponent));
             List<string> after = BinaryXml.Parse(result).Elements().Where(e => !e.Path.StartsWith("manifest/queries", StringComparison.Ordinal) &&
                                                                               e.AndroidName != ManifestTargetSdk.PostNotifications)
                                           .Select(e => e.Path + " " + e.AndroidName).ToList();
@@ -161,6 +171,8 @@ namespace McvsOffline.Embed.Tests.Patcher
             Refused(Debloated((m, a) => m.Add(new AxmlWriter.Element("uses-permission", (Ns, "name", ManifestTargetSdk.PostNotifications)))), "POST_NOTIFICATIONS is already declared");
             Refused(Debloated((m, a) => m.Add(new AxmlWriter.Element("queries"))), "<queries> already exists");
             Refused(Debloated((m, a) => a.Attributes.Add((Ns, "allowNativeHeapPointerTagging", true))), "already sets attribute 0x01010612");
+            Refused(Debloated((m, a) => a.Children.RemoveAll(c => c.Attributes.Any(x => "com.google.android.gms.analytics.AnalyticsJobService".Equals(x.Value)))),
+                    "<service android:name=\"com.google.android.gms.analytics.AnalyticsJobService\"> occurs 0 times");
 
             // The patch itself first wants the shipped manifest, byte for byte.
             byte[] synthetic = AxmlWriter.Write(ManifestDebloatTests.DebloatLikeManifest());
@@ -253,7 +265,8 @@ namespace McvsOffline.Embed.Tests.Patcher
             byte[] result = ManifestTargetSdk.Apply(shipped, debloated, target, notes);
             foreach (string n in notes) output.WriteLine(n);
             AssertInvariant(result, target, ExportedAfterDebloat);
-            Assert.Equal(1 + ExportedAfterDebloat.Length + 1 + 1 + 1 + (target >= 36 ? 2 : 0), notes.Count);
+            Assert.Equal(1 + ExportedAfterDebloat.Length + ManifestTargetSdk.GoogleAnalyticsComponents.Count + 1 + 1 + 1 + (target >= 36 ? 2 : 0), notes.Count);
+            Assert.Equal(4, BinaryXml.Parse(debloated).Elements().Count(IsGoogleAnalyticsComponent));
             foreach (string name in ExportedAfterDebloat) Assert.Contains(notes, n => n.StartsWith("manifest: android:exported=\"true\" on <", StringComparison.Ordinal) && n.Contains(name));
 
             // compileSdkVersion and platformBuildVersion* stay as shipped (informational only).
@@ -408,6 +421,9 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Contains("launchable-activity: name='com.gameloft.android.XamarinMainActivity'  label='MCVS' icon=''", lines);
             Assert.Equal(ManifestDebloatTests.KeptPermissions.Concat(new[] { ManifestTargetSdk.PostNotifications }), Aapt2Dump.UsesPermissions(string.Join("\n", lines)));
             string tree = Aapt2Dump.XmlTree(outApk);
+            Assert.DoesNotContain("com.google.android.gms.analytics.Analytics", tree);
+            Assert.DoesNotContain("com.google.android.gms.analytics.CampaignTrackingService", tree);
+            Assert.Contains("com.google.android.gms.analytics.globalConfigResource", tree);   // inert meta-data, stays
             Assert.Equal(3 + 1, tree.Split('\n').Count(l => l.Contains("android:exported(0x01010010)=true")));   // the three, and KeyProvider's own
             string land = Aapt2Dump.Run("dump", "xmltree", "--file", "res/layout-land/activity_in_game_browser.xml", outApk);
             Assert.Contains("android:fitsSystemWindows(0x010100dd)=true", land);

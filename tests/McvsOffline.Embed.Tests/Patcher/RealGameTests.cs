@@ -37,8 +37,8 @@ namespace McvsOffline.Embed.Tests.Patcher
         /// The notes of a run on the real APK: those of its IL patches, the manifest permission rename, the res/raw/args.txt
         /// rewrite (--game-log all), the ABI selection, for "debloat" one per removed manifest element plus one for the
         /// dropped Crashlytics/Fabric files, and for "targetsdk" at <paramref name="target"/> 35 the target, the three exported
-        /// components, heap tagging, POST_NOTIFICATIONS, &lt;queries&gt;, the two browser layouts and the 14 classes.dex sites
-        /// (<see cref="DexNotes"/>; none of them at 29).
+        /// components, heap tagging, POST_NOTIFICATIONS, &lt;queries&gt;, the two browser layouts, the four Google Analytics
+        /// components it removes and the 14 classes.dex sites (<see cref="DexNotes"/>; none of them at 29).
         /// </summary>
         internal static int ExpectedNotes(IEnumerable<string> optionalPatches, bool gameLogAll = true, int target = ManifestTargetSdk.DefaultTarget)
         {
@@ -47,7 +47,7 @@ namespace McvsOffline.Embed.Tests.Patcher
             notes += 1 + (gameLogAll ? 1 : 0) + 1;
             if (ids.Contains(ManifestDebloat.PatchId)) notes += ManifestDebloat.Targets.Count + 1;
             if (ids.Contains(ManifestTargetSdk.PatchId) && target != ManifestTargetSdk.ShippedTarget) notes += 1 + 3 + 1 + 1 + 1 + BrowserLayoutInsets.Layouts.Count;
-            if (ids.Contains(ManifestTargetSdk.PatchId) && target >= DexTargetSdkEdits.MinTargetSdk) notes += DexNotes;
+            if (ids.Contains(ManifestTargetSdk.PatchId) && target >= DexTargetSdkEdits.MinTargetSdk) notes += ManifestTargetSdk.GoogleAnalyticsComponents.Count + DexNotes;
             return notes;
         }
 
@@ -81,10 +81,10 @@ namespace McvsOffline.Embed.Tests.Patcher
                          report.Modified.OrderBy(m => m, StringComparer.Ordinal));
             Assert.Equal(new[] { "assemblies/McvsOffline.Server.dll" }, report.Added);
             // 36 IL patch notes, the manifest permission rename, the res/raw/args.txt rewrite, the ABI selection, debloat's
-            // 44 manifest removals and file drop, and targetsdk's 7 manifest, 2 layout and 14 classes.dex edits: 107 (see
-            // IlPatchNotes / ExpectedNotes).
+            // 44 manifest removals and file drop, and targetsdk's 7 manifest, 2 layout, 4 Google Analytics removal and 14
+            // classes.dex edits: 111 (see IlPatchNotes / ExpectedNotes).
             Assert.Equal(14, DexNotes);
-            Assert.Equal(107, ExpectedNotes(options.Patches, target: 35));
+            Assert.Equal(111, ExpectedNotes(options.Patches, target: 35));
             Assert.Equal(ExpectedNotes(options.Patches, target: 35), report.Notes.Count);
             Assert.Equal(ManifestDebloat.Targets.Count, report.Notes.Count(n => n.StartsWith("manifest: removed <", StringComparison.Ordinal)));
             Assert.Contains(report.Notes, n => n.StartsWith("debloat: dropped 8 Crashlytics/Fabric files", StringComparison.Ordinal));   // armeabi-v7a's went with its ABI
@@ -111,6 +111,7 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Contains(report.Notes, n => n.Contains("BrowserComponent::OpenUrl") && n.Contains("OpenIfPageMarker(url, this)"));
             Assert.Contains(report.Notes, n => n.Contains("UIComponent::GoToForum") && n.Contains("OpenPage(\"forum\", World)"));
             Assert.Equal(DexNotes, report.Notes.Count(n => n.StartsWith("classes.dex: ", StringComparison.Ordinal)));
+            Assert.Equal(ManifestTargetSdk.GoogleAnalyticsComponents.Count, report.Notes.Count(n => n.StartsWith("manifest: - <", StringComparison.Ordinal) && n.Contains(".analytics.")));
             Assert.Equal(BrowserLayoutInsets.Layouts.Count, report.Notes.Count(n => n.Contains("activity_in_game_browser.xml: ")));
             // arm64-v8a loses the AOT images of exactly the four modified assemblies; v1 signature files go.
             var aot = report.Removed.Where(r => r.Contains("(AOT image")).Select(r => r.Split(' ')[0]).OrderBy(r => r).ToList();

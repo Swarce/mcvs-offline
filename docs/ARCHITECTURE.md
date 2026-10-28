@@ -147,7 +147,8 @@ request; `--art` is a separate option):
   Facebook and Play Games are not initialised at menu start (`SocialLib_private.Init` -> NotSent like an unsupported
   Sns; a login tap fails one frame later through `GameApplication.Context`, like a failed login). Kept on purpose: the
   IAP code, KeyProvider, local push and `RECEIVE_BOOT_COMPLETED`, FacebookActivity and the app-id meta-data, Google
-  Analytics, VIBRATE/BILLING, all dex code and Bind*.dll (`targetsdk` later turns GA off in `classes.dex`).
+  Analytics, VIBRATE/BILLING, all dex code and Bind*.dll (`targetsdk` later turns GA off in `classes.dex` and, from 31,
+  takes its four components out of the manifest).
 - `adminpage` (default, build 9): Settings › Account gets an "MCVS Offline" button. Game.dll
   `PlayerProfileComponent.GetAccountMenuButtonList` returns its list through `McvsOffline.AdminHooks.AccountMenuButtons`
   (one more entry, `customAction "mcvs_offline"`), and `ProcessAccountMenuButtonAction` first sends that action to
@@ -175,7 +176,10 @@ request; `--art` is a separate option):
   `BinaryXml`): `exported="true"` on every intent-filter component lacking it (after debloat: `XamarinMainActivity`,
   `IGPFreemiumActivity`, `LocalPushReceiver`), `allowNativeHeapPointerTagging="false"`, `POST_NOTIFICATIONS`, `<queries>`
   for VIEW/BROWSABLE http and https (InGameBrowser's browser lookup); at 36 also `enableOnBackInvokedCallback="false"`
-  and `appCategory="game"`. Layouts (`BrowserLayoutInsets.cs`): `fitsSystemWindows="true"` on the root of both
+  and `appCategory="game"`. From 31 the four Google Analytics components (`AnalyticsReceiver`, `AnalyticsService`,
+  `AnalyticsJobService`, `CampaignTrackingService`) leave the manifest: GA is off (P12-P14 below), and a dispatch job or
+  alarm build 9 left with the system survives the update and would start GA, whose init creates a `PendingIntent` with
+  flags 0 (an `IllegalArgumentException` that kills the process on Android 12+). Layouts (`BrowserLayoutInsets.cs`): `fitsSystemWindows="true"` on the root of both
   `activity_in_game_browser` layouts, so the edge-to-edge settings page stays clear of the navigation bar (no v35 theme
   opt-out: it would hide the v31 launch-screen items). Fingerprinted on the shipped manifest and layouts; refused at 31+
   without `debloat`; `--target-sdk 29` leaves the manifest, layouts and `classes.dex` exactly as without the patch.
@@ -205,7 +209,8 @@ server DLL (`hosts/embedded/Admin/AdminHooks.cs`; `AdminHooksContractTests` keep
 fallback, which gives the shipped manifest, layouts and `classes.dex`) with `minSdkVersion` 21, every intent-filter component has
 `exported`, `POST_NOTIFICATIONS` and the browser `<queries>` are declared, both browser layouts fit the system windows,
 `resources.arsc` stays STORED and 4-byte aligned (`ManifestTargetSdkTests`), every reachable `PendingIntent` creation
-site carries a mutability flag and GA's entry points return (`RealDexTargetSdkTests`), and **no target of 31 or more is
+site carries a mutability flag, GA's entry points return, and no component the manifest declares reaches a creation
+site without one (`RealDexTargetSdkTests`, a conservative reachability from the Application class and every component), and **no target of 31 or more is
 written without the `classes.dex` edits of the same run** (`ApkPatcher.CheckDexEdits`). Of I1's five reasons, the game's own
 restart `PendingIntent` needs that dex fix (P1); the share chooser and the `file://` share on Android 7–9 were never
 target-bound; the relaunch alarm is blocked on Android 13+ at any target; the browser layout is fixed above.

@@ -84,12 +84,13 @@ Found while implementing and reviewing the packages and at the integration (WP8)
   [research/target-sdk.md](../research/target-sdk.md) §6). The patched APK targets 35 by default (`targetsdk` patch;
   `--target-sdk 29` is the fallback and gives the shipped manifest and layouts, `AndroidManifest.xml:13`). The design
   relied on 29 for five things; at 35: the game's own restart `PendingIntent` without `FLAG_IMMUTABLE`
-  (`MainActivity.c()`, flag 32768) needs the `classes.dex` edit P1, and the patcher refuses 31+ unless `classes.dex`
-  was edited in the same run, so until those edits are in the default stays 29; the share chooser and the StrictMode
+  (`MainActivity.c()`, flag 32768) needs the `classes.dex` edit P1, which build 10 makes in the same run (the patcher
+  refuses 31+ unless `classes.dex` was edited in that run); the share chooser and the StrictMode
   `file://` share on Android 7–9 were never target-bound; the relaunch alarm is blocked on Android 13+ at any target;
   the browser activity's edge-to-edge is handled by `fitsSystemWindows` on both layouts. `ManifestTargetSdkTests`
-  asserts it (the target, `exported`, `POST_NOTIFICATIONS`, `<queries>`, the layouts, and the refusal without the dex
-  edits).
+  asserts it (the target, `exported`, `POST_NOTIFICATIONS`, `<queries>`, the layouts, no Google Analytics components,
+  and the refusal without the dex edits: `ATarget31OrMoreNeedsTheDexEditsOfTheSameRun`, a unit test of
+  `ApkPatcher.CheckDexEdits`); `RealDexTargetSdkTests` asserts the dex side.
 * **I2 — no stored secret.** No ticket, cookie or other bearer secret is ever written to a file, the CRM document, a
   profile, a log line or a share. The only secrets are one-time tickets (memory, ≤ 120 s, URL fragment or form body of
   the game's own WebView) and session cookies (memory and the game's private WebView cookie store).
@@ -2276,9 +2277,9 @@ differential outcome equals the unpatched assembly's; `ForumPatch`: fingerprint,
 calls the hook with `"forum"`; every patched method JITs (`RuntimeHelpers.PrepareMethod`); ILVerify clean when `ilverify`
 is installed (as `RealDebloatPatchTests`); a second patch run throws `PatchException`; all default patches still apply
 together; `--dry-run` on the real APK lists `adminpage` and `adminlink`. `ManifestTargetSdkTests` (`TestEnvironment.GameApk`)
-— as built, it asserts I1' instead of I1: the default target (35 once the `classes.dex` edits are in, 29 until then),
+— as built, it asserts I1' instead of I1: the default target 35 (with the `classes.dex` edits of the same run, build 10),
 `minSdkVersion` 21, `exported`, `POST_NOTIFICATIONS`, `<queries>` and the browser layouts at 35 and 36, `--target-sdk 29`
-equal to the output without the patch, and 31+ refused without the dex edits.
+equal to the output without the patch, and 31+ refused without the dex edits (`ATarget31OrMoreNeedsTheDexEditsOfTheSameRun`).
 
 ### 10.8 WP7 — Server-side triggers: CRM inbox item, redeem code (`server/Services/Crm`, `…/Assets`)
 

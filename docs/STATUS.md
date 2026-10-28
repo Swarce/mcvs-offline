@@ -6,8 +6,9 @@ probe, the PC test kit; see "Build 10"), after device test 8 (the MCVS Offline p
 below); the Cosmetic crate starts on 2026-11-09 and is not yet tested on the phone. Earlier: device tests 6 and 7 on a
 Samsung Galaxy S22, Android 16 ("Build 8", "Build 7", "Device test 6").
 
-**Summary:** the Federation server is complete for the offline single-player goals and passes 1,621 tests, including a
-conformance harness that runs the game's own client libraries against it. Device test 1 put the player build (patcher +
+**Summary:** the Federation server is complete for the offline single-player goals and passes its full test suite, including a
+conformance harness that runs the game's own client libraries against it (the count of the last full run is under
+"Checked" in the newest build's section). Device test 1 put the player build (patcher +
 embedded host) on a phone for the first time and found two blockers (a stall with the internet on, a crash of the headless
 TS World). Build 2 fixed both: in device test 2 the whole boot chain up to the TS handshake ran, and the TS World loaded its
 level. Then the game hung on "connecting", with the game thread asleep in a futex. Build 3 gave the server Worlds
@@ -41,7 +42,10 @@ HD texture probe and a Windows test kit for the Steam version.
   `classes.dex`: 14 same-size, fingerprinted edits in 13 methods (`patcher/Dex/`): `FLAG_IMMUTABLE` on the restart alarm
   (P1: the page's Restart and the game's graphics-setting restart), the local reminders (P2-P7) and the data-download
   notification (P8); empty filters for the push relay and Play billing receivers (P10-P11); Google Analytics' three entry
-  points return at once (P12-P14). Refused at 31+ without `debloat`, and never written without the dex edits.
+  points return at once (P12-P14), and GA's four components leave the manifest (build-10 review: a dispatch job or alarm
+  build 9 left with the system survives the update and would start GA, whose init creates a `PendingIntent` with flags 0,
+  an `IllegalArgumentException` that kills the process on Android 12+). Refused at 31+ without `debloat`, and never
+  written without the dex edits.
   `--target-sdk 29` gives build 9's manifest, layouts and `classes.dex`.
 * **Notification permission** (host): on Android 13+ the game asks once, at the first main menu, when the build targets
   33+ and declares the permission (details below).
@@ -201,7 +205,10 @@ Install build 10 **over** build 9 (same key; never uninstall: that deletes the s
 `adb logcat -s McvsOffline mono mono-stdout AndroidRuntime ActivityManager > b10.txt` running where you can.
 
 1. **Install**: no Play Protect "built for an older version of Android" warning, neither in the install dialog nor in a
-   Play Protect scan afterwards. The saves, settings and the launcher icon (still Gameloft's) are as before.
+   Play Protect scan afterwards. The saves, settings and the launcher icon (still Gameloft's) are as before. Keep the
+   logcat running for the first hour after the install, game open or not: a Google Analytics job or alarm build 9 left
+   with Android runs then, and build 10 must drop it without a crash (no `AndroidRuntime: FATAL EXCEPTION` naming
+   `com.google.android.gms.analytics` or `PendingIntent`).
 2. **Target 35 basics**: boot to the menu; menus, a bot match and a Battle; the game saves (close it, start it again, the
    progress is there); Back in the game (pause menu, the quit dialog) and on the MCVS Offline page (Back leaves the page
    or asks first, as in build 9).
@@ -220,7 +227,7 @@ Install build 10 **over** build 9 (same key; never uninstall: that deletes the s
    MidGPU/HighGPU/High_Ultra", a bot match plays through, then 10 minutes of play for frame rate and heat; no `[watchdog]
    STALL`, no `physics step gate: ... without the gate`. Then `graphics.fullProfile` on at `ultra`: one bot match. With a
    forced profile, the game's own Graphic setting should not change the `[boot] graphics:` profile. Back to `auto` at the end.
-7. **HD texture probe** (steps in "HD texture probe: the device test" below): on the PC `adb pull` the phone's
+7. **HD texture probe** (steps in "HD texture probe: the device test" above, under "Build 10"): on the PC `adb pull` the phone's
    `Data/8/dbd2f1.f`, build the zip with `dotnet run --project tools/hd-textures -- probe --file dbd2f1.f --out
    hd-textures.zip` (it should say ASTC 6x6 on the S22), game closed: `adb push` it to
    `.../files/McvsOffline/hd/hd-textures.zip`. Start the game: the `[boot] hd textures:` lines (zip read, mounted through
@@ -232,10 +239,22 @@ Install build 10 **over** build 9 (same key; never uninstall: that deletes the s
    reminders still come. A reminder that build 9 scheduled may arrive once more after the update (expected).
 9. **Share sheet**: Logs › Build › Share and Saves' "Share as a file" open Android's share sheet and another app receives
    the file; "Share a text report" and Save to Downloads still work.
-10. **logcat**: during all of the above, `adb logcat | grep -E "FLAG_IMMUTABLE|RECEIVER_EXPORTED|VerifyError"` stays
+10. **logcat**: during all of the above,
+    `adb logcat | grep -E "FLAG_IMMUTABLE|RECEIVER_EXPORTED|VerifyError|Background activity launch blocked"` stays
     empty (no `IllegalArgumentException` from a PendingIntent, no `SecurityException` from a receiver, no class rejected
-    by ART). Send `b10.txt`.
-11. If anything in 1–10 regresses: patch again with `--target-sdk 29` (build 9's manifest, layouts and `classes.dex`;
+    by ART); a "Background activity launch blocked" line right after a Restart (item 4) is the expected Android 13+
+    relaunch block, note when it appeared. Send `b10.txt`.
+11. **Data-download notification** (P8, the largest dex edit: it rebuilds the notification's intent). Shown only while
+    the installer downloads data, which the S22 no longer does, and a fresh download there would need its data cleared,
+    which deletes the saves: **never clear the S22's data for it.** Only with a second Android 12+ phone: install build 10
+    there, start it with the internet on, and once the installer downloads (if Gameloft's servers still answer), press
+    Home: the progress notification appears; tap it: the installer comes back in the same task (Back from it does not
+    show a second game screen); let it finish in the background: the "done" notification, tapped, opens the game.
+    Without a second phone: skipped for build 10 (item 10's grep still catches a crash should the installer download).
+12. **LAN mode**: out of scope for build 10 unless a second device runs build 10 (LAN is experimental, M3, and the
+    target change touches no socket code; cleartext to 127.0.0.1 and the LAN host is unchanged from target 29). With
+    one: host on the S22, join from the other, one bot match.
+13. If anything in 1–12 regresses: patch again with `--target-sdk 29` (build 9's manifest, layouts and `classes.dex`;
     it installs over build 10 with the same key) and report the item.
 
 ## Device test 8 (October 2026): the MCVS Offline page works
@@ -278,8 +297,8 @@ The settings and diagnostics page of [design/settings-page.md](design/settings-p
   from another phone applied at the next start and confirmed by the game's save); the three hook patches on the real
   1.17.32 assemblies (fingerprints, IL, executed against recording hooks with a differential, JIT, ILVerify) and
   against the real embedded DLL; the target SDK after patching (invariant I1' in ARCHITECTURE.md §2, which replaced
-  "`targetSdkVersion` 29 after every default patch": 35 by default once the `classes.dex` edits are in, `--target-sdk 29`
-  as the fallback; until then 29 stays the default and 35/36 are refused).
+  "`targetSdkVersion` 29 after every default patch": 35 by default with the `classes.dex` edits since build 10,
+  `--target-sdk 29` as the fallback).
 * **The Cosmetic crate** ([ECONOMY.md](ECONOMY.md) §5, [design/economy-collector.md](design/economy-collector.md)):
   the unused `Crate_Event_Special`, named "CUSTOMIZATION CRATE", filled by CRM cells (39 rows: avatars, backgrounds,
   sounds on background carriers, the 16 skins, 12 hidden jerseys, Witch and Bli-P, camos, jerseys; 70 VersusCoins

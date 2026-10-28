@@ -249,16 +249,24 @@ namespace McvsOffline.Patcher.Dex
         /// <summary>One class_def_item.</summary>
         public sealed class ClassDef
         {
-            internal ClassDef(int index, string descriptor, int classDataOff)
+            internal ClassDef(int index, string descriptor, int classDataOff, string superclass, IReadOnlyList<string> interfaces)
             {
                 Index = index;
                 Descriptor = descriptor;
                 ClassDataOff = classDataOff;
+                Superclass = superclass;
+                Interfaces = interfaces;
             }
 
             public int Index { get; }
 
             public string Descriptor { get; }
+
+            /// <summary>The superclass descriptor, or null (java.lang.Object).</summary>
+            public string Superclass { get; }
+
+            /// <summary>The interfaces the class declares directly (descriptors).</summary>
+            public IReadOnlyList<string> Interfaces { get; }
 
             /// <summary>0 for a class without fields and methods (an interface with no code, a marker class).</summary>
             public int ClassDataOff { get; }
@@ -317,8 +325,18 @@ namespace McvsOffline.Patcher.Dex
             CheckIndex(index, ClassDefsSize, "class_def");
             int at = ClassDefsOff + 32 * index;
             string descriptor = GetTypeDescriptor(Checked(U32(data, at), "class_idx"));
+            uint superIndex = U32(data, at + 8);
+            string superclass = superIndex == NoIndex ? null : GetTypeDescriptor(Checked(superIndex, "superclass_idx"));
+            var interfaces = new List<string>();
+            if (U32(data, at + 12) != 0)
+            {
+                int list = Offset32(at + 12, "interfaces_off");
+                int size = Checked(U32(data, list), "type_list size");
+                if (list + 4 + 2L * size > data.Length) throw Bad(Name, "type_list at 0x" + list.ToString("x") + " runs past the end");
+                for (int i = 0; i < size; i++) interfaces.Add(GetTypeDescriptor(U16(data, list + 4 + 2 * i)));
+            }
             uint classData = U32(data, at + 24);
-            return new ClassDef(index, descriptor, classData == 0 ? 0 : Offset32(at + 24, "class_data_off"));
+            return new ClassDef(index, descriptor, classData == 0 ? 0 : Offset32(at + 24, "class_data_off"), superclass, interfaces.AsReadOnly());
         }
 
         public IEnumerable<ClassDef> Classes()
