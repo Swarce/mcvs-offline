@@ -409,7 +409,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.Equal(good, File.ReadAllBytes(env.Path_("Data/1/0018344.f")));
             Assert.False(File.Exists(env.Loc.DamagedList));
             Assert.Contains("0 still damaged and deleted (0 journal lines), 1 good again", env.Text);
-            Assert.Equal("installer data: Gameloft index in place (4 files, 6 entries)", result.Summary);
+            Assert.Equal("installer data: Gameloft index in place (ETC, 4 files, 6 entries)", result.Summary);
             Assert.Null(result.IndexToVerify);
 
             // A complete restore has nothing to download: the check need not wait for the installer.
@@ -458,7 +458,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             (Env env, byte[] gameloft) = RestoredBackup("resume");
             ZeroPiece2(env);
             InstallerDataResult first = InstallerData.Prepare(env.Loc, env.Prefs, Options(), env.Log, 1000);
-            Assert.Contains("index restored from the saved index (4 files, 6 entries)", first.Summary);
+            Assert.Contains("index restored from the saved index (ETC, 4 files, 6 entries)", first.Summary);
             Assert.NotNull(first.IndexToVerify);
             Assert.Equal(3, File.ReadAllText(env.Loc.Journal).Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);   // sizes only
             Assert.Equal("index " + InstallerData.IndexHash(first.IndexToVerify) + "\nnext 0\n", File.ReadAllText(env.Loc.VerifyPending));
@@ -466,7 +466,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             // The session ends before the check started: the next start schedules it again.
             InstallerDataResult second = InstallerData.Prepare(env.Loc, env.Prefs, Options(), env.Log, 2000);
             output.WriteLine(second.Summary);
-            Assert.Equal("installer data: Gameloft index in place (4 files, 6 entries), CRC check pending", second.Summary);
+            Assert.Equal("installer data: Gameloft index in place (ETC, 4 files, 6 entries), CRC check pending", second.Summary);
             Assert.NotNull(second.IndexToVerify);
             Assert.False(second.WaitForInstaller);
             // ... unless the check is switched off.
@@ -494,7 +494,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             // The next start deletes the still-damaged file; the check is done, so nothing more is scheduled.
             InstallerDataResult fourth = InstallerData.Prepare(env.Loc, env.Prefs, Options(), env.Log, 4000);
             Assert.False(File.Exists(env.Path_("Data/a/4309cd.f")));
-            Assert.Equal("installer data: Gameloft index in place (4 files, 6 entries)", fourth.Summary);
+            Assert.Equal("installer data: Gameloft index in place (ETC, 4 files, 6 entries)", fourth.Summary);
             Assert.Null(fourth.IndexToVerify);
 
             // A saved position belongs to one index: for another one the check starts from the beginning.
@@ -542,6 +542,110 @@ namespace McvsOffline.Embed.Tests.Embedded
             result = InstallerData.Prepare(stub.Loc, stub.Prefs, Options(), stub.Log, 1);
             Assert.Contains("is unusable", stub.Text);
             Assert.True(PackIndex.Parse(File.ReadAllBytes(stub.Loc.PackInfo)).IsRebuilt);
+        }
+
+        /// <summary>
+        /// A data pack with replaced files (the ASTC HD pack of tools/hd-textures astc-pack): its own index and replaced.tsv are
+        /// pushed to McvsOffline/install/ over a phone whose installer still has the index of the old data. The saved index
+        /// replaces it, the pack is recognised by Gameloft's sizes in replaced.tsv, and later starts, a reinstall and a lost
+        /// index all keep it.
+        /// </summary>
+        [Fact]
+        public void ADataPackWithReplacedFilesIsRecognisedAndItsIndexReplacesTheOldOne()
+        {
+            Env env = NewPack("replaced");
+            long gameloftBytes = Sizes.Sum(s => (long)s);
+            var options = new Func<InstallerDataOptions>(() => new InstallerDataOptions
+            {
+                KnownPacks = new[] { new InstallerData.KnownPack("ASTC", Files.Length, gameloftBytes), new InstallerData.KnownPack("ETC", Files.Length, gameloftBytes + 99) },
+            });
+            byte[] original = File.ReadAllBytes(env.Path_("Data/1/0018344.f"));
+            PackIndex gameloft = PackIndex.Parse(GameloftIndex(env.Root, Files));
+
+            // The old data the installer's index describes (other sizes, as the ETC pack's).
+            Env old = new Env("replaced-old");
+            for (int i = 0; i < Files.Length; i++) old.File(Files[i], Sizes[i] + 3, 9);
+            File.WriteAllBytes(env.Loc.PackInfo, GameloftIndex(old.Root, Files));
+            Directory.CreateDirectory(Path.GetDirectoryName(env.Loc.GlVer));
+            File.WriteAllText(env.Loc.GlVer, "1173200");
+            env.Prefs.SetString(InstallerData.DataTypeKey, "ETC");
+
+            // The pushed pack: Data/1/0018344.f replaced by a file that grew past 2 MiB, the index for it, replaced.tsv.
+            env.File("Data/1/0018344.f", 2 * Split + 99, 77);
+            byte[] hd = File.ReadAllBytes(env.Path_("Data/1/0018344.f"));
+            var crcs = new List<uint> { Crc32.Update(0, hd, 0, Split), Crc32.Update(0, hd, Split, Split), Crc32.Update(0, hd, 2 * Split, 99) };
+            PackIndex shipped = gameloft.Replace(new Dictionary<string, List<PackEntry>>
+            {
+                ["Data/1/0018344.f"] = PackIndex.EntriesFor("Data/1/0018344.f", hd.Length, crcs, false, gameloft.EntriesOf("Data/1/0018344.f")),
+            });
+            Directory.CreateDirectory(Path.GetDirectoryName(env.Loc.SavedIndex));
+            File.WriteAllBytes(env.Loc.SavedIndex, shipped.Raw);
+            string list = "# test\nmcvs-replaced\t1\tASTC\t1.17.32\nData/1/0018344.f\t" + hd.Length + "\t" + Crc32.Update(0, hd, 0, hd.Length).ToString("x8") + "\t" +
+                          original.Length + "\t" + Crc32.Update(0, original, 0, original.Length).ToString("x8") + "\n";
+            File.WriteAllText(env.Loc.ReplacedList, list);
+
+            InstallerDataResult result = InstallerData.Prepare(env.Loc, env.Prefs, options(), env.Log, 10);
+            output.WriteLine(env.Text);
+            string described = "ASTC with 1 replaced files, 4 files, " + shipped.Entries.Count + " entries";
+            Assert.Equal("installer data: index switched to the saved index (" + described + ")", result.Summary);
+            Assert.Equal(shipped.Raw, File.ReadAllBytes(env.Loc.PackInfo));
+            Assert.Equal("ASTC", env.Prefs.GetString(InstallerData.DataTypeKey));
+            Assert.Contains(".\\\\Data\\1" + "0018344.f.split_0003", File.ReadAllText(env.Loc.Journal));
+            Assert.Equal(0, InstallerData.VerifyContent(env.Loc, result.IndexToVerify, env.Log, null, 0));
+
+            // Next start: in place, still the ASTC pack.
+            result = InstallerData.Prepare(env.Loc, env.Prefs, options(), env.Log, 20);
+            Assert.Equal("installer data: Gameloft index in place (" + described + ")", result.Summary);
+
+            // A reinstall (internal storage wiped): restored from the saved copy.
+            Directory.Delete(env.Internal, true);
+            Directory.CreateDirectory(env.Internal);
+            env.Prefs.Values.Clear();
+            result = InstallerData.Prepare(env.Loc, env.Prefs, options(), env.Log, 30);
+            Assert.Equal("installer data: index restored from the saved index (" + described + ")", result.Summary);
+
+            // No index anywhere: the files are still the complete ASTC pack by Gameloft's sizes, and get a rebuilt index.
+            Directory.Delete(env.Internal, true);
+            Directory.CreateDirectory(env.Internal);
+            File.Delete(env.Loc.SavedIndex);
+            result = InstallerData.Prepare(env.Loc, env.Prefs, options(), env.Log, 40);
+            Assert.StartsWith("installer data: index rebuilt from the complete ASTC data (ASTC with 1 replaced files", result.Summary);
+
+            // replaced.tsv only counts a file with the listed size: another size is not taken for the pack.
+            Directory.Delete(env.Internal, true);
+            Directory.CreateDirectory(env.Internal);
+            env.File("Data/1/0018344.f", 2 * Split + 98, 77);
+            result = InstallerData.Prepare(env.Loc, env.Prefs, options(), env.Log, 50);
+            Assert.Contains("not the complete 1.17.32 data pack", env.Text);
+            Assert.False(File.Exists(env.Loc.PackInfo));
+        }
+
+        /// <summary>A saved index that does not match the data either leaves the installer's index alone.</summary>
+        [Fact]
+        public void ASavedIndexIsOnlyTakenWhenTheDataMatchesIt()
+        {
+            Env env = NewPack("switch-no");
+            byte[] gameloft = GameloftIndex(env.Root, Files);
+            File.WriteAllBytes(env.Loc.PackInfo, gameloft);
+            Directory.CreateDirectory(Path.GetDirectoryName(env.Loc.GlVer));
+            File.WriteAllText(env.Loc.GlVer, "1173200");
+            Env other = new Env("switch-no-other");
+            for (int i = 0; i < Files.Length; i++) other.File(Files[i], Sizes[i] + 5, 3);
+            Directory.CreateDirectory(Path.GetDirectoryName(env.Loc.SavedIndex));
+            File.WriteAllBytes(env.Loc.SavedIndex, GameloftIndex(other.Root, Files));
+            // The installer's index matches the data: it stays, and the stale saved copy is replaced by it.
+            InstallerDataResult result = InstallerData.Prepare(env.Loc, env.Prefs, Options(), env.Log, 1);
+            Assert.Contains("Gameloft index in place", result.Summary);
+            Assert.Equal(gameloft, File.ReadAllBytes(env.Loc.SavedIndex));
+
+            // Neither matches (the data changed again): the installer's index is kept and does its own work.
+            File.WriteAllBytes(env.Loc.SavedIndex, GameloftIndex(other.Root, Files));
+            env.File("Data/MCVS.game", 12, 1);
+            result = InstallerData.Prepare(env.Loc, env.Prefs, Options(), env.Log, 2);
+            output.WriteLine(env.Text);
+            Assert.Contains("matches neither the installer's index", env.Text);
+            Assert.Contains("Gameloft index in place", result.Summary);
+            Assert.Equal(gameloft, File.ReadAllBytes(env.Loc.PackInfo));
         }
 
         [Fact]

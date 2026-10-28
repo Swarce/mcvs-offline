@@ -35,6 +35,8 @@
     <!-- The Steam search of the PC kit (registry, libraryfolders.vdf, appmanifest), one source. -->
     <Compile Include="../pc-spike/SteamLocator.cs" Link="PcSpike/SteamLocator.cs" />
     <Compile Include="../pc-spike/Vdf.cs" Link="PcSpike/Vdf.cs" />
+    <!-- The installer index (pack.info) of the embedded host, one source: astc-pack writes the index of the files it ships. -->
+    <Compile Include="../../hosts/embedded/Install/PackIndex.cs" Link="Install/PackIndex.cs" />
   </ItemGroup>
 
   <ItemGroup>

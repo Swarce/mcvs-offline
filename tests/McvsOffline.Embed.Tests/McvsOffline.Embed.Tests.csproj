@@ -12,6 +12,8 @@
     <IsTestProject>true</IsTestProject>
     <RootNamespace>McvsOffline.Embed.Tests</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- hosts/embedded/Install/PackIndex.cs is compiled in here and also into tools/hd-textures (referenced): this copy wins. -->
+    <NoWarn>$(NoWarn);CS0436</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

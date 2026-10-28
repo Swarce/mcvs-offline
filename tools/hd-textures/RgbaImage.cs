@@ -37,6 +37,37 @@ namespace McvsOffline.Tools.HdTextures
             return half;
         }
 
+        /// <summary>
+        /// This image enlarged to <paramref name="width"/> x <paramref name="height"/> with bilinear filtering between texel
+        /// centres (edges clamped), as a GPU magnifies a texture: how a smaller texture looks where the larger one would be.
+        /// </summary>
+        public RgbaImage Bilinear(int width, int height)
+        {
+            var big = new RgbaImage(width, height);
+            double sx = (double)Width / width, sy = (double)Height / height;
+            for (int y = 0; y < height; y++)
+            {
+                double fy = Math.Max(0, (y + 0.5) * sy - 0.5);
+                int y0 = Math.Min((int)fy, Height - 1), y1 = Math.Min(y0 + 1, Height - 1);
+                double ty = fy - y0;
+                for (int x = 0; x < width; x++)
+                {
+                    double fx = Math.Max(0, (x + 0.5) * sx - 0.5);
+                    int x0 = Math.Min((int)fx, Width - 1), x1 = Math.Min(x0 + 1, Width - 1);
+                    double tx = fx - x0;
+                    int a = (y0 * Width + x0) * 4, b = (y0 * Width + x1) * 4, c = (y1 * Width + x0) * 4, d = (y1 * Width + x1) * 4;
+                    int o = (y * width + x) * 4;
+                    for (int ch = 0; ch < 4; ch++)
+                    {
+                        double top = Pixels[a + ch] + (Pixels[b + ch] - Pixels[a + ch]) * tx;
+                        double bottom = Pixels[c + ch] + (Pixels[d + ch] - Pixels[c + ch]) * tx;
+                        big.Pixels[o + ch] = (byte)Math.Min(255, Math.Max(0, (int)Math.Round(top + (bottom - top) * ty)));
+                    }
+                }
+            }
+            return big;
+        }
+
         /// <summary>True when every alpha value is 255.</summary>
         public bool IsOpaque()
         {

@@ -348,7 +348,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             output.WriteLine(data.Summary);
             output.WriteLine(hd.Summary);
             output.WriteLine(env.Text);
-            Assert.Equal("installer data: Gameloft index in place (6 files, " + PackIndex.Parse(pristineIndex).Entries.Count + " entries)", data.Summary);
+            Assert.Equal("installer data: Gameloft index in place (ETC, 6 files, " + PackIndex.Parse(pristineIndex).Entries.Count + " entries)", data.Summary);
             Assert.StartsWith("hd textures: mcvs-hd-test.zip, 5 files installed (", hd.Summary);
             Assert.Contains("5 written now", hd.Summary);
             Assert.True(hd.IndexChanged);
@@ -384,7 +384,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.Equal(indexAfter, File.ReadAllBytes(env.Loc.PackInfo));
             Assert.Equal(journalAfter, File.ReadAllText(env.Loc.Journal));
             Assert.Equal(stamp, File.GetLastWriteTimeUtc(env.P("Data/8/dbd2f1.f")));
-            Assert.StartsWith("installer data: Gameloft index in place (6 files", data2.Summary);
+            Assert.StartsWith("installer data: Gameloft index in place (ETC, 6 files", data2.Summary);
         }
 
         private static string Key(PackEntry e)
@@ -1190,7 +1190,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             var (data, hd) = Boot(env);
             output.WriteLine(data.Summary);
             output.WriteLine(hd.Summary);
-            Assert.StartsWith("installer data: index restored from the saved index (6 files", data.Summary);
+            Assert.StartsWith("installer data: index restored from the saved index (ETC, 6 files", data.Summary);
             Assert.Equal("ETC", env.Prefs[InstallerData.DataTypeKey]);   // the variant is recognised by the original sizes
             Assert.DoesNotContain("written now", hd.Summary);
             AssertHdInstalled(env);
