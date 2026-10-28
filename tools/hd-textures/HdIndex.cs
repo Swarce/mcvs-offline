@@ -58,7 +58,7 @@ namespace McvsOffline.Tools.HdTextures
             get
             {
                 long sum = 0;
-                int levels = AndroidMips + Doublings;
+                int levels = TextureConverter.LevelCount(AndroidMips, Doublings);
                 for (int i = 0; i < levels; i++) sum += (long)Ktx.MipSize(PcWidth, i) * Ktx.MipSize(PcHeight, i);
                 return Layout == "split" ? 2 * sum : sum;
             }

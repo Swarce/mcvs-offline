@@ -138,7 +138,8 @@ namespace McvsOffline.Tools.HdTextures
             while ((a.Width << k) < dds.Width) k++;
             if (k == 0 || (a.Width << k) != dds.Width || (a.Height << k) != dds.Height)
                 throw new InvalidDataException("the PC texture is " + dds.Width + "x" + dds.Height + ", not a larger power-of-two multiple of the Android " + a.Width + "x" + a.Height);
-            int levels = a.MipLevels + k;
+            // A 1-level original (lightmaps, a few emissive surfaces) stays 1 level; a chain gets the k new top levels.
+            int levels = LevelCount(a.MipLevels, k);
 
             // Alpha: from DXT5, or from DXT1's punch-through only when the Android original uses alpha at all.
             bool split = android.Layout == AndroidTexture.LayoutSplit;
@@ -180,6 +181,14 @@ namespace McvsOffline.Tools.HdTextures
                     }
                     texels += (long)w * h;
                 }
+            }
+
+            if (double.IsNaN(originalPsnr))
+            {
+                // A 1-level replacement never reached level k: compare the original against the PC level of its size.
+                RgbaImage same = top;
+                for (int i = 1; i <= k; i++) same = i < dds.Levels.Count ? dds.Decode(i) : same.HalfSize();
+                originalPsnr = RgbaImage.Psnr(Etc1.Decode(a.Levels[0], 0, a.Width, a.Height), same, 0, 3);
             }
 
             var result = new ConversionResult
@@ -224,6 +233,13 @@ namespace McvsOffline.Tools.HdTextures
             ktx.Levels.AddRange(levels);
             return ktx;
         }
+
+        /// <summary>
+        /// Mip levels of the replacement for an original of <paramref name="originalLevels"/> levels enlarged by
+        /// <paramref name="doublings"/>: a 1-level original stays 1 level (lightmaps are sampled without mips), a chain gets
+        /// the new top levels and ends at the same smallest size.
+        /// </summary>
+        internal static int LevelCount(int originalLevels, int doublings) => originalLevels == 1 ? 1 : originalLevels + doublings;
 
         internal static RgbaImage Solid(int w, int h, byte v)
         {

@@ -38,7 +38,7 @@ ETC pack" section) and [INSTALL-OFFLINE.md](../INSTALL-OFFLINE.md) (the Java ins
 
 What a replacement file is (§4): the same container and layout as the original, the same texture format (ETC1), the
 same KTX header fields and key/value data, at the PC resolution and with a mip chain that ends at the same smallest size
-as the original's.
+as the original's. A 1-level original (every lightmap, a few emissive surfaces) stays 1 level.
 
 ## 3. The manifest `mcvs-hd.json`
 
@@ -127,7 +127,8 @@ For each texture of the chosen scope (from `hd-index.tsv`), only where the PC te
    Levels the PC file lacks are box-filtered from the level above.
 3. Encode each level to ETC1 at the PC size (our encoder: both subblock orientations, individual and differential
    modes, all eight tables, least-squares base refinement; squared RGB error). The number of levels is the original's
-   plus one per doubling, so the chain ends at the same size as the original's.
+   plus one per doubling, so the chain ends at the same size as the original's; a 1-level original stays 1 level (the
+   engine samples lightmaps without mips, `LinearMipNone`, so a second level would only cost a quarter more texels).
 4. Write the KTX with the original's header (format, `glBaseInternalFormat`, key/value data such as
    `KTXorientation S=r,T=d` and `CRNLIB_FOURCC`) and the new size and level count. Split-alpha textures get the same zip
    layout as the original (`SPLIT` = 4 zero bytes, `rgb.ktx`, `alpha.ktx`; stored, no alignment, as Gameloft wrote them),

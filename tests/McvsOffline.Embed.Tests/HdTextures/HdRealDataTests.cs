@@ -75,7 +75,7 @@ namespace McvsOffline.Embed.Tests.HdTextures
                                  original.Length + " -> " + r.File.Length + " bytes, " + r.Elapsed.TotalSeconds.ToString("0.00", CultureInfo.InvariantCulture) + " s");
                 Assert.Equal(e.Layout, r.Layout);
                 Assert.Equal(e.PcWidth, r.Width);
-                Assert.Equal(e.AndroidMips + e.Doublings, r.MipLevels);
+                Assert.Equal(e.AndroidMips == 1 ? 1 : e.AndroidMips + e.Doublings, r.MipLevels);
                 Assert.True(r.Psnr >= 24, e.AndroidPath + ": " + r.Psnr);
                 // At the PC size against the PC texture, the replacement is at least as faithful as the phone's file is at its size.
                 Assert.True(r.Psnr >= r.OriginalPsnr - 1.0, e.AndroidPath + ": " + r.Psnr + " < " + r.OriginalPsnr);

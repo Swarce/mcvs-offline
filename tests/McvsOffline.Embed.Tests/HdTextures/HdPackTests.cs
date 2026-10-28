@@ -61,6 +61,33 @@ namespace McvsOffline.Embed.Tests.HdTextures
         }
 
         [Fact]
+        public void AOneLevelOriginalStaysOneLevel()
+        {
+            // Lightmaps (and a few emissive surfaces) ship without mips; the PC copy may have a full chain. The replacement
+            // keeps the original's single level at the PC size, in both layouts, and the index counts its texels that way.
+            RgbaImage pc = HdFixtures.Pattern(64, 64, 5, true);
+            foreach (bool split in new[] { false, true })
+            {
+                byte[] android = split ? HdFixtures.AndroidSplitFile(pc.HalfSize().HalfSize(), 1) : HdFixtures.AndroidKtxFile(pc.HalfSize().HalfSize(), 1);
+                ConversionResult r = TextureConverter.Convert(android, HdFixtures.Dds(pc, false), 1);
+                Assert.Equal(1, r.OriginalMipLevels);
+                Assert.Equal(1, r.MipLevels);
+                AndroidTexture back = AndroidTexture.Parse(r.File);
+                Assert.Equal(1, back.Rgb.MipLevels);
+                Assert.Single(back.Rgb.Levels);
+                Assert.Equal(64, back.Rgb.Width);
+                if (split) Assert.Equal(1, back.Alpha.MipLevels);
+                Assert.Equal(64L * 64 * (split ? 2 : 1), r.Texels);
+                Assert.False(double.IsNaN(r.OriginalPsnr));                       // compared against the PC's 16x16 level
+                Assert.True(r.Psnr > 28, "PSNR " + r.Psnr);
+            }
+            var entry = new HdIndexEntry { Layout = "split", AndroidWidth = 16, AndroidHeight = 16, AndroidMips = 1, PcWidth = 64, PcHeight = 64 };
+            Assert.Equal(2L * 64 * 64, entry.OutputTexels);
+            entry.AndroidMips = 5;
+            Assert.Equal(2L * (64 * 64 + 32 * 32 + 16 * 16 + 8 * 8 + 4 * 4 + 2 * 2 + 1), entry.OutputTexels);
+        }
+
+        [Fact]
         public void ASplitAlphaZipKeepsItsLayoutAndCarriesThePcAlpha()
         {
             RgbaImage pc = HdFixtures.Pattern(64, 32, 2, false);
