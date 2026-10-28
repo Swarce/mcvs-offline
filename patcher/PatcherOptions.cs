@@ -37,17 +37,22 @@ namespace McvsOffline.Patcher
         /// Optional patches applied when --patch is not given. "debloat" is not only IL: it also removes dead SDK components
         /// from the manifest (Manifest.ManifestDebloat) and drops the Crashlytics/Fabric files (ApkPatcher.DebloatDroppedEntries).
         /// "adminpage" and "adminlink" open the settings page (Settings › Account button, inbox message) through
-        /// McvsOffline.AdminHooks of the embedded server.
+        /// McvsOffline.AdminHooks of the embedded server. "targetsdk" is no IL patch: it raises the manifest's targetSdkVersion to
+        /// <see cref="TargetSdk"/> with what that target needs (Manifest.ManifestTargetSdk, Manifest.BrowserLayoutInsets); by
+        /// default 35 (Manifest.ManifestTargetSdk.DefaultTarget), with the classes.dex edits that needs (Dex.DexTargetSdkEdits). "graphics" passes
+        /// GameOptions_android.json through McvsOffline.GraphicsHooks (settings graphics.profile; auto leaves it unchanged) and
+        /// logs the effective options.
         /// </summary>
         public static readonly string[] DefaultPatches =
         {
-            "nativeonline", "waits", "geo", "bottile", "finder", "store", "signatures", "debloat", "adminpage", "adminlink",
+            "nativeonline", "waits", "geo", "bottile", "finder", "store", "signatures", "debloat", "adminpage", "adminlink", "graphics", "targetsdk",
         };
 
         /// <summary>Every id --patch accepts; "lan" and "forum" are the ones not in <see cref="DefaultPatches"/>.</summary>
         public static readonly string[] OptionalPatches =
         {
-            "nativeonline", "waits", "geo", "bottile", "finder", "lan", "store", "signatures", "debloat", "adminpage", "adminlink", "forum",
+            "nativeonline", "waits", "geo", "bottile", "finder", "lan", "store", "signatures", "debloat", "adminpage", "adminlink", "targetsdk", "forum",
+            "graphics",
         };
 
         /// <summary>
@@ -94,6 +99,32 @@ namespace McvsOffline.Patcher
         /// being brought up on devices; <see cref="GameLogMode.Fatal"/> keeps the shipped res/raw/args.txt.
         /// </summary>
         public GameLogMode GameLog { get; set; } = GameLogMode.All;
+
+        /// <summary>
+        /// --target-sdk: the targetSdkVersion the "targetsdk" patch writes (29, 35 or 36); null means
+        /// <see cref="Manifest.ManifestTargetSdk.DefaultTarget"/> (35). 29 is the shipped value: the manifest, layouts and
+        /// classes.dex then stay exactly as without the patch. Another value needs "targetsdk" in <see cref="Patches"/>, and
+        /// 31 or more also needs "debloat" (ApkPatcher refuses the run otherwise); "targetsdk" then also edits classes.dex.
+        /// </summary>
+        public int? TargetSdk { get; set; }
+
+        /// <summary>The output's targetSdkVersion: <see cref="TargetSdk"/> (or the default) with "targetsdk", else the shipped 29.</summary>
+        public int EffectiveTargetSdk
+        {
+            get
+            {
+                return Patches != null && Patches.Contains(Manifest.ManifestTargetSdk.PatchId)
+                    ? TargetSdk ?? Manifest.ManifestTargetSdk.DefaultTarget
+                    : Manifest.ManifestTargetSdk.ShippedTarget;
+            }
+        }
+
+        /// <summary>
+        /// --art: the project's own launcher icon and launch screen (Art.ArtPatch): "auto" (default) uses the art built in from
+        /// art/android/ when there is any and otherwise keeps the stock icon and splash; "stock" never touches them; any other
+        /// value is a folder laid out like art/android/ (the artist's test builds).
+        /// </summary>
+        public string Art { get; set; } = "auto";
 
         /// <summary>Patch even when the APK is not the verified 1.17.32 build (locators still verify every site).</summary>
         public bool Force { get; set; }
@@ -148,6 +179,15 @@ namespace McvsOffline.Patcher
             }
             if (result.Count == 0) throw new ArgumentException("--abi needs at least one ABI, or all");
             return result;
+        }
+
+        /// <summary>Parses a --target-sdk value: one of <see cref="Manifest.ManifestTargetSdk.SupportedTargets"/>.</summary>
+        public static int ParseTargetSdk(string value)
+        {
+            int target;
+            if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out target) || !Manifest.ManifestTargetSdk.SupportedTargets.Contains(target))
+                throw new ArgumentException("--target-sdk must be " + string.Join(", ", Manifest.ManifestTargetSdk.SupportedTargets));
+            return target;
         }
 
         public static int ParsePort(string value)

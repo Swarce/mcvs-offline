@@ -45,3 +45,6 @@ __pycache__/
 *.pfx
 *.jks
 *.keystore
+
+# Art previews of tools/art/export-icons.py (never committed: they may show work in progress)
+art/previews/

@@ -78,12 +78,14 @@ The patcher prints every change it makes and finishes with a signature check. Us
 
 | Option | Meaning |
 |---|---|
-| `--patch nativeonline,waits,geo,bottile,finder,store,signatures,debloat,adminpage,adminlink` | The optional patches (this is the default set; `debloat` removes dead ad/analytics/social/push pieces, see ARCHITECTURE.md §2; `adminpage` and `adminlink` open the MCVS Offline page, section 7). `none` keeps only the mandatory patches (the server hook, the headless-server fixes and the server physics), `all` adds `lan` and `forum`, `default,forum` adds only `forum`. |
+| `--patch nativeonline,waits,geo,bottile,finder,store,signatures,debloat,adminpage,adminlink,graphics,targetsdk` | The optional patches (this is the default set; `debloat` removes dead ad/analytics/social/push pieces, see ARCHITECTURE.md §2; `adminpage` and `adminlink` open the MCVS Offline page, section 7; `graphics` is needed for the graphics profile and the HD textures, section 7; `targetsdk` raises the app's target Android version, see `--target-sdk`). `none` keeps only the mandatory patches (the server hook, the headless-server fixes and the server physics), `all` adds `lan` and `forum`, `default,forum` adds only `forum`. |
+| `--target-sdk 29` | The Android version the app declares it was built for (`targetsdk` patch). The default, 35, avoids Play Protect's "built for an older version of Android" warning up to Android 17; 36 also covers Android 18. For both the patcher also fixes the game's own Java code (`classes.dex`) where a newer target would make Android refuse it. `--target-sdk 29` keeps the game's own value and files, exactly as builds 9 and earlier: the fallback if something misbehaves on 35. By Android's rules a 29 build installs over a 35 build signed with the same key, but this has not been tried on a phone yet. 35 and 36 need `debloat` (so `--patch` without `debloat` also needs `--target-sdk 29`). |
 | `--game-log all` | The game's own log at every level in logcat (`mono-stdout`), for bug reports; this is the default while the offline build is being tested. `--game-log fatal` keeps the game's original setting (fatal errors only). |
 | `--keystore <file.p12>` | Your signing key. Without it a key is created once in `~/.config/McvsOffline/` (Windows: `%APPDATA%\McvsOffline\`) and reused. |
 | `--build-tools <dir>` | Folder with `apksigner` and `zipalign`; otherwise they are looked up on `PATH` and in `$ANDROID_HOME/build-tools`. |
 | `--signer builtin` | Do not use apksigner, even if it is installed. |
 | `--abi arm64-v8a` | Native libraries to keep. The default keeps **every ABI** the APK ships (64-bit `arm64-v8a` and 32-bit `armeabi-v7a`). `--abi arm64-v8a` drops the 32-bit copies for a 64-bit-only APK (about 14 MB smaller; a 64-bit phone never uses them). |
+| `--art stock` | Keep Gameloft's launcher icon and launch screen even when this patcher has the project's own art built in. The default, `--art auto`, uses that art when there is any (today there is none, so the icon does not change); `--art <folder>` uses a folder laid out like `art/android/` (for the artist's test builds). |
 | `--dry-run` | Check that every patch site matches, write nothing. |
 
 What the patches do:
@@ -115,13 +117,38 @@ What the patches do:
 - **store**: opening the shop crashed the game because of the kill-signature sounds it sells (the game's availability
   check had no code for sounds). With the patch sounds work, and any shop item whose check still fails is left out of the
   shop (and logged as `[McvsOffline] store item <id> threw ...`) instead of closing the game.
+- **signatures**: the kill-signature screen looks your owned items up in a set instead of a list, so it does not freeze
+  when you own many of them (for example after `UNLOCKALL`).
+- **debloat**: removes the parts of Gameloft's SDKs that are dead offline (ad screens, push, install-referrer and boot
+  receivers, Crashlytics and Facebook start-up, location and legacy permissions) from the manifest and drops the
+  Crashlytics/Fabric files; see ARCHITECTURE.md §2.
 - **adminpage**: Settings › Account gets an **MCVS Offline** button (after "Recover progress") that opens the MCVS
   Offline page (section 7).
 - **adminlink**: the button of the "MCVS Offline" inbox message opens the page with full access. Without this patch
   the message opens a view-only page.
+- **graphics**: the game reads its GPU profiles (`GameOptions_android.json`) through MCVS Offline, so the page's
+  graphics profile (`graphics.profile`) can pick one, and at that moment the HD texture zip is mounted. The start-up log
+  gets a `[boot] graphics:` line with what the game really got. With `graphics.profile` `auto` and no HD zip nothing
+  changes. Without this patch both settings do nothing, and Status › Game host says so: its Graphics and HD textures
+  rows say the game has not gone through patch 'graphics' (section 7).
+- **targetsdk**: the app declares Android 15 (`--target-sdk`, default 35) instead of Android 10 as its target, so Play
+  Protect no longer warns that it was "built for an older version of Android". A newer target changes some of Android's
+  rules for the app, so the patch also adapts what they touch: the manifest (exported components, the notification
+  permission, finding your browser for the page's links, native memory tagging off), the MCVS Offline page's layout (kept
+  clear of the navigation bar), and the game's own Java code (alarms and notifications get the flag Android 12+
+  requires, two receivers that are dead offline no longer listen, Google Analytics never starts). On Android 13 and
+  later the game then asks once for the notification permission (section 7). Install it over your previous build as
+  usual (same key, no uninstall). Since Android 12 tapping a reminder only dismisses it (open the game from the
+  launcher), and a reminder the previous build scheduled can arrive once more after the update. `--target-sdk 29` turns
+  all of this off.
 - **forum** (not in the default set): the Forum button in Settings opens the page too.
 - **lan** (experimental): groundwork for LAN play (see the end of this guide). It changes nothing for single-device
   play.
+- **Icon and launch screen** (`--art`, not a `--patch` id): once the project's own art exists in `art/android/` and the
+  patcher is rebuilt, the offline build gets the project's launcher icon (and, if drawn, a themed icon for Android 13+)
+  and a launch-screen colour on Android 12+. Until then nothing changes. After installing a build with a new icon, the
+  home screen may keep showing the old one for a while (the launcher caches icons): reboot the phone, or clear the
+  home app's cache (Settings › Apps › your launcher › Storage).
 
 **Back up your signing key** (the patcher prints its path). Android only installs an update over an existing install
 when it is signed with the same key, and the alternative, uninstalling, deletes your saves.
@@ -255,7 +282,10 @@ when it is closed. **Saves › Save the game now** closes the page, lets the gam
 "The game did not save" if it did not). **Actions › Restart the game** (and the Restart buttons of a staged import or
 a restart setting) first lets the game save, then restarts it; when the game does not save it does not restart, unless
 you tick "Restart even if the game does not save". If the game does not come back by itself after about 20 seconds,
-start it again from the home screen.
+start it again from the home screen. **On Android 13 and later the game may not come back by itself** (Android no
+longer lets an alarm start an app's screen, whatever the app; this has not been checked on a phone on its own yet): then
+"Restart" only closes it after the save and you start it again; the page says so there. The same may hold for the game's
+own graphics-setting dialog, whose text the page cannot change.
 
 **Backups** (Saves): automatic ones (`storage.backups.keep`, default 20), one before every import, restore and risky
 setting, and your own (**Back up now**, at most 10, never deleted automatically). Restore one, or delete your own.
@@ -291,6 +321,32 @@ Settings for the page (in `settings.json` only): `admin.enabled` (`false` turns 
 message off), `crm.newsfeedLink` (the inbox message, also on the page), `admin.openVia` (`auto`, `game`, `jni`, `post`:
 how the browser is opened; for testing), `admin.restartVia` (`game`, `host`, `none`), `security.hostCheck` (keep `true`:
 it stops web pages from reaching the server through a hostile DNS name).
+
+### Graphics profile, HD textures and the notification permission
+
+**Graphics profile** (Settings › Graphics › Graphics profile, `graphics.profile`, applies after a restart; needs the
+default patch `graphics`). The game picks one of Gameloft's own GPU profiles from a list of phone models; phones it does
+not know, like the Galaxy S22, get the middle one. `auto` keeps that choice; `mid`, `high` and `ultra` force Gameloft's
+`MidGPU`, `HighGPU` and `High_Ultra` profiles. High adds normal maps, the full lightmaps with their direction maps, the
+levels' high-detail layers, shadow maps, bloom, 2x anisotropic filtering and a render scale that follows the screen size;
+Ultra also the richest shader set (`GOD_END`), high-resolution assets and cube maps and 3x anisotropic filtering. Expect
+more heat and less battery. Two options of those profiles also change the match servers that run inside the game (the
+levels' Physics layer, how often bots think); they stay at the Mid values unless you also switch on "High profiles change
+world loading too" (`graphics.fullProfile`). The start-up log says what the game really got: a `[boot] graphics:` line
+with the profile and every option. If a profile misbehaves, set it back to `auto` (or edit `settings.json`) and restart.
+
+**HD textures** (`hd.enabled`, default on; `hd.mount`; needs the default patch `graphics`, which mounts the zip). If
+`McvsOffline/hd/hd-textures.zip` exists, the game mounts it at start-up and textures inside it replace the ones in
+`Data/`. Today this is only a test: [tools/hd-textures](../tools/hd-textures/README.md) builds a probe zip from your own
+data in which one concrete texture is magenta, green or blue (one colour per file naming the engine might use);
+[STATUS.md](STATUS.md), "HD texture probe", has the steps. Without the file nothing changes; delete the file to undo.
+Never share the zip: it holds a copy of a game file.
+
+**Notifications** (Android 13 and later). A build that targets Android 13 or later must ask for the notification
+permission, or the game's reminders are silently dropped. The game asks **once**, at the main menu, with Android's own
+dialog. If you said no, allow it later in Android's settings (Apps › Modern Combat Versus › Notifications); it is not
+asked again. Status › Game host › Notifications shows the state. `notifications.request` `false` in `settings.json`
+turns the question off; `notifications.requestedAt` records when it was asked.
 
 ## 8. Saves, settings and backups
 
@@ -380,7 +436,7 @@ For reviewers (details and evidence: `docs/research/verify-C7-integrity-patching
   only; physics: `PhysicsComponent`'s constructor asks `McvsPhysics.UseMultithreading(this)` instead of reading the
   game option, and `UpdateSimulationSteps` runs inside a process-wide, time-bounded gate). Optional: `Gameloft.Engine.dll`
   (nativeonline, waits: `WaitHandle.WaitAny(handles)` -> `WaitAny(handles, 100)` in both `TaskExtension.WaitAndWork`
-  overloads, finder, lan), `Gameloft.Util.dll` (geo), `Game.dll` (bottile; store: `KillSignatureRewardItem.GetAvailableId` handles sounds, the `GameUnifiedStoreComponent.SelectItems` availability filter skips an item that throws; signatures: set lookups in `GetSignatureAssetsList`, one list per `GetKillSignItems` call; adminpage: `PlayerProfileComponent.GetAccountMenuButtonList` passes its list through `McvsOffline.AdminHooks.AccountMenuButtons`, and `ProcessAccountMenuButtonAction("mcvs_offline")` calls `AdminHooks.OpenPage`; forum: `UIComponent.GoToForum` calls `AdminHooks.OpenPage`), `Gameloft.Engine.dll` (adminlink: `BrowserComponent.OpenUrl` first asks `AdminHooks.OpenIfPageMarker`, which handles only the inbox message's fixed link). Each site is checked against the exact code
+  overloads, finder, lan), `Gameloft.Util.dll` (geo), `Game.dll` (bottile; store: `KillSignatureRewardItem.GetAvailableId` handles sounds, the `GameUnifiedStoreComponent.SelectItems` availability filter skips an item that throws; signatures: set lookups in `GetSignatureAssetsList`, one list per `GetKillSignItems` call; adminpage: `PlayerProfileComponent.GetAccountMenuButtonList` passes its list through `McvsOffline.AdminHooks.AccountMenuButtons`, and `ProcessAccountMenuButtonAction("mcvs_offline")` calls `AdminHooks.OpenPage`; forum: `UIComponent.GoToForum` calls `AdminHooks.OpenPage`), `Gameloft.Engine.dll` (adminlink: `BrowserComponent.OpenUrl` first asks `AdminHooks.OpenIfPageMarker`, which handles only the inbox message's fixed link; graphics: `GameOptionPerformanceProfileComponent.OnCreate` passes the GameOptions_android.json text through `McvsOffline.GraphicsHooks.GameOptionsJson` before the engine reads it, and reports the resolved options to `GraphicsHooks.GameOptionsApplied`). Each site is checked against the exact code
   of 1.17.32 first (the device-test-2 patches against an IL fingerprint of the whole method); if anything differs, the
   patcher stops without writing.
 - `res/raw/args.txt` (with `--game-log all`, the default): `-LogCategoryFilter Fatal` is replaced by a line the game
@@ -393,6 +449,25 @@ For reviewers (details and evidence: `docs/research/verify-C7-integrity-patching
 - `AndroidManifest.xml`: the vendor-wide signature permission `glshare.permission.ACCESS_SHARED_DATA` (declared,
   used, and required by the game's `KeyProvider`) is renamed into the game's own namespace, so the re-signed APK does
   not collide with other Gameloft games (section 5). Only that one string of the compiled manifest changes; the patcher
-  refuses if the text is used for anything else.
+  refuses if the text is used for anything else. With `targetsdk` at `--target-sdk 35` (the default) or 36 the
+  manifest also gets the target version,
+  `exported` on the three components that receive intents (the launcher activity, the cross-promotion screen and the
+  local-reminder receiver), the notification permission, a declaration that lets the in-game browser find your browser,
+  and heap-pointer tagging off; the two `res/layout-*/activity_in_game_browser.xml` files (the browser that shows the
+  MCVS Offline page) keep the page clear of the navigation bar. The patcher checks the shipped manifest and layouts
+  byte for byte first.
+- `classes.dex` (the game's Java code), also with `targetsdk` at 35 or 36: 14 places in 13 methods are changed in
+  place, each method checked against its verified fingerprint first (docs/research/target-sdk.md, P1-P14): the restart
+  alarm, the local reminders and the download notification create their `PendingIntent`s with `FLAG_IMMUTABLE`
+  (Android 12+ throws without a mutability flag), the push relay and Play billing receivers are registered with an empty
+  filter (at target 34+ Android 14 refuses a registration without an export flag; both receive nothing offline anyway), and the
+  game's three Google Analytics entry points return at once. Nothing else in the file moves; the dex checksum and
+  signature are recomputed.
+- With project art (`--art`, see `art/android/README.md`): the 20 launcher icon PNGs (`res/mipmap*/ic_launcher*.png`)
+  are replaced in place under the same names, each checked against the shipped file's CRC first; a splash colour adds
+  `v31` (and `night-v31`) configurations of the launcher activity's theme to `resources.arsc` (no resource id moves;
+  the file stays uncompressed and aligned); a themed icon adds a `<monochrome>` layer to
+  `res/mipmap-anydpi-v26/ic_launcher.xml` and six `ic_launcher_foreground1.png` density files. Without art none of
+  these entries changes.
 - Every other entry is copied byte for byte with its original compression; the old signature files are replaced by
   yours (v1+v2, plus v3 with apksigner).

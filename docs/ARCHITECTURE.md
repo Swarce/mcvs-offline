@@ -38,7 +38,10 @@ hosts/
 patcher/       McvsOffline.Patcher (net8 + Mono.Cecil): turns the player's own APK into the offline APK
 tests/         unit tests, protocol tests, and a conformance harness that drives the REAL
                Gameloft.OnlinePlatform.dll (taken from the player's APK, never committed) against the server
-tools/         content-gen (tables -> Content/), cdn-mirror (archive and verify the CDN data, offline install); planned: datapack (decode GCBF/LZ4 + names)
+tools/         content-gen (tables -> Content/), cdn-mirror (archive and verify the CDN data, offline install), pc-spike (WP0 Windows
+               test kit for the Steam build, docs/PC-SPIKE.md), hd-textures (HD texture probe zip), art (icon exporter);
+               planned: datapack (decode GCBF/LZ4 + names)
+art/android/   the project's own launcher icon and launch-screen art, embedded in the patcher (empty until drawn)
 docs/          this file, protocol spec, setup guides, research/
 ```
 
@@ -112,7 +115,9 @@ as on Gameloft's servers (`PhysicsComponent` constructor -> `McvsPhysics.UseMult
 inside a process-wide, time-bounded gate (`UpdateSimulationSteps`); settings `embedded.physics.*` revert each part for A/B
 runs.
 
-Recommended extra IL patches (all optional, patcher flags):
+Recommended extra patches (all optional, `--patch`; the default set is `nativeonline`, `waits`, `geo`, `bottile`,
+`finder`, `store`, `signatures`, `debloat`, `adminpage`, `adminlink`, `graphics`, `targetsdk`; `lan` and `forum` only on
+request; `--art` is a separate option):
 - `waits` (default, hardening with no observed trigger): the pumping `TaskExtension.WaitAndWork` helpers wait in 100 ms
   slices (`WaitAny(handles, 100)`). This bounds the two wake-up gaps in the shipped code: a context re-enabled by
   `World.OnLoadedScene` raises no `WorkItemAdded`, and the `NativeTaskAdded` accessors install and remove the native
@@ -142,7 +147,8 @@ Recommended extra IL patches (all optional, patcher flags):
   Facebook and Play Games are not initialised at menu start (`SocialLib_private.Init` -> NotSent like an unsupported
   Sns; a login tap fails one frame later through `GameApplication.Context`, like a failed login). Kept on purpose: the
   IAP code, KeyProvider, local push and `RECEIVE_BOOT_COMPLETED`, FacebookActivity and the app-id meta-data, Google
-  Analytics, VIBRATE/BILLING, all dex code and Bind*.dll.
+  Analytics, VIBRATE/BILLING, all dex code and Bind*.dll (`targetsdk` later turns GA off in `classes.dex` and, from 31,
+  takes its four components out of the manifest).
 - `adminpage` (default, build 9): Settings › Account gets an "MCVS Offline" button. Game.dll
   `PlayerProfileComponent.GetAccountMenuButtonList` returns its list through `McvsOffline.AdminHooks.AccountMenuButtons`
   (one more entry, `customAction "mcvs_offline"`), and `ProcessAccountMenuButtonAction` first sends that action to
@@ -152,15 +158,62 @@ Recommended extra IL patches (all optional, patcher flags):
   `AdminHooks.OpenIfPageMarker(url, this)`: the CRM inbox item's fixed link `http://127.0.0.1:<port>/_mcvs/ui/#news`
   (no secret) opens the page with a fresh ticket; every other URL runs the original body (§9.3).
 - `forum` (optional): Game.dll `UIComponent.GoToForum` opens the page (`AdminHooks.OpenPage("forum", World)`, §9.4).
+- `graphics` (default): Gameloft.Engine.dll `GameOptionPerformanceProfileComponent.OnCreate` passes the GameOptions_android.json
+  text through `McvsOffline.GraphicsHooks.GameOptionsJson` before `GameOptionManager.InitializeGameOption` and reports
+  `m_options` after `ApplyGameOptions` (the `[boot] graphics:` line). settings.json `graphics.profile` (`auto` = unchanged,
+  `mid`/`high`/`ultra` = Gameloft's MidGPU/HighGPU/High_Ultra block as the only selection rule, no priority step;
+  `hosts/embedded/Graphics/GameOptionsProfile.cs`); the process-wide world options `excludedLoadingLayers` and
+  `reducedAiUpdateFrequency` stay at the MidGPU values unless `graphics.fullProfile`, because the in-process TS/GS Worlds
+  share them. The same first call mounts `McvsOffline/hd/hd-textures.zip` through the engine's zip search path when it exists
+  (`hosts/embedded/Hd`, `hd.enabled`, `hd.mount`; the WP1 probe of docs/research/pc-textures.md, built by `tools/hd-textures`).
+  STATUS.md, "Build 10".
 - `lan`: P1 Finder prefix `"*"`, P2 cache a real `PublicHost` at `LocalAnubisManager.Start`, P3
   `ClientSettings.LocalAnubisFinderHost = Args.RemoteIp ?? PublicHost` (verify-C6).
+- `targetsdk` (default, build 10; [research/target-sdk.md](research/target-sdk.md)): no IL. `targetSdkVersion` 29 ->
+  `--target-sdk` (35 by default, or 36), so Play
+  Protect stops warning "built for an older version of Android" (it warns more than 2 API
+  levels below the device). Manifest (`patcher/Manifest/ManifestTargetSdk.cs`, attribute and element insertion in
+  `BinaryXml`): `exported="true"` on every intent-filter component lacking it (after debloat: `XamarinMainActivity`,
+  `IGPFreemiumActivity`, `LocalPushReceiver`), `allowNativeHeapPointerTagging="false"`, `POST_NOTIFICATIONS`, `<queries>`
+  for VIEW/BROWSABLE http and https (InGameBrowser's browser lookup); at 36 also `enableOnBackInvokedCallback="false"`
+  and `appCategory="game"`. From 31 the four Google Analytics components (`AnalyticsReceiver`, `AnalyticsService`,
+  `AnalyticsJobService`, `CampaignTrackingService`) leave the manifest: GA is off (P12-P14 below), and a dispatch job or
+  alarm build 9 left with the system survives the update and would start GA, whose init creates a `PendingIntent` with
+  flags 0 (an `IllegalArgumentException` that kills the process on Android 12+). Layouts (`BrowserLayoutInsets.cs`): `fitsSystemWindows="true"` on the root of both
+  `activity_in_game_browser` layouts, so the edge-to-edge settings page stays clear of the navigation bar (no v35 theme
+  opt-out: it would hide the v31 launch-screen items). Fingerprinted on the shipped manifest and layouts; refused at 31+
+  without `debloat`; `--target-sdk 29` leaves the manifest, layouts and `classes.dex` exactly as without the patch.
+  The `PendingIntent` flags, dynamic receivers and Google Analytics need `classes.dex` edits of their own (target-sdk.md
+  WP-T3; "T2 alone is not shippable"), made in the same run from 31 on (`patcher/Dex/DexTargetSdkEdits.cs`, a minimal
+  dex reader/editor in `patcher/Dex/`): each method is found by class, name and descriptor, pinned by a SHA-256 code
+  fingerprint, and edited with whole instructions of the same size (14 sites: P1-P8 `FLAG_IMMUTABLE` on the restart
+  alarm, the local reminders and the download notification; P10-P11 empty filters for the two non-system dynamic
+  receivers; P12-P14 GA's entry points return at once); only those code units and the header's checksum and signature
+  change. `ApkPatcher.CheckDexEdits` still refuses 31+ unless `classes.dex` was replaced in the same run.
+
+The embedded host also asks once for `POST_NOTIFICATIONS` at the first main menu on Android 13+, when the build targets 33+
+and declares it (`hosts/embedded/Notifications`, settings `notifications.request` / `notifications.requestedAt`).
+
+Project art (`--art auto|stock|<dir>`, default `auto`; not a `--patch` id; research/app-icon-and-launch-screen.md):
+`art/android/**` is embedded in the patcher. With art, `patcher/Art` replaces the 20 launcher icon PNGs in place (same
+names, CRC fingerprints, masters resampled to every density), inserts `v31`/`night-v31` configurations of the launcher
+theme 0x7f0b017e (windowSplashScreenBackground and extras) into `resources.arsc` through one table reader/writer
+(`patcher/Resources/ArscTable.cs`), and for a themed icon gives the spare `mipmap/ic_launcher_foreground1` six density
+files and the adaptive icon a `<monochrome>` layer. No resource id moves. With no art the APK is byte-identical. A later
+configuration of that theme (for example `v35`) would hide the splash items, because Android picks one configuration
+per style; edge-to-edge fixes therefore go into the browser layouts, not into a theme configuration.
 
 The three hook patches are fingerprint-verified like the others and call only `McvsOffline.AdminHooks` in the embedded
-server DLL (`hosts/embedded/Admin/AdminHooks.cs`; `AdminHooksContractTests` keeps both sides in step). **Invariant I1:
-the patched APK keeps `targetSdkVersion` 29** (`ManifestTargetSdkTests`, after every default patch): the settings
-page's restart (the game's own `PendingIntent` without `FLAG_IMMUTABLE`), the share chooser (no package-visibility
-filtering), the relaunch alarm (Android 10 background-start rules), the browser layout (no forced edge-to-edge) and the
-`file://` share on Android 7–9 all rely on it.
+server DLL (`hosts/embedded/Admin/AdminHooks.cs`; `AdminHooksContractTests` keeps both sides in step). **Invariant I1'
+(replaces I1, target 29; target-sdk.md §6): the patched APK targets 35 by default** (`--target-sdk 36`, or 29 as the
+fallback, which gives the shipped manifest, layouts and `classes.dex`) with `minSdkVersion` 21, every intent-filter component has
+`exported`, `POST_NOTIFICATIONS` and the browser `<queries>` are declared, both browser layouts fit the system windows,
+`resources.arsc` stays STORED and 4-byte aligned (`ManifestTargetSdkTests`), every reachable `PendingIntent` creation
+site carries a mutability flag, GA's entry points return, and no component the manifest declares reaches a creation
+site without one (`RealDexTargetSdkTests`, a conservative reachability from the Application class and every component), and **no target of 31 or more is
+written without the `classes.dex` edits of the same run** (`ApkPatcher.CheckDexEdits`). Of I1's five reasons, the game's own
+restart `PendingIntent` needs that dex fix (P1); the share chooser and the `file://` share on Android 7–9 were never
+target-bound; the relaunch alarm is blocked on Android 13+ at any target; the browser layout is fixed above.
 
 ## 3. Server behaviour (normative summary — details in docs/PROTOCOL.md and research/)
 

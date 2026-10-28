@@ -1,12 +1,14 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-Last updated for build 9 (October 2026), after device test 8 (the MCVS Offline page; see "Device test 8" and "Build 9"
+Last updated for build 10 (October 2026, not yet on a device: target Android 15, graphics profiles, the HD texture
+probe, the PC test kit; see "Build 10"), after device test 8 (the MCVS Offline page; see "Device test 8" and "Build 9"
 below); the Cosmetic crate starts on 2026-11-09 and is not yet tested on the phone. Earlier: device tests 6 and 7 on a
 Samsung Galaxy S22, Android 16 ("Build 8", "Build 7", "Device test 6").
 
-**Summary:** the Federation server is complete for the offline single-player goals and passes 1,621 tests, including a
-conformance harness that runs the game's own client libraries against it. Device test 1 put the player build (patcher +
+**Summary:** the Federation server is complete for the offline single-player goals and passes its full test suite, including a
+conformance harness that runs the game's own client libraries against it (the count of the last full run is under
+"Checked" in the newest build's section). Device test 1 put the player build (patcher +
 embedded host) on a phone for the first time and found two blockers (a stall with the internet on, a crash of the headless
 TS World). Build 2 fixed both: in device test 2 the whole boot chain up to the TS handshake ran, and the TS World loaded its
 level. Then the game hung on "connecting", with the game thread asleep in a futex. Build 3 gave the server Worlds
@@ -20,7 +22,246 @@ server". Build 6 makes the CRM document the game reloads there ~78% smaller for 
 the return to the menu was fast**, and a thread dump finally caught the kill-signature screen freeze, which build 7 patches;
 **device test 7 (builds 7 and 8): the signature screen is fast and the debloated build works.** Build 9 adds the
 in-game MCVS Offline page: settings, saves (also from one phone to another) and logs, without a PC (**device test 8:
-it works**), and the Cosmetic crate, a play path for the ~600 items that never had a source (from 2026-11-09).
+it works**), and the Cosmetic crate, a play path for the ~600 items that never had a source (from 2026-11-09). Build 10
+targets Android 15 (no Play Protect "older version" warning; the game's Java code adapted), adds graphics profiles, an
+HD texture probe and a Windows test kit for the Steam version.
+
+## Build 10 (October 2026): target Android 15, graphics profiles, HD texture probe, PC test kit (not yet on a device)
+
+`feat/build10`: five reviewed branches in one build (`McvsVersion.Build` is `10`). Player guide:
+[PLAYER-SETUP.md](PLAYER-SETUP.md) sections 4 and 7.
+
+### What is new
+
+* **Target Android 15** (new default patch `targetsdk`, `--target-sdk 29|35|36`, default 35;
+  [research/target-sdk.md](research/target-sdk.md), invariant I1' in [ARCHITECTURE.md](ARCHITECTURE.md) §2), so Play
+  Protect stops warning "built for an older version of Android" on install. Manifest: `targetSdkVersion` 35, `exported`
+  on the three intent-filter components left after debloat, `POST_NOTIFICATIONS`, `<queries>` for http/https browsers,
+  `allowNativeHeapPointerTagging="false"` (through `BinaryXml` growth: attribute, string and element insertion). Both
+  `activity_in_game_browser` layouts get `fitsSystemWindows` (the page stays clear of the navigation bar at 35).
+  `classes.dex`: 14 same-size, fingerprinted edits in 13 methods (`patcher/Dex/`): `FLAG_IMMUTABLE` on the restart alarm
+  (P1: the page's Restart and the game's graphics-setting restart), the local reminders (P2-P7) and the data-download
+  notification (P8); empty filters for the push relay and Play billing receivers (P10-P11); Google Analytics' three entry
+  points return at once (P12-P14), and GA's four components leave the manifest (build-10 review: a dispatch job or alarm
+  build 9 left with the system survives the update and would start GA, whose init creates a `PendingIntent` with flags 0,
+  an `IllegalArgumentException` that kills the process on Android 12+). Refused at 31+ without `debloat`, and never
+  written without the dex edits.
+  `--target-sdk 29` gives build 9's manifest, layouts and `classes.dex`.
+* **Notification permission** (host): on Android 13+ the game asks once, at the first main menu, when the build targets
+  33+ and declares the permission (details below).
+* **Graphics profile** (new default patch `graphics`, settings group Graphics: `graphics.profile`
+  auto/mid/high/ultra, `graphics.fullProfile`) and the `[boot] graphics:` log line (details below).
+* **HD texture probe**: the host mounts `McvsOffline/hd/hd-textures.zip` through the engine's zip search path;
+  `tools/hd-textures` builds a probe zip with one coloured texture (details below).
+* **Status and restart wording**: Status › Game host gains Graphics, HD textures and Notifications rows and "Restart via"
+  says that on Android 13+ the game may only close (`host.relaunchUnconfirmed`).
+* **Project icon and launch screen, mechanism only** (`--art auto|stock|<dir>`, `patcher/Art`,
+  [art/android/README.md](../art/android/README.md), `tools/art/export-icons.py`): icon PNGs replaced in place, `v31` /
+  `night-v31` splash styles in `resources.arsc`, an optional themed icon. `art/android/` has no art yet, so build 10
+  keeps Gameloft's icon and launch screen byte for byte (the patcher notes it).
+* **PC test kit (WP0)**: `tools/pc-spike`, one self-contained Windows exe that runs the Steam game against our server
+  and packs the answers of [research/pc-port.md](research/pc-port.md) §5 into one zip; owner's guide
+  [PC-SPIKE.md](PC-SPIKE.md). Built for this build: `McvsOffline.PcSpike.exe`, 35,939,879 bytes, win-x64.
+
+The details of the graphics profile, the HD texture probe and the notification permission follow.
+
+### Graphics profile (`graphics.profile`, new default patch `graphics`)
+
+* **How.** The game resolves its GPU profile natively, once per process: `GameOptionPerformanceProfileComponent.OnCreate`
+  hands the whole `GameOptions_android.json` to `GameOptionManager.InitializeGameOption`. Patch `graphics` (Gameloft.Engine.dll,
+  IL fingerprint of `OnCreate` checked) passes that text through `McvsOffline.GraphicsHooks.GameOptionsJson` and reports
+  `m_options` after `ApplyGameOptions` to `GraphicsHooks.GameOptionsApplied`; a missing or failing server DLL leaves the
+  text as read. `hosts/embedded/Graphics/GameOptionsProfile.cs` rewrites it for `mid`/`high`/`ultra`: the GPU `selection`
+  becomes the single rule `[{"<profile>": [[["CORES>1"]]]}]` (Gameloft's own catch-all condition), the chosen block's
+  `priority` entry becomes `["", ""]` (no step up or down, as already for High_Ultra/VeryLowGPU), and every option value
+  stays Gameloft's. `auto` (the default) passes the text through untouched. Settings page: group **Graphics**, apply
+  "After a restart" (the native options are initialised once per process; nothing re-applies them live).
+* **What each choice changes**, against the MidGPU profile the S22 gets today (the effective GPU options; checked on the
+  real file by `GraphicsProfileTests`, which also prints this list):
+  * `mid`: nothing on the S22 (MidGPU is its catch-all profile); on phones that Gameloft rated High or Low it moves them to MidGPU.
+  * `high` (HighGPU): `addShaderDefine` MID_END → HIGH_END (normal mapping, full lightmap), `lowLightMap` → false (the
+    `_N.tga` + `.dirirr.tga` lightmaps instead of `.lowend`), `enableLowResMaps` → false (`HighEndOnly` layers and the
+    full `.StaticGeo` instead of the `_lowend` ones), `enableShadowMap`, `enableBloom`, `disableUseSampler2DShadow` false,
+    `disableColorTablePostProcess` false, `renderTargetPixelFormat` R8G8B8A8_SRGB → B10F_G11F_R11F,
+    `dynamicRenderTargetSizeScale` → true (scene scale from the screen's DPI instead of 0.6), `anisotropicFiltering` 1 → 2,
+    `lowHudEffects` → false, `FontScale` 1.0 → 1.5, `GlyphTextureCacheSize` 1024 → 2048.
+  * `ultra` (High_Ultra): the same with GOD_END shaders and `anisotropicFiltering` 3, plus `lowResAssets`, `lowCubeMap`,
+    `lowEndSpecular`, `pruneSkeleton`, `exposureSkipFrame`, `AnimationCullerLowEndDevice` → false and
+    `skipLodByPresetName` "LODPreset_Characters 1".
+  * Never changed by any choice (asserted): `enableRenderThread` true and `renderThreadMode` 3 (identical in every block
+    the S22 can get), `deferredPhysics`, `multithreadedPhysics`/`multithreadedAnimations` (not in the GPU blocks),
+    `ThreadPoolSize`, `PostProcessMutex`. The physics fixes of device test 2 stay as they are under every profile:
+    server Worlds get single-threaded Havok from `GameHooks.PhysicsMultithreading` (the game's `multithreadedPhysics` is
+    not in any GPU block), and the step gate serialises every World's Havok step.
+* **Process-wide statics (pc-textures.md critic note 1).** The applied options are statics shared by the client and the
+  in-process TS/GS Worlds. HighGPU and High_Ultra set `excludedLoadingLayers` "-" (MidGPU "Physics"; it feeds
+  `World.GlobalExcludeLayers`, so the server Worlds would load the levels' Physics layer into their single-threaded Havok)
+  and `reducedAiUpdateFrequency` false (`BT_Root.AiModulo` 4 → 2: bots think twice as often on the game thread). **By default
+  `high` and `ultra` keep both at the MidGPU values** (`excludedLoadingLayers` "Physics", `reducedAiUpdateFrequency` true);
+  `graphics.fullProfile` true applies Gameloft's blocks unchanged, for an A/B run. What stays process-wide even then:
+  `enableLowResMaps` false makes every World, server Worlds included, load the `HighEndOnly` layers instead of the
+  `LowEndOnly` ones, and `skipLodByPresetName`/`pruneSkeleton`/`AnimationCullerLowEndDevice` (ultra) change animation and
+  LOD work for every World. A bot match at `high` and at `ultra` is therefore part of the device test below.
+* **Log.** `[boot] graphics: graphics.profile high: GameOptions GPU profile forced to HighGPU (...)` when the text is read,
+  then `[boot] graphics: effective GPU profile HighGPU (device optimum MidGPU), settings graphics.profile high (forced HighGPU);
+  device GPU '...', model '...'; in-game graphic setting GameOptions_SelectedProfile 0; N options: a=..., b=...` with every resolved
+  option (`GameOptionManager.GetLoadedProfileName("GPU")`/`GetOptimalProfileName`, settles pc-textures.md U1). The status
+  line and Status › Game host › Graphics repeat the short form.
+* **The game's own graphics setting** (Settings › Graphic setting, `GameOptions_SelectedProfile`, read natively, presumably as a step
+  along the priority chain; it restarts the game) should not move a forced profile, since its priority entry has no step (the native stepping is not decompiled: check 4 below); with `auto` it
+  works as before. The `[boot] graphics:` line shows its stored value.
+
+### HD texture probe (pc-textures.md WP1 + WP3 route B)
+
+* **Host.** At the first call of patch `graphics` (the engine's file system is up, no level has loaded) the host checks
+  `McvsOffline/hd/hd-textures.zip` (`hd.enabled`, default true: used whenever the file exists). It reads the zip's
+  directory itself (stored entries, no ZIP64, everything inside the file); a missing file gives one quiet line, a broken one
+  "not a usable zip ... the game uses Data/"; nothing else changes either way. Then it mounts the zip through the engine's
+  own API, by reflection: `hd.mount` `auto` (default) tries `SaveStream.PushZip` (LocationType Save) and then
+  `CacheStream.PushZip`, each with the zip's path relative to that root (`GlfStream.SavePath`/`CachePath`, logged; "../"
+  segments when the root is elsewhere); `save`, `cache`, `asset` (`AssetStream.PushZip`, relative to Data/) and `front`
+  (`GlfStream_private.PushZipSearchPathFront`, the call PackManager uses for its packs) force one way. For a probe zip it
+  then reads the probe texture back through the engine's own lookup (`AssetStream.ReadAllBytes`) and names the copy that came
+  back by its CRC-32 (manifest `mcvs-hd.json`).
+* **Tool.** `tools/hd-textures` (net8, `dotnet run --project tools/hd-textures -- probe ...`, [README](../tools/hd-textures/README.md))
+  builds the zip from the player's own `Data/8/dbd2f1.f` (`3d/Environment/01_WorkTextures/ENV_GenericConcrete05_bc.tga`): the
+  texture three times, solid magenta under its logical name, green as `8/dbd2f1.f`, blue as `Data/8/dbd2f1.f` (with `--raw`,
+  bare KTX instead of GCBF: yellow, cyan, orange), each in the original's format (ASTC 6x6 on the S22's pack: void-extent
+  blocks; ETC1 on the ETC pack), size and mip chain. Checked here on the real ETC1 file and on a synthetic ASTC 6x6 one.
+
+**HD texture probe: the device test** (one run answers U2; a second run with `--raw` answers U3)
+
+1. On the PC, with build tools for the repository:
+   `adb pull /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/Data/8/dbd2f1.f`, then
+   `dotnet run --project tools/hd-textures -- probe --file dbd2f1.f --out hd-textures.zip`. The tool prints the texture's
+   format: it should say `ASTC 6x6 256x256, 9 mip levels (ASTC pack)` on the S22 (`ETC1 ... (ETC pack)` means the phone
+   has the ETC pack: the probe still works, in ETC1).
+2. Game closed: `adb shell mkdir -p /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/hd` and
+   `adb push hd-textures.zip /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/hd/hd-textures.zip`.
+3. `adb logcat -s McvsOffline mono mono-stdout > probe.txt`, start the game. In the log (also `McvsOffline/logs/bootstrap.log`
+   and Status › Game host › HD textures):
+   * `[boot] hd textures: hd-textures.zip 4 entries, ... kind probe; engine roots: Save '...', Cache '...', Data '...'; hd.mount auto`
+     (the Save/Cache roots answer U2's third question);
+   * `[boot] hd textures: mounted through Save '...'` (or Cache, or `the engine did not mount the zip (...)`);
+   * `[boot] hd textures: probe 3d/Environment/01_WorkTextures/ENV_GenericConcrete05_bc.tga: ...` naming the copy the
+     engine's lookup returned: a zip entry (its naming and colour, "GCBF-decoded" or "bytes as stored") or "another copy ...:
+     Data/, so the zip is not searched before Data/ for this name".
+4. Play a bot match on a map with plain concrete surfaces (walls, floors; the texture is a generic concrete base colour
+   used on several maps). Magenta, green or blue surfaces tell which naming the renderer used, and that a zip entry renders
+   at all (mips, orientation); normal-looking concrete means the renderer still reads Data/. Screenshot it.
+5. If nothing changed: `hd.mount` `front` on the settings page (Graphics › How the HD zip is mounted), restart, repeat
+   3–4. Then, if still nothing, rebuild with `--raw` (yellow, cyan, orange) for the unwrapped-KTX question (U3) and repeat.
+6. Remove it: `adb shell rm /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/hd/hd-textures.zip`.
+   Send `probe.txt`, the `[boot] hd textures:` lines and the screenshots.
+
+### Notification permission (target-sdk.md WP-T5, host side)
+
+* On Android 13+ the host asks for `POST_NOTIFICATIONS` **once**, at the first main menu: when the build targets API 33+
+  and declares the permission (the manifest change belongs to the `targetsdk` patch; at target 29 Android prompts by itself
+  when the game creates its first notification channel, and the host does not ask), the permission is not granted, and
+  `notifications.requestedAt` is empty. A thread polls (on the game thread) whether the client World plays its main-menu
+  level (`World.CurrentLevelPath == World.Client.MainMenuScene`); after three polls in a row with the settings page closed it
+  writes `notifications.requestedAt` into settings.json first, then calls `Activity.requestPermissions` on the game's
+  activity with a 120 s watchdog lease. `MainActivity` has no `onRequestPermissionsResult`, so the answer is read back with
+  `checkSelfPermission`. `notifications.request` false turns it off. JNI table group `notify` (resolved on API 33+ only),
+  checked against android.jar 29 for the members and an API 33+ jar for `POST_NOTIFICATIONS`, `PERMISSION_GRANTED`,
+  `GET_PERMISSIONS` and `TIRAMISU`.
+* Status › Game host › Notifications shows the state ("allowed", "not allowed (asked once on ...)", "not needed on Android
+  12", "this build targets API 29, so Android asks by itself ...").
+* **Restart wording on Android 13+** (target-sdk.md §4.6 and critic note 3): by the AOSP source AlarmManager starts no
+  activity for an alarm since Android 13, whatever the target, so the game would close and not come back. No phone has
+  shown that on its own yet, and it conflicts with device test 8, which counts checks 1–13, item 9 ("does the game come
+  back by itself") included, as passed as a whole. So the page's Restart texts (Actions, the restart dialog, the restart
+  banner, its toast) and Status ("Restart via") say the game **may** only close and then must be started again; none
+  says it will not come back (`host.relaunchUnconfirmed`, Android 13+). The game's own graphics-setting dialog uses the
+  same relaunch and cannot be reworded by the host. **Question for the owner:** on the S22 (Android 16, target 29), does
+  Actions › Restart bring the game back by itself, or does it only close? The answer decides between a firm "closes;
+  start it again" and the relaunch fix of target-sdk.md §4.6.
+
+### Checked (build 10)
+
+The `scripts/build.sh` steps with `MCVS_REFS`, `MCVS_REQUIRE_EMBEDDED=1`, `MCVS_REQUIRE_REAL_CLIENT=1`,
+`MCVS_REQUIRE_NODE=1` and `MCVS_REQUIRE_PC=1`: **McvsOffline.Tests 1345/1345, McvsOffline.Embed.Tests 415/415, McvsOffline.PcSpike.Tests 62/62, 0 skipped** (1,822;
+after the build-10 review fixes). From the branches:
+`ManifestTargetSdkTests`, `BinaryXmlGrowthTests`, `DexEditorTests` and `RealDexTargetSdkTests` (the 14 sites on the real
+`classes.dex`: fingerprints, only the edited code units and the header change, the edited methods read as the report
+says, P8's registers and intent, no reachable `PendingIntent` without a mutability flag, GA cannot start, and no
+component the patched manifest declares reaches an unflagged `PendingIntent` site, by a conservative reachability from
+the Application class and every component, which with build 9's components finds GA's `zzaoa.zzyk` from the three GA
+components; d8 and dexdump accept the result), `ArtPatchTests`/`RealArtTests`/`ArscTableTests`/`PngTests`, `GraphicsProfileTests`,
+`RealGraphicsPatchTests`, `HdTexturesTests`, `NotificationPermissionTests`, the JNI table against android.jar 29 and 34,
+and `McvsOffline.PcSpike.Tests` against the real Steam files. The default full run of the patcher on the real APK now
+checks the `classes.dex` bytes and its 14 notes (107 notes in all, 4 of them the GA removals; 111 with `--patch all`).
+`McvsOffline.PcSpike.Tests` add a copy the running game still holds (redirect-undo keeps the config, says to quit the
+game and run it again; `status` and `collect` name the leftovers on the console).
+
+The real 1.17.32 APK patched once with the defaults (57,785,115 bytes, then deleted): `aapt2 dump badging` says
+`sdkVersion:'21'`, `targetSdkVersion:'35'` and lists `POST_NOTIFICATIONS`; `xmltree` shows `exported=true` on
+XamarinMainActivity, IGPFreemiumActivity and LocalPushReceiver, no Google Analytics component (only the inert
+`globalConfigResource` meta-data), `allowNativeHeapPointerTagging=false`, `<queries>` with
+the https and http schemes, and `fitsSystemWindows=true` on the root of both browser layouts; `dexdump` parses
+`classes.dex` ("Checksum verified") and shows all 14 sites as edited; `apksigner verify` v1, v2 and v3 true;
+`zipalign -c -p 4` OK; `resources.arsc` STORED, 4-byte aligned, byte for byte the shipped one. With `--target-sdk 29`:
+`targetSdkVersion:'29'`, `classes.dex`, both layouts and `resources.arsc` byte for byte the shipped ones, the manifest
+build 9's (rename and debloat only). With `--art stock`: every entry identical to the default output.
+
+### What to check on the phone (build 10)
+
+Install build 10 **over** build 9 (same key; never uninstall: that deletes the saves). Keep
+`adb logcat -s McvsOffline mono mono-stdout AndroidRuntime ActivityManager > b10.txt` running where you can.
+
+1. **Install**: no Play Protect "built for an older version of Android" warning, neither in the install dialog nor in a
+   Play Protect scan afterwards. The saves, settings and the launcher icon (still Gameloft's) are as before. Keep the
+   logcat running for the first hour after the install, game open or not: a Google Analytics job or alarm build 9 left
+   with Android runs then, and build 10 must drop it without a crash (no `AndroidRuntime: FATAL EXCEPTION` naming
+   `com.google.android.gms.analytics` or `PendingIntent`).
+2. **Target 35 basics**: boot to the menu; menus, a bot match and a Battle; the game saves (close it, start it again, the
+   progress is there); Back in the game (pause menu, the quit dialog) and on the MCVS Offline page (Back leaves the page
+   or asks first, as in build 9).
+3. **Page layout**: open the page with three-button navigation and again with gesture navigation (Settings › Display ›
+   Navigation bar), portrait and landscape: nothing hidden under the navigation or status bar, every button reachable.
+   Screenshots of both modes.
+4. **Restarts**: Actions › Restart on the page, and the game's own Settings › Graphic setting change: the game saves and
+   closes without a crash; does it come back by itself (one process, one boot) or only close? Report which, for both.
+5. **Notification prompt**: at the first main menu Android asks once for notifications (not over the page or the age
+   gate). "Allow": Status › Game host › Notifications says "allowed", the next start does not ask. If build 9 already had
+   notifications allowed, there is no dialog and Status says "allowed".
+6. **Graphics profiles** (page: Graphics › Graphics profile, each change followed by a restart). First `auto`: note the
+   `[boot] graphics: effective GPU profile ...` line (which profile the S22 really gets). Then `mid` (on the S22 the same
+   as auto), `high` (sharper surfaces from normal maps, shadows, bloom, full lightmaps) and `ultra` (also the richest
+   shaders, high-resolution assets and cube-map reflections): each time the `[boot] graphics:` line says "forced
+   MidGPU/HighGPU/High_Ultra", a bot match plays through, then 10 minutes of play for frame rate and heat; no `[watchdog]
+   STALL`, no `physics step gate: ... without the gate`. Then `graphics.fullProfile` on at `ultra`: one bot match. With a
+   forced profile, the game's own Graphic setting should not change the `[boot] graphics:` profile. Back to `auto` at the end.
+7. **HD texture probe** (steps in "HD texture probe: the device test" above, under "Build 10"): on the PC `adb pull` the phone's
+   `Data/8/dbd2f1.f`, build the zip with `dotnet run --project tools/hd-textures -- probe --file dbd2f1.f --out
+   hd-textures.zip` (it should say ASTC 6x6 on the S22), game closed: `adb push` it to
+   `.../files/McvsOffline/hd/hd-textures.zip`. Start the game: the `[boot] hd textures:` lines (zip read, mounted through
+   which root, which copy the engine's lookup returned; also Status › Game host › HD textures). In a bot match plain
+   concrete walls and floors turn **magenta** (the logical name), **green** (`8/dbd2f1.f`) or **blue**
+   (`Data/8/dbd2f1.f`); normal concrete means `Data/` still wins. Screenshot, then delete the zip.
+8. **Reminders**: with notifications allowed, leave the game so it schedules its local reminders and wait for one: it
+   arrives. Tapping it only dismisses it on Android 12+ (expected; open the game from the launcher). After a reboot
+   reminders still come. A reminder that build 9 scheduled may arrive once more after the update (expected).
+9. **Share sheet**: Logs › Build › Share and Saves' "Share as a file" open Android's share sheet and another app receives
+   the file; "Share a text report" and Save to Downloads still work.
+10. **logcat**: during all of the above,
+    `adb logcat | grep -E "FLAG_IMMUTABLE|RECEIVER_EXPORTED|VerifyError|Background activity launch blocked"` stays
+    empty (no `IllegalArgumentException` from a PendingIntent, no `SecurityException` from a receiver, no class rejected
+    by ART); a "Background activity launch blocked" line right after a Restart (item 4) is the expected Android 13+
+    relaunch block, note when it appeared. Send `b10.txt`.
+11. **Data-download notification** (P8, the largest dex edit: it rebuilds the notification's intent). Shown only while
+    the installer downloads data, which the S22 no longer does, and a fresh download there would need its data cleared,
+    which deletes the saves: **never clear the S22's data for it.** Only with a second Android 12+ phone: install build 10
+    there, start it with the internet on, and once the installer downloads (if Gameloft's servers still answer), press
+    Home: the progress notification appears; tap it: the installer comes back in the same task (Back from it does not
+    show a second game screen); let it finish in the background: the "done" notification, tapped, opens the game.
+    Without a second phone: skipped for build 10 (item 10's grep still catches a crash should the installer download).
+12. **LAN mode**: out of scope for build 10 unless a second device runs build 10 (LAN is experimental, M3, and the
+    target change touches no socket code; cleartext to 127.0.0.1 and the LAN host is unchanged from target 29). With
+    one: host on the S22, join from the other, one bot match.
+13. If anything in 1–12 regresses: patch again with `--target-sdk 29` (build 9's manifest, layouts and `classes.dex`;
+    it installs over build 10 with the same key) and report the item.
 
 ## Device test 8 (October 2026): the MCVS Offline page works
 
@@ -61,7 +302,9 @@ The settings and diagnostics page of [design/settings-page.md](design/settings-p
   with acorn); end-to-end tests over a socket (ticket → cookie → settings → CRM, the Host check, the early 413, an import
   from another phone applied at the next start and confirmed by the game's save); the three hook patches on the real
   1.17.32 assemblies (fingerprints, IL, executed against recording hooks with a differential, JIT, ILVerify) and
-  against the real embedded DLL; `targetSdkVersion` 29 after every default patch.
+  against the real embedded DLL; the target SDK after patching (invariant I1' in ARCHITECTURE.md §2, which replaced
+  "`targetSdkVersion` 29 after every default patch": 35 by default with the `classes.dex` edits since build 10,
+  `--target-sdk 29` as the fallback).
 * **The Cosmetic crate** ([ECONOMY.md](ECONOMY.md) §5, [design/economy-collector.md](design/economy-collector.md)):
   the unused `Crate_Event_Special`, named "CUSTOMIZATION CRATE", filled by CRM cells (39 rows: avatars, backgrounds,
   sounds on background carriers, the 16 skins, 12 hidden jerseys, Witch and Bli-P, camos, jerseys; 70 VersusCoins

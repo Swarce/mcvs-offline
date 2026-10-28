@@ -138,11 +138,21 @@ Not reachable offline (left alone): GCM (`GCMRegistrar`, `gcm/a`, `GoogleCloudMe
 `TaskStackBuilder`, `MediaSessionCompat`, `TransportMediator`, `SearchView`. Consequence: target >= 31 must require
 `debloat` (or the patcher refuses the combination).
 
-P8 needs a register: `const/4 v2, 0` is also the request code. In place, without growing the method: replace the
-10 bytes at @0x2f2a70 (`const-string v3, "android.intent.category.LAUNCHER"` + `invoke-virtual addCategory`, result
-unused) by `const/high16 v6, 0x0400` + 3 `nop`, and change the invoke's last register nibble v2 -> v6 (@0x2f2a92
-`7140 a301 2720` -> `...2760`). v6 is a local first written at 0x006d; the intent keeps action MAIN and its explicit
-component (`ComponentName(..., "com.gameloft.android.XamarinMainActivity")`), so the dropped category changes nothing.
+P8 needs a register: `const/4 v2, 0` is also the request code. In place, without growing the method: rebuild the
+same intent in fewer code units and use the room for the flags. The 24 units at @0x2f2a62 (pc 0x25-0x3c:
+`new Intent("android.intent.action.MAIN")`, `addCategory("android.intent.category.LAUNCHER")`,
+`setComponent(new ComponentName("com.gameloft.android.ANMP.GloftMVHM", "com.gameloft.android.XamarinMainActivity"))`)
+become `new-instance v3 ComponentName` + the two `const-string` + `invoke-direct ComponentName.<init>` +
+`invoke-static {v3} Intent.makeMainActivity` (method@0290, already in `classes.dex`: MAIN + LAUNCHER + component) +
+`move-result-object v0` + `const/high16 v6, 0x0400` + 9 `nop`, and the invoke's last register nibble changes v2 -> v6
+(@0x2f2a92 `7140 a301 2720` -> `...2760`). v6 is a local first written at 0x006d; v0, v3, v4 and v5 leave the block
+holding what they held before. The category must stay. The first patcher version dropped it, assuming that an explicit
+intent does not need it. That was wrong. The task's root intent is the launcher's MAIN + LAUNCHER + component, and
+GameInstaller sits on top of XamarinMainActivity while it shows this notification. A notification `PendingIntent` is
+started with `FLAG_ACTIVITY_NEW_TASK` and reuses that task. `ActivityStarter.complyActivityFlags` then adds a new
+activity to the task when the intent is not `filterEquals` to the root intent (`Task.isSameIntentFilter`), and
+`filterEquals` compares the categories. Without LAUNCHER, a tap would start a second XamarinMainActivity, and with it
+a second GameInstaller, instead of bringing the task back.
 
 Our host [V]: `AndroidExit.ScheduleRelaunch` already passes `FLAG_CANCEL_CURRENT | FLAG_IMMUTABLE` on 23+
 (`hosts/embedded/Android/AndroidExit.cs:115-129`). No other `PendingIntent` in `hosts/embedded` or `server/`.
@@ -185,7 +195,9 @@ No foreground service exists [V]: no `startForeground` in any Java, no `foregrou
 `LaunchPushService`, `DeletePushService` (plain `IntentService`s started from notification `PendingIntent`s, which get a
 temporary allowlist). The 34/35 FGS rules (types, `dataSync` timeout, BOOT_COMPLETED FGS limits) do not apply.
 JobScheduler: only GA's `AnalyticsJobService` (`zzaoa.schedule`); 34 requires ACCESS_NETWORK_STATE for network
-constraints, which is declared. Neutralising GA (4.10) removes it anyway. No WorkManager in the dex.
+constraints, which is declared. Neutralising GA (4.10) stops new scheduling; a job an earlier build already scheduled
+survives the update, which is why the GA components leave the manifest from 31 on (4.10, build-10 review). No WorkManager
+in the dex.
 
 ### 4.6 Background activity starts (relaunch after "Restart")
 
@@ -261,8 +273,22 @@ P10/P11: `invoke-direct {vF, vS}, IntentFilter.<init>(String)` (method@02b8) -> 
 (method@02b7, already in the dex) at @0x309da6 and @0x2e60ee: same 6-byte format 35c, empty filter, no exception.
 P12-P14: `GoogleAnalyticsTracker.Init` @0x2fe114, `activityStart` @0x2fe130, `activityStop` @0x2fe160 become
 `return-void` + `nop`s (whole first instruction replaced); `trackEvent` already returns when the tracker is null
-(`GoogleAnalyticsTracker.java`). This also removes P9 and GA's JobScheduler use. GA cannot send anything offline, so no
-feature is lost; it is the same class of change as build 8's Crashlytics removal.
+(`GoogleAnalyticsTracker.java`). This stops the game from starting GA, so GA makes no new P9 alarm, registers no
+RADIO_POWERED receiver and schedules no new job. GA cannot send anything offline, so no feature is lost; it is the same
+class of change as build 8's Crashlytics removal.
+
+Correction (build-10 review): P12-P14 do not cover GA started by the system. A dispatch job (`AnalyticsJobService`, only a
+latency and an override deadline, no constraints) or alarm (`AnalyticsReceiver`) that build 9 (GA on, same package) left
+with JobScheduler/AlarmManager survives the update (only an uninstall or a force-stop cancels it). Its `onCreate`/`onReceive`
+runs `zzamu.zzbg` on the main thread, whose init reaches `zzaoa.zzuk` -> `cancel` -> `zzyk`, the P9
+`PendingIntent.getBroadcast(ctx, 0, intent, 0)`: IllegalArgumentException on Android 12+ at 31+, which kills the process.
+So from 31 on "targetsdk" also removes the four GA declarations (`AnalyticsReceiver`, `AnalyticsService`,
+`AnalyticsJobService`, `CampaignTrackingService`; `ManifestTargetSdk.GoogleAnalyticsComponents`): nothing of build 10
+uses them, and the system drops a job or broadcast whose component is gone. `RealDexTargetSdkTests` runs a conservative
+reachability (rapid type analysis) from the Application class and every declared component and finds no unflagged
+PendingIntent site reachable; with the build-9 component set it finds exactly `zzyk` from the three GA components.
+The one exception, `GoogleApiActivity` (not exported, nothing reachable names it), only a Play services resolution
+starts.
 
 Implicit intents to own non-exported components (34): the game's own intents are explicit (`setComponent`,
 `new Intent(context, X.class)`); the push relay above is the only implicit one and is moot.

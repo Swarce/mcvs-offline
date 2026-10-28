@@ -31,7 +31,7 @@ change to the game's logic. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (no
 | Full progression saved on the device | Storage complete: byte-exact profile dumps, no ETags, 401 never 403, atomic writes plus directory fsync, backups, corrupt-file recovery | [protocol/storage.md](docs/protocol/storage.md) |
 | Everything obtainable | VersusCoins economy (1,864 store entries), unlock coupons (`UNLOCKALL` and split codes), optional `unlockAll` through the inventory ledger, optional developer menu | [ECONOMY.md](docs/ECONOMY.md), [protocol/content.md](docs/protocol/content.md), [protocol/unlocks.md](docs/protocol/unlocks.md) |
 | Bot matches with full rewards | Instant bot-filled PvP through CRM (`MinPlayers 1`), `bottile` patch routes the BOTMATCH tile to the full-progression GS flow | [verify-C4](docs/research/verify-C4-bot-match-progression.md), patcher |
-| Player build (offline APK) | Patcher complete (hook, geo, bottile, finder, store, signatures, debloat, adminpage, adminlink; signing v1/v2/v3; every ABI by default, `--abi arm64-v8a` for 64-bit only); checked offline with apksigner, zipalign and ILVerify | [PLAYER-SETUP.md](docs/PLAYER-SETUP.md) |
+| Player build (offline APK) | Patcher complete (hook, nativeonline, waits, geo, bottile, finder, store, signatures, debloat, adminpage, adminlink, graphics, targetsdk; signing v1/v2/v3; every ABI by default, `--abi arm64-v8a` for 64-bit only); checked offline with apksigner, zipalign and ILVerify | [PLAYER-SETUP.md](docs/PLAYER-SETUP.md) |
 | Settings, saves and logs on the phone | The in-game MCVS Offline page (build 9, device test pending): settings, backups, save export/import between phones, logs shared through Android's share sheet | [PLAYER-SETUP.md](docs/PLAYER-SETUP.md) §7, [design](docs/design/settings-page.md) |
 | LAN P2P | Experimental: `lan` patch and LAN mode exist; guests must use the host's server for everything (topology A). Forwarding to each device's own server is not implemented | [roadmap](docs/ROADMAP.md) M3, [verify-C6](docs/research/verify-C6-lan-p2p.md) |
 | Internet P2P | Not started (planned: overlay VPN guide first) | [roadmap](docs/ROADMAP.md) M4 |
@@ -103,6 +103,10 @@ patcher/           McvsOffline.Patcher (net8 + Mono.Cecil): your APK -> the offl
 tests/             McvsOffline.Tests (server modules, core, real-client conformance) and
                    McvsOffline.Embed.Tests (embedded host, patcher, real parser and geo checks)
 tools/content-gen/ generator for server/Content from the decoded data pack (Python, stdlib only)
+tools/art/         owner-side icon exporter and previews (Python, Pillow)
+art/android/       the project's own launcher icon and launch-screen art, built into the patcher (empty until drawn)
+tools/hd-textures/ HD texture probe zip builder (net8 console)
+tools/pc-spike/    WP0 kit for the Steam build (one Windows exe; tests in tests/McvsOffline.PcSpike.Tests)
 scripts/           build.sh, run-standalone.sh
 docs/              architecture, module guide, protocol notes, status, guides, research
 ```
@@ -113,6 +117,7 @@ docs/              architecture, module guide, protocol notes, status, guides, r
 - [docs/STATUS.md](docs/STATUS.md): what is implemented, the device-test findings, the expected log sequence, the device-test checklist
 - [docs/DEV-LOOP.md](docs/DEV-LOOP.md): stock APK against the standalone server
 - [docs/PLAYER-SETUP.md](docs/PLAYER-SETUP.md): building and installing the offline APK
+- [docs/PC-SPIKE.md](docs/PC-SPIKE.md): the Windows test kit for the Steam version (PC port WP0)
 - [docs/PROTOCOL.md](docs/PROTOCOL.md): index of the per-service protocol notes
 - [docs/ECONOMY.md](docs/ECONOMY.md): the offline economy and how to tune it
 - [docs/MODULES.md](docs/MODULES.md): module ownership, the module seam, core APIs, rules for code that runs in the game

@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    McvsOffline.PcSpike: the WP0 kit for the Steam (PC) build (docs/research/pc-port.md §5 WP0, docs/PC-SPIKE.md).
+    The owner runs it on a Windows PC with Steam and the game installed and sends back the zip that 'collect' writes.
+    It reuses the server library the standalone host runs (server/), the embedded host's args.txt writer
+    (hosts/embedded/ArgsFile.cs, ManagedArgs.cs, DeviceIdentity.cs, linked below) and the patcher's IlPatch base.
+    It never ships or downloads a game file: the EngineBridge copy for 'redirect-test' is made on the owner's PC from
+    the owner's own install.
+
+    Windows build for the owner (self-contained, one file, no .NET install needed), from any OS:
+      dotnet publish tools/pc-spike/McvsOffline.PcSpike.csproj -c Release -r win-x64 -p:McvsPcSpikePublish=true -o artifacts/pc-spike
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>McvsOffline.PcSpike</AssemblyName>
+    <RootNamespace>McvsOffline.PcSpike</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- The patcher is an exe referenced as a library (IlPatch); the single-file bundle carries its DLL. -->
+    <ValidateExecutableReferencesMatchSelfContained>false</ValidateExecutableReferencesMatchSelfContained>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(McvsPcSpikePublish)' == 'true'">
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <DebugType>none</DebugType>
+    <PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
+
+  <!-- The owner gets one file: drop the referenced projects' symbols and the patcher's own exe config files. -->
+  <Target Name="McvsPcSpikeSingleFileOnly" AfterTargets="Publish" Condition="'$(McvsPcSpikePublish)' == 'true'">
+    <ItemGroup>
+      <_McvsPcSpikeExtra Include="$(PublishDir)*.pdb;$(PublishDir)*.deps.json;$(PublishDir)*.runtimeconfig.json" />
+    </ItemGroup>
+    <Delete Files="@(_McvsPcSpikeExtra)" />
+  </Target>
+
+  <ItemGroup>
+    <ProjectReference Include="../../server/McvsOffline.Server.csproj" />
+    <ProjectReference Include="../../patcher/McvsOffline.Patcher.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The args.txt block exactly as the embedded host writes it on Android (verify-C1), one source. -->
+    <Compile Include="../../hosts/embedded/ArgsFile.cs" Link="Embedded/ArgsFile.cs" />
+    <Compile Include="../../hosts/embedded/ManagedArgs.cs" Link="Embedded/ManagedArgs.cs" />
+    <Compile Include="../../hosts/embedded/DeviceIdentity.cs" Link="Embedded/DeviceIdentity.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="McvsOffline.PcSpike.Tests" />
+  </ItemGroup>
+</Project>

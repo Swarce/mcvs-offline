@@ -18,4 +18,14 @@
   <ItemGroup>
     <InternalsVisibleTo Include="McvsOffline.Embed.Tests" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      The project's own launcher icon and launch-screen art (art/android/README.md), built in so players keep running the
+      same command: with no art files here, the patcher keeps the stock icon and splash. Documentation and examples are not
+      art (Art/ArtSource.cs ignores them too).
+    -->
+    <EmbeddedResource Include="../art/android/**" Exclude="../art/android/**/README*;../art/android/**/*.md;../art/android/**/*.example.json;../art/android/**/.*"
+                      LogicalName="art/$([System.String]::Copy('%(RecursiveDir)').Replace('\','/'))%(Filename)%(Extension)" />
+  </ItemGroup>
 </Project>

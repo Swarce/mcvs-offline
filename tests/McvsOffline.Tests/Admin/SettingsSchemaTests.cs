@@ -19,6 +19,7 @@ namespace McvsOffline.Tests.Admin
         private static readonly string[] EditableKeys =
         {
             "instantBots", "devMenu", "leaderboards.virtualPlayers", "geo.country",
+            "graphics.profile", "graphics.fullProfile", "hd.enabled", "hd.mount",
             "economy.versusCoinsMultiplier", "economy.creditsMultiplier", "economy.xpMultiplier", "economy.priceMultiplier", "crm.dailyCapMultiplier",
             "economy.collector.enabled", "economy.collector.itemsPerCrate",
             "unlockAll", "assets.couponsEnabled", "crm.redeemCoupons", "unlocks.batchSize", "admin.redeemCode",
@@ -38,7 +39,7 @@ namespace McvsOffline.Tests.Admin
         {
             Assert.Equal(EditableKeys, SettingsSchema.Keys.Select(k => k.Key).ToArray());
             var groups = SettingsSchema.Groups.Select(g => g.Id).ToList();
-            Assert.Equal(new[] { "gameplay", "economy", "unlocks", "liveops", "diagnostics", "advanced" }, groups);
+            Assert.Equal(new[] { "gameplay", "graphics", "economy", "unlocks", "liveops", "diagnostics", "advanced" }, groups);
             foreach (SettingDefinition def in SettingsSchema.Keys)
             {
                 Assert.False(string.IsNullOrEmpty(def.Label), def.Key);
@@ -111,6 +112,17 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal(true, Default("diagnostics.publicLogCopy"));
             Assert.Equal("MCVSOFFLINE", Default("admin.redeemCode"));
             Assert.Equal(true, Default("crm.newsfeedLink"));
+
+            // Read by the embedded host (EmbeddedHost.ConfigureGraphics, AddEmbeddedDefaults) and patch 'graphics'.
+            Assert.Equal("auto", Default("graphics.profile"));
+            Assert.Equal(new[] { "auto", "mid", "high", "ultra" }, Def("graphics.profile").Options);
+            Assert.Equal("restart", Def("graphics.profile").Apply);
+            Assert.Equal(false, Default("graphics.fullProfile"));
+            Assert.Equal("enable", Def("graphics.fullProfile").ConfirmWhen);
+            Assert.Null(Def("graphics.fullProfile").BackupBefore);
+            Assert.Equal(true, Default("hd.enabled"));
+            Assert.Equal("auto", Default("hd.mount"));
+            Assert.Equal(new[] { "auto", "save", "cache", "asset", "front" }, Def("hd.mount").Options);
         }
 
         [Theory]

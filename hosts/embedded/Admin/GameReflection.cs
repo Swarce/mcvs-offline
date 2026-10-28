@@ -144,6 +144,29 @@ namespace McvsOffline.Embedded.Admin
             }
         }
 
+        /// <summary>
+        /// Whether the client World plays its main-menu level now (<see cref="IsAtMainMenu"/>), read on the game thread within
+        /// <paramref name="timeoutMs"/>; null when unbound, on timeout, or when the game thread does not run frames.
+        /// </summary>
+        public bool? AtMainMenu(int timeoutMs)
+        {
+            var done = new ManualResetEvent(false);
+            bool? result = null;
+            if (!Post(() =>
+            {
+                try
+                {
+                    result = IsAtMainMenu(ClientWorld());
+                }
+                finally
+                {
+                    done.Set();
+                }
+            }, null)) return null;
+            // Not disposed: a callback that runs after the timeout still sets it.
+            return done.WaitOne(timeoutMs < 0 ? 0 : timeoutMs, false) ? result : null;
+        }
+
         /// <summary>True once the game thread has drained a work item posted now (it runs frames); false on timeout or unbound.</summary>
         public bool WaitForFrame(int timeoutMs)
         {
@@ -268,6 +291,19 @@ namespace McvsOffline.Embedded.Admin
             object value = Property(world, "IsServer");
             if (value is bool) return (bool)value;
             return null;
+        }
+
+        /// <summary>
+        /// Game thread: the client World plays its main menu (<c>World.CurrentLevelPath == World.Client.MainMenuScene</c>, the test
+        /// GameGameOptionsComponent.SelectMipmapToSkip makes); null when the World is a server, unknown, or has no level yet.
+        /// </summary>
+        public static bool? IsAtMainMenu(object world)
+        {
+            if (world == null || IsServer(world) != false) return null;
+            string level = Property(world, "CurrentLevelPath") as string;
+            string menu = Property(Property(world, "Client"), "MainMenuScene") as string;
+            if (string.IsNullOrEmpty(level) || string.IsNullOrEmpty(menu)) return null;
+            return string.Equals(level, menu, StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>World.Authentication.AnonymousCredential as the string the game sends ("anonymous:&lt;name&gt;"), or null.</summary>
@@ -405,7 +441,9 @@ namespace McvsOffline.Embedded.Admin
             Type options = resolve("Gameloft.Engine.ComponentGroupOptions");
             Type credential = resolve("Gameloft.OnlinePlatform.Credential");
             Type profile = resolve("Game.PlayerProfileComponent");
-            foreach (var t in new[] { app, world, browser, component, authentication, options, credential, profile })
+            Type clientComponent = resolve("Gameloft.Engine.ClientComponent");
+            Type gameClient = resolve("Game.GameClientComponent");
+            foreach (var t in new[] { app, world, browser, component, authentication, options, credential, profile, clientComponent, gameClient })
             {
                 if (t == null) problems.Add("a game type is missing");
             }
@@ -422,6 +460,10 @@ namespace McvsOffline.Embedded.Admin
             ExpectProperty(problems, authentication, "AnonymousCredential", false, credential);
             ExpectProperty(problems, authentication, "FedId", false, credential);
             ExpectProperty(problems, profile, "FedId", false, credential);
+            ExpectProperty(problems, world, "CurrentLevelPath", false, typeof(string));
+            ExpectProperty(problems, world, "Client", false, clientComponent);
+            ExpectProperty(problems, gameClient, "MainMenuScene", false, typeof(string));
+            if (!clientComponent.IsAssignableFrom(gameClient)) problems.Add("GameClientComponent is not a ClientComponent");
             if (!component.IsAssignableFrom(browser)) problems.Add("BrowserComponent is not a Component");
 
             MethodInfo open = FindMethod(browser, "OpenUrl", typeof(string), typeof(bool));

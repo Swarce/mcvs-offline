@@ -52,6 +52,11 @@ namespace McvsOffline.Embed.Tests.Patcher
                      .Add(Filter("android.intent.action.MAIN").Add(Named("category", "android.intent.category.LAUNCHER"))))
                 .Add(Named("provider", "mono.MonoRuntimeProvider", (Ns, "exported", false)))
                 .Add(Named("activity", "com.facebook.FacebookActivity"))
+                .Add(Named("receiver", "com.google.android.gms.analytics.AnalyticsReceiver", (Ns, "enabled", true), (Ns, "exported", false)))
+                .Add(Named("service", "com.google.android.gms.analytics.AnalyticsService", (Ns, "enabled", true), (Ns, "exported", false)))
+                .Add(Named("service", "com.google.android.gms.analytics.AnalyticsJobService", (Ns, "permission", "android.permission.BIND_JOB_SERVICE"),
+                           (Ns, "enabled", true), (Ns, "exported", false)))
+                .Add(Named("service", "com.google.android.gms.analytics.CampaignTrackingService"))
                 .Add(Named("receiver", "com.gameloft.pushnotification.LocalPushReceiver").Add(Filter("android.intent.action.BOOT_COMPLETED")))
                 .Add(Named("provider", Package + ".KeyProvider", (Ns, "permission", Vendor), (Ns, "exported", true), (Ns, "authorities", Package + ".KeyProvider")))
                 .Add(Named("meta-data", "com.google.android.gms.version", (Ns, "value", "12451000")));
@@ -452,9 +457,11 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Equal(libsIn, result.Entries.Select(e => e.Name).Where(n => n.StartsWith("lib/", StringComparison.Ordinal)));
             Assert.Contains(report.Notes, n => n.StartsWith("debloat: dropped 9 Crashlytics/Fabric files", StringComparison.Ordinal));
 
-            // The manifest is the permission rename plus the debloat, one note per removed element.
+            // The manifest is the permission rename plus the debloat, one note per removed element, then the targetsdk edits
+            // of the default target 35 (ManifestTargetSdkTests).
             byte[] original = input.Find(ManifestPatch.EntryName).GetData();
-            Assert.Equal(ManifestDebloat.Apply(ManifestPatch.Apply(original, null), null), result.Find(ManifestPatch.EntryName).GetData());
+            Assert.Equal(ManifestTargetSdk.Edit(ManifestDebloat.Apply(ManifestPatch.Apply(original, null), null), ManifestTargetSdk.DefaultTarget, null),
+                         result.Find(ManifestPatch.EntryName).GetData());
             Assert.Equal(ManifestDebloat.Targets.Count, report.Notes.Count(n => n.StartsWith("manifest: removed <", StringComparison.Ordinal)));
 
             if (TestEnvironment.Aapt2 == null)
@@ -465,7 +472,8 @@ namespace McvsOffline.Embed.Tests.Patcher
             string badging = Aapt2Dump.Badging(outApk);
             Assert.Contains("package: name='" + KnownBuild.PackageName + "' versionCode='1173200' versionName='1.17.32'", badging);
             Assert.Contains("launchable-activity: name='com.gameloft.android.XamarinMainActivity'", badging);
-            Assert.Equal(ManifestDebloatTests.KeptPermissions, Aapt2Dump.UsesPermissions(badging));
+            var notification = ManifestTargetSdk.DefaultTarget >= 33 ? new[] { ManifestTargetSdk.PostNotifications } : new string[0];   // 35 by default
+            Assert.Equal(ManifestDebloatTests.KeptPermissions.Concat(notification), Aapt2Dump.UsesPermissions(badging));
             Assert.Contains("native-code: 'arm64-v8a' 'armeabi-v7a'", badging);
         }
 
@@ -473,7 +481,8 @@ namespace McvsOffline.Embed.Tests.Patcher
         public void WithoutDebloatTheManifestIsTheRenameAloneAndTheFilesStay()
         {
             if (!Inputs(out string apk, out string server)) return;
-            var patches = new SortedSet<string>(PatcherOptions.DefaultPatches.Where(p => p != ManifestDebloat.PatchId), StringComparer.Ordinal);
+            // Without debloat the target stays 29 (targetsdk refuses 31+ without it; ManifestTargetSdkTests).
+            var patches = new SortedSet<string>(PatcherOptions.DefaultPatches.Where(p => p != ManifestDebloat.PatchId && p != ManifestTargetSdk.PatchId), StringComparer.Ordinal);
             PatchReport report = Run(apk, server, patches, out string outApk);
 
             ZipArchiveReader.Archive input = ZipArchiveReader.Read(apk);

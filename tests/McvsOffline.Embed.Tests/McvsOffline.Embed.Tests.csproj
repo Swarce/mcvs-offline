@@ -27,6 +27,7 @@
   <ItemGroup>
     <ProjectReference Include="../../server/McvsOffline.Server.csproj" />
     <ProjectReference Include="../../patcher/McvsOffline.Patcher.csproj" />
+    <ProjectReference Include="../../tools/hd-textures/McvsOffline.HdTextures.csproj" />
   </ItemGroup>
 
   <ItemGroup>

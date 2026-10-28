@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using McvsOffline.Embed.Tests.Support;
 using McvsOffline.Patcher;
+using McvsOffline.Patcher.Manifest;
 using McvsOffline.Patcher.Patches;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
@@ -281,22 +282,25 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Equal(new[]
                          {
                              "hook", "headless", "headless-engine", "physics", "nativeonline", "waits", "geo", "bottile", "finder", "store", "signatures", "adminpage",
-                             "debloat", "adminlink",
+                             "debloat", "adminlink", "graphics",
                          },
                          ApkPatcher.SelectPatches(PatcherOptions.ParsePatchList("default")).Select(p => p.Id));
             Assert.Equal(new[] { "finder", "lan" }, PatcherOptions.ParsePatchList("lan"));
             Assert.Empty(PatcherOptions.ParsePatchList("none"));
-            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "forum", "geo", "lan", "nativeonline", "signatures", "store", "waits" },
+            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "forum", "geo", "graphics", "lan", "nativeonline", "signatures", "store", "targetsdk", "waits" },
                          PatcherOptions.ParsePatchList("all"));
-            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "geo", "nativeonline", "signatures", "store", "waits" },
+            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "geo", "graphics", "nativeonline", "signatures", "store", "targetsdk", "waits" },
                          PatcherOptions.ParsePatchList("default"));
+            Assert.Equal(new[] { "targetsdk" }, PatcherOptions.ParsePatchList("targetsdk"));
             Assert.Equal(new[] { "signatures" }, PatcherOptions.ParsePatchList("signatures"));
             Assert.Equal(new[] { "debloat" }, PatcherOptions.ParsePatchList("debloat"));
             Assert.Throws<ArgumentException>(() => PatcherOptions.ParsePatchList("geo,unlockall"));
 
             // The settings-page triggers: adminpage and adminlink by default, forum only on request (--patch default,forum).
-            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "forum", "geo", "nativeonline", "signatures", "store", "waits" },
+            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "forum", "geo", "graphics", "nativeonline", "signatures", "store", "targetsdk", "waits" },
                          PatcherOptions.ParsePatchList("default,forum"));
+            Assert.Equal(new[] { "graphics" }, PatcherOptions.ParsePatchList("graphics"));
+            Assert.Equal(new[] { "hook", "headless", "headless-engine", "physics", "graphics" }, ApkPatcher.SelectPatches(new[] { "graphics" }).Select(p => p.Id));
             Assert.Equal(new[] { "forum" }, PatcherOptions.ParsePatchList("FORUM"));
             Assert.DoesNotContain("forum", PatcherOptions.DefaultPatches);
             Assert.Equal(new[] { "lan", "forum" }, PatcherOptions.OptionalPatches.Except(PatcherOptions.DefaultPatches));
@@ -306,14 +310,39 @@ namespace McvsOffline.Embed.Tests.Patcher
         }
 
         [Fact]
+        public void ThePlayerDocsListTheDefaultPatchSetAndEveryOptionalPatch()
+        {
+            // A player who copies the documented --patch list must get the default set: without 'graphics' the graphics
+            // profile and hd-textures.zip silently do nothing (the HD mount runs only from GraphicsHooks' first engine hook).
+            string setup = File.ReadAllText(Path.Combine(TestEnvironment.RepoRoot, "docs", "PLAYER-SETUP.md"));
+            string row = Assert.Single(setup.Split('\n'), l => l.StartsWith("| `--patch ", StringComparison.Ordinal) && l.Contains("this is the default set"));
+            string list = row.Substring("| `--patch ".Length, row.IndexOf('`', "| `--patch ".Length) - "| `--patch ".Length);
+            Assert.Equal(PatcherOptions.DefaultPatches, list.Split(','));
+            foreach (string id in PatcherOptions.OptionalPatches)
+                Assert.True(setup.Contains("\n- **" + id + "**"), "PLAYER-SETUP.md has no '- **" + id + "**' entry in its patch list");
+            int hd = setup.IndexOf("**HD textures** (", StringComparison.Ordinal);
+            Assert.True(hd >= 0, "PLAYER-SETUP.md has no HD textures paragraph");
+            Assert.Contains("needs the default patch `graphics`", setup.Substring(hd, setup.IndexOf("\n\n", hd, StringComparison.Ordinal) - hd));
+
+            string readme = File.ReadAllText(Path.Combine(TestEnvironment.RepoRoot, "README.md"));
+            string build = Assert.Single(readme.Split('\n'), l => l.StartsWith("| Player build (offline APK) |", StringComparison.Ordinal));
+            foreach (string id in PatcherOptions.DefaultPatches)
+                Assert.True(System.Text.RegularExpressions.Regex.IsMatch(build, @"[(, ]" + id + "[,;]"), "README.md's player-build row does not list '" + id + "'");
+        }
+
+        [Fact]
         public void EveryOptionalPatchIdHasItsPatchAndEveryPatchIdIsUnique()
         {
             Assert.Equal(ApkPatcher.AllPatches.Length, ApkPatcher.AllPatches.Select(p => p.Id).Distinct().Count());
-            foreach (string id in PatcherOptions.OptionalPatches.Concat(PatcherOptions.MandatoryPatches))
+            // "targetsdk" edits the manifest, two layouts and classes.dex (ManifestTargetSdk, BrowserLayoutInsets, DexTargetSdkEdits): no IL patch.
+            foreach (string id in PatcherOptions.OptionalPatches.Concat(PatcherOptions.MandatoryPatches).Where(id => id != ManifestTargetSdk.PatchId))
                 Assert.Contains(ApkPatcher.AllPatches, p => p.Id == id);
+            Assert.Contains(ManifestTargetSdk.PatchId, PatcherOptions.DefaultPatches);
+            Assert.DoesNotContain(ApkPatcher.AllPatches, p => p.Id == ManifestTargetSdk.PatchId);
             Assert.Equal("Game.dll", Assert.Single(ApkPatcher.AllPatches, p => p.Id == "adminpage").AssemblyFile);
             Assert.Equal("Gameloft.Engine.dll", Assert.Single(ApkPatcher.AllPatches, p => p.Id == "adminlink").AssemblyFile);
             Assert.Equal("Game.dll", Assert.Single(ApkPatcher.AllPatches, p => p.Id == "forum").AssemblyFile);
+            Assert.Equal("Gameloft.Engine.dll", Assert.Single(ApkPatcher.AllPatches, p => p.Id == "graphics").AssemblyFile);
         }
 
         [Fact]
