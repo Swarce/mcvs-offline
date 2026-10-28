@@ -28,6 +28,51 @@ targets Android 15 (no Play Protect "older version" warning; the game's Java cod
 HD texture probe and a Windows test kit for the Steam version. Build 11 installs HD textures converted from the Steam
 version into the game's own data.
 
+## Build 11 device test: the HD installer could not write in `McvsOffline/hd/` (fixed on `wip/hd-writable`)
+
+Owner's Galaxy S22 (Android 16, build 11, targetSdk 35), first start with a pack in `McvsOffline/hd/`:
+
+```
+W McvsOffline: [hd] hd: cannot back up Data/9/705cf.f to .../files/McvsOffline/hd/backup/Data/9/705cf.f
+  System.UnauthorizedAccessException: Access to the path '.../files/McvsOffline/hd/backup/Data/9' is denied. ---> System.IO.IOException: Permission denied
+I McvsOffline: [boot] +0.204 s hd: none installed; 906 files at the next start; 1 failed (see the log)
+```
+
+**Cause**: the owner made `McvsOffline/hd/` with adb (Shizuku). On Android 11+ a folder under `Android/data/<package>/`
+made by another tool belongs to that uid (`shell`, `media`): the app reads the pack in it but cannot create anything
+inside. `McvsOffline/` and `Data/` were made by the app and are writable. Nothing in `Data/` had changed (the backup is
+the first step), so the phone was left as it was.
+
+**Fix** ([design/hd-install.md](design/hd-install.md), "Where the installer writes"; `hosts/embedded/Hd/HdPlaces.cs`):
+
+* `McvsOffline/hd/` is a read-only drop folder: the installer never creates, writes, renames or deletes anything in it.
+* `installed.json`, the backups and `imported.txt` go to `McvsOffline/hd-install/`, made by the app; when it does not take
+  a probe file, `getFilesDir()/McvsOffline/hd-install/` (logged as a warning; Status adds "backups in the app's internal
+  storage"). A folder that already holds `installed.json` is used first.
+* Before anything is removed or installed, our folder, `Data/` and every `Data/<h>/` to be touched take a probe file; when
+  one does not, nothing in `Data/` changes and Status and `[boot] hd:` give one reason, e.g. `none installed; cannot write
+  McvsOffline/hd-install: permission denied (nor the app's internal storage: permission denied); nothing changed`.
+* Build 11's `McvsOffline/hd/installed.json` (on phones where the app made `hd/` itself) is taken over once (checked,
+  copied byte for byte, noted in `imported.txt`); its backups are used where they are for removal and are never
+  deleted; once nothing is installed Status says they may be deleted.
+* Every guarantee stays: originals checked, atomic writes, index/journal consistent with `Data/` after every start, a
+  start cut short completed by the next, removal byte-identical (from our backups or the old ones).
+
+**Checked**: `HdInstallerTests`: every start of every test now runs with `McvsOffline/hd/` read only through a fake
+(`HdInstallerOptions.WriteDenied`, called before every create/write/rename/delete; the tests run as root, where chmod
+denies nothing) and fails on any write attempt there (with the old folder layout two tests fail); new: the device case
+(install, removal, drop folder byte-identical), the folder mode 0555 on disk without the fake, `hd-install` not
+writable (internal storage used, kept while it holds the state, removal byte-identical, the next install back in
+`hd-install`), nothing writable (the exact Status line; `Data/`, index and journal unchanged, no folder created),
+`Data/8` not writable (nothing installed; with HD files installed, removal changes nothing and the files stay
+consistent), build 11's state taken over with `hd-install` writable and not (no new writes, removal byte-identical from
+the old backups, index and journal pristine, not taken again, reinstall backs up into our folder), an unreadable old
+state not taken over and nothing changed until it can be read. The `scripts/build.sh` steps with the same environment as
+below: **McvsOffline.Tests 1345/1345, McvsOffline.Embed.Tests 502/502, McvsOffline.PcSpike.Tests 62/62, 0 skipped**.
+
+**On the phone**: no new step: with the pack in `McvsOffline/hd/` (made with adb as before) the next start installs
+(`[boot] hd: <name>, N files installed ...`); `McvsOffline/hd-install/` appears next to it.
+
 ## Build 11 (plan): HD textures from the Steam version
 
 Branches: `feat/hd-install` (the phone side, this section) and `wf/hd-converter` (`tools/hd-textures`: the PC side that
@@ -45,7 +90,8 @@ mount of route B removed entirely.
 * **HD pack installer** (`hosts/embedded/Hd/HdInstaller.cs`, [design/hd-install.md](design/hd-install.md); the pack as
   the converter writes it, [design/hd-textures.md](design/hd-textures.md)): `McvsOffline/hd/mcvs-hd-*.zip` (stored
   entries `Data/<h>/<rest>.f` plus `mcvs-hd.json`, format 1, with each file's original and replacement size and CRC32) is installed at start-up, before the Java
-  installer runs: originals checked and backed up to `McvsOffline/hd/backup/`, `installed.json` written before any file
+  installer runs: originals checked and backed up to `McvsOffline/hd-install/backup/` (`McvsOffline/hd/` is only read;
+  see the device test above), `installed.json` written before any file
   changes, each new file written beside the original and renamed over it, then the installer's `pack.info`, the saved
   copy and the journal of split pieces rewritten for those files, so the installer's size check passes at every start
   **without `SKIP_VALIDATION`**. At most 8 s per start, installing or removing (a level's lightmaps always together); the
@@ -99,7 +145,8 @@ Needs an HD pack from `tools/hd-textures` (the converter branch) for the ETC pac
    heat, `adb shell dumpsys meminfo com.gameloft.android.ANMP.GloftMVHM` during the match.
 6. **Remove**: Actions › Remove HD textures, restart: `[boot] hd: off (settings hd.enabled false); N originals put back`,
    textures as before, no download. Turn HD textures on again, restart: installed again from the pack.
-7. **A backup** of the whole `files/` folder now includes `McvsOffline/hd/` (pack and originals); restoring it on a
+7. **A backup** of the whole `files/` folder now includes `McvsOffline/hd/` (the pack) and `McvsOffline/hd-install/` (the
+   originals); restoring it on a
    reinstall gives the HD textures back without reinstalling them (`installer data: index restored from the saved index`).
 
 ## Build 10 (October 2026): target Android 15, graphics profiles, HD texture probe, PC test kit (not yet on a device)

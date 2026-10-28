@@ -52,7 +52,7 @@ namespace McvsOffline.Embedded.Hd
     }
 
     /// <summary>
-    /// <c>McvsOffline/hd/installed.json</c>: which Data/ files the HD installer has taken over, and from which pack. Written
+    /// <c>McvsOffline/hd-install/installed.json</c> (docs/design/hd-install.md; build 11 kept it in McvsOffline/hd/): which Data/ files the HD installer has taken over, and from which pack. Written
     /// atomically (<see cref="AtomicFile"/>) before a file in Data/ is replaced and after the installer's index describes it.
     /// </summary>
     internal sealed class HdState

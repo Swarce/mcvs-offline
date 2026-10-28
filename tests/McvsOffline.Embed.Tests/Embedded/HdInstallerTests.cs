@@ -80,6 +80,9 @@ namespace McvsOffline.Embed.Tests.Embedded
             public Dictionary<string, object> Prefs = new Dictionary<string, object>();
             public string Pack;
 
+            /// <summary>Writes the installer tried inside McvsOffline/hd/ (every <see cref="Boot"/> treats it as read only and checks this stays empty).</summary>
+            public List<string> DropWrites = new List<string>();
+
             public Env(string name)
             {
                 string dir = TestEnvironment.NewTempDir(name);
@@ -235,17 +238,45 @@ namespace McvsOffline.Embed.Tests.Embedded
             return WritePack(files, env, "mcvs-hd-test.zip", tweak);
         }
 
-        /// <summary>One start of the game as the host runs it (EmbeddedHost.PrepareInstallerData).</summary>
+        /// <summary>
+        /// One start of the game as the host runs it (EmbeddedHost.PrepareInstallerData). McvsOffline/hd/ is read only, as on a
+        /// phone where a file manager or adb made it (another uid owns it): any write the installer tries there fails and is
+        /// recorded, and the start fails the test when there was one. <paramref name="deny"/> denies more paths the same way;
+        /// <paramref name="fake"/> false runs with the real file system only (the chmod test).
+        /// </summary>
         private static (InstallerDataResult data, HdResult hd) Boot(Env env, bool enabled = true, bool rebuild = true, int budgetMs = 60000,
-                                                                     Action<string> crash = null)
+                                                                     Action<string> crash = null, Func<string, bool> deny = null, bool fake = true)
         {
             Log log = env.Logger.For("hd");
             var hdOptions = new HdInstallerOptions { Enabled = enabled, BudgetMs = budgetMs, Checkpoint = crash };
+            if (fake) hdOptions.WriteDenied = ReadOnlyDrop(env, deny);
             InstallerDataOptions options = DataOptions(rebuild);
             options.HdOriginalSizes = HdInstaller.Prepare(env.Loc, hdOptions, log).OriginalSizes;
             InstallerDataResult data = InstallerData.Prepare(env.Loc, new MapPrefs(env.Prefs), options, env.Logger.For("install"), 1700000000);
             HdResult hd = HdInstaller.Apply(env.Loc, hdOptions, log);
+            Assert.Empty(env.DropWrites);
             return (data, hd);
+        }
+
+        /// <summary>The fake platform's answer to "may this path be written": not inside McvsOffline/hd/ (recorded), nor where <paramref name="deny"/> says.</summary>
+        private static Func<string, bool> ReadOnlyDrop(Env env, Func<string, bool> deny = null)
+        {
+            string drop = HdInstaller.HdDir(env.Loc);
+            return path =>
+            {
+                if (Under(path, drop))
+                {
+                    env.DropWrites.Add(path);
+                    return true;
+                }
+                return deny != null && deny(path);
+            };
+        }
+
+        private static bool Under(string path, string dir)
+        {
+            string full = Path.GetFullPath(path), root = Path.GetFullPath(dir).TrimEnd(Path.DirectorySeparatorChar);
+            return full == root || full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal);
         }
 
         /// <summary>
@@ -276,12 +307,15 @@ namespace McvsOffline.Embed.Tests.Embedded
             return index;
         }
 
-        private static void AssertHdInstalled(Env env, IEnumerable<string> paths = null)
+        /// <summary>The HD files in Data/, and their originals in the backup folder (McvsOffline/hd-install unless <paramref name="workDir"/>).</summary>
+        private static void AssertHdInstalled(Env env, IEnumerable<string> paths = null, string workDir = null)
         {
             foreach (string path in paths ?? HdFiles.Select(f => f.path))
             {
                 Assert.Equal(HdBytes(path), env.Read(path));
-                Assert.Equal(Original(path), File.ReadAllBytes(HdInstaller.BackupPath(env.Loc, path)));
+                string backup = workDir == null ? HdInstaller.BackupPath(env.Loc, path)
+                    : Path.Combine(workDir, HdInstaller.BackupFolder, path.Replace('/', Path.DirectorySeparatorChar));
+                Assert.Equal(Original(path), File.ReadAllBytes(backup));
             }
         }
 
@@ -383,8 +417,8 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.Equal(pristineIndex, File.ReadAllBytes(env.Loc.PackInfo));
             Assert.Equal(pristineSaved, File.ReadAllBytes(env.Loc.SavedIndex));
             Assert.Equal(pristineJournal, new HashSet<string>(File.ReadAllLines(env.Loc.Journal)));
-            Assert.False(File.Exists(Path.Combine(HdInstaller.HdDir(env.Loc), HdInstaller.StateFile)));
-            Assert.False(Directory.Exists(Path.Combine(HdInstaller.HdDir(env.Loc), HdInstaller.BackupFolder)));
+            Assert.False(File.Exists(Path.Combine(HdInstaller.WorkDir(env.Loc), HdInstaller.StateFile)));
+            Assert.False(Directory.Exists(Path.Combine(HdInstaller.WorkDir(env.Loc), HdInstaller.BackupFolder)));
             Assert.True(File.Exists(env.Pack));   // the pack stays for later
             AssertInstallerAccepts(env);
             AssertNoTemps(env);
@@ -426,6 +460,284 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.Contains("4 files installed", hd.Summary);
             Assert.Contains("the pack file is no longer in McvsOffline/hd", hd.Summary);
             Assert.Equal(Original("Data/8/dbd2f1.f"), env.Read("Data/8/dbd2f1.f"));
+            AssertInstallerAccepts(env);
+        }
+
+        // ------------------------------------------------------------------ where the installer writes
+
+        /// <summary>Every file under <paramref name="dir"/> with a hash of its bytes (empty when the folder is missing).</summary>
+        private static Dictionary<string, string> Tree(string dir)
+        {
+            if (!Directory.Exists(dir)) return new Dictionary<string, string>();
+            return Directory.GetFileSystemEntries(dir, "*", SearchOption.AllDirectories).ToDictionary(
+                f => Path.GetRelativePath(dir, f),
+                f => Directory.Exists(f) ? "dir" : Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(f))));
+        }
+
+        private static string Fallback(Env env)
+        {
+            return Path.Combine(env.Internal, "McvsOffline", HdPlaces.WorkFolderName);
+        }
+
+        /// <summary>The pristine index and journal as the installer and InstallerData leave them (one round trip gives the saved copy its first version).</summary>
+        private (byte[] index, HashSet<string> journal) Pristine(Env env)
+        {
+            Boot(env, rebuild: false);
+            HdInstaller.Apply(env.Loc, new HdInstallerOptions { Enabled = false, WriteDenied = ReadOnlyDrop(env) }, env.Logger.For("hd"));
+            Assert.Empty(env.DropWrites);
+            return (File.ReadAllBytes(env.Loc.PackInfo), new HashSet<string>(File.ReadAllLines(env.Loc.Journal)));
+        }
+
+        /// <summary>
+        /// The build 11 device test (Galaxy S22, Android 16): McvsOffline/hd/ made with adb belongs to the shell uid, so creating
+        /// hd/backup/Data/9 failed and nothing was installed. The installer now only reads the drop folder.
+        /// </summary>
+        [Fact]
+        public void ADropFolderMadeByAnotherToolIsOnlyReadAndThePackInstalls()
+        {
+            HdInstaller.ResetForTests();
+            Env env = Installed("hd-dropfolder");
+            string drop = HdInstaller.HdDir(env.Loc);
+            Dictionary<string, string> before = Tree(drop);
+
+            var (_, hd) = Boot(env);   // a write inside McvsOffline/hd/ fails as on the phone; Boot checks none was tried
+            output.WriteLine(hd.Summary);
+            Assert.StartsWith("hd textures: mcvs-hd-test.zip, 5 files installed (", hd.Summary);
+            Assert.DoesNotContain("failed", hd.Summary);
+            Assert.Equal(before, Tree(drop));
+            Assert.Equal(new[] { "mcvs-hd-test.zip" }, Directory.GetFileSystemEntries(drop).Select(Path.GetFileName));
+            Assert.Equal(Path.Combine(env.Root, "McvsOffline", "hd-install"), HdInstaller.WorkDir(env.Loc));
+            Assert.True(File.Exists(Path.Combine(HdInstaller.WorkDir(env.Loc), HdInstaller.StateFile)));
+            Assert.Contains("hd: installer files in McvsOffline/hd-install", env.Text);
+            Assert.Empty(Directory.GetFiles(env.Root, HdPlaces.ProbeName, SearchOption.AllDirectories));
+            AssertHdInstalled(env);
+            AssertInstallerAccepts(env);
+
+            var (_, off) = Boot(env, enabled: false);
+            Assert.Equal("hd textures: off (settings hd.enabled false); 5 originals put back", off.Summary);
+            AssertOriginals(env);
+            AssertInstallerAccepts(env);
+            Assert.Equal(before, Tree(drop));
+        }
+
+        /// <summary>The same with the folder's mode on disk (denies nothing when the tests run as root; the fake above denies).</summary>
+        [Fact]
+        public void AReadOnlyDropFolderOnDiskIsNeverWritten()
+        {
+            if (OperatingSystem.IsWindows()) return;
+            HdInstaller.ResetForTests();
+            Env env = Installed("hd-chmod");
+            string drop = HdInstaller.HdDir(env.Loc);
+            Dictionary<string, string> before = Tree(drop);
+            const UnixFileMode readOnly = UnixFileMode.UserRead | UnixFileMode.UserExecute | UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                                          UnixFileMode.OtherRead | UnixFileMode.OtherExecute;
+            File.SetUnixFileMode(drop, readOnly);
+            File.SetUnixFileMode(env.Pack, UnixFileMode.UserRead | UnixFileMode.GroupRead | UnixFileMode.OtherRead);
+            try
+            {
+                if (Environment.UserName == "root") output.WriteLine("running as root: the mode denies nothing here");
+                var (_, hd) = Boot(env, fake: false);
+                output.WriteLine(hd.Summary);
+                Assert.StartsWith("hd textures: mcvs-hd-test.zip, 5 files installed (", hd.Summary);
+                AssertHdInstalled(env);
+                AssertInstallerAccepts(env);
+                Assert.Equal(before, Tree(drop));
+                Assert.Equal(readOnly, File.GetUnixFileMode(drop));
+
+                var (_, off) = Boot(env, enabled: false, fake: false);
+                Assert.Equal("hd textures: off (settings hd.enabled false); 5 originals put back", off.Summary);
+                AssertOriginals(env);
+                Assert.Equal(before, Tree(drop));
+            }
+            finally
+            {
+                File.SetUnixFileMode(drop, readOnly | UnixFileMode.UserWrite);
+            }
+        }
+
+        [Fact]
+        public void WhenHdInstallCannotBeWrittenTheAppsInternalStorageIsUsed()
+        {
+            HdInstaller.ResetForTests();
+            Env env = Installed("hd-fallback");
+            var (pristineIndex, pristineJournal) = Pristine(env);
+            string primary = HdInstaller.WorkDir(env.Loc), fallback = Fallback(env);
+            Directory.Delete(primary, true);
+            // McvsOffline/hd-install made by another tool too: the app's internal storage takes the state and the backups.
+            Func<string, bool> denyPrimary = p => Under(p, primary);
+
+            var (_, on) = Boot(env, deny: denyPrimary);
+            output.WriteLine(on.Summary);
+            Assert.StartsWith("hd textures: mcvs-hd-test.zip, 5 files installed (", on.Summary);
+            Assert.Contains("5 written now", on.Summary);
+            Assert.EndsWith("; backups in the app's internal storage (McvsOffline/hd-install: permission denied)", on.Summary);
+            Assert.Contains("hd: installer files in the app's internal storage " + fallback + " (McvsOffline/hd-install: permission denied)", env.Text);
+            AssertHdInstalled(env, workDir: fallback);
+            Assert.True(File.Exists(Path.Combine(fallback, HdInstaller.StateFile)));
+            Assert.False(Directory.Exists(primary));
+            AssertInstallerAccepts(env);
+
+            // McvsOffline/hd-install can be written again: the folder that holds installed.json stays in use.
+            var (_, again) = Boot(env);
+            output.WriteLine(again.Summary);
+            Assert.Matches(@"^hd textures: mcvs-hd-test\.zip, 5 files installed \([0-9.]+ MiB\); backups in the app's internal storage$", again.Summary);
+            Assert.False(File.Exists(Path.Combine(primary, HdInstaller.StateFile)));
+
+            var (_, off) = Boot(env, enabled: false);
+            Assert.Equal("hd textures: off (settings hd.enabled false); 5 originals put back", off.Summary);
+            AssertOriginals(env);
+            Assert.Equal(pristineIndex, File.ReadAllBytes(env.Loc.PackInfo));
+            Assert.Equal(pristineJournal, new HashSet<string>(File.ReadAllLines(env.Loc.Journal)));
+            Assert.False(File.Exists(Path.Combine(fallback, HdInstaller.StateFile)));
+            Assert.False(Directory.Exists(Path.Combine(fallback, HdInstaller.BackupFolder)));
+
+            // With nothing installed the next install goes to McvsOffline/hd-install again.
+            Assert.True(Boot(env).hd.Installed);
+            AssertHdInstalled(env);
+        }
+
+        [Fact]
+        public void WhenNoFolderCanBeWrittenNothingChangesAndStatusSaysWhy()
+        {
+            HdInstaller.ResetForTests();
+            Env env = Installed("hd-nowrite");
+            byte[] index = File.ReadAllBytes(env.Loc.PackInfo);
+            string journal = File.ReadAllText(env.Loc.Journal);
+            string primary = HdInstaller.WorkDir(env.Loc), fallback = Fallback(env);
+
+            var (_, hd) = Boot(env, deny: p => Under(p, primary) || Under(p, fallback));
+            Assert.Equal("hd textures: none installed; cannot write McvsOffline/hd-install: permission denied " +
+                         "(nor the app's internal storage: permission denied); nothing changed", hd.Summary);
+            Assert.Equal(hd.Summary, HdInstaller.Status);
+            Assert.False(hd.Installed);
+            Assert.False(hd.IndexChanged);
+            AssertOriginals(env);
+            Assert.Equal(index, File.ReadAllBytes(env.Loc.PackInfo));
+            Assert.Equal(journal, File.ReadAllText(env.Loc.Journal));
+            Assert.False(Directory.Exists(primary));
+            Assert.False(Directory.Exists(fallback));
+            Assert.Contains("hd: cannot write McvsOffline/hd-install: permission denied", env.Text);
+            AssertNoTemps(env);
+        }
+
+        [Fact]
+        public void WhenDataCannotBeWrittenNothingInItChanges()
+        {
+            HdInstaller.ResetForTests();
+            Env env = Installed("hd-nodata");
+            byte[] index = File.ReadAllBytes(env.Loc.PackInfo);
+            string data8 = env.P("Data/8");
+            Func<string, bool> denyData8 = p => Under(p, data8);
+
+            var (_, hd) = Boot(env, deny: denyData8);
+            Assert.Equal("hd textures: none installed; cannot write Data/8: permission denied; nothing changed", hd.Summary);
+            Assert.False(hd.Installed);
+            AssertOriginals(env);
+            Assert.Equal(index, File.ReadAllBytes(env.Loc.PackInfo));
+            Assert.False(Directory.Exists(Path.Combine(HdInstaller.WorkDir(env.Loc), HdInstaller.BackupFolder)));
+            Assert.False(File.Exists(Path.Combine(HdInstaller.WorkDir(env.Loc), HdInstaller.StateFile)));
+
+            // Installed, then Data/8 cannot be written: removing changes nothing either, and the files stay consistent.
+            Assert.True(Boot(env).hd.Installed);
+            var (_, off) = Boot(env, enabled: false, deny: denyData8);
+            Assert.Matches(@"^hd textures: mcvs-hd-test\.zip, 5 files installed \([0-9.]+ MiB\); nothing changed now: cannot write Data/8: permission denied$", off.Summary);
+            Assert.True(off.Installed);
+            AssertHdInstalled(env);
+            AssertInstallerAccepts(env);
+            Assert.Equal("hd textures: off (settings hd.enabled false); 5 originals put back", Boot(env, enabled: false).hd.Summary);
+            AssertOriginals(env);
+        }
+
+        /// <summary>
+        /// Build 11 kept installed.json and backup/ in McvsOffline/hd/ (where the app had made that folder itself): the state is
+        /// taken over once, the old backups are used where they are and never written, and removal puts the originals back.
+        /// </summary>
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void TheStateOfBuild11IsTakenOverAndRemovalUsesItsBackups(bool hdInstallWritable)
+        {
+            HdInstaller.ResetForTests();
+            Env env = Installed("hd-migrate");
+            var (pristineIndex, pristineJournal) = Pristine(env);
+            Assert.True(Boot(env).hd.Installed);
+            string drop = HdInstaller.HdDir(env.Loc), primary = HdInstaller.WorkDir(env.Loc);
+            File.Move(Path.Combine(primary, HdInstaller.StateFile), Path.Combine(drop, HdInstaller.StateFile));
+            Directory.Move(Path.Combine(primary, HdInstaller.BackupFolder), Path.Combine(drop, HdInstaller.BackupFolder));
+            Directory.Delete(primary, true);
+            Dictionary<string, string> before = Tree(drop);
+            string work = hdInstallWritable ? primary : Fallback(env);
+            Func<string, bool> deny = hdInstallWritable ? (Func<string, bool>)null : p => Under(p, primary);
+
+            var (_, hd) = Boot(env, deny: deny);
+            output.WriteLine(hd.Summary);
+            Assert.StartsWith("hd textures: mcvs-hd-test.zip, 5 files installed (", hd.Summary);
+            Assert.DoesNotContain("written now", hd.Summary);
+            Assert.Contains("hd: took over McvsOffline/hd/installed.json (5 files) into " + (hdInstallWritable ? "McvsOffline/hd-install" : work), env.Text);
+            Assert.True(File.Exists(Path.Combine(work, HdInstaller.StateFile)));
+            Assert.True(File.Exists(Path.Combine(work, HdPlaces.ImportedFile)));
+            Assert.False(Directory.Exists(Path.Combine(work, HdInstaller.BackupFolder)));   // the old backups stay where they are
+            Assert.Equal(before, Tree(drop));
+            AssertInstallerAccepts(env);
+
+            var (_, off) = Boot(env, enabled: false, deny: deny);
+            output.WriteLine(off.Summary);
+            Assert.Equal("hd textures: off (settings hd.enabled false); 5 originals put back; McvsOffline/hd/backup (and its installed.json) " +
+                         "of an earlier build is no longer used and may be deleted", off.Summary);
+            AssertOriginals(env);
+            Assert.Equal(pristineIndex, File.ReadAllBytes(env.Loc.PackInfo));
+            Assert.Equal(pristineJournal, new HashSet<string>(File.ReadAllLines(env.Loc.Journal)));
+            Assert.False(File.Exists(Path.Combine(work, HdInstaller.StateFile)));
+            Assert.Equal(before, Tree(drop));
+
+            // Taken over once: the old installed.json is not taken again.
+            var (_, still) = Boot(env, enabled: false, deny: deny);
+            Assert.StartsWith("hd textures: off (settings hd.enabled false); McvsOffline/hd/backup", still.Summary);
+            Assert.Single(System.Text.RegularExpressions.Regex.Matches(env.Text, "took over"));
+            AssertOriginals(env);
+
+            // On again: the originals are backed up into our own folder; the drop folder is still only read.
+            var (_, on) = Boot(env, deny: deny);
+            output.WriteLine(on.Summary);
+            Assert.Contains("5 written now", on.Summary);
+            AssertHdInstalled(env, workDir: work);
+            AssertInstallerAccepts(env);
+            Assert.Equal(before, Tree(drop));
+        }
+
+        /// <summary>
+        /// An old installed.json that cannot be read is not taken over and nothing changes (Data/ may hold HD files whose
+        /// originals only it knows); once it can be read again it is taken over.
+        /// </summary>
+        [Fact]
+        public void AnOldStateThatCannotBeReadChangesNothingUntilItCanBe()
+        {
+            HdInstaller.ResetForTests();
+            Env env = Installed("hd-migrate-bad");
+            Assert.True(Boot(env).hd.Installed);
+            string drop = HdInstaller.HdDir(env.Loc), primary = HdInstaller.WorkDir(env.Loc);
+            string old = Path.Combine(drop, HdInstaller.StateFile);
+            File.Move(Path.Combine(primary, HdInstaller.StateFile), old);
+            Directory.Move(Path.Combine(primary, HdInstaller.BackupFolder), Path.Combine(drop, HdInstaller.BackupFolder));
+            Directory.Delete(primary, true);
+            byte[] good = File.ReadAllBytes(old);
+            File.WriteAllText(old, "{ not json");
+            byte[] index = File.ReadAllBytes(env.Loc.PackInfo);
+
+            var (_, hd) = Boot(env, enabled: false);
+            output.WriteLine(hd.Summary);
+            Assert.Equal("hd textures: McvsOffline/hd/installed.json of an earlier build cannot be read; nothing changed", hd.Summary);
+            Assert.Contains("it is not taken over", env.Text);
+            AssertHdInstalled(env, workDir: drop);
+            Assert.Equal(index, File.ReadAllBytes(env.Loc.PackInfo));
+            AssertInstallerAccepts(env);
+            Assert.False(File.Exists(Path.Combine(primary, HdInstaller.StateFile)));
+
+            File.WriteAllBytes(old, good);
+            var (_, off) = Boot(env, enabled: false);
+            output.WriteLine(off.Summary);
+            Assert.StartsWith("hd textures: off (settings hd.enabled false); 5 originals put back", off.Summary);
+            AssertOriginals(env);
             AssertInstallerAccepts(env);
         }
 
@@ -530,7 +842,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.Equal("hd textures: off (settings hd.enabled false); 2 originals put back", hd.Summary);
             AssertOriginals(env);
             Assert.Equal(pristineIndex, File.ReadAllBytes(env.Loc.PackInfo));
-            Assert.False(File.Exists(Path.Combine(HdInstaller.HdDir(env.Loc), HdInstaller.StateFile)));
+            Assert.False(File.Exists(Path.Combine(HdInstaller.WorkDir(env.Loc), HdInstaller.StateFile)));
             AssertNoTemps(env);
         }
 
@@ -865,7 +1177,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.Contains("is not the original the pack was made from", hd.Summary);
             AssertOriginals(env);
             Assert.Equal(index, File.ReadAllBytes(env.Loc.PackInfo));
-            Assert.False(File.Exists(Path.Combine(HdInstaller.HdDir(env.Loc), HdInstaller.StateFile)));
+            Assert.False(File.Exists(Path.Combine(HdInstaller.WorkDir(env.Loc), HdInstaller.StateFile)));
             AssertNoTemps(env);
         }
 

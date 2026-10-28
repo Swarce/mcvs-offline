@@ -349,13 +349,20 @@ adb shell mkdir -p /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/file
 adb push mcvs-hd-default.zip /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/hd/
 ```
 
+`McvsOffline/hd/` is only a drop folder: you may make it with adb (as above), Shizuku or any file manager. On Android 11
+and later a folder made that way belongs to that tool, and the game can read the pack in it but not write there, so
+MCVS Offline never writes in it: its own files (the list of installed files and the backups of the originals) go to
+`McvsOffline/hd-install/`, which the game makes itself (or, if even that cannot be written, to the game's internal
+storage; the log and Status say so). Do not make `McvsOffline/hd-install/` yourself.
+
 At the next start MCVS Offline checks every texture the pack replaces (it must be exactly the original the pack was made
-from), copies the original to `McvsOffline/hd/backup/`, writes the HD file in its place and updates the installer's list
+from), copies the original to `McvsOffline/hd-install/backup/`, writes the HD file in its place and updates the installer's list
 of the data (`pack.info`, the INSTALL-OFFLINE.md page explains it), so the game's installer accepts the new files at
 every start, without internet and without `qaTestingConfigs.txt`. Copying takes a few seconds; a start does at most
 about 8 seconds of it, so with a large pack the first two or three starts take longer and the rest follows at the next
 start. The start-up log says what happened (`[boot] hd: ...`), and so does Status › Game host › HD textures (pack,
-files, size, "N files at the next start" while it is not finished). The pack, the HD files and the backups of the
+files, size, "N files at the next start" while it is not finished). If a folder cannot be written, nothing in `Data/`
+changes and that line says why, for example `cannot write McvsOffline/hd-install: permission denied`. The pack, the HD files and the backups of the
 originals take extra space: roughly 1.2 GB for the full set of research/pc-textures.md (the pack about 0.6 GB, the HD
 files 0.45 GB more than the originals, the backups 0.15 GB). Check the free space first.
 
@@ -365,9 +372,11 @@ originals come back from the backup and the installer's list is set back, byte f
 start" until it is done); the game works normally meanwhile. The pack file stays in
 `McvsOffline/hd/`, so turning HD textures on again reinstalls it; delete it with
 `adb shell rm /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/hd/mcvs-hd-*.zip` when you no
-longer want it. Keep the pack and `McvsOffline/hd/` in your backups (a backup of the whole `files/` folder has them);
-do not delete `McvsOffline/hd/backup/` by hand while HD textures are installed (it holds the only copy of the originals
-on the phone). Only one pack is used: with several `mcvs-hd-*.zip`, the last by name. A pack made for the other texture
+longer want it. Keep the pack, `McvsOffline/hd/` and `McvsOffline/hd-install/` in your backups (a backup of the whole
+`files/` folder has them); do not delete `McvsOffline/hd-install/backup/` by hand while HD textures are installed (it
+holds the only copy of the originals on the phone). Build 11 kept that list and the backups in `McvsOffline/hd/`; a
+newer build takes the list over and still uses those backups, and once nothing is installed Status says
+`McvsOffline/hd/backup ... may be deleted`: then you may delete `McvsOffline/hd/backup/` and `McvsOffline/hd/installed.json`. Only one pack is used: with several `mcvs-hd-*.zip`, the last by name. A pack made for the other texture
 variant, or from other data, is refused and nothing changes. Never share the pack: it holds converted copies of the
 game's files.
 
