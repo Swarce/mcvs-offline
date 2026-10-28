@@ -103,6 +103,7 @@ patcher/           McvsOffline.Patcher (net8 + Mono.Cecil): your APK -> the offl
 tests/             McvsOffline.Tests (server modules, core, real-client conformance) and
                    McvsOffline.Embed.Tests (embedded host, patcher, real parser and geo checks)
 tools/content-gen/ generator for server/Content from the decoded data pack (Python, stdlib only)
+tools/pc-spike/    WP0 kit for the Steam build (one Windows exe; tests in tests/McvsOffline.PcSpike.Tests)
 scripts/           build.sh, run-standalone.sh
 docs/              architecture, module guide, protocol notes, status, guides, research
 ```
@@ -113,6 +114,7 @@ docs/              architecture, module guide, protocol notes, status, guides, r
 - [docs/STATUS.md](docs/STATUS.md): what is implemented, the device-test findings, the expected log sequence, the device-test checklist
 - [docs/DEV-LOOP.md](docs/DEV-LOOP.md): stock APK against the standalone server
 - [docs/PLAYER-SETUP.md](docs/PLAYER-SETUP.md): building and installing the offline APK
+- [docs/PC-SPIKE.md](docs/PC-SPIKE.md): the Windows test kit for the Steam version (PC port WP0)
 - [docs/PROTOCOL.md](docs/PROTOCOL.md): index of the per-service protocol notes
 - [docs/ECONOMY.md](docs/ECONOMY.md): the offline economy and how to tune it
 - [docs/MODULES.md](docs/MODULES.md): module ownership, the module seam, core APIs, rules for code that runs in the game

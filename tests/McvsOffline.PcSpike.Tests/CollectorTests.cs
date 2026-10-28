@@ -37,6 +37,28 @@ namespace McvsOffline.PcSpike.Tests
         }
 
         [Fact]
+        public void PreferencesAreLookedForInTheGameFolderAndInGameloftNamedFolders()
+        {
+            string root = Support.NewTempDir("prefs");
+            try
+            {
+                string game = Path.Combine(root, "game");
+                string appData = Path.Combine(root, "appdata");
+                foreach (string dir in new[] { game, Path.Combine(appData, "Gameloft", "MCVS", "prefs"), Path.Combine(appData, "Other"), Path.Combine(appData, "McvsOffline") })
+                {
+                    Directory.CreateDirectory(dir);
+                    File.WriteAllText(Path.Combine(dir, "app_preferences.json"), "{}");
+                }
+                var found = Collector.FindPreferences(game, appData, Path.Combine(root, "missing"), null);
+                Assert.Equal(new[] { Path.Combine(game, "app_preferences.json"), Path.Combine(appData, "Gameloft", "MCVS", "prefs", "app_preferences.json") }, found);
+            }
+            finally
+            {
+                Support.DeleteDir(root);
+            }
+        }
+
+        [Fact]
         public void TheZipHasTheSummaryLogsAndResultsButNoGameFile()
         {
             string game = Support.NewTempDir("game");

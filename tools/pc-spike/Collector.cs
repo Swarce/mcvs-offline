@@ -118,6 +118,7 @@ namespace McvsOffline.PcSpike
                 Telemetry(summary, zip, dataDir);
                 GameDebug(summary, zip, dataDir);
                 GameloftLogs(summary, zip);
+                GamePreferences(summary, zip, game);
                 WindowsEvents(summary, zip);
 
                 if (answers.Count > 0)
@@ -290,6 +291,66 @@ namespace McvsOffline.PcSpike
                 foreach (string line in problems.Take(25)) s.AppendLine("    " + Truncate(line, 220));
                 if (lines.Count > 0) s.AppendLine("  last line: " + Truncate(lines[lines.Count - 1], 220));
             }
+        }
+
+        /// <summary>
+        /// The engine's <c>app_preferences.json</c> (the name is in NativeEngine.dll; where the PC build keeps it is not known):
+        /// the player's options, the graphics ones included, which the memory figures need (pc-port.md critic note 4).
+        /// Searched in the game folder and in folders named after Gameloft or the game under %APPDATA%, %LOCALAPPDATA% and
+        /// Documents.
+        /// </summary>
+        private static void GamePreferences(StringBuilder s, ZipArchive zip, GameLocation game)
+        {
+            s.AppendLine();
+            s.AppendLine("== The game's app_preferences.json (options, graphics settings)");
+            List<string> found = FindPreferences(game == null ? null : game.Directory,
+                                                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                                                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                                                 Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments));
+            if (found.Count == 0) s.AppendLine("  not found");
+            for (int i = 0; i < found.Count; i++)
+            {
+                s.AppendLine("  " + found[i]);
+                AddFile(zip, found[i], "game-preferences/" + (i + 1).ToString(CultureInfo.InvariantCulture) + "-" + Path.GetFileName(found[i]));
+            }
+        }
+
+        /// <summary>app_preferences.json files directly in <paramref name="gameDir"/>, and below the subfolders of the other roots
+        /// whose name mentions Gameloft, Modern Combat or MCVS (at most 10).</summary>
+        internal static List<string> FindPreferences(string gameDir, params string[] roots)
+        {
+            const string name = "app_preferences.json";
+            var found = new List<string>();
+            if (!string.IsNullOrEmpty(gameDir)) found.AddRange(SafeFiles(gameDir, name));
+            foreach (string root in roots)
+            {
+                if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) continue;
+                string[] dirs;
+                try
+                {
+                    dirs = Directory.GetDirectories(root);
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    continue;
+                }
+                foreach (string dir in dirs.OrderBy(d => d, StringComparer.OrdinalIgnoreCase))
+                {
+                    string leaf = Path.GetFileName(dir);
+                    if (leaf.IndexOf("gameloft", StringComparison.OrdinalIgnoreCase) < 0 && leaf.IndexOf("modern", StringComparison.OrdinalIgnoreCase) < 0 &&
+                        leaf.IndexOf("mcvs", StringComparison.OrdinalIgnoreCase) < 0)
+                        continue;
+                    if (leaf.Equals("McvsOffline", StringComparison.OrdinalIgnoreCase)) continue;
+                    try
+                    {
+                        found.AddRange(Directory.EnumerateFiles(dir, name, new EnumerationOptions { RecurseSubdirectories = true, MaxRecursionDepth = 4, IgnoreInaccessible = true }));
+                    }
+                    catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                    {
+                    }
+                }
+            }
+            return found.Distinct(StringComparer.OrdinalIgnoreCase).Take(10).ToList();
         }
 
         private static void GameloftLogs(StringBuilder s, ZipArchive zip)

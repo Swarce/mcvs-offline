@@ -29,6 +29,14 @@
     <PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
 
+  <!-- The owner gets one file: drop the referenced projects' symbols and the patcher's own exe config files. -->
+  <Target Name="McvsPcSpikeSingleFileOnly" AfterTargets="Publish" Condition="'$(McvsPcSpikePublish)' == 'true'">
+    <ItemGroup>
+      <_McvsPcSpikeExtra Include="$(PublishDir)*.pdb;$(PublishDir)*.deps.json;$(PublishDir)*.runtimeconfig.json" />
+    </ItemGroup>
+    <Delete Files="@(_McvsPcSpikeExtra)" />
+  </Target>
+
   <ItemGroup>
     <ProjectReference Include="../../server/McvsOffline.Server.csproj" />
     <ProjectReference Include="../../patcher/McvsOffline.Patcher.csproj" />

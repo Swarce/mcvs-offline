@@ -38,7 +38,8 @@ hosts/
 patcher/       McvsOffline.Patcher (net8 + Mono.Cecil): turns the player's own APK into the offline APK
 tests/         unit tests, protocol tests, and a conformance harness that drives the REAL
                Gameloft.OnlinePlatform.dll (taken from the player's APK, never committed) against the server
-tools/         content-gen (tables -> Content/), cdn-mirror (archive and verify the CDN data, offline install); planned: datapack (decode GCBF/LZ4 + names)
+tools/         content-gen (tables -> Content/), cdn-mirror (archive and verify the CDN data, offline install), pc-spike (WP0 Windows
+               test kit for the Steam build, docs/PC-SPIKE.md); planned: datapack (decode GCBF/LZ4 + names)
 docs/          this file, protocol spec, setup guides, research/
 ```
 

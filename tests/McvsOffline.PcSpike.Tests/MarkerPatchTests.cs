@@ -255,6 +255,47 @@ namespace McvsOffline.PcSpike.Tests
         }
 
         [Fact]
+        public void IlVerifyAcceptsTheRealPatchedDll()
+        {
+            string pc = Support.PcInstall(output);
+            if (pc == null) return;
+            string tool = Environment.GetEnvironmentVariable("MCVS_ILVERIFY");
+            if (string.IsNullOrEmpty(tool)) tool = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dotnet", "tools", "ilverify");
+            if (!File.Exists(tool))
+            {
+                output.WriteLine("ilverify not found (MCVS_ILVERIFY or ~/.dotnet/tools/ilverify): skipped");
+                return;
+            }
+            string dir = Support.NewTempDir("ilverify");
+            try
+            {
+                string patched = Path.Combine(dir, "EngineBridge.dll");
+                File.WriteAllBytes(patched, Patch(File.ReadAllBytes(Path.Combine(pc, "EngineBridge.dll")), Marker()));
+                foreach (string file in new[] { Path.Combine(pc, "EngineBridge.dll"), patched })
+                {
+                    var psi = new System.Diagnostics.ProcessStartInfo(tool) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+                    foreach (string a in new[] { file, "-r", Path.Combine(Support.Net45ReferenceAssemblies, "mscorlib.dll"), "-r", Path.Combine(pc, "Gameloft.Engine.dll"),
+                                                 "--system-module", "mscorlib", "--statistics" })
+                        psi.ArgumentList.Add(a);
+                    string dotnetRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dotnet");
+                    if (Directory.Exists(dotnetRoot) && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DOTNET_ROOT"))) psi.Environment["DOTNET_ROOT"] = dotnetRoot;
+                    using (var p = System.Diagnostics.Process.Start(psi))
+                    {
+                        string text = p.StandardOutput.ReadToEnd() + p.StandardError.ReadToEnd();
+                        Assert.True(p.WaitForExit(120000));
+                        output.WriteLine(text.Trim());
+                        Assert.True(p.ExitCode == 0, "ilverify exit code " + p.ExitCode + ":\n" + text);
+                        Assert.Contains("Verified.", text);
+                    }
+                }
+            }
+            finally
+            {
+                Support.DeleteDir(dir);
+            }
+        }
+
+        [Fact]
         public void TheMarkerPathMustBeAbsolute()
         {
             Assert.Throws<ArgumentException>(() => new EngineBridgeMarkerPatch("marker.txt"));

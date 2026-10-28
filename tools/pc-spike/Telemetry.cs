@@ -262,8 +262,12 @@ namespace McvsOffline.PcSpike
             }
         }
 
-        /// <summary>The listening TCP sockets and the UDP endpoints in <c>netstat -ano</c> output owned by <paramref name="pids"/>,
-        /// whitespace normalised (connections are left out: they come and go with every request).</summary>
+        /// <summary>
+        /// The listening TCP sockets and the UDP endpoints in <c>netstat -ano</c> output owned by <paramref name="pids"/>,
+        /// whitespace normalised (connections are left out: they come and go with every request). A listener on the
+        /// LocalAnubis Finder port 51750 is kept whatever its owner: the Finder is an <c>HttpListener</c>, i.e. http.sys,
+        /// which netstat shows as PID 4 (System) (unknown 7).
+        /// </summary>
         public static List<string> SocketLinesOf(string netstatOutput, ICollection<int> pids)
         {
             var lines = new List<string>();
@@ -273,7 +277,8 @@ namespace McvsOffline.PcSpike
                 if (f.Length < 4) continue;
                 if (f[0] != "TCP" && f[0] != "UDP") continue;
                 int pid;
-                if (!int.TryParse(f[f.Length - 1], NumberStyles.None, CultureInfo.InvariantCulture, out pid) || !pids.Contains(pid)) continue;
+                if (!int.TryParse(f[f.Length - 1], NumberStyles.None, CultureInfo.InvariantCulture, out pid)) continue;
+                if (!pids.Contains(pid) && !f[1].EndsWith(":51750", StringComparison.Ordinal)) continue;
                 // A listening socket has no remote end ("0.0.0.0:0"); the state column ("LISTENING") is translated on some Windows.
                 if (f[0] == "TCP" && f[2] != "0.0.0.0:0" && f[2] != "[::]:0") continue;
                 lines.Add(string.Join(" ", f));

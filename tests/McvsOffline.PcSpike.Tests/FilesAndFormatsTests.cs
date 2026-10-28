@@ -121,6 +121,8 @@ namespace McvsOffline.PcSpike.Tests
             const string netstat =
                 "\r\nActive Connections\r\n\r\n  Proto  Local Address          Foreign Address        State           PID\r\n" +
                 "  TCP    0.0.0.0:135            0.0.0.0:0              LISTENING       1000\r\n" +
+                "  TCP    127.0.0.1:51750        0.0.0.0:0              LISTENING       4\r\n" +
+                "  TCP    127.0.0.1:51750        127.0.0.1:55001        ESTABLISHED     4\r\n" +
                 "  TCP    127.0.0.1:51750        0.0.0.0:0              ABHÖREN         4242\r\n" +
                 "  TCP    127.0.0.1:55000        127.0.0.1:51780        ESTABLISHED     4242\r\n" +
                 "  TCP    [::]:7777              [::]:0                 LISTENING       4242\r\n" +
@@ -128,6 +130,7 @@ namespace McvsOffline.PcSpike.Tests
                 "  UDP    0.0.0.0:5353           *:*                                    77\r\n";
             Assert.Equal(new[]
             {
+                "TCP 127.0.0.1:51750 0.0.0.0:0 LISTENING 4",   // the http.sys Finder, owned by System
                 "TCP 127.0.0.1:51750 0.0.0.0:0 ABHÖREN 4242",
                 "TCP [::]:7777 [::]:0 LISTENING 4242",
                 "UDP 0.0.0.0:27015 *:* 4242",
