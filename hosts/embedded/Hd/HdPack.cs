@@ -1,6 +1,6 @@
 // Host: embedded - owner group: EMBED (hosts/embedded, patcher/)
 // Platform-independent: compiled into the embedded DLL and into the net8 tests.
-// Format: docs/design/hd-textures.md ("The HD pack").
+// Format: docs/design/hd-textures.md §2-§4 (the converter's contract); what the installer reads of it: docs/design/hd-install.md.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -21,7 +21,10 @@ namespace McvsOffline.Embedded.Hd
         public long HdSize;
         public uint HdCrc;
 
-        /// <summary>Files of one group (all lightmaps of a level) are installed together or not at all. Never null (the path when unset).</summary>
+        /// <summary>
+        /// Files of one group (<c>lightmaps:&lt;Level&gt;</c>: all lightmaps of a level) are installed together or not at all. Never
+        /// null: the manifest's <c>null</c> is the file alone (its path).
+        /// </summary>
         public string Group;
 
         public StoredZipEntry Entry;
@@ -31,16 +34,17 @@ namespace McvsOffline.Embedded.Hd
     }
 
     /// <summary>
-    /// An HD texture pack, <c>McvsOffline/hd/mcvs-hd-*.zip</c> (docs/design/hd-textures.md): a zip with stored entries
-    /// <c>Data/&lt;h&gt;/&lt;rest&gt;.f</c> (the new files, named as in the game's Data folder) and a manifest <c>mcvs-hd.json</c> that lists,
-    /// for every file, the size and CRC-32 of the original it replaces and of the new file. <see cref="Open"/> checks the whole
-    /// directory and manifest (not the entries' bytes: those are checked while they are copied).
+    /// An HD texture pack as <c>tools/hd-textures build</c> writes it, <c>McvsOffline/hd/mcvs-hd-*.zip</c> (docs/design/hd-textures.md
+    /// §2-§3): a zip with stored entries <c>Data/&lt;h&gt;/&lt;rest&gt;.f</c> (the new files, named as in the game's Data folder) and a
+    /// manifest <c>mcvs-hd.json</c> (<c>format</c> 1, <c>kind</c> <c>hd-textures</c>) that lists, for every file, its <c>entry</c>, the
+    /// size and CRC-32 of the <c>original</c> it replaces and of the <c>replacement</c>, and its <c>group</c>. <see cref="Open"/> checks
+    /// the whole directory and manifest (not the entries' bytes: those are checked while they are copied).
     /// </summary>
     internal sealed class HdPack
     {
         public const string ManifestEntry = "mcvs-hd.json";
-        public const string Format = "mcvs-hd";
-        public const int FormatVersion = 1;
+        public const string Kind = "hd-textures";
+        public const int Format = 1;
         public const string FilePrefix = "mcvs-hd-";
         public const string FileSuffix = ".zip";
 
@@ -54,10 +58,10 @@ namespace McvsOffline.Embedded.Hd
         /// <summary>The zip's file name.</summary>
         public string FileName { get; private set; }
 
-        /// <summary>The manifest's <c>id</c>, or the CRC-32 of the manifest when it has none.</summary>
+        /// <summary>The CRC-32 of the manifest (it changes with every build of a pack), or the manifest's <c>id</c> when it has one.</summary>
         public string Id { get; private set; }
 
-        /// <summary>The manifest's <c>name</c> (for the status line), or the file name.</summary>
+        /// <summary>For the status line: the manifest's <c>name</c> when it has one, else the file name.</summary>
         public string Name { get; private set; }
 
         /// <summary>The Android data pack the pack was made for ("ETC", "ASTC"), or null when the manifest does not say.</summary>
@@ -110,9 +114,10 @@ namespace McvsOffline.Embedded.Hd
             if (!MiniJson.TryParse(Encoding.UTF8.GetString(raw), out parsed) || !(parsed is Dictionary<string, object>))
                 throw new HdZipException(ManifestEntry + " is not a JSON object");
             var manifest = (Dictionary<string, object>)parsed;
-            if (JsonValue.GetString(manifest, "format") != Format) throw new HdZipException(ManifestEntry + ": format is not '" + Format + "'");
-            long version = JsonValue.GetLong(manifest, "version", -1);
-            if (version != FormatVersion) throw new HdZipException(ManifestEntry + ": version " + version + " (this build reads version " + FormatVersion + ")");
+            if (JsonValue.GetString(manifest, "kind") != Kind) throw new HdZipException(ManifestEntry + ": kind is not '" + Kind + "' (not a pack of tools/hd-textures)");
+            long? format = JsonValue.AsLong(JsonValue.Get(manifest, "format"));
+            if (format == null) throw new HdZipException(ManifestEntry + ": format is not a number");
+            if (format.Value != Format) throw new HdZipException(ManifestEntry + ": format " + format.Value + " (this build reads format " + Format + ")");
             var pack = new HdPack
             {
                 ZipPath = zipPath,
@@ -133,12 +138,12 @@ namespace McvsOffline.Embedded.Hd
             {
                 var o = files[i] as Dictionary<string, object>;
                 if (o == null) throw new HdZipException(ManifestEntry + ": files[" + i + "] is not an object");
-                string path = JsonValue.GetString(o, "path");
-                if (!IsDataPath(path)) throw new HdZipException(ManifestEntry + ": files[" + i + "] has no usable path ('" + path + "'; expected Data/<h>/<name>.f)");
+                string path = JsonValue.GetString(o, "entry");
+                if (!IsDataPath(path)) throw new HdZipException(ManifestEntry + ": files[" + i + "] has no usable entry ('" + path + "'; expected Data/<h>/<name>.f)");
                 if (!seen.Add(path)) throw new HdZipException(ManifestEntry + ": " + path + " is listed twice");
                 var f = new HdPackFile { Path = path, Group = JsonValue.GetString(o, "group") ?? path };
                 ReadSizeCrc(JsonValue.GetObject(o, "original"), path, "original", out f.OriginalSize, out f.OriginalCrc);
-                ReadSizeCrc(JsonValue.GetObject(o, "hd"), path, "hd", out f.HdSize, out f.HdCrc);
+                ReadSizeCrc(JsonValue.GetObject(o, "replacement"), path, "replacement", out f.HdSize, out f.HdCrc);
                 if (f.OriginalSize == f.HdSize && f.OriginalCrc == f.HdCrc) throw new HdZipException(ManifestEntry + ": " + path + " is the same as the original");
                 f.Entry = zip.Find(path);
                 f.Zip = zip;

@@ -66,8 +66,8 @@ namespace McvsOffline.Embed.Tests.Embedded
             ("Data/8/dbd2f1.f", 160000, null),
             ("Data/1/0018344.f", Split + 777, null),
             ("Data/a/4309cd.f", 3 * Split + 99, null),
-            ("Data/b/5aa.f", 12000, "lightmaps/Port"),
-            ("Data/b/5ab.f", 20000, "lightmaps/Port"),
+            ("Data/b/5aa.f", 12000, "lightmaps:Port"),
+            ("Data/b/5ab.f", 20000, "lightmaps:Port"),
         };
 
         private sealed class Env
@@ -165,36 +165,69 @@ namespace McvsOffline.Embed.Tests.Embedded
             return Bytes(PackFiles[i].size, i + 1);
         }
 
-        /// <summary>Writes McvsOffline/hd/&lt;name&gt; with the given files (originals as installed, HD bytes from <see cref="HdBytes"/>).</summary>
+        /// <summary>
+        /// Writes McvsOffline/hd/&lt;name&gt; with the given files (originals as installed, HD bytes from <see cref="HdBytes"/>), in the
+        /// shape tools/hd-textures writes (docs/design/hd-textures.md §2-§3): aligned stored entries, the manifest last.
+        /// </summary>
         private static string WritePack((string path, int size, string group)[] files, Env env, string fileName = "mcvs-hd-test.zip",
                                         Action<Dictionary<string, object>> tweak = null, Func<string, byte[]> original = null)
         {
+            var list = new List<(string, byte[], byte[], string)>();
+            foreach (var f in files) list.Add((f.path, (original ?? Original)(f.path), HdBytes(f.path), f.group));
+            string path = Path.Combine(env.Root, "McvsOffline", "hd", fileName);
+            Write(path, ConverterPack(list, tweak));
+            return path;
+        }
+
+        /// <summary>A pack as tools/hd-textures' PackBuilder writes it, with every manifest field of docs/design/hd-textures.md §3.</summary>
+        internal static byte[] ConverterPack(IEnumerable<(string path, byte[] original, byte[] replacement, string group)> files,
+                                             Action<Dictionary<string, object>> tweak = null)
+        {
             var manifestFiles = new List<object>();
-            var zip = new TestZip();
+            var zip = new TestZip(align: true);
+            long originalBytes = 0, replacementBytes = 0;
             foreach (var f in files)
             {
-                byte[] orig = (original ?? Original)(f.path);
-                byte[] hd = HdBytes(f.path);
-                var entry = new Dictionary<string, object>
+                string[] parts = f.path.Split('/');
+                manifestFiles.Add(new Dictionary<string, object>
                 {
-                    ["path"] = f.path,
-                    ["original"] = new Dictionary<string, object> { ["size"] = (long)orig.Length, ["crc32"] = Crc32.Update(0, orig, 0, orig.Length).ToString("x8") },
-                    ["hd"] = new Dictionary<string, object> { ["size"] = (long)hd.Length, ["crc32"] = Crc32.Update(0, hd, 0, hd.Length).ToString("x8") },
-                };
-                if (f.group != null) entry["group"] = f.group;
-                manifestFiles.Add(entry);
+                    ["entry"] = f.path,
+                    ["hash"] = (parts[1] + parts[2].Substring(0, parts[2].Length - 2)).PadLeft(8, '0'),
+                    ["logicalPath"] = null,
+                    ["category"] = f.group == null ? "surfaces" : "lightmaps",
+                    ["levels"] = new List<object> { "Port" },
+                    ["group"] = f.group,
+                    ["layout"] = "ktx",
+                    ["original"] = new Dictionary<string, object>
+                    {
+                        ["size"] = (long)f.original.Length, ["crc32"] = Crc32.Update(0, f.original, 0, f.original.Length).ToString("x8"),
+                        ["width"] = 256L, ["height"] = 256L, ["mipLevels"] = 9L,
+                    },
+                    ["replacement"] = new Dictionary<string, object>
+                    {
+                        ["size"] = (long)f.replacement.Length, ["crc32"] = Crc32.Update(0, f.replacement, 0, f.replacement.Length).ToString("x8"),
+                        ["width"] = 512L, ["height"] = 512L, ["mipLevels"] = 10L,
+                    },
+                    ["psnr"] = 31.5,
+                    ["originalPsnr"] = 27.25,
+                    ["alphaPsnr"] = null,
+                });
+                originalBytes += f.original.Length;
+                replacementBytes += f.replacement.Length;
+                zip.Add(f.path, f.replacement);
             }
             var manifest = new Dictionary<string, object>
             {
-                ["format"] = "mcvs-hd", ["version"] = 1L, ["id"] = "test-1", ["name"] = "Test HD pack", ["pack"] = "ETC", ["gameVersion"] = "1.17.32",
+                ["format"] = 1L, ["kind"] = "hd-textures", ["tool"] = "McvsOffline.HdTextures 1", ["created"] = "2026-10-28T20:15:00Z",
+                ["gameVersion"] = "1.17.32", ["pack"] = "ETC", ["scope"] = "default",
+                ["categories"] = new List<object> { "surfaces", "lightmaps", "characters", "equipment" },
+                ["maps"] = new List<object> { "Port" },
                 ["files"] = manifestFiles,
+                ["totals"] = new Dictionary<string, object> { ["files"] = (long)manifestFiles.Count, ["originalBytes"] = originalBytes, ["replacementBytes"] = replacementBytes },
             };
             tweak?.Invoke(manifest);
             zip.Add(HdPack.ManifestEntry, Encoding.UTF8.GetBytes(McvsOffline.Server.Core.Json.MiniJson.Serialize(manifest, true)));
-            foreach (var f in files) zip.Add(f.path, HdBytes(f.path));
-            string path = Path.Combine(env.Root, "McvsOffline", "hd", fileName);
-            Write(path, zip.ToArray());
-            return path;
+            return zip.ToArray();
         }
 
         private static string WritePack(Env env, (string path, int size, string group)[] files, Action<Dictionary<string, object>> tweak)
@@ -282,7 +315,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             output.WriteLine(hd.Summary);
             output.WriteLine(env.Text);
             Assert.Equal("installer data: Gameloft index in place (6 files, " + PackIndex.Parse(pristineIndex).Entries.Count + " entries)", data.Summary);
-            Assert.StartsWith("hd textures: Test HD pack, 5 files installed (", hd.Summary);
+            Assert.StartsWith("hd textures: mcvs-hd-test.zip, 5 files installed (", hd.Summary);
             Assert.Contains("5 written now", hd.Summary);
             Assert.True(hd.IndexChanged);
             Assert.True(hd.Installed);
@@ -311,7 +344,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             DateTime stamp = File.GetLastWriteTimeUtc(env.P("Data/8/dbd2f1.f"));
             var (data2, hd2) = Boot(env);
             output.WriteLine(hd2.Summary);
-            Assert.StartsWith("hd textures: Test HD pack, 5 files installed (", hd2.Summary);
+            Assert.StartsWith("hd textures: mcvs-hd-test.zip, 5 files installed (", hd2.Summary);
             Assert.DoesNotContain("written now", hd2.Summary);
             Assert.False(hd2.IndexChanged);
             Assert.Equal(indexAfter, File.ReadAllBytes(env.Loc.PackInfo));
@@ -370,7 +403,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             Env env = Installed("hd-repack");
             Boot(env);
             File.Delete(env.Pack);
-            WritePack(env, HdFiles.Take(2).ToArray(), m => m["id"] = "test-2");
+            WritePack(env, HdFiles.Take(2).ToArray(), m => m["created"] = "2026-10-29T08:00:00Z");
             var (_, hd) = Boot(env);
             output.WriteLine(hd.Summary);
             Assert.Contains("2 files installed", hd.Summary);
@@ -424,7 +457,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             var (data, hd) = Boot(env);
             output.WriteLine(data.Summary);
             output.WriteLine(hd.Summary);
-            Assert.StartsWith("hd textures: Test HD pack, 5 files installed", hd.Summary);
+            Assert.StartsWith("hd textures: mcvs-hd-test.zip, 5 files installed", hd.Summary);
             AssertHdInstalled(env);
             AssertInstallerAccepts(env);
             AssertNoTemps(env);
@@ -466,6 +499,244 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.Equal(4, starts);   // one group per start: three single files and the lightmap pair
             AssertHdInstalled(env);
         }
+
+        [Fact]
+        public void TheBudgetSpreadsRemovalOverStartsAndEveryStartIsConsistent()
+        {
+            HdInstaller.ResetForTests();
+            Env env = Installed("hd-budget-remove");
+            Boot(env, rebuild: false);
+            HdInstaller.Apply(env.Loc, new HdInstallerOptions { Enabled = false }, env.Logger.For("hd"));
+            byte[] pristineIndex = File.ReadAllBytes(env.Loc.PackInfo);
+            Assert.True(Boot(env).hd.Installed);
+            int starts = 0;
+            HdResult hd;
+            do
+            {
+                hd = Boot(env, enabled: false, budgetMs: -1).hd;
+                starts++;
+                output.WriteLine(hd.Summary);
+                AssertInstallerAccepts(env);
+                // A level's lightmaps are given back together: never one HD file and one original.
+                Assert.Equal(env.Read("Data/b/5aa.f").Length == 3000, env.Read("Data/b/5ab.f").Length == 5000);
+                if (starts == 1)
+                {
+                    Assert.Equal("hd textures: mcvs-hd-test.zip, 4 files installed (8.0 MiB); 1 original put back; 4 originals at the next start", hd.Summary);
+                    Assert.True(hd.Installed);
+                }
+            }
+            while (hd.Summary.Contains("at the next start") && starts < 10);
+            Assert.Equal(4, starts);   // one group per start: three single files and the lightmap pair
+            Assert.Equal("hd textures: off (settings hd.enabled false); 2 originals put back", hd.Summary);
+            AssertOriginals(env);
+            Assert.Equal(pristineIndex, File.ReadAllBytes(env.Loc.PackInfo));
+            Assert.False(File.Exists(Path.Combine(HdInstaller.HdDir(env.Loc), HdInstaller.StateFile)));
+            AssertNoTemps(env);
+        }
+
+        [Fact]
+        public void AStartThatRanOutOfTimeRemovingInstallsNothingNew()
+        {
+            HdInstaller.ResetForTests();
+            Env env = Installed("hd-budget-repack", withPack: false);
+            WritePack(HdFiles.Take(3).ToArray(), env);
+            Boot(env);
+            AssertHdInstalled(env, HdFiles.Take(3).Select(f => f.path));
+            // The next pack drops the first three and brings the lightmap pair: the removals come first, one group per start.
+            File.Delete(Directory.GetFiles(HdInstaller.HdDir(env.Loc), "mcvs-hd-*.zip").Single());
+            WritePack(HdFiles.Skip(3).ToArray(), env);
+            HdResult first = Boot(env, budgetMs: -1).hd;
+            output.WriteLine(first.Summary);
+            Assert.Contains("1 original put back; 2 originals at the next start; 2 files at the next start", first.Summary);
+            Assert.Equal(Original("Data/b/5aa.f"), env.Read("Data/b/5aa.f"));
+            AssertInstallerAccepts(env);
+            HdResult hd;
+            int starts = 1;
+            do
+            {
+                hd = Boot(env, budgetMs: -1).hd;
+                starts++;
+                output.WriteLine(hd.Summary);
+                AssertInstallerAccepts(env);
+            }
+            while (hd.Summary.Contains("at the next start") && starts < 10);
+            Assert.Equal(4, starts);   // the second removal, the third, then the lightmap pair (the budget counts both)
+            AssertHdInstalled(env, HdFiles.Skip(3).Select(f => f.path));
+            foreach (var f in HdFiles.Take(3)) Assert.Equal(Original(f.path), env.Read(f.path));
+        }
+
+        [Fact]
+        public void WithoutAUsableIndexTheOriginalsGoBackWithinTheBudget()
+        {
+            HdInstaller.ResetForTests();
+            Env env = Installed("hd-noindex-budget");
+            Boot(env);
+            Directory.Delete(env.Internal, true);
+            Directory.CreateDirectory(env.Internal);
+            File.Delete(env.Loc.SavedIndex);
+            var (_, hd) = Boot(env, rebuild: false, budgetMs: -1);
+            output.WriteLine(hd.Summary);
+            Assert.Contains("1 original is back, 4 more follow at the next start and the pack is installed again", hd.Summary);
+            int starts = 1;
+            while (hd.Summary.Contains("at the next start") && starts < 10)
+            {
+                hd = Boot(env, rebuild: false, budgetMs: -1).hd;
+                starts++;
+                output.WriteLine(hd.Summary);
+            }
+            Assert.Equal(4, starts);
+            Assert.Contains("the originals are back", hd.Summary);
+            AssertOriginals(env);
+        }
+
+        // ------------------------------------------------------------------ the converter's pack
+
+        [Fact]
+        public void APackInTheConvertersShapeIsRead()
+        {
+            Env env = new Env("hd-converter-shape");
+            byte[] a = Bytes(3000, 1), b = Bytes(5000, 2), c = Bytes(700, 3);
+            string path = Path.Combine(env.Root, "mcvs-hd-default.zip");
+            Write(path, ConverterPack(new (string, byte[], byte[], string)[]
+            {
+                ("Data/1/9921a.f", c, Bytes(2800, 4), null),
+                ("Data/b/5aa.f", a, Bytes(12000, 5), "lightmaps:Port"),
+                ("Data/b/5ab.f", b, Bytes(20000, 6), "lightmaps:Port"),
+            }));
+            HdPack pack = HdPack.Open(path);
+            Assert.Equal("ETC", pack.Variant);
+            Assert.Equal("mcvs-hd-default.zip", pack.Name);
+            Assert.Matches("^[0-9a-f]{8}$", pack.Id);
+            Assert.Equal(new[] { "Data/1/9921a.f", "Data/b/5aa.f", "Data/b/5ab.f" }, pack.Files.Select(f => f.Path));
+            Assert.Equal(new[] { "Data/1/9921a.f", "lightmaps:Port", "lightmaps:Port" }, pack.Files.Select(f => f.Group));   // null: the file alone
+            Assert.Equal(new long[] { 700, 3000, 5000 }, pack.Files.Select(f => f.OriginalSize));
+            Assert.Equal(Crc32.Update(0, a, 0, a.Length), pack.Files[1].OriginalCrc);
+            Assert.Equal(new long[] { 2800, 12000, 20000 }, pack.Files.Select(f => f.HdSize));
+            Assert.All(pack.Files, f => Assert.Equal(f.HdSize, f.Entry.Size));
+            Assert.All(pack.Files, f => Assert.True(f.Entry.Crc32 == f.HdCrc));
+
+            // The manifest of the installer's first draft (format "mcvs-hd", path/hd) is not the contract.
+            Write(path, ConverterPack(new (string, byte[], byte[], string)[] { ("Data/b/5aa.f", a, Bytes(12000, 5), null) }, m =>
+            {
+                m["format"] = "mcvs-hd";
+                m["version"] = 1L;
+                m.Remove("kind");
+            }));
+            Assert.Contains("kind is not 'hd-textures'", Assert.Throws<HdZipException>(() => HdPack.Open(path)).Message);
+            Write(path, ConverterPack(new (string, byte[], byte[], string)[] { ("Data/b/5aa.f", a, Bytes(12000, 5), null) }, m =>
+            {
+                var f = (Dictionary<string, object>)((List<object>)m["files"])[0];
+                f["hd"] = f["replacement"];
+                f.Remove("replacement");
+            }));
+            Assert.Contains("Data/b/5aa.f has no 'replacement' object", Assert.Throws<HdZipException>(() => HdPack.Open(path)).Message);
+        }
+
+#if MCVS_HD_CONVERTER
+        /// <summary>
+        /// The two sides together: tools/hd-textures' PackBuilder converts synthetic PC textures for a synthetic ETC Data/ folder (the
+        /// converter's own fixtures), and the installer puts the pack it wrote into a game root with Gameloft's index, then removes it.
+        /// Compiled when the converter is in the tree (MCVS_HD_CONVERTER, set by the project file).
+        /// </summary>
+        [Fact]
+        public void APackWrittenByTheConverterIsInstalledAndRemoved()
+        {
+            HdInstaller.ResetForTests();
+            var env = new Env("hd-converter");
+            string pc = Path.Combine(env.Root, "..", "pc", "Data");
+            Directory.CreateDirectory(pc);
+            Directory.CreateDirectory(Path.Combine(env.Root, "Data"));
+            File.WriteAllText(env.P("Data/MCVS.game"), "{}");
+            var index = new McvsOffline.Tools.HdTextures.HdIndex();
+            index.Levels.Add(new McvsOffline.Tools.HdTextures.HdLevel { Name = "Testmap", Alias = "Map42" });
+            var logical = new[]
+            {
+                ("3d/Environment/01_WorkTextures/TEST_Concrete_bc.tga", McvsOffline.Tools.HdTextures.HdIndex.Surfaces, false),
+                ("3d/Characters/Male/Test/TP/Textures/Test_body_bc.tga", McvsOffline.Tools.HdTextures.HdIndex.Characters, true),
+                ("Baked/Levels/Testmap/Testmap.Lightmap_0.tga", McvsOffline.Tools.HdTextures.HdIndex.Lightmaps, true),
+                ("Baked/Levels/Testmap/Testmap.Lightmap_0.lowend.tga", McvsOffline.Tools.HdTextures.HdIndex.Lightmaps, false),
+            };
+            int seed = 1;
+            foreach (var (name, category, split) in logical)
+            {
+                const int size = 32;
+                string hash = McvsOffline.Server.Core.Content.Crc32.Compute(Encoding.UTF8.GetBytes(name)).ToString("x8");
+                var pcImage = McvsOffline.Embed.Tests.HdTextures.HdFixtures.Pattern(size, size, seed++, !split);
+                int levels = (int)Math.Log2(size / 2) + 1;
+                byte[] android = split
+                    ? McvsOffline.Embed.Tests.HdTextures.HdFixtures.AndroidSplitFile(pcImage.HalfSize(), levels)
+                    : McvsOffline.Embed.Tests.HdTextures.HdFixtures.AndroidKtxFile(pcImage.HalfSize(), levels);
+                byte[] dds = McvsOffline.Tools.HdTextures.GcbfWriter.Encode(McvsOffline.Embed.Tests.HdTextures.HdFixtures.Dds(pcImage, split));
+                var e = new McvsOffline.Tools.HdTextures.HdIndexEntry
+                {
+                    Hash = hash, Category = category, Levels = category == McvsOffline.Tools.HdTextures.HdIndex.Characters ? new string[0] : new[] { "Testmap" },
+                    Layout = split ? "split" : "ktx",
+                    AndroidSize = android.Length, AndroidWidth = size / 2, AndroidHeight = size / 2, AndroidMips = levels,
+                    PcSize = dds.Length, PcWidth = size, PcHeight = size, PcMips = levels + 1,
+                };
+                Write(env.P("Data/" + e.AndroidPath), android);
+                File.WriteAllBytes(Path.Combine(pc, e.PcPath), dds);
+                index.Entries.Add(e);
+            }
+            string[] dataFiles = Directory.GetFiles(Path.Combine(env.Root, "Data"), "*", SearchOption.AllDirectories)
+                .Select(f => "Data/" + Path.GetRelativePath(Path.Combine(env.Root, "Data"), f).Replace(Path.DirectorySeparatorChar, '/')).ToArray();
+            var originals = dataFiles.ToDictionary(f => f, f => env.Read(f));
+            byte[] gameloft = GameloftIndex(env.Root, dataFiles);
+            File.WriteAllBytes(env.Loc.PackInfo, gameloft);
+            Directory.CreateDirectory(Path.GetDirectoryName(env.Loc.GlVer));
+            File.WriteAllText(env.Loc.GlVer, InstallerData.ApkVersionCode);
+            File.WriteAllText(env.Loc.Journal, string.Concat(PackIndex.Parse(gameloft).Entries.Where(x => x.Piece > 0).Select(x => x.JournalKey + "\n")));
+
+            string packPath = Path.Combine(HdInstaller.HdDir(env.Loc), "mcvs-hd-default.zip");
+            var log = new StringWriter();
+            var summary = McvsOffline.Tools.HdTextures.PackBuilder.Build(new McvsOffline.Tools.HdTextures.BuildOptions
+            {
+                PcData = pc, AndroidData = Path.Combine(env.Root, "Data"), Categories = McvsOffline.Tools.HdTextures.HdIndex.DefaultCategories,
+                Output = packPath, Threads = 2, Index = index,
+            }, log);
+            output.WriteLine(log.ToString());
+            Assert.Equal(4, summary.Files);
+
+            HdPack pack = HdPack.Open(packPath);
+            Assert.Equal("ETC", pack.Variant);
+            Assert.Equal(4, pack.Files.Count);
+            Assert.Equal(2, pack.Files.Count(f => f.Group == "lightmaps:Testmap"));
+            Assert.All(pack.Files.Where(f => f.Group != "lightmaps:Testmap"), f => Assert.Equal(f.Path, f.Group));
+
+            var known = new[] { new InstallerData.KnownPack("ETC", dataFiles.Length, originals.Values.Sum(b => (long)b.Length)) };
+            var hdOptions = new HdInstallerOptions();
+            var dataOptions = new InstallerDataOptions { RebuildIndex = false, VerifyRestoredData = false, KnownPacks = known };
+            dataOptions.HdOriginalSizes = HdInstaller.Prepare(env.Loc, hdOptions, env.Logger.For("hd")).OriginalSizes;
+            InstallerData.Prepare(env.Loc, new MapPrefs(env.Prefs), dataOptions, env.Logger.For("install"), 1700000000);
+            HdResult on = HdInstaller.Apply(env.Loc, hdOptions, env.Logger.For("hd"));
+            output.WriteLine(on.Summary);
+            Assert.StartsWith("hd textures: mcvs-hd-default.zip, 4 files installed", on.Summary);
+            using (var zip = System.IO.Compression.ZipFile.OpenRead(packPath))
+            {
+                foreach (HdPackFile f in pack.Files)
+                {
+                    using (var ms = new MemoryStream())
+                    {
+                        using (Stream entry = zip.GetEntry(f.Path).Open()) entry.CopyTo(ms);
+                        Assert.Equal(ms.ToArray(), env.Read(f.Path));
+                    }
+                }
+            }
+            PackIndex patched = PackIndex.Parse(File.ReadAllBytes(env.Loc.PackInfo));
+            Assert.True(InstallerData.Check(patched, env.Root).Complete);
+            foreach (PackEntry x in patched.Entries.Where(x => x.Piece == 0))
+            {
+                byte[] all = File.ReadAllBytes(Path.Combine(env.Root, x.RelativePath));
+                Assert.Equal((uint)x.Crc, Crc32.Update(0, all, 0, all.Length));
+            }
+
+            HdResult off = HdInstaller.Apply(env.Loc, new HdInstallerOptions { Enabled = false }, env.Logger.For("hd"));
+            output.WriteLine(off.Summary);
+            Assert.Equal("hd textures: off (settings hd.enabled false); 4 originals put back", off.Summary);
+            Assert.Equal(gameloft, File.ReadAllBytes(env.Loc.PackInfo));
+            foreach (var kv in originals) Assert.Equal(kv.Value, env.Read(kv.Key));
+        }
+#endif
 
         // ------------------------------------------------------------------ the index reset by the game or a reinstall
 
@@ -608,15 +879,16 @@ namespace McvsOffline.Embed.Tests.Embedded
             output.WriteLine(hd.Summary);
             Assert.Contains("3 files installed", hd.Summary);
             Assert.Contains("2 skipped", hd.Summary);
-            Assert.Contains("its group 'lightmaps/Port' of 2 files is skipped", hd.Summary);
+            Assert.Contains("its group 'lightmaps:Port' of 2 files is skipped", hd.Summary);
             Assert.Equal(Original("Data/b/5aa.f"), env.Read("Data/b/5aa.f"));
             Assert.Equal(Original("Data/b/5ab.f"), env.Read("Data/b/5ab.f"));
             AssertInstallerAccepts(env);
         }
 
         [Theory]
-        [InlineData("format", "other", "format is not 'mcvs-hd'")]
-        [InlineData("version", 2L, "version 2")]
+        [InlineData("format", 2L, "format 2 (this build reads format 1)")]
+        [InlineData("format", "mcvs-hd", "format is not a number")]
+        [InlineData("kind", "other", "kind is not 'hd-textures'")]
         [InlineData("files", null, "lists no files")]
         public void ABrokenManifestIsReportedAndNothingChanges(string key, object value, string reason)
         {
@@ -712,33 +984,15 @@ namespace McvsOffline.Embed.Tests.Embedded
             File.WriteAllText(env.Loc.GlVer, InstallerData.ApkVersionCode);
             File.WriteAllText(env.Loc.Journal, string.Concat(real.Entries.Where(e => e.Piece > 0).Select(e => e.JournalKey + "\n")));
             var hdFiles = new (string, int, string)[] { (paths[0], 180000, null), (paths[1], 3 * Split + 4321, null) };
-            var zip = new TestZip();
-            var list = new List<object>();
-            for (int i = 0; i < paths.Length; i++)
-            {
-                byte[] orig = env.Read(paths[i]);
-                byte[] hd = Bytes(hdFiles[i].Item2, 50 + i);
-                zip.Add(paths[i], hd);
-                list.Add(new Dictionary<string, object>
-                {
-                    ["path"] = paths[i],
-                    ["original"] = new Dictionary<string, object> { ["size"] = (long)orig.Length, ["crc32"] = Crc32.Update(0, orig, 0, orig.Length).ToString("x8") },
-                    ["hd"] = new Dictionary<string, object> { ["size"] = (long)hd.Length, ["crc32"] = Crc32.Update(0, hd, 0, hd.Length).ToString("x8") },
-                });
-            }
-            var manifest = new Dictionary<string, object> { ["format"] = "mcvs-hd", ["version"] = 1L, ["name"] = "real", ["pack"] = "ETC", ["files"] = list };
-            zip.Add(HdPack.ManifestEntry, Encoding.UTF8.GetBytes(McvsOffline.Server.Core.Json.MiniJson.Serialize(manifest)));
-            Write(Path.Combine(env.Root, "McvsOffline", "hd", "mcvs-hd-real.zip"), zip.ToArray());
+            var packFiles = new List<(string, byte[], byte[], string)>();
+            for (int i = 0; i < paths.Length; i++) packFiles.Add((paths[i], env.Read(paths[i]), Bytes(hdFiles[i].Item2, 50 + i), null));
+            string packPath = Path.Combine(env.Root, "McvsOffline", "hd", "mcvs-hd-real.zip");
+            byte[] etcPack = ConverterPack(packFiles);
+            Write(packPath, etcPack);
             byte[] journal = File.ReadAllBytes(env.Loc.Journal);
 
             // The same pack labelled for the ASTC data pack: refused on this (ETC) index, nothing changes.
-            manifest["pack"] = "ASTC";
-            var astc = new TestZip();
-            astc.Add(HdPack.ManifestEntry, Encoding.UTF8.GetBytes(McvsOffline.Server.Core.Json.MiniJson.Serialize(manifest)));
-            for (int i = 0; i < paths.Length; i++) astc.Add(paths[i], Bytes(hdFiles[i].Item2, 50 + i));
-            string packPath = Path.Combine(env.Root, "McvsOffline", "hd", "mcvs-hd-real.zip");
-            byte[] etcPack = File.ReadAllBytes(packPath);
-            File.WriteAllBytes(packPath, astc.ToArray());
+            File.WriteAllBytes(packPath, ConverterPack(packFiles, m => m["pack"] = "ASTC"));
             HdResult refused = HdInstaller.Apply(env.Loc, new HdInstallerOptions(), env.Logger.For("hd"));
             output.WriteLine(refused.Summary);
             Assert.Contains("was made for the ASTC data pack, this phone has the ETC pack", refused.Summary);
@@ -792,21 +1046,37 @@ namespace McvsOffline.Embed.Tests.Embedded
             return PackIndex.Write(entries).Raw;
         }
 
-        /// <summary>A zip with stored entries (what tools/hd-textures writes).</summary>
+        /// <summary>
+        /// A zip with stored entries; <c>align</c>: entry data on a 4-byte boundary through zipalign's extra field 0xD935 in the local
+        /// header, as tools/hd-textures' StoredZipWriter writes the pack (docs/design/hd-textures.md §2).
+        /// </summary>
         private sealed class TestZip
         {
             private readonly MemoryStream body = new MemoryStream();
             private readonly MemoryStream central = new MemoryStream();
+            private readonly bool align;
             private int count;
+
+            public TestZip(bool align = false)
+            {
+                this.align = align;
+            }
 
             public void Add(string name, byte[] data)
             {
                 byte[] n = Encoding.UTF8.GetBytes(name);
                 uint crc = Crc32.Update(0, data, 0, data.Length);
                 uint offset = (uint)body.Position;
+                int pad = align ? 6 + (int)((4 - (body.Position + 30 + n.Length + 6) % 4) % 4) : 0;
                 U32(body, 0x04034b50); U16(body, 10); U16(body, 0); U16(body, 0); U16(body, 0); U16(body, 0x21);
-                U32(body, crc); U32(body, (uint)data.Length); U32(body, (uint)data.Length); U16(body, (ushort)n.Length); U16(body, 0);
+                U32(body, crc); U32(body, (uint)data.Length); U32(body, (uint)data.Length); U16(body, (ushort)n.Length); U16(body, (ushort)pad);
                 body.Write(n, 0, n.Length);
+                if (align)
+                {
+                    U16(body, 0xD935); U16(body, (ushort)(pad - 4)); U16(body, 4);
+                    for (int i = 0; i < pad - 6; i++) body.WriteByte(0);
+                    Assert.Equal(0, body.Position % 4);
+                }
                 body.Write(data, 0, data.Length);
                 U32(central, 0x02014b50); U16(central, 20); U16(central, 10); U16(central, 0); U16(central, 0); U16(central, 0); U16(central, 0x21);
                 U32(central, crc); U32(central, (uint)data.Length); U32(central, (uint)data.Length); U16(central, (ushort)n.Length);

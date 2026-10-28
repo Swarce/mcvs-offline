@@ -32,8 +32,8 @@ namespace McvsOffline.Embedded.Hd
         public bool ManageInstaller { get; set; }
 
         /// <summary>
-        /// Installing runs on the game's main thread before the installer starts: no new group is started after this many
-        /// milliseconds (at least one always is); the rest follows at the next start.
+        /// Installing and removing run on the game's main thread before the installer starts: no new group is installed or given
+        /// back after this many milliseconds (at least one always is); the rest follows at the next start.
         /// </summary>
         public int BudgetMs { get; set; }
 
@@ -259,7 +259,7 @@ namespace McvsOffline.Embedded.Hd
             private IndexSession session;
             private readonly Dictionary<string, Content> contents = new Dictionary<string, Content>(StringComparer.Ordinal);
             private readonly List<string> notes = new List<string>();
-            private int restored, written, skipped, deferred, failed;
+            private int restored, written, skipped, deferred, deferredOriginals, failed;
             private int matchedGroups, skippedGroups;
             private bool stopInstalling, abandoned, skipNoted;
 
@@ -317,8 +317,11 @@ namespace McvsOffline.Embedded.Hd
                 if (session.Installer == null)
                 {
                     PutOriginalsBack();
+                    string back = deferredOriginals == 0
+                        ? "the originals are back"
+                        : Count(restored, "original is", "originals are") + " back, " + Count(deferredOriginals, "more follows", "more follow") + " at the next start";
                     return Finish("hd textures: not installed now: the game's installer has no usable index (" + session.InstallerProblem +
-                                  "), so it checks the data online and would replace every HD file; the originals are back and the pack is installed " +
+                                  "), so it checks the data online and would replace every HD file; " + back + " and the pack is installed " +
                                   "again once the installer has an index", null, null, candidates.Count);
                 }
 
@@ -337,18 +340,27 @@ namespace McvsOffline.Embedded.Hd
                 if (pack != null) foreach (HdPackFile f in pack.Files) wanted[f.Path] = f;
 
                 // 1. Files to give back: everything when hd.enabled is false; files the pack no longer has; with no usable pack, files
-                //    whose HD copy is gone (an HD file can only be written again from the pack).
-                foreach (HdRecord r in new List<HdRecord>(state.Records))
+                //    whose HD copy is gone (an HD file can only be written again from the pack). Group by group within the budget.
+                var giveBack = new List<HdRecord>();
+                foreach (HdRecord r in state.Records)
                 {
                     bool remove;
                     if (!options.Enabled) remove = true;
                     else if (pack != null) remove = !wanted.ContainsKey(r.Path);
                     else remove = contents[r.Path] != Content.Hd;
-                    if (remove) RestoreOriginal(r);
+                    if (remove) giveBack.Add(r);
+                }
+                foreach (List<HdRecord> group in Groups(giveBack))
+                {
+                    if (WithinBudget(group)) foreach (HdRecord r in group) RestoreOriginal(r);
                 }
 
-                // 2. The pack, group by group.
-                if (pack != null) Install(pack);
+                // 2. The pack, group by group (after every removal is done: a start that ran out of time removing installs nothing).
+                if (pack != null)
+                {
+                    if (deferredOriginals > 0) stopInstalling = true;
+                    Install(pack);
+                }
 
                 return Finish(null, pack, packProblem, candidates.Count);
             }
@@ -364,15 +376,56 @@ namespace McvsOffline.Embedded.Hd
                 return InstallerData.VariantOf(index.LogicalFiles, InstallerData.PackBytes(index, originals));
             }
 
-            /// <summary>The installer has no index: Data/ gets every original back (records stay, so the pack returns later).</summary>
+            /// <summary>
+            /// The installer has no index: Data/ gets every original back (records stay, so the pack returns later), group by group
+            /// within the budget; the rest at the next start (Prepare makes the index match whatever Data/ holds by then).
+            /// </summary>
             private void PutOriginalsBack()
             {
-                foreach (HdRecord r in state.Records)
+                foreach (List<HdRecord> group in Groups(state.Records))
                 {
-                    if (contents[r.Path] == Content.Original) continue;
-                    if (CopyBackup(r)) restored++;
+                    if (!WithinBudget(group)) continue;
+                    foreach (HdRecord r in group)
+                    {
+                        if (contents[r.Path] == Content.Original) continue;
+                        if (CopyBackup(r)) restored++;
+                    }
                 }
                 if (restored > 0) log.Warn("hd: the installer has no usable index (" + session.InstallerProblem + "): " + restored + " original files put back in Data/");
+                if (deferredOriginals > 0) log.Warn("hd: " + deferredOriginals + " more originals are put back at the next start (start-up time budget)");
+            }
+
+            /// <summary>Records by group, in the order of their first file (a level's lightmaps are given back together).</summary>
+            private static List<List<HdRecord>> Groups(IEnumerable<HdRecord> records)
+            {
+                var groups = new List<List<HdRecord>>();
+                var byGroup = new Dictionary<string, List<HdRecord>>(StringComparer.Ordinal);
+                foreach (HdRecord r in records)
+                {
+                    string key = r.Group ?? r.Path;
+                    List<HdRecord> g;
+                    if (!byGroup.TryGetValue(key, out g))
+                    {
+                        byGroup[key] = g = new List<HdRecord>();
+                        groups.Add(g);
+                    }
+                    g.Add(r);
+                }
+                return groups;
+            }
+
+            /// <summary>
+            /// False when the budget is spent and an original was already copied back in this start: the group's records stay as
+            /// they are (their HD files and index entries agree) and are counted for "at the next start".
+            /// </summary>
+            private bool WithinBudget(List<HdRecord> group)
+            {
+                if (deferredOriginals == 0 && (restored == 0 || Environment.TickCount - started <= options.BudgetMs)) return true;
+                foreach (HdRecord r in group)
+                {
+                    if (contents[r.Path] != Content.Original) deferredOriginals++;
+                }
+                return false;
             }
 
             /// <summary>Gives a record's original back (Data/ and both indexes); the record goes at commit time.</summary>
@@ -449,7 +502,7 @@ namespace McvsOffline.Embedded.Hd
                         deferred += Pending(group);
                         continue;
                     }
-                    if ((written > 0 || batchFiles > 0) && Environment.TickCount - started > options.BudgetMs)
+                    if ((written > 0 || batchFiles > 0 || restored > 0) && Environment.TickCount - started > options.BudgetMs)
                     {
                         WriteBatch(batch);
                         batch.Clear();
@@ -716,6 +769,7 @@ namespace McvsOffline.Embedded.Hd
                         sb.Append("; the pack file is no longer in McvsOffline/").Append(FolderName).Append(" (keep it there: a lost HD file can only be written again from it)");
                     if (written > 0) sb.Append("; ").Append(written).Append(" written now");
                     if (restored > 0) sb.Append("; ").Append(Count(restored, "original", "originals")).Append(" put back");
+                    if (deferredOriginals > 0) sb.Append("; ").Append(Count(deferredOriginals, "original", "originals")).Append(" at the next start");
                     if (deferred > 0) sb.Append("; ").Append(Count(deferred, "file", "files")).Append(" at the next start");
                     if (skipped > 0) sb.Append("; ").Append(skipped).Append(" skipped");
                     if (failed > 0) sb.Append("; ").Append(failed).Append(" failed (see the log)");
