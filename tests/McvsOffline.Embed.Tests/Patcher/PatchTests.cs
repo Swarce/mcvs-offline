@@ -308,6 +308,27 @@ namespace McvsOffline.Embed.Tests.Patcher
         }
 
         [Fact]
+        public void ThePlayerDocsListTheDefaultPatchSetAndEveryOptionalPatch()
+        {
+            // A player who copies the documented --patch list must get the default set: without 'graphics' the graphics
+            // profile and hd-textures.zip silently do nothing (the HD mount runs only from GraphicsHooks' first engine hook).
+            string setup = File.ReadAllText(Path.Combine(TestEnvironment.RepoRoot, "docs", "PLAYER-SETUP.md"));
+            string row = Assert.Single(setup.Split('\n'), l => l.StartsWith("| `--patch ", StringComparison.Ordinal) && l.Contains("this is the default set"));
+            string list = row.Substring("| `--patch ".Length, row.IndexOf('`', "| `--patch ".Length) - "| `--patch ".Length);
+            Assert.Equal(PatcherOptions.DefaultPatches, list.Split(','));
+            foreach (string id in PatcherOptions.OptionalPatches)
+                Assert.True(setup.Contains("\n- **" + id + "**"), "PLAYER-SETUP.md has no '- **" + id + "**' entry in its patch list");
+            int hd = setup.IndexOf("**HD textures** (", StringComparison.Ordinal);
+            Assert.True(hd >= 0, "PLAYER-SETUP.md has no HD textures paragraph");
+            Assert.Contains("needs the default patch `graphics`", setup.Substring(hd, setup.IndexOf("\n\n", hd, StringComparison.Ordinal) - hd));
+
+            string readme = File.ReadAllText(Path.Combine(TestEnvironment.RepoRoot, "README.md"));
+            string build = Assert.Single(readme.Split('\n'), l => l.StartsWith("| Player build (offline APK) |", StringComparison.Ordinal));
+            foreach (string id in PatcherOptions.DefaultPatches)
+                Assert.True(System.Text.RegularExpressions.Regex.IsMatch(build, @"[(, ]" + id + "[,;]"), "README.md's player-build row does not list '" + id + "'");
+        }
+
+        [Fact]
         public void EveryOptionalPatchIdHasItsPatchAndEveryPatchIdIsUnique()
         {
             Assert.Equal(ApkPatcher.AllPatches.Length, ApkPatcher.AllPatches.Select(p => p.Id).Distinct().Count());

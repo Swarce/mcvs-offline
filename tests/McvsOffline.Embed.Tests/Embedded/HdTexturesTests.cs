@@ -289,6 +289,16 @@ namespace McvsOffline.Embed.Tests.Embedded
         }
 
         [Fact]
+        public void BeforeTheGraphicsHookTheStatusNamesThePatchThatMountsTheZip()
+        {
+            // An APK built without patch 'graphics' never mounts the zip; Status must not look like a check still to come.
+            HdTextures.ResetForTests();
+            Assert.Equal(HdTextures.NotCheckedStatus, HdTextures.Status);
+            Assert.StartsWith("hd textures: not checked yet", HdTextures.Status);
+            Assert.Contains("through patch 'graphics'", HdTextures.Status);
+        }
+
+        [Fact]
         public void MissingBrokenOrDisabledZipsChangeNothing()
         {
             string root = TestEnvironment.NewTempDir("hdmissing");

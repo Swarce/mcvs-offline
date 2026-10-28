@@ -251,9 +251,10 @@ namespace McvsOffline.Embedded.Admin
                 List<string> missing = platform.MissingJniMembers() ?? new List<string>();
                 info.SdkInt = sdk;
                 info.MissingJni = missing;
-                // From Android 13 AlarmManager starts no activity for an alarm, whatever the target (target-sdk.md §4.6): a
-                // restart closes the game and the player starts it again.
-                info.RelaunchBlocked = sdk >= 33;
+                // From Android 13 AlarmManager is expected to start no activity for an alarm, whatever the target
+                // (target-sdk.md §4.6), but no device has shown it yet (STATUS device-test item 9; device test 8 passed
+                // checks 1-13 only as a whole). The page says the game may close without coming back, not that it will.
+                info.RelaunchUnconfirmed = sdk >= 33;
                 info.PublicLogsDir = platform.PublicDownloadsDir();
                 info.BrowserOpen = platform.IsInGameBrowserOpen();
                 info.FreeBytes = FreeBytes();

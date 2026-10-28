@@ -727,6 +727,8 @@ async function fullRun(url, jar, mode, fx) {
     check(/Notifications\s*not allowed yet; the game asks once at the main menu/.test(p.text('status-body')), 'fixtures: no notification row');
     check(/Graphics\s*graphics\.profile high, forced HighGPU/.test(p.text('status-body')), 'fixtures: no graphics row');
     check(/HD textures\s*none/.test(p.text('status-body')), 'fixtures: no HD textures row');
+    check(/Restart via\s*game \(Android 13\+: may only close the game; then start it again yourself\)/.test(p.text('status-body')),
+          'fixtures: the Restart via row does not say the game may only close (Android 13+)');
   }
   check((mode === 'fixtures' ? /Cosmetic crate\s*guard \(live ops are off\)/ : /Cosmetic crate\s*(dormant|guard|active)/).test(p.text('status-body')),
     'run 1: Status does not show the Cosmetic crate phase');
@@ -992,15 +994,23 @@ async function fixtureExtras(p, fx) {
   await p.tap('nav-actions');
   await p.tap('action-crm-reload');
   check(/takes effect/.test(p.text('toast-text')), 'fixtures: CRM rebuild not confirmed');
-  check(/closes; start it again from the home screen/.test(p.text('action-restart-help')),
-        'fixtures: Android 13+ restart wording missing (' + p.text('action-restart-help') + ')');
+  // Android 13+ (host.relaunchUnconfirmed): the relaunch is not observed yet (STATUS device-test item 9), so the texts say
+  // the game MAY only close; none claims that it will not come back (target-sdk.md §4.6).
+  const firmNoRelaunch = /do not let it reopen|and closes\. Start it again|saves and closes|closes the game, start it again/;
+  check(/may only close: then start it again from the home screen/.test(p.text('action-restart-help')) &&
+        !firmNoRelaunch.test(p.text('action-restart-help')),
+        'fixtures: Android 13+ restart wording wrong (' + p.text('action-restart-help') + ')');
   await p.tap('action-restart');
   check(p.isShown('dialog') && /Restart/.test(p.text('dialog-title')), 'fixtures: Restart did not ask first');
-  check(/and closes\. Start it again from the home screen/.test(p.text('dialog-body')), 'fixtures: the restart dialog does not say the game closes (Android 13+)');
+  check(/and restarts\. This takes about 20 seconds/.test(p.text('dialog-body')) &&
+        /Android 13 and later may close the game .*If it has not come back after about 20 seconds, start it again from the home screen/.test(p.text('dialog-body')) &&
+        !firmNoRelaunch.test(p.text('dialog-body')),
+        'fixtures: the restart dialog does not say the game may only close (Android 13+): ' + p.text('dialog-body'));
   const box = [...walk(p.byId('dialog-body'))].find((n) => n.tag === 'input');
   if (check(box, 'fixtures: no "restart even if the game does not save" checkbox')) await p.tap(box);
   await p.tap('dialog-ok', 'restart');
-  check(/Restarting/.test(p.text('toast-text')), 'fixtures: restart not accepted (' + p.text('toast-text') + ')');
+  check(/Restarting/.test(p.text('toast-text')) && /If it does not come back by itself, start it again/.test(p.text('toast-text')) &&
+        !firmNoRelaunch.test(p.text('toast-text')), 'fixtures: restart not accepted or worded firmly (' + p.text('toast-text') + ')');
   check(fx.state.restarts.length === 1 && fx.state.restarts[0].restartWithoutSave === true && fx.state.restarts[0].reason === 'user',
         'fixtures: the restart request was ' + JSON.stringify(fx.state.restarts));
   await p.tap('action-restart');
@@ -1240,7 +1250,7 @@ function startFixtures(html) {
     version: '0.1.0-dev', build: '9',
     server: { started: ISO(started), uptimeSeconds: Math.round((Date.now() - started) / 1000) + 3600, instance: 'mcvs1a2b3c4d', port, bind: '127.0.0.1', lanMode: false, hostCheck: true, dataDir: '/storage/emulated/0/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline', dataPack: '/storage/emulated/0/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/Data' },
     host: { platform: 'android', sdkInt: 36, deviceId: 'dev', logsDir: '/storage/emulated/0/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/logs', fallbackLogsDir: null, publicLogsDir: '/storage/emulated/0/Download/MCVS-Offline', mirror: 'active, 3 files, last copy 12 s ago', watchdog: 'game thread tid 1234, paused for the page', browser: 'initialized', browserOpen: true, freeBytes: 12345678901, gameCredential: 'anonymous:a1b2…f9e8', restartVia: 'game', missingJni: [], capabilities: caps,
-            relaunchBlocked: true, notifications: 'not allowed yet; the game asks once at the main menu',
+            relaunchUnconfirmed: true, notifications: 'not allowed yet; the game asks once at the main menu',
             graphics: 'graphics: graphics.profile high, forced HighGPU; GPU profile HighGPU (device optimum MidGPU)',
             hdTextures: 'hd textures: none (no McvsOffline/hd/hd-textures.zip)' },
     settings: { file: '/data/McvsOffline/settings.json', fallback: state.fallback, error: null, restartPending: restartPending().length },

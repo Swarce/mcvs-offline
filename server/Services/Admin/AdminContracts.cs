@@ -70,7 +70,7 @@ namespace McvsOffline.Server.Services.Admin
         public bool CanToast { get; set; }
         public bool CanSave { get; set; }             // RequestGameSave can work
         public bool CanExit { get; set; }
-        public bool RelaunchBlocked { get; set; }     // Android 13+: an alarm cannot bring the game back after a restart (target-sdk.md §4.6)
+        public bool RelaunchUnconfirmed { get; set; }     // Android 13+: the restart alarm may not bring the game back; not yet observed (target-sdk.md §4.6, STATUS device-test item 9)
         public string Notifications { get; set; }     // the POST_NOTIFICATIONS state, one sentence; null off Android
         public string Graphics { get; set; }          // graphics.profile and the engine's GPU profile, one line; null unknown
         public string HdTextures { get; set; }        // the HD texture zip, one line; null unknown

@@ -78,7 +78,7 @@ The patcher prints every change it makes and finishes with a signature check. Us
 
 | Option | Meaning |
 |---|---|
-| `--patch nativeonline,waits,geo,bottile,finder,store,signatures,debloat,adminpage,adminlink` | The optional patches (this is the default set; `debloat` removes dead ad/analytics/social/push pieces, see ARCHITECTURE.md §2; `adminpage` and `adminlink` open the MCVS Offline page, section 7). `none` keeps only the mandatory patches (the server hook, the headless-server fixes and the server physics), `all` adds `lan` and `forum`, `default,forum` adds only `forum`. |
+| `--patch nativeonline,waits,geo,bottile,finder,store,signatures,debloat,adminpage,adminlink,graphics` | The optional patches (this is the default set; `debloat` removes dead ad/analytics/social/push pieces, see ARCHITECTURE.md §2; `adminpage` and `adminlink` open the MCVS Offline page, section 7; `graphics` is needed for the graphics profile and the HD textures, section 7). `none` keeps only the mandatory patches (the server hook, the headless-server fixes and the server physics), `all` adds `lan` and `forum`, `default,forum` adds only `forum`. |
 | `--game-log all` | The game's own log at every level in logcat (`mono-stdout`), for bug reports; this is the default while the offline build is being tested. `--game-log fatal` keeps the game's original setting (fatal errors only). |
 | `--keystore <file.p12>` | Your signing key. Without it a key is created once in `~/.config/McvsOffline/` (Windows: `%APPDATA%\McvsOffline\`) and reused. |
 | `--build-tools <dir>` | Folder with `apksigner` and `zipalign`; otherwise they are looked up on `PATH` and in `$ANDROID_HOME/build-tools`. |
@@ -115,10 +115,20 @@ What the patches do:
 - **store**: opening the shop crashed the game because of the kill-signature sounds it sells (the game's availability
   check had no code for sounds). With the patch sounds work, and any shop item whose check still fails is left out of the
   shop (and logged as `[McvsOffline] store item <id> threw ...`) instead of closing the game.
+- **signatures**: the kill-signature screen looks your owned items up in a set instead of a list, so it does not freeze
+  when you own many of them (for example after `UNLOCKALL`).
+- **debloat**: removes the parts of Gameloft's SDKs that are dead offline (ad screens, push, install-referrer and boot
+  receivers, Crashlytics and Facebook start-up, location and legacy permissions) from the manifest and drops the
+  Crashlytics/Fabric files; see ARCHITECTURE.md §2.
 - **adminpage**: Settings › Account gets an **MCVS Offline** button (after "Recover progress") that opens the MCVS
   Offline page (section 7).
 - **adminlink**: the button of the "MCVS Offline" inbox message opens the page with full access. Without this patch
   the message opens a view-only page.
+- **graphics**: the game reads its GPU profiles (`GameOptions_android.json`) through MCVS Offline, so the page's
+  graphics profile (`graphics.profile`) can pick one, and at that moment the HD texture zip is mounted. The start-up log
+  gets a `[boot] graphics:` line with what the game really got. With `graphics.profile` `auto` and no HD zip nothing
+  changes. Without this patch both settings do nothing, and Status › Game host says so: its Graphics and HD textures
+  rows say the game has not gone through patch 'graphics' (section 7).
 - **forum** (not in the default set): the Forum button in Settings opens the page too.
 - **lan** (experimental): groundwork for LAN play (see the end of this guide). It changes nothing for single-device
   play.
@@ -255,9 +265,10 @@ when it is closed. **Saves › Save the game now** closes the page, lets the gam
 "The game did not save" if it did not). **Actions › Restart the game** (and the Restart buttons of a staged import or
 a restart setting) first lets the game save, then restarts it; when the game does not save it does not restart, unless
 you tick "Restart even if the game does not save". If the game does not come back by itself after about 20 seconds,
-start it again from the home screen. **On Android 13 and later the game does not come back by itself** (Android no longer
-lets an alarm start an app's screen, whatever the app): "Restart" closes it after the save and you start it again; the
-page says so there. The same holds for the game's own graphics-setting dialog, whose text the page cannot change.
+start it again from the home screen. **On Android 13 and later the game may not come back by itself** (Android no
+longer lets an alarm start an app's screen, whatever the app; this has not been checked on a phone on its own yet): then
+"Restart" only closes it after the save and you start it again; the page says so there. The same may hold for the game's
+own graphics-setting dialog, whose text the page cannot change.
 
 **Backups** (Saves): automatic ones (`storage.backups.keep`, default 20), one before every import, restore and risky
 setting, and your own (**Back up now**, at most 10, never deleted automatically). Restore one, or delete your own.
@@ -307,11 +318,12 @@ levels' Physics layer, how often bots think); they stay at the Mid values unless
 world loading too" (`graphics.fullProfile`). The start-up log says what the game really got: a `[boot] graphics:` line
 with the profile and every option. If a profile misbehaves, set it back to `auto` (or edit `settings.json`) and restart.
 
-**HD textures** (`hd.enabled`, default on; `hd.mount`). If `McvsOffline/hd/hd-textures.zip` exists, the game mounts it at
-start-up and textures inside it replace the ones in `Data/`. Today this is only a test: [tools/hd-textures](../tools/hd-textures/README.md)
-builds a probe zip from your own data in which one concrete texture is magenta, green or blue (one colour per file
-naming the engine might use); [STATUS.md](STATUS.md), "HD texture probe", has the steps. Without the file nothing
-changes; delete the file to undo. Never share the zip: it holds a copy of a game file.
+**HD textures** (`hd.enabled`, default on; `hd.mount`; needs the default patch `graphics`, which mounts the zip). If
+`McvsOffline/hd/hd-textures.zip` exists, the game mounts it at start-up and textures inside it replace the ones in
+`Data/`. Today this is only a test: [tools/hd-textures](../tools/hd-textures/README.md) builds a probe zip from your own
+data in which one concrete texture is magenta, green or blue (one colour per file naming the engine might use);
+[STATUS.md](STATUS.md), "HD texture probe", has the steps. Without the file nothing changes; delete the file to undo.
+Never share the zip: it holds a copy of a game file.
 
 **Notifications** (Android 13 and later). A build that targets Android 13 or later must ask for the notification
 permission, or the game's reminders are silently dropped. The game asks **once**, at the main menu, with Android's own

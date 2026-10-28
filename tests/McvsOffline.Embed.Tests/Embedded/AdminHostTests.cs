@@ -37,7 +37,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.Empty(info.MissingJni);
                 Assert.False(info.CanOpenPage || info.CanShareFile || info.CanSaveToDownloads || info.CanShareText || info.CanCopy ||
                              info.CanToast || info.CanSave || info.CanExit);
-                Assert.False(info.RelaunchBlocked);
+                Assert.False(info.RelaunchUnconfirmed);
                 Assert.Null(info.Notifications);
                 Assert.StartsWith("graphics: graphics.profile", info.Graphics);
                 Assert.StartsWith("hd textures:", info.HdTextures);
@@ -74,7 +74,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.Equal("/storage/emulated/0/Download/MCVS-Offline", info.PublicLogsDir);
                 Assert.True(info.CanOpenPage && info.CanShareFile && info.CanSaveToDownloads && info.CanShareText && info.CanCopy && info.CanToast && info.CanExit);
                 Assert.False(info.CanSave);   // no game: GameReflection unbound
-                Assert.True(info.RelaunchBlocked);   // Android 13+: the restart alarm brings nothing back (target-sdk.md §4.6)
+                Assert.True(info.RelaunchUnconfirmed);   // Android 13+: the restart alarm may bring nothing back (target-sdk.md §4.6, not observed yet)
                 host.NotificationStatus = () => "allowed";
                 Assert.Equal("allowed", host.Describe().Notifications);
                 host.NotificationStatus = () => throw new InvalidOperationException("jni");
@@ -96,7 +96,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                 platform.Missing.Clear();
                 platform.Sdk = 28;   // Android 9: file:// shares, no Downloads
                 info = host.Describe();
-                Assert.False(info.RelaunchBlocked);
+                Assert.False(info.RelaunchUnconfirmed);
                 Assert.True(info.CanShareFile);
                 Assert.False(info.CanSaveToDownloads);
                 platform.Missing.Add(AndroidJni.StrictSetVmPolicy.Key);

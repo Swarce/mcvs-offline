@@ -76,7 +76,14 @@ namespace McvsOffline.Embedded.Hd
         /// <summary>The <c>hd.mount</c> values.</summary>
         public static readonly string[] MountModes = { "auto", "save", "cache", "asset", "front" };
 
-        private static volatile string status = "hd textures: not checked yet";
+        /// <summary>
+        /// The status until the first engine hook of patch 'graphics' mounts the zip: an APK built without that patch keeps it,
+        /// so it names the patch instead of looking like a check still to come.
+        /// </summary>
+        public const string NotCheckedStatus =
+            "hd textures: not checked yet (the zip is mounted when the game first reads its graphics options, through patch 'graphics')";
+
+        private static volatile string status = NotCheckedStatus;
 
         /// <summary>One line for the status page and the status line.</summary>
         public static string Status { get { return status; } }
@@ -375,7 +382,7 @@ namespace McvsOffline.Embedded.Hd
         /// <summary>Tests: forget the last status.</summary>
         internal static void ResetForTests()
         {
-            status = "hd textures: not checked yet";
+            status = NotCheckedStatus;
         }
     }
 }

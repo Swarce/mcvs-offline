@@ -113,7 +113,7 @@ namespace McvsOffline.Server.Services.Admin
             host["freeBytes"] = info.FreeBytes;
             host["gameCredential"] = AdminApi.MaskCredential(info.GameCredential);
             host["restartVia"] = info.RestartVia;
-            host["relaunchBlocked"] = info.RelaunchBlocked;
+            host["relaunchUnconfirmed"] = info.RelaunchUnconfirmed;
             host["notifications"] = info.Notifications;
             host["graphics"] = info.Graphics;
             host["hdTextures"] = info.HdTextures;

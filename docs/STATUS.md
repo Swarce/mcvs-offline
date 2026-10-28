@@ -131,10 +131,15 @@ profile, HD textures and the notification permission".
   `GET_PERMISSIONS` and `TIRAMISU`.
 * Status › Game host › Notifications shows the state ("allowed", "not allowed (asked once on ...)", "not needed on Android
   12", "this build targets API 29, so Android asks by itself ...").
-* **Restart wording on Android 13+** (target-sdk.md §4.6 and critic note 3): AlarmManager starts no activity for an alarm
-  since Android 13, whatever the target, so the page's Restart texts (Actions, the restart dialog, the restart banner, its
-  toast) say that the game closes and must be started again; Status shows it next to "Restart via". The game's own
-  graphics-setting dialog uses the same relaunch and cannot be reworded by the host: the same holds there.
+* **Restart wording on Android 13+** (target-sdk.md §4.6 and critic note 3): by the AOSP source AlarmManager starts no
+  activity for an alarm since Android 13, whatever the target, so the game would close and not come back. No phone has
+  shown that on its own yet, and it conflicts with device test 8, which counts checks 1–13, item 9 ("does the game come
+  back by itself") included, as passed as a whole. So the page's Restart texts (Actions, the restart dialog, the restart
+  banner, its toast) and Status ("Restart via") say the game **may** only close and then must be started again; none
+  says it will not come back (`host.relaunchUnconfirmed`, Android 13+). The game's own graphics-setting dialog uses the
+  same relaunch and cannot be reworded by the host. **Question for the owner:** on the S22 (Android 16, target 29), does
+  Actions › Restart bring the game back by itself, or does it only close? The answer decides between a firm "closes;
+  start it again" and the relaunch fix of target-sdk.md §4.6.
 
 ### Checked
 
@@ -162,7 +167,9 @@ ETC1 texture through the CLI), `EngineFiles.Verify` and the main-menu members ag
    main menu, not over the settings page or the age gate; answer "Allow", Status shows "allowed"; on a second phone or after
    clearing `notifications.requestedAt`, answer "Don't allow": not asked again at the next start, Status says so. With a
    target-29 build: no dialog from the host.
-7. Actions › Restart on Android 16: the dialog says the game closes; it closes after saving; start it again.
+7. Actions › Restart on Android 16 (this is build 9's item 9, asked on its own): the dialog says the game may only close;
+   it saves, then does it come back by itself (one process, one boot) or only close? Also the game's own graphics-setting
+   restart. Report which one, at target 29 and at 35.
 
 ## Device test 8 (October 2026): the MCVS Offline page works
 
