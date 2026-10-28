@@ -161,7 +161,7 @@ Weekly division seasons, daily missions and weekly events add a second, play-dri
 
 | Source | Per | VersusCoins | Other |
 |---|---|---:|---|
-| Daily missions (3 of 6) | day | 450–600 | 30–35 Credits, the *Daily mission loot crate* (`Crate_Contracts`: mercs, tokens, gear, Credits) for all 3; one Cosmetic crate with the day's first mission |
+| Daily missions (3 of 6) | day | 450–600 | 30–35 Credits, the *Daily mission loot crate* (`Crate_Contracts`: mercs, tokens, gear, Credits) for all 3; one Cosmetic crate with one of the missions (its card shows the crate) |
 | Weekly event (4 objectives × 3 milestones) | week | 7,600 | 80 Credits, 600 upgrade tokens, 16 Cosmetic crates (1, 1 and 2 per objective's tiers); final: 20 HardCurrency + one cosmetic event crate (`Crate_Event_<n>`, 65 in rotation) |
 | End-of-season reward (the game's `PVPDivisionRewards`) | week | – | ranks 1–3: HardCurrency, a gear crate and a season emblem; 4–30: a Cosmetic crate of 1–4 × `itemsPerCrate` items by tier (it replaces one gear piece); 31–60: 120 Credits; `liveops.seasonRewardMultiplier` scales it |
 
@@ -206,12 +206,14 @@ the shop's 10-packs stay the faster way to the camos and jerseys). 10 items per 
 
 **Switches.** On the page (Settings › Economy): "Cosmetic crate" (`economy.collector.enabled`) and "Items per Cosmetic
 crate" (`economy.collector.itemsPerCrate`, 1–10, default 5); both apply after the next match, also to crates already
-earned but not opened. The presets do not touch them. More keys for testers (in `settings.json` only: `baseShare`,
+earned but not opened. Switching the crate asks first, because the running daily missions and weekly event restart. The presets do not touch them. More keys for testers (in `settings.json` only: `baseShare`,
 `weights`, `seasonCrates`, `maxSeasonItems`, `seasonEmblems`, `unlockableWindow`, `levelUpAvatars`, `exhaustedReward`)
 are listed in the design, §4.4.
 
-* **Kill switch**: `"economy": {"collector": {"enabled": false}}` (or `"collector": false`). A value the server cannot
-  read counts as **off**, and the page says so. Off: the events go back to their old rewards (the running day and
+* **Kill switch**: `"economy": {"collector": {"enabled": false}}` (or `"collector": false`; saving the item count on
+  the page keeps it off). A value the server cannot read counts as **off**, and the page says so; so does a
+  settings.json the server cannot parse at all (until it is fixed, or repaired on the page, which starts from the
+  defaults: on). Off: the events go back to their old rewards (the running day and
   week, and an ended week still waiting for its claims, are replaced once, losing their progress), ranks 4–30 get
   their gear piece again, and a Cosmetic crate that is still claimable pays 70 VersusCoins.
 * **The guard and its latch file.** From a day before `since`, and for good once the server has handed out an event

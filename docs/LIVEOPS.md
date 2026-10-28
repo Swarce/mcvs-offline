@@ -20,7 +20,8 @@ player's profile, saved by the game as always.
 | **Weekly modifier** | one per season, rotating | standard / Coin rush (VersusCoins ×1.5) / Trophy fever (division trophies ×1.5) / Credit rush (Credits ×1.5) / MVP bounty (MVP bonus ×3) / Rival surge (rivals ×1.2, VersusCoins and Credits ×1.25). Daily caps scale with the rewards. Visible in the division perks (daily cap, MVP bonus) and as a "MATCH REWARDS BOOSTED!" tag on the weekly event. |
 
 From `collector.since` (2026-11-09) the daily missions, the weekly event and the season rewards also hand out the
-**Cosmetic crate** ("CUSTOMIZATION CRATE", [ECONOMY.md](ECONOMY.md) §5): one with the day's first mission, one on tier 1
+**Cosmetic crate** ("CUSTOMIZATION CRATE", [ECONOMY.md](ECONOMY.md) §5): one with the day's first mission (the first
+picked; on the phone the mission whose card shows the crate, not necessarily the first row), one on tier 1
 and tier 2 and two on tier 3 of each weekly objective, and on ranks 4–30 at the season end. Placement, `since` and the
 guard: §7a.
 
@@ -206,7 +207,8 @@ profile until claimed (`MustKeepEventAliveAfterEnd`); its id is still served.
   only while the collector can run (`economy.collector.enabled`, a valid `collector.json`, the `store` patch). Earlier
   windows keep a byte-identical template and `_version`. Release with `since`, **never by bumping `revision`**: a bump
   replaces the running day and week for everybody (§9). Toggling `economy.collector.enabled` replaces the windows from
-  `since` once, too.
+  `since` once, too (the settings page asks first); so does a settings.json the server cannot parse, which counts as
+  off.
 * **The guard and its lead.** The TS sees tomorrow's missions all day and the next weekly event during the last day of
   a season, so the first crate-carrying window is in its hands up to a day before `since`. From `since − 1 day` (and
   for good once `FindEvent` served an event with the crate: the latch in `<data>/collector-guard.json`) the CRM

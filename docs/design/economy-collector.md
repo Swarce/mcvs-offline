@@ -99,6 +99,16 @@ round 2 in `collector/rev/`: `pools2.py`, `pace2.py`, `cells2.py`, `cells-{game,
 | Minor: `Crate.Cosmetic_Crate` reads the same as the 65 event crates' `Crate.Cosmetics_Crate` in 7 languages | §2.2: the crate is named `crm.CrateCustomization` ("CUSTOMIZATION CRATE", distinct in all 15 languages). |
 | Minor: WP-F never ran the paths a player hits | WP-F tests 9 (claim semantics, Cecil), 10 (list builds per screen and their cost), 11 (the real weighted draw over the served tables); the claim and reveal themselves stay device checks 2–4 (§7). |
 
+### 0.6 Build-9 integration review: what changed
+
+| Finding | Resolution |
+|---|---|
+| Major: the page showed the shorthand `"collector": false` as on, and saving the item count replaced it with `{"itemsPerCrate": N}`, switching the crate back on | §4.4: the page shows both keys as `CollectorOptions` reads them (`SettingsSchema.Read`), flagged with a note when settings.json holds something else; a write of either key first turns a non-object `collector` into `{"enabled": <what the collector read>}`. |
+| Minor: the page's invalid-value note said "the default is used" for the kill switch (read as off) and showed item counts the collector reads differently (`"8"`, 15) | §4.4: the note says what the server uses (`invalidNote`); `itemsPerCrate` is shown parsed and clamped as the collector does. |
+| Minor: a settings.json the server cannot parse ran on the defaults, collector on | §4.4: an unparseable file leaves the kill switch unreadable, so the collector is off (O7) until it is fixed or repaired; the repair panel says so. |
+| Minor: switching the crate on the page restarts the running events without warning | The switch asks first (`confirmWhen` any; no backup: the events' progress is not in the save). |
+| Minor: check 2 expected background + sound for every carrier draw; "the day's first mission" is not the first row on the phone | §7 check 2 and §3.1: a repeated sound pays a gear piece; the crate's mission is named by its card. |
+
 The design's cells were recomputed by `collector/rev3/cells3.py` (`cells2.py` with the exhausted row first, background
 carriers and the new loc id): 510 / 365 cells as before, hashes pinned by `StaticLayerMatchesTheDesignCells`.
 
@@ -601,7 +611,10 @@ milestone holding two crates reveals only the last one (the other's items are gr
 daily bonus (`Crate_Contracts` + Cosmetic) and weekly final (event crate + Cosmetic ×2). The collector block now puts
 its crate only where today's milestone holds none; `LiveOpsCatalog.ParseCollector` and content-gen refuse anything else
 (and the crate twice in one list). The Contracts and event crates keep their own reveal, exactly as today; the weekly
-total for full completion goes from 14 to 16 crates (§4.3). A milestone with a crate still **credits its currencies
+total for full completion goes from 14 to 16 crates (§4.3). "First" is the server's pick order: the phone lists the
+"complete all" bonus first, then claimable, in-progress and claimed missions (`GetMilestonesObject`), so the crate's
+mission is the one whose card shows the CUSTOMIZATION CRATE (usually right under the Contracts bonus row until another
+mission completes). A milestone with a crate still **credits its currencies
 without showing them** (they are claimed before the crate replaces the list; the milestone card lists them beforehand):
 the daily mission's VC/Credits, the tiers' VC/Credits/tokens (round 2's tiers too), as today's weekly final already
 does with its 20 HardCurrency. Device checks 2 and 3.
@@ -825,7 +838,14 @@ background + sound.
 | `exhaustedReward` | `"VersusCoins_Tiers4"` | `VersusCoins_Tiers0`…`6`, `UpgradeTokens_Tiers0`…`11` | row 1 | next CRM fetch |
 
 Parsed only by `CollectorOptions.FromSettings` (WP-C); out-of-range values are clamped and logged
-(`settings: economy.collector.<key> …`). `Settings.CreateDefaults` writes `economy.collector.enabled: true` so the
+(`settings: economy.collector.<key> …`). The kill switch fails toward today's behaviour (O7): `"collector": false` (a
+bool for the object) and the spellings `"off"`, `0`, `"no"` read as off; an `enabled` or `collector` value that cannot be
+read, and a settings.json the server cannot parse at all (`Settings.IsFallback`: it runs on the defaults, which say on),
+count as **off**, logged as an error. The settings page (Economy: "Cosmetic crate", "Items per Cosmetic crate") shows
+both keys as `FromSettings` reads them (`SettingsSchema.Read`), with a note (`invalidNote`) whenever settings.json holds
+something else (`"maybe"`, `"8"`, 15); saving either key first turns a non-object `collector` into
+`{"enabled": <what the collector read>}`, so an item-count edit never drops the kill switch. The switch asks before
+saving (the running daily missions and weekly event restart, §5.3). `Settings.CreateDefaults` writes `economy.collector.enabled: true` so the
 opt-out is discoverable in a new settings.json (WP-D); the other keys stay implicit. The settings snapshot is part of
 the CRM cache key. The lottery animates a claim only when its item count is ≤ `MaxRewardsInAnimation` (MCVS_Meta row 1:
 **10**; `PlayerProfileComponent.NotifyCrateReceived` counts bonus items too): at N = 5 the daily mission's crate (5–6
@@ -1076,8 +1096,12 @@ content.md (per-player collector cells, mirror policy, `_mcvs/collector`); STATU
    (1 Cosmetic crate object).
 2. Claim the daily **first mission** (its currencies + the Cosmetic crate): the crate lottery reveals the crate's items
    (≤ 10, `MaxRewardsInAnimation`) and **not** the mission's VersusCoins/Credits, which are credited unseen (check the
-   balance; D12, §3.1). Claim the daily bonus: the Contracts crate's own reveal, as today. Force a carrier draw
-   (`weights` everything 0 but `sounds`): background + sound revealed, no exception in the log.
+   balance; D12, §3.1); it is the mission whose card shows the CUSTOMIZATION CRATE, not necessarily the first row.
+   Claim the daily bonus: the Contracts crate's own reveal, as today. Force carrier draws (`weights` everything 0 but
+   `sounds`): on a fresh profile every item is a random background plus a sound; the draws are with replacement over
+   the 4 carriers, so a sound drawn a second time (at least one of 5) is already owned and shows a gear piece instead
+   (`AlternateRewards` KillSignature → `Gear_Random_1_Random`), as do later crates until the next profile read; once
+   all 4 sounds are owned and read, every item pays 70 VersusCoins. No exception in the log.
 3. Weekly tier 1 or 2 (VC + Credits/tokens + 1 Cosmetic crate): the lottery shows the 5 items, the currencies credited
    unseen. Weekly tier 3 (VC + tokens + 2 Cosmetic crates): 10 items animate; with a carrier (11–12) the plain list.
    Weekly final (20 HC + the event crate): the event crate's reveal, as today.

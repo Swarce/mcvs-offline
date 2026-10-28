@@ -69,7 +69,8 @@ The settings and diagnostics page of [design/settings-page.md](design/settings-p
   with the day's first mission, 1/1/2 on each weekly objective's tiers (16 a week), 1–4 × N items for ranks 4–30 at the
   season end, a season emblem for ranks 1–3; one crate per milestone. Settings page: "Cosmetic crate" and "Items per
   Cosmetic crate" (default 5); presets leave them alone. A 5-cell guard from a day before `since`, latched for good in
-  `<data>/collector-guard.json` once crates were handed out; an unreadable kill switch counts as off. Requires the
+  `<data>/collector-guard.json` once crates were handed out; an unreadable kill switch (or settings.json) counts as off,
+  and the page shows the switch as the server reads it. Requires the
   `store` patch (the embedded host reports it). Status screen and `GET /_mcvs/crm` show the phase; `GET
   /_mcvs/collector?account=` what was read from the save.
 * **Checked (both features, `6bcb3d8` plus the loose ends)**: the full check as above: **McvsOffline.Tests 1338/1338,
@@ -108,10 +109,13 @@ collector.since …)`, from 2026-11-09 `collector active (510 cells, …)`; Stat
     VersusCoins). The weekly final keeps its own event crate name. Log: `CRM: collector for <account>: base … left`.
 15. Time opening the weekly event screen: collector off, fresh profile, ~1,400 avatars owned, complete profile (target
     ≤ +0.5 s); and the daily missions screen.
-16. Claim the day's first mission: the lottery shows the crate's items, not the mission's VersusCoins/Credits (the
-    balance still rises). Claim the daily bonus: the Contracts crate's own reveal, as before.
-17. Sounds: `economy.collector.weights` all 0 but `sounds`; a crate gives background + sound pairs; no exception in the
-    game log.
+16. Claim the daily mission whose card shows the CUSTOMIZATION CRATE (the server's first pick: usually the row right
+    under the Contracts bonus, until another mission completes): the lottery shows the crate's items, not the
+    mission's VersusCoins/Credits (the balance still rises). Claim the daily bonus: the Contracts crate's own reveal, as before.
+17. Sounds: `economy.collector.weights` all 0 but `sounds`, fresh profile: every item is a random background plus a
+    sound; with 5 draws over 4 sounds at least one sound repeats and shows a gear piece instead (owned sound,
+    `AlternateRewards`), as later crates do until the next profile read; once all 4 are owned and read, items pay 70
+    VersusCoins. No exception in the game log.
 18. Weekly tier 1 or 2: 5 items animate; tier 3: 10 items (11–12 with a sound: plain list); the final: the event crate
     as before.
 19. `itemsPerCrate` 10: tier 3 (20 items) and a Master rank-4 season crate (40) show the plain list, every item listed;
@@ -124,9 +128,11 @@ collector.since …)`, from 2026-11-09 `collector active (510 cells, …)`; Stat
 23. Unlock-all + `UNLOCKPAID`: every item pays 70 VersusCoins; no milestone shows "unavailable".
 24. "Connecting to the server" after a match, collector on vs off, fresh and unlock-all (target ≤ +0.3 s); match start
     on vs off (≤ +0.1 s); one `CRM: collector for …` line per return.
-25. Switch "Cosmetic crate" off after 2026-11-09: the running events are replaced once and carry no crate, ranks 4–30
-    get their gear piece; log `collector guard (economy.collector.enabled is false)`.
-26. Stale crate: complete the first mission without claiming, switch the crate off, back to the menu; if the old
+25. Switch "Cosmetic crate" off after 2026-11-09 (the page asks first: the running events restart): the running events
+    are replaced once and carry no crate, ranks 4–30 get their gear piece; log `collector guard
+    (economy.collector.enabled is false)`. With `"collector": false` written by hand the page shows the switch off, and
+    saving "Items per Cosmetic crate" keeps it off.
+26. Stale crate: complete the crate's daily mission without claiming, switch the crate off, back to the menu; if the old
     mission is still there, claim it: 70 VersusCoins, no exception. `collector-guard.json` exists, `GET /_mcvs/crm`
     shows `cratesServed`; log `Cosmetic crates served for the first time`.
 27. Phone language with a decimal comma (e.g. Deutsch): a crate still opens exactly 5 items.

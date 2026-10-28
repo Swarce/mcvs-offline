@@ -285,6 +285,8 @@ save before saving the change, §4.4).
 | Economy | `economy.xpMultiplier` | XP speed | number 0.1–20, step 0.1 | 1.0 | menu | Divides the XP needed per player level and agent mastery level. |
 | Economy | `economy.priceMultiplier` | Shop prices | number 0.05–10, step 0.05 | 1.0 | menu | Scales every VersusCoins price in the offline shop (at least 1). |
 | Economy | `crm.dailyCapMultiplier` | Daily cap | number 0.1–20, step 0.1 | 1.0 | menu | Extra factor on the two daily caps only. |
+| Economy | `economy.collector.enabled` | Cosmetic crate | bool | true | menu | Random cosmetic crates in daily missions, weekly events and season rewards. Off restores the original rewards. Switching restarts the running daily missions and weekly event. `confirmWhen: any` (no backup): "The running daily missions and weekly event are replaced after the next match: their progress is lost (rewards already claimed stay)." Shown as `CollectorOptions` reads it (§4.4 `value`). |
+| Economy | `economy.collector.itemsPerCrate` | Items per Cosmetic crate | int 1–10 | 5 | menu | Shown as `CollectorOptions` reads it. |
 | Unlocks & codes | `unlockAll` | Unlock everything | bool | false | live | Grants what UNLOCKALL grants, through the inventory, at the game's next save (~11,400 rewards; the level jumps to ~46 and the game lags while it levels up). `confirmWhen: enable`, `backupBefore: enable`: "This cannot be undone: turning it off later removes nothing. A backup of your save is made now." |
 | Unlocks & codes | `assets.couponsEnabled` | Unlock codes | bool | true | live | Settings › Account › Redeem code accepts the codes listed below. |
 | Unlocks & codes | `crm.redeemCoupons` | Redeem-code button | bool | true | menu | Shows the Redeem code button in Settings › Account. |
@@ -510,7 +512,11 @@ not `idle`, `player.level` is omitted (no account lock is taken, §4.5).
 ```
 
 `value` is `Settings.Get(key)` (effective), coerced to the schema type for display (a value of the wrong type in the
-file is shown with `"invalidStored": true` and the default). `restartPending` lists the `restart` keys whose stored
+file is shown with `"invalidStored": true`, `"invalidNote"` and the default). The Cosmetic crate's two keys are shown as
+`CollectorOptions` reads them instead (`SettingsSchema.Read`: the shorthand `"collector": false`, an unreadable kill
+switch or settings.json = off, item counts parsed and clamped), flagged with a note saying what the server uses whenever
+the file holds something else; a write of either key turns a non-object `economy.collector` into
+`{"enabled": <what the collector read>}` first, so the kill switch survives. `restartPending` lists the `restart` keys whose stored
 value differs from the value at boot (snapshot taken in `AdminService.Register`).
 
 `POST settings` request:
