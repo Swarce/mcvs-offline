@@ -172,6 +172,18 @@ namespace McvsOffline.Embed.Tests.HdTextures
             RgbaImage decoded = encoder.Decompress(k1.Levels[0], 128, 128, 6, 6, false);
             Assert.True(decoded.IsOpaque());
 
+            // An original whose size is not a power of two (the ASTC pack keeps a few at the artist's size where the PC has
+            // them stretched to one): taken when it is the same picture, with a full chain at the PC size; another picture is not.
+            RgbaImage pcSquare = HdFixtures.Pattern(128, 128, 5, true);
+            byte[] npot = AstcOriginal(encoder, pcSquare.Bilinear(48, 40), 6);
+            AstcResult st = AstcConverter.Convert(npot, HdFixtures.Dds(pcSquare, false), new AstcSetting(5, 5, "fastest"), encoder);
+            Assert.Equal(128, st.Width);
+            Assert.Equal(8, st.MipLevels);
+            Assert.True(st.OriginalPsnr >= AstcConverter.MinStretchedPsnr, "stretched original PSNR " + st.OriginalPsnr);
+            byte[] other = AstcOriginal(encoder, HdFixtures.Pattern(48, 40, 99, true), 6);
+            Assert.Contains("stretched", Assert.Throws<InvalidDataException>(() =>
+                AstcConverter.Convert(other, HdFixtures.Dds(HdFixtures.Pattern(128, 128, 1, true).Bilinear(128, 128), false), new AstcSetting(5, 5, "fastest"), encoder)).Message);
+
             // Not the ASTC pack: refused.
             Assert.Throws<InvalidDataException>(() => AstcConverter.Convert(HdFixtures.AndroidKtxFile(pc.HalfSize(), 7), HdFixtures.Dds(pc, true),
                                                                              new AstcSetting(5, 5, "fastest"), encoder));

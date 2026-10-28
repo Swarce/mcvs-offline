@@ -199,7 +199,7 @@ namespace McvsOffline.Tools.HdTextures
                         done++;
                         log.WriteLine("[" + done + "/" + jobs.Count + "] " + job.Item1.AndroidPath.PadRight(12) + " " + job.Item1.Category.PadRight(10) + " " +
                                       (r.Width + "x" + r.Height).PadLeft(9) + " " + job.Item2.ToString().PadRight(15) + " PSNR " + Db(r.Psnr) +
-                                      (double.IsNaN(r.AlphaPsnr) ? "" : " alpha " + Db(r.AlphaPsnr)) + "  Gameloft " + Db(r.OriginalUpscaledPsnr) + "  " +
+                                      (double.IsNaN(r.AlphaPsnr) ? "" : " alpha " + Db(r.AlphaPsnr)) + "  Gameloft " + Db(r.OriginalUpscaledPsnr) + " (" + Db(r.OriginalPsnr) + " at its size)  " +
                                       r.Elapsed.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture) + " s");
                     }
                 }
@@ -585,7 +585,8 @@ namespace McvsOffline.Tools.HdTextures
                         string pcFile = Path.Combine(options.PcData, e.PcPath);
                         if (!File.Exists(pcFile)) throw new FileNotFoundException("no " + e.PcPath + " in the PC Data folder");
                         AstcResult r = AstcConverter.Convert(original, File.ReadAllBytes(pcFile), s, encoder);
-                        if (r.OriginalWidth != e.AndroidWidth || r.OriginalHeight != e.AndroidHeight || r.OriginalMipLevels != e.AndroidMips)
+                        // The table has the ETC pack's sizes: a stretched original (its own size kept in the ASTC pack) differs.
+                        if (!r.Stretched && (r.OriginalWidth != e.AndroidWidth || r.OriginalHeight != e.AndroidHeight || r.OriginalMipLevels != e.AndroidMips))
                             throw new InvalidDataException("the ASTC original is " + r.OriginalWidth + "x" + r.OriginalHeight + " with " + r.OriginalMipLevels + " levels, the table says " +
                                                            e.AndroidWidth + "x" + e.AndroidHeight + " with " + e.AndroidMips);
                         string target = Path.Combine(doneDir, e.Hash + ".f");

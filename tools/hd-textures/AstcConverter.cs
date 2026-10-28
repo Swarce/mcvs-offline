@@ -65,6 +65,9 @@ namespace McvsOffline.Tools.HdTextures
         public long GpuBytes { get; set; }
         public long OriginalGpuBytes { get; set; }
 
+        /// <summary>The original's size is not the PC's divided by a power of two; the PC texture is the same picture stretched.</summary>
+        public bool Stretched { get; set; }
+
         /// <summary>The original's alpha is opaque everywhere, so the replacement's alpha is set to 255 too.</summary>
         public bool Opaque { get; set; }
 
@@ -116,17 +119,34 @@ namespace McvsOffline.Tools.HdTextures
             Dds dds = Dds.Parse(pcRaw);
             int k = 0;
             while (k < 15 && (original.Width << k) < dds.Width) k++;
-            if (k == 0 || (original.Width << k) != dds.Width || (original.Height << k) != dds.Height)
-                throw new InvalidDataException("the PC texture is " + dds.Width + "x" + dds.Height + ", not a larger power-of-two multiple of the original " + original.Width + "x" + original.Height);
-            int levels = TextureConverter.LevelCount(original.MipLevels, k);
+            // A few originals of the ASTC pack keep the artist's size that is not a power of two (85x85, 1024x778) where the
+            // ETC pack and the PC have it stretched to one (128x128 and 256x256): texture coordinates are normalised, so the
+            // PC texture fits once it is shown to be the same picture stretched (below).
+            bool stretched = k == 0 || (original.Width << k) != dds.Width || (original.Height << k) != dds.Height;
+            if (stretched && (dds.Width <= original.Width || dds.Height <= original.Height))
+                throw new InvalidDataException("the PC texture is " + dds.Width + "x" + dds.Height + ", not larger than the original " + original.Width + "x" + original.Height);
+            // The chain ends at the same smallest size as the original's (one level more per doubling); 1 level stays 1.
+            int levels = original.MipLevels == 1 ? 1 : original.MipLevels + FullChain(dds.Width, dds.Height) - FullChain(original.Width, original.Height);
+            if (levels < 1 || levels > FullChain(dds.Width, dds.Height))
+                throw new InvalidDataException("the original's " + original.MipLevels + " levels give no chain at " + dds.Width + "x" + dds.Height);
 
             // The original's top level, decoded: does it use alpha, and how close is it to the PC texture today?
             RgbaImage originalTop = encoder.Decompress(original.Levels[0], original.Width, original.Height, ob[0], ob[1], srgb);
             bool opaque = MinAlpha(originalTop) >= 250;
+            if (stretched)
+            {
+                int i = 0;
+                while (i + 1 < dds.Levels.Count && Ktx.MipSize(dds.Width, i + 1) >= original.Width && Ktx.MipSize(dds.Height, i + 1) >= original.Height) i++;
+                RgbaImage same = dds.Decode(i).Bilinear(original.Width, original.Height);
+                double psnr = RgbaImage.Psnr(originalTop, same, 0, 3);
+                if (psnr < MinStretchedPsnr)
+                    throw new InvalidDataException("the PC texture " + dds.Width + "x" + dds.Height + " is not the original " + original.Width + "x" + original.Height +
+                                                   " stretched (PSNR " + psnr.ToString("0.0", CultureInfo.InvariantCulture) + " dB): Gameloft's file stays");
+            }
 
             var result = new AstcResult
             {
-                Setting = setting, Width = dds.Width, Height = dds.Height, MipLevels = levels, Opaque = opaque,
+                Setting = setting, Width = dds.Width, Height = dds.Height, MipLevels = levels, Opaque = opaque, Stretched = stretched,
                 OriginalWidth = original.Width, OriginalHeight = original.Height, OriginalMipLevels = original.MipLevels,
                 OriginalFormat = original.FormatName,
             };
@@ -134,7 +154,7 @@ namespace McvsOffline.Tools.HdTextures
 
             var encoded = new List<byte[]>();
             RgbaImage level0 = null, current = null;
-            for (int i = 0; i < Math.Max(levels, k + 1); i++)
+            for (int i = 0; i < Math.Max(levels, stretched ? 1 : k + 1); i++)
             {
                 current = i < dds.Levels.Count ? dds.Decode(i) : current.HalfSize();
                 int w = Ktx.MipSize(dds.Width, i), h = Ktx.MipSize(dds.Height, i);
@@ -142,7 +162,7 @@ namespace McvsOffline.Tools.HdTextures
                     throw new InvalidDataException("PC mip level " + i + " is " + current.Width + "x" + current.Height + ", " + w + "x" + h + " expected");
                 if (opaque) SetOpaque(current);
                 if (i == 0) level0 = current;
-                if (i == k) result.OriginalPsnr = RgbaImage.Psnr(originalTop, current, 0, 3);
+                if (i == k && !stretched) result.OriginalPsnr = RgbaImage.Psnr(originalTop, current, 0, 3);
                 if (i >= levels) continue;
                 byte[] blocks = encoder.Compress(current, setting.BlockX, setting.BlockY, setting.Quality, srgb);
                 encoded.Add(blocks);
@@ -150,6 +170,7 @@ namespace McvsOffline.Tools.HdTextures
                 result.Texels += (long)w * h;
             }
 
+            if (stretched) result.OriginalPsnr = RgbaImage.Psnr(originalTop, level0.Bilinear(original.Width, original.Height), 0, 3);
             RgbaImage decoded = encoder.Decompress(encoded[0], dds.Width, dds.Height, setting.BlockX, setting.BlockY, srgb);
             result.Psnr = RgbaImage.Psnr(decoded, level0, 0, 3);
             result.OriginalUpscaledPsnr = RgbaImage.Psnr(originalTop.Bilinear(dds.Width, dds.Height), level0, 0, 3);
@@ -165,6 +186,17 @@ namespace McvsOffline.Tools.HdTextures
             result.File = wrapped ? GcbfWriter.Encode(file) : file;
             result.Elapsed = clock.Elapsed;
             return result;
+        }
+
+        /// <summary>Below this PSNR (dB, RGB) between the original and the PC texture at the original's size, a PC texture of another shape is not taken.</summary>
+        public const double MinStretchedPsnr = 30.0;
+
+        /// <summary>Levels of a full chain down to 1x1.</summary>
+        internal static int FullChain(int width, int height)
+        {
+            int levels = 1;
+            while (Math.Max(width, height) >> levels > 0) levels++;
+            return levels;
         }
 
         /// <summary>The KTX header of an ASTC pack file (GCBF-wrapped or not): format, size, levels and GPU bytes; null when not an ASTC KTX.</summary>
