@@ -7,7 +7,7 @@ using System.Text;
 
 namespace McvsOffline.Embedded.Hd
 {
-    /// <summary>The HD zip is not usable (structure, ZIP64, an entry outside the file, a CRC mismatch).</summary>
+    /// <summary>The HD pack is not usable (zip structure, ZIP64, an entry outside the file, a CRC mismatch, its manifest).</summary>
     internal sealed class HdZipException : Exception
     {
         public HdZipException(string message) : base(message) { }
@@ -31,11 +31,10 @@ namespace McvsOffline.Embedded.Hd
     }
 
     /// <summary>
-    /// A minimal zip reader for the HD texture override zip (McvsOffline/hd/hd-textures.zip, docs/research/pc-textures.md WP3
-    /// route B): the end-of-central-directory record, the central directory and, for stored entries, their bytes. It only checks
-    /// what the host needs before handing the file to the engine's own zip search path: the structure is complete, there is no
-    /// ZIP64, every entry lies inside the file. No decompression (the HD zips are written stored, so the engine can map
-    /// entries as they are). Throws <see cref="HdZipException"/> for anything else.
+    /// A minimal zip reader for the HD texture pack (McvsOffline/hd/mcvs-hd-*.zip, docs/design/hd-textures.md §2): the
+    /// end-of-central-directory record, the central directory and, for stored entries, their bytes. It checks that the structure
+    /// is complete, there is no ZIP64 and every entry lies inside the file. No decompression: the pack's entries are stored
+    /// (the .f files are LZ4 blocks already). Throws <see cref="HdZipException"/> for anything else.
     /// </summary>
     internal sealed class StoredZip
     {
@@ -156,6 +155,36 @@ namespace McvsOffline.Embedded.Hd
                 byte[] bytes = ReadAt(file, data, (int)entry.Size);
                 if (McvsOffline.Server.Core.Content.Crc32.Compute(bytes) != entry.Crc32) throw new HdZipException("'" + entry.Name + "' fails its CRC-32");
                 return bytes;
+            }
+        }
+
+        /// <summary>
+        /// Streams the bytes of a stored entry to <paramref name="sink"/> in pieces of at most 256 KiB and checks them against the
+        /// entry's CRC-32 at the end (<see cref="HdZipException"/> when they differ: the caller drops what it wrote).
+        /// </summary>
+        public void CopyStored(StoredZipEntry entry, Action<byte[], int, int> sink)
+        {
+            if (entry == null) throw new ArgumentNullException("entry");
+            if (entry.Method != 0) throw new HdZipException("'" + entry.Name + "' is compressed (the pack's entries must be stored)");
+            using (var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                byte[] header = ReadAt(file, entry.LocalHeaderOffset, 30);
+                if (U32(header, 0) != LocalSignature) throw new HdZipException("local header of '" + entry.Name + "' is damaged");
+                long data = entry.LocalHeaderOffset + 30 + U16(header, 26) + U16(header, 28);
+                if (data + entry.Size > length) throw new HdZipException("'" + entry.Name + "' lies outside the file");
+                file.Position = data;
+                var buffer = new byte[256 * 1024];
+                long left = entry.Size;
+                uint crc = 0;
+                while (left > 0)
+                {
+                    int n = file.Read(buffer, 0, (int)Math.Min(buffer.Length, left));
+                    if (n <= 0) throw new HdZipException("unexpected end of file in '" + entry.Name + "'");
+                    crc = McvsOffline.Embedded.Install.Crc32.Update(crc, buffer, 0, n);
+                    sink(buffer, 0, n);
+                    left -= n;
+                }
+                if (crc != entry.Crc32) throw new HdZipException("'" + entry.Name + "' fails its CRC-32");
             }
         }
 

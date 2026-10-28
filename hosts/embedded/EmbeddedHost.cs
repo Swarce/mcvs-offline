@@ -176,7 +176,7 @@ namespace McvsOffline.Embedded
                   .Append(", store items skipped: ").Append(GameHooks.StoreReports).Append('\n');
                 sb.Append(GameHooks.DescribePhysics());
                 sb.Append('\n').Append(GraphicsHooks.Describe());
-                sb.Append('\n').Append(HdTextures.Status);
+                sb.Append('\n').Append(HdInstaller.Status);
                 string extras = diagnostics == null ? null : diagnostics.StatusExtras();
                 if (!string.IsNullOrEmpty(extras)) sb.Append('\n').Append(extras);
             }
@@ -449,10 +449,25 @@ namespace McvsOffline.Embedded
                 };
                 var locations = new McvsOffline.Embedded.Install.InstallerDataLocations(internalDir, Paths.GameRoot);
                 long now = (long)(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds;
+                // The HD texture pack (docs/design/hd-install.md) lives in the installer's index too: its files are made to match
+                // before InstallerData looks at the data, and the pack is installed or removed after it, still before the installer.
+                var hdOptions = new HdInstallerOptions { Enabled = Settings.GetBool("hd.enabled", true), ManageInstaller = options.Manage };
+                Log hdLog = Logger.For("hd");
+                options.HdOriginalSizes = HdInstaller.Prepare(locations, hdOptions, hdLog).OriginalSizes;
                 McvsOffline.Embedded.Install.InstallerDataResult result =
                     McvsOffline.Embedded.Install.InstallerData.Prepare(locations, installer.InstallerPrefs(), options, log, now);
                 Boot.Mark(result.Summary);
-                if (result.IndexToVerify != null) StartDataVerify(installer, locations, result, log);
+                HdResult hd = HdInstaller.Apply(locations, hdOptions, hdLog);
+                Boot.Mark(hd.Summary.StartsWith("hd textures: ", StringComparison.Ordinal) ? "hd: " + hd.Summary.Substring(13) : hd.Summary);
+                McvsOffline.Embedded.Install.PackIndex verify = result.IndexToVerify;
+                if (verify != null && hd.IndexChanged)
+                {
+                    // The CRC check reads the index as it is now: the HD files carry their own CRCs.
+                    string error;
+                    byte[] raw = File.Exists(locations.PackInfo) ? File.ReadAllBytes(locations.PackInfo) : null;
+                    verify = raw == null ? null : McvsOffline.Embedded.Install.PackIndex.TryParse(raw, out error);
+                }
+                if (verify != null) StartDataVerify(installer, locations, verify, result.WaitForInstaller, log);
             }
             catch (Exception ex)
             {
@@ -476,10 +491,8 @@ namespace McvsOffline.Embedded
         /// MiB. A check that does not get through resumes at the next start (InstallerData.VerifyContent, verify-pending).
         /// </summary>
         private void StartDataVerify(IInstallerPlatform installer, McvsOffline.Embedded.Install.InstallerDataLocations locations,
-                                     McvsOffline.Embedded.Install.InstallerDataResult result, Log log)
+                                     McvsOffline.Embedded.Install.PackIndex index, bool mustWait, Log log)
         {
-            McvsOffline.Embedded.Install.PackIndex index = result.IndexToVerify;
-            bool mustWait = result.WaitForInstaller;
             var thread = new Thread(() =>
             {
                 try
@@ -541,20 +554,14 @@ namespace McvsOffline.Embedded
         }
 
         /// <summary>
-        /// settings.json "graphics" and "hd" (patch 'graphics', docs/research/pc-textures.md WP0, WP1/WP3): which of Gameloft's GPU
-        /// profiles the engine gets (GameOptionsProfile), and the HD texture zip, mounted by the first call of the patched
-        /// GameOptions component (the engine's file system is up, no level has loaded). Both apply at the next start.
+        /// settings.json "graphics" (patch 'graphics', docs/research/pc-textures.md WP0): which of Gameloft's GPU profiles the engine
+        /// gets (GameOptionsProfile). Applies at the next start.
         /// </summary>
         private void ConfigureGraphics()
         {
             string profile = Settings.GetString("graphics.profile", GameOptionsProfile.Auto);
             bool full = Settings.GetBool("graphics.fullProfile", false);
-            bool hdEnabled = Settings.GetBool("hd.enabled", true);
-            string hdMount = Settings.GetString("hd.mount", "auto");
-            string zip = HdTextures.ZipPath(Paths.DataDir);
-            BootTrace boot = Boot;
-            GraphicsHooks.Configure(profile, full, Logger.For("game"), boot,
-                                    () => HdTextures.Mount(zip, hdEnabled, hdMount, new EngineFiles(), s => boot.Mark(s)));
+            GraphicsHooks.Configure(profile, full, Logger.For("game"), Boot);
             string normalized = GameOptionsProfile.Normalize(profile);
             if (normalized == null)
                 Log.Warn("settings graphics.profile '" + profile + "' is not one of auto, mid, high, ultra: the game picks its GPU profile itself");
@@ -722,7 +729,6 @@ namespace McvsOffline.Embedded
             changed |= AddDefault("graphics.profile", GameOptionsProfile.Auto);
             changed |= AddDefault("graphics.fullProfile", false);
             changed |= AddDefault("hd.enabled", true);
-            changed |= AddDefault("hd.mount", "auto");
             changed |= AddDefault(NotificationPermission.RequestKey, true);
             changed |= AddDefault(NotificationPermission.RequestedAtKey, "");
             if (!changed) return;
