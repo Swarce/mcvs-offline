@@ -5,6 +5,9 @@ namespace McvsOffline.Server.Core
     {
         // The embedded build cannot carry AssemblyVersion attributes (trimmed mscorlib), so the version lives here.
         public const string Current = "0.1.0-dev";
+
+        /// <summary>The device build number (docs/STATUS.md "build N"), bumped for every build handed to a device test.</summary>
+        public const string Build = "9";
     }
 
     /// <summary>Fixed facts about the game build we serve (APK 1.17.32). Configurable values live in Settings.</summary>

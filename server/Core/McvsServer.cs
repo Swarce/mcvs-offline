@@ -58,6 +58,12 @@ namespace McvsOffline.Server
 
         /// <summary>Options of the server.log file (fallback directory, start-up size report); null: defaults.</summary>
         public SafeLogFileOptions FileLogOptions { get; set; }
+
+        /// <summary>
+        /// What the host knows about the game client (the embedded host probes the loaded Game.dll); registered in
+        /// <c>context.Features</c>. null: unknown (the standalone host cannot see the client).
+        /// </summary>
+        public ClientCapabilities ClientCapabilities { get; set; }
     }
 
     /// <summary>
@@ -67,12 +73,18 @@ namespace McvsOffline.Server
     /// </summary>
     public sealed class McvsServer : IDisposable
     {
+        /// <summary>WARN/ERROR entries kept for the settings page's "recent problems" (<see cref="ServerContext.Problems"/>).</summary>
+        public const int ProblemCapacity = 200;
+
         private readonly object gate = new object();
         private readonly RequestLogger requestLogger;
         private readonly HttpServerLimits limits;
+        private readonly Log gateLog;
         private HttpServer http;
         private bool disposed;
         private FileLogSink fileSink;
+        private int lastHostWarningTick;
+        private bool hostWarned;
 
         private McvsServer(ServerContext context, Router router, RequestLogger requestLogger, HttpServerLimits limits, BootTrace boot)
         {
@@ -81,6 +93,7 @@ namespace McvsOffline.Server
             this.requestLogger = requestLogger;
             this.limits = limits ?? new HttpServerLimits();
             Boot = boot;
+            gateLog = context.Logger.For("gate");
         }
 
         /// <summary>Milestones of the game's boot chain, recognised from the requests (see <see cref="BootTrace"/>).</summary>
@@ -102,6 +115,11 @@ namespace McvsOffline.Server
             Directory.CreateDirectory(dataDir);
 
             var logger = new Logger();
+            // Tickets, session cookies, passwords and tokens never reach a sink (design §5.4).
+            logger.Redactor = LogRedaction.Redact;
+            // Before settings.json is loaded, so its problems are on the settings page's status too.
+            var problems = new MemoryLogSink(LogLevel.Warn, ProblemCapacity);
+            logger.AddSink(problems);
             // Console first with defaults, so problems loading settings.json are visible.
             ConsoleLogSink console = null;
             if (options.ConsoleLog)
@@ -145,6 +163,13 @@ namespace McvsOffline.Server
             var content = new ContentProvider(pack, Path.Combine(dataDir, "content"), logger.For("content"));
 
             var context = new ServerContext(dataDir, settings, logger, options.Clock, content);
+            context.Problems = problems;
+            ClientCapabilities client = options.ClientCapabilities ?? new ClientCapabilities();
+            context.Features.Set(client);
+            if (client.StorePatch == false)
+                log.Warn("client: Game.dll lacks the patcher's 'store' patch (left out with --patches): the collector stays off");
+            else
+                log.Info("client: 'store' patch " + (client.StorePatch == true ? "present" : "unknown (assumed present)"));
             var requestLogger = new RequestLogger(logger, Path.Combine(dataDir, "logs", "unknown-endpoints.jsonl"),
                                                   () => settings.LogBodyLimit);
             var router = new Router(requestLogger);
@@ -179,6 +204,7 @@ namespace McvsOffline.Server
                 IPAddress address = ParseBind(Context.Settings.Bind);
                 Context.ResetStop();
                 var server = new HttpServer(address, Context.Settings.Port, Handle, Context.Logger.For("http"), limits);
+                server.RequestBodyLimit = BodyLimitFor;
                 server.Start();
                 http = server;
                 Context.Port = server.Port;
@@ -200,12 +226,13 @@ namespace McvsOffline.Server
             server.Stop();
         }
 
-        /// <summary>Routes one request and logs it. Never throws.</summary>
+        /// <summary>Checks one request with the <see cref="LocalAccessGate"/>, routes it and logs it. Never throws.</summary>
         public HttpResponse Handle(HttpRequest request)
         {
             int started = Environment.TickCount;
             try { Boot.RequestStarted(request); } catch (Exception) { }
-            HttpResponse response = Router.Dispatch(request);
+            HttpResponse response = Refusal(request);
+            if (response == null) response = Router.Dispatch(request);
             int elapsed = Environment.TickCount - started;
             try
             {
@@ -216,6 +243,80 @@ namespace McvsOffline.Server
             }
             try { Boot.RequestFinished(request, response); } catch (Exception) { }
             return response;
+        }
+
+        /// <summary>
+        /// The gate's answer for a refused request (logged under the route name "core.gate"), or null. Reads
+        /// security.hostCheck, lanMode, bind, publicUrl and admin.openVia per request, so the file-only switches apply
+        /// without a restart.
+        /// </summary>
+        private HttpResponse Refusal(HttpRequest request)
+        {
+            try
+            {
+                string refusal;
+                HttpResponse response = LocalAccessGate.Check(request, CurrentGateOptions(), out refusal);
+                if (response == null) return null;
+                request.SetRoute("core.gate", RouteValues.Empty);
+                if (refusal == LocalAccessGate.RefusedFederationHost) WarnRefusedHost(request);
+                return response;
+            }
+            catch (Exception ex)
+            {
+                // A gate bug must not open the admin routes: refuse them, let the game's routes through.
+                gateLog.Error("gate failed for #" + request.Id, ex);
+                if (!LocalAccessGate.IsAdminPath(request)) return null;
+                request.SetRoute("core.gate", RouteValues.Empty);
+                return LocalAccessGate.Refuse(HttpStatus.NotFound, "not_found", "Not found.");
+            }
+        }
+
+        private GateOptions CurrentGateOptions()
+        {
+            Settings settings = Context.Settings;
+            bool loopback;
+            try
+            {
+                loopback = IPAddress.IsLoopback(ParseBind(settings.Bind));
+            }
+            catch (ArgumentException)
+            {
+                loopback = false;
+            }
+            return new GateOptions
+            {
+                Port = Context.Port,
+                BoundToLoopback = loopback,
+                LanMode = settings.LanMode,
+                HostCheck = settings.GetBool("security.hostCheck", true),
+                PublicUrlHost = LocalAccessGate.HostOfUrl(settings.PublicUrl),
+                OpenVia = settings.GetString("admin.openVia", "auto"),
+            };
+        }
+
+        /// <summary>At most one WARN per minute: a page in a browser trying to reach the server by another name.</summary>
+        private void WarnRefusedHost(HttpRequest request)
+        {
+            lock (gate)
+            {
+                int now = Environment.TickCount;
+                if (hostWarned && now - lastHostWarningTick < 60000) return;
+                hostWarned = true;
+                lastHostWarningTick = now;
+            }
+            string host = request.Host ?? "";
+            if (host.Length > 100) host = host.Substring(0, 100) + "...";
+            gateLog.Warn("gate: refused Host '" + host + "' for " + Truncate(request.Path, 200) + " (DNS rebinding?)");
+        }
+
+        private long BodyLimitFor(string method, string target, HttpHeaders headers)
+        {
+            return LocalAccessGate.BodyLimit(method, target, headers, Context.IsValidAdminSession, Context.AdminRouteBodyLimit);
+        }
+
+        private static string Truncate(string s, int max)
+        {
+            return s == null || s.Length <= max ? s : s.Substring(0, max) + "...";
         }
 
         public void Dispose()

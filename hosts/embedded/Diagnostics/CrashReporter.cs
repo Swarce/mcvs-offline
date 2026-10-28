@@ -30,7 +30,8 @@ namespace McvsOffline.Embedded.Diagnostics
     /// already reported as non-fatal still goes through); separate budgets of <see cref="NonFatalBudget"/> non-fatal and
     /// <see cref="FatalBudget"/> fatal reports per process, so routine unobserved task faults (MoreAsync.WithCancellation
     /// abandons the task it waits on) can never use up the report of the crash itself. Never throws, never waits on
-    /// another thread without a budget.
+    /// another thread without a budget. The report text goes through <c>LogRedaction.Redact</c> before it is written
+    /// anywhere (an exception message may carry a page ticket; design §5.4).
     /// </summary>
     public static class CrashReporter
     {
@@ -168,7 +169,8 @@ namespace McvsOffline.Embedded.Diagnostics
                 lastReported = exception;
                 lastReportedFatal = fatal;
                 int number = Interlocked.Increment(ref sequence);
-                string text = Build(source, exception, fatal);
+                // Crash files are mirrored to Download/ and zipped for sharing: no ticket, cookie or password in them (§5.4).
+                string text = Redact(Build(source, exception, fatal));
                 SelfLog.Write(fatal ? SelfLog.Fatal : SelfLog.Error, text);
                 string path = WriteCrashFile(text, fatal, number);
                 try
@@ -227,6 +229,19 @@ namespace McvsOffline.Embedded.Diagnostics
             {
             }
             return sb.ToString();
+        }
+
+        /// <summary>LogRedaction.Redact; the unredacted text if that ever fails (a report is never lost).</summary>
+        private static string Redact(string text)
+        {
+            try
+            {
+                return McvsOffline.Server.Core.Http.LogRedaction.Redact(text) ?? text;
+            }
+            catch (Exception)
+            {
+                return text;
+            }
         }
 
         private static string WriteCrashFile(string text, bool fatal, int number)

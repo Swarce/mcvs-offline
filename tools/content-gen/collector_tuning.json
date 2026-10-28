@@ -1,0 +1,41 @@
+{
+  "_comment": [
+    "MCVS Offline Cosmetic crate (economy collector) tuning: the rule inputs of docs/design/economy-collector.md section 1.",
+    "tools/content-gen/content_gen.py validates it against the player's decoded data (design tables, catalogue, loc ids,",
+    "assets) and writes server/Content/collector.json (ids only). Weights, items per crate and the other runtime knobs are",
+    "settings (economy.collector.*), not content. The crate's live-ops rewards and their start date are the 'collector'",
+    "block of liveops_tuning.json."
+  ],
+  "crate": {
+    "id": "Crate_Event_Special",
+    "_locId": "CUSTOMIZATION CRATE: differs in every language from Crate.Cosmetics_Crate, the name of the 65 weekly event crates (Crate.Cosmetic_Crate reads the same in 7 languages)",
+    "locId": "crm.CrateCustomization",
+    "image": "Menus/assets/png/Crates/Crates/crate_Legendary_Open.png"
+  },
+  "kayac": {
+    "_comment": "Kayac/Kayac2 emblems never come from the crate (O5): asset under one of the folders (prefixes, so Kayac/ includes Kayac/holidays/), or 'nameContains' in the file name (case-insensitive), or an 'extra' id (382 Japan Cup, 383 Kayac logo)",
+    "folders": ["Menus/assets/png/profile/Kayac/", "Menus/assets/png/profile/Kayac2/"],
+    "nameContains": "kayac",
+    "extra": [382, 383]
+  },
+  "_reservePlacementEmblems": "true: the starred season emblems are kept for ranks 1-3 of a division season (D4), not in the crate",
+  "reservePlacementEmblems": true,
+  "sounds": [2, 3, 4, 5],
+  "_soundCarrier": "the random signature row each sound rides on (D8): Background (a 35-entry list per IsAvailable/preview, not the 1,518 avatars) or Avatar",
+  "soundCarrier": "Background",
+  "_skins": "[merc, skin]: the no-source skins, one MercSkin row each, in this order",
+  "skins": [[2, 5], [4, 6], [6, 4], [8, 7], [9, 3], [9, 4], [10, 7], [11, 3], [11, 4], [12, 4], [15, 6], [17, 6], [17, 11],
+            [17, 12], [19, 4], [20, 4]],
+  "_hiddenJerseys": "VisibleInShop=false jerseys (11 of the 12 use Kayac-folder art, named by O5): remove an id to drop it",
+  "hiddenJerseys": [112, 143, 144, 152, 153, 212, 213, 214, 268, 269, 270, 271],
+  "agents": [17, 21],
+  "_exhausted": "the row that pays when every collectible is owned (D7); economy.collector.exhaustedReward replaces it at run time",
+  "exhausted": "VersusCoins_Tiers4",
+  "_rows": "row order: exhausted first, so CrateRewardItem.IsAvailable (any row available, in table order) stops at a VersusCoins row without building a signature list",
+  "rows": ["exhausted", "avatars", "backgrounds", "sounds", "skins", "hiddenJerseys", "agents", "camos", "jerseys"],
+  "season": {
+    "tiers": ["Starter", "Bronze", "Silver", "Gold", "Platinum", "Diamond", "Master"],
+    "numerals": ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"],
+    "emblemFolder": "Menus/assets/png/profile/season_rewards/"
+  }
+}

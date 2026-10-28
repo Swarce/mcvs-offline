@@ -1,8 +1,10 @@
 // Host: embedded - owner group: EMBED (hosts/embedded, patcher/)
 // Platform-independent: compiled into the embedded DLL and into the net8 tests.
 using System;
+using System.Collections.Generic;
 using System.IO;
 using McvsOffline.Server.Core;
+using McvsOffline.Server.Services.Admin;
 
 namespace McvsOffline.Embedded
 {
@@ -68,6 +70,65 @@ namespace McvsOffline.Embedded
         /// -1 cannot tell (its class or fields cannot be read). Reads fields only; never throws.
         /// </summary>
         int InstallerHandedOver();
+    }
+
+    /// <summary>
+    /// Optional: what the settings page needs from the device (design §8.2; Android: <c>AndroidPlatform</c> over the JNI table of
+    /// <c>AndroidJni</c>). <see cref="Admin.AdminHost"/> decides when and in which order; the platform only performs. Every member
+    /// is thread-safe, catches everything and returns a failure result instead of throwing.
+    /// </summary>
+    public interface IAdminPlatform
+    {
+        /// <summary>Build.VERSION.SDK_INT.</summary>
+        int SdkInt { get; }
+
+        /// <summary>InGameBrowser.SetParameters("EN") + OpenURL(url, true). False: not called or failed.</summary>
+        bool OpenInGameBrowserJni(string url);
+
+        /// <summary>InGameBrowser.SetParameters("EN") + OpenURLWithPostData(url, postData).</summary>
+        bool OpenInGameBrowserWithPostData(string url, string postData);
+
+        /// <summary>InGameBrowser.b (public static boolean: a browser is shown).</summary>
+        bool IsInGameBrowserOpen();
+
+        /// <summary>InGameBrowser.QuitIGB() when a browser is shown. False: none was open, or the call failed.</summary>
+        bool QuitInGameBrowser();
+
+        /// <summary>Copies path into Download/MCVS-Offline/displayName and, unless subject is null, starts the share chooser.</summary>
+        AdminShareResult ShareFile(string path, string mimeType, string displayName, string subject, string text);
+
+        /// <summary>
+        /// The game's own SUtils.shareInfo(subject, text, title) on the UI thread, within a second: Ok "text" once it ran, Ok false
+        /// with Method "text" when it started but had not ended (the sheet may still open), "none" when it never runs.
+        /// </summary>
+        AdminShareResult ShareText(string subject, string text);
+
+        /// <summary>
+        /// ClipboardManager.setPrimaryClip(ClipData.newPlainText(label, text)) on the UI thread, within a second. True once it ran;
+        /// false otherwise (a copy the UI thread had not started is withdrawn).
+        /// </summary>
+        bool CopyToClipboard(string label, string text);
+
+        /// <summary>Toast.makeText(context, text, LENGTH_LONG).show() on the UI thread.</summary>
+        void ShowToast(string text);
+
+        /// <summary>
+        /// MainActivity.d.a(relaunch) on the UI thread (§8.8). True: it ran or is running. False: it never runs (no MainActivity,
+        /// it threw, or the UI thread had not started it within 2 s and it was withdrawn), so the host's restart may follow at once.
+        /// </summary>
+        bool ExitViaGame(bool relaunch);
+
+        /// <summary>Relaunch alarm (when relaunch), finishAndRemoveTask, killProcess 200 ms later, on the UI thread (§8.8).</summary>
+        bool ExitViaHost(bool relaunch);
+
+        /// <summary>Environment.getExternalStoragePublicDirectory("Download") + "/MCVS-Offline", or null.</summary>
+        string PublicDownloadsDir();
+
+        /// <summary>StatFs.getAvailableBytes of path's volume, -1 on failure.</summary>
+        long FreeBytes(string path);
+
+        /// <summary>AndroidJni table entries that did not resolve ("class.name descriptor").</summary>
+        List<string> MissingJniMembers();
     }
 
     /// <summary>A fixed directory as game root (tests, and running the embedded host on a PC).</summary>

@@ -24,10 +24,33 @@ namespace McvsOffline.Server.Core.Http
     }
 
     /// <summary>
+    /// A request body larger than the limit for its path (<see cref="LocalAccessGate.BodyLimit"/>), refused after the
+    /// headers and before any further body byte is read. The server answers 413 and closes the connection.
+    /// </summary>
+    internal sealed class RequestBodyLimitException : Exception
+    {
+        public RequestBodyLimitException(string method, string path, long limit, long length)
+            : base(method + " " + path + ": body of " + (length < 0 ? "more than " + limit.ToString(CultureInfo.InvariantCulture) : length.ToString(CultureInfo.InvariantCulture))
+                   + " bytes exceeds the limit of " + limit.ToString(CultureInfo.InvariantCulture) + " bytes")
+        {
+            Limit = limit;
+        }
+
+        public long Limit { get; private set; }
+    }
+
+    /// <summary>
     /// Reads one HTTP/1.x request from a connection: request line, headers, then the body framed by
     /// Transfer-Encoding: chunked or Content-Length. Answers "Expect: 100-continue" with an interim
     /// "100 Continue" before reading the body: Mono's HttpWebRequest-based client sends it on POSTs and may
     /// otherwise wait before sending large form bodies (report 02 §1.5, verify-C3 §7.8).
+    /// <para>
+    /// A per-request body limit (<c>bodyLimit(method, target, headers)</c>, the settings page's
+    /// <see cref="LocalAccessGate.BodyLimit"/>) is asked right after the headers: a declared Content-Length above it, or a
+    /// chunked body that grows past it, throws <see cref="RequestBodyLimitException"/> before the (rest of the) body is
+    /// read and before "100 Continue" is sent, so a request without a session never makes the server buffer more than
+    /// 1 KiB under /_mcvs/ (design §5.2 rule 5).
+    /// </para>
     /// </summary>
     internal static class HttpRequestParser
     {
@@ -38,7 +61,8 @@ namespace McvsOffline.Server.Core.Http
         /// Throws <see cref="HttpProtocolException"/> for malformed requests and IOException for transport errors.
         /// </summary>
         public static HttpRequest Read(HttpConnectionReader reader, Stream output, HttpServerLimits limits,
-                                       IPEndPoint remote, IPEndPoint local)
+                                       IPEndPoint remote, IPEndPoint local,
+                                       Func<string, string, HttpHeaders, long> bodyLimit = null)
         {
             // Request line (RFC 7230 §3.5: ignore empty lines before it).
             string line;
@@ -93,6 +117,14 @@ namespace McvsOffline.Server.Core.Http
                 lastName = name;
             }
 
+            // The limit for this request (header time); a negative answer means the global limit.
+            long limit = limits.MaxBodyBytes;
+            if (bodyLimit != null)
+            {
+                long specific = bodyLimit(method, target, headers);
+                if (specific >= 0 && specific < limit) limit = specific;
+            }
+
             bool http11 = version == "HTTP/1.1";
             bool keepAlive = http11 ? !headers.HasToken("Connection", "close") : headers.HasToken("Connection", "keep-alive");
 
@@ -124,8 +156,11 @@ namespace McvsOffline.Server.Core.Http
                     }
                 }
                 contentLength = length ?? 0;
-                if (contentLength > limits.MaxBodyBytes)
+                if (contentLength > limit)
+                {
+                    if (limit < limits.MaxBodyBytes) throw new RequestBodyLimitException(method, PathOf(target), limit, contentLength);
                     throw new HttpProtocolException(HttpStatus.PayloadTooLarge, "body of " + contentLength + " bytes exceeds the limit");
+                }
             }
 
             string expect = headers.Get("Expect");
@@ -143,7 +178,7 @@ namespace McvsOffline.Server.Core.Http
             byte[] body;
             if (chunked)
             {
-                body = ReadChunkedBody(reader, headers, limits);
+                body = ReadChunkedBody(reader, headers, limits, limit, method, target);
             }
             else if (contentLength > 0)
             {
@@ -163,7 +198,8 @@ namespace McvsOffline.Server.Core.Http
             return request;
         }
 
-        private static byte[] ReadChunkedBody(HttpConnectionReader reader, HttpHeaders headers, HttpServerLimits limits)
+        private static byte[] ReadChunkedBody(HttpConnectionReader reader, HttpHeaders headers, HttpServerLimits limits,
+                                              long limit, string method, string target)
         {
             using (var body = new MemoryStream())
             {
@@ -180,8 +216,11 @@ namespace McvsOffline.Server.Core.Http
                         throw new HttpProtocolException(HttpStatus.BadRequest, "invalid chunk size '" + Truncate(sizeLine, 40) + "'");
                     }
                     if (size == 0) break;
-                    if (body.Length + size > limits.MaxBodyBytes)
+                    if (body.Length + size > limit)
+                    {
+                        if (limit < limits.MaxBodyBytes) throw new RequestBodyLimitException(method, PathOf(target), limit, -1);
                         throw new HttpProtocolException(HttpStatus.PayloadTooLarge, "chunked body exceeds the limit");
+                    }
                     var chunk = new byte[size];
                     reader.ReadExact(chunk, 0, (int)size);
                     body.Write(chunk, 0, chunk.Length);
@@ -215,6 +254,14 @@ namespace McvsOffline.Server.Core.Http
             var bytes = new byte[latin1.Length];
             for (int i = 0; i < latin1.Length; i++) bytes[i] = (byte)latin1[i];
             return Encoding.UTF8.GetString(bytes);
+        }
+
+        /// <summary>The path of a request-target without its query (a refused request is logged without parameters).</summary>
+        private static string PathOf(string target)
+        {
+            string rawPath, rawQuery;
+            HttpRequest.SplitTarget(target, out rawPath, out rawQuery);
+            return Truncate(rawPath, 200);
         }
 
         private static string Truncate(string s, int max)

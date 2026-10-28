@@ -19,39 +19,61 @@ namespace McvsOffline.Server.Services
     {
         public static void RegisterAll(Router router, ServerContext context)
         {
+            RegisterAll(router, context, null);
+        }
+
+        /// <summary>
+        /// As <see cref="RegisterAll(Router, ServerContext)"/>, with only the modules whose name <paramref name="include"/>
+        /// accepts (null: all). For tests that leave a module out, e.g. the admin modules.
+        /// </summary>
+        public static void RegisterAll(Router router, ServerContext context, Func<string, bool> include)
+        {
+            Action<string, Action<Router, ServerContext>> Register = (module, register) =>
+            {
+                if (include == null || include(module)) RegisterModule(module, register, router, context);
+            };
+
             // AUTH group
-            Register("eve", Eve.EveService.Register, router, context);
-            Register("pandora", Pandora.PandoraService.Register, router, context);
-            Register("auth", Auth.AuthService.Register, router, context);
+            Register("eve", Eve.EveService.Register);
+            Register("pandora", Pandora.PandoraService.Register);
+            Register("auth", Auth.AuthService.Register);
 
             // STORAGE group
-            Register("storage", Storage.StorageService.Register, router, context);
+            Register("storage", Storage.StorageService.Register);
 
             // CONTENT group
-            Register("crm", Crm.CrmService.Register, router, context);
-            Register("matchmaker", Matchmaker.MatchmakerService.Register, router, context);
-            Register("assets", Assets.AssetsService.Register, router, context);
+            Register("crm", Crm.CrmService.Register);
+            Register("matchmaker", Matchmaker.MatchmakerService.Register);
+            Register("assets", Assets.AssetsService.Register);
 
             // MISC group
-            Register("social", Social.SocialService.Register, router, context);
-            Register("messaging", Messaging.MessagingService.Register, router, context);
-            Register("alerts", Alerts.AlertsService.Register, router, context);
-            Register("leaderboards", Leaderboards.LeaderboardsService.Register, router, context);
-            Register("gamestats", GameStats.GameStatsService.Register, router, context);
-            Register("profanity", Profanity.ProfanityService.Register, router, context);
-            Register("chat", Chat.ChatService.Register, router, context);
-            Register("clans", Clans.ClansService.Register, router, context);
-            Register("wall", Wall.WallService.Register, router, context);
-            Register("bantool", BanTool.BanToolService.Register, router, context);
-            Register("geo", Geo.GeoService.Register, router, context);
-            Register("misc", Misc.MiscService.Register, router, context);
+            Register("social", Social.SocialService.Register);
+            Register("messaging", Messaging.MessagingService.Register);
+            Register("alerts", Alerts.AlertsService.Register);
+            Register("leaderboards", Leaderboards.LeaderboardsService.Register);
+            Register("gamestats", GameStats.GameStatsService.Register);
+            Register("profanity", Profanity.ProfanityService.Register);
+            Register("chat", Chat.ChatService.Register);
+            Register("clans", Clans.ClansService.Register);
+            Register("wall", Wall.WallService.Register);
+            Register("bantool", BanTool.BanToolService.Register);
+            Register("geo", Geo.GeoService.Register);
+            Register("misc", Misc.MiscService.Register);
 
             // Cross-module glue (core): settings.unlockAll through the inventory ledger. Uses STORAGE's IProfileAccess,
             // CONTENT's unlocks.json groups and MISC's alerts.push topic, so it registers after all of them.
-            Register("unlocks", Unlocks.UnlocksService.Register, router, context);
+            Register("unlocks", Unlocks.UnlocksService.Register);
+
+            // ADMIN group: the settings and diagnostics page (docs/design/settings-page.md). "admin" provides AdminApi and
+            // IAdminPortal, which the other two build on. "admin-saves" goes last: it applies a staged import, restore,
+            // relink or undo (and reverts one the game never loaded) before McvsServer.Start opens the port, so the game
+            // never sees the state from before it. A second registration of any of the three is ignored.
+            Register("admin", Admin.AdminService.Register);
+            Register("admin-logs", Admin.Logs.LogsService.Register);
+            Register("admin-saves", Admin.Saves.SavesService.Register);
         }
 
-        private static void Register(string module, Action<Router, ServerContext> register, Router router, ServerContext context)
+        private static void RegisterModule(string module, Action<Router, ServerContext> register, Router router, ServerContext context)
         {
             int before = router.Routes.Length;
             try

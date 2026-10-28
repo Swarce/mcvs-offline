@@ -82,14 +82,18 @@ namespace McvsOffline.Server.Services.Pandora
             return route.Name.StartsWith(RouteNamePrefix, StringComparison.Ordinal);
         }
 
-        /// <summary>True for module routes whose template starts with a literal segment (not a broad catch-all, not "/").</summary>
+        /// <summary>
+        /// True for module routes whose template starts with a literal segment (not a broad catch-all, not "/"), except
+        /// "_mcvs": "/auth/_mcvs/..." must never reach a settings-page or diagnostics route, which the gate guards by the
+        /// request's own path (design §5.2).
+        /// </summary>
         private static bool IsSpecific(Route route)
         {
             if (route.Order >= Router.CoreOrder) return false;
             foreach (string piece in route.Template.Text.Split('/'))
             {
                 if (piece.Length == 0) continue;
-                return piece[0] != '{';
+                return piece[0] != '{' && !string.Equals(piece, "_mcvs", StringComparison.OrdinalIgnoreCase);
             }
             return false;
         }

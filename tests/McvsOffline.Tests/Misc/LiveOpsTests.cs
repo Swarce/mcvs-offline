@@ -2,11 +2,17 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.IO;
+using System.Text;
 using McvsOffline.Server.Core;
+using McvsOffline.Server.Core.Content;
 using McvsOffline.Server.Core.Json;
+using McvsOffline.Server.Services.Crm.Collector;
 using McvsOffline.Server.Services.Leaderboards;
 using McvsOffline.Server.Services.Social;
 using McvsOffline.Server.Services.Social.LiveOps;
+using McvsOffline.Tests.Content;
+using McvsOffline.Tests.Golden;
 using Xunit;
 
 namespace McvsOffline.Tests.Misc
@@ -540,7 +546,515 @@ namespace McvsOffline.Tests.Misc
             Assert.Equal(2, tables.LevelBonus(1));
         }
 
+        // ------------------------------------------------------------------------------------------ the Cosmetic crate (economy-collector.md §3.2)
+
+        /// <summary>The shipped collector <c>since</c>: Monday 2026-11-09 00:00 UTC.</summary>
+        private static readonly DateTime Since = CollectorGuard.ShippedSince;
+
+        /// <summary>Wednesday 2026-11-11 12:00 UTC: the day and the season started at or after <see cref="Since"/>.</summary>
+        private static readonly DateTime AfterSince = new DateTime(2026, 11, 11, 12, 0, 0, DateTimeKind.Utc);
+
+        /// <summary>
+        /// WP-0's golden events (the daily quest and the weekly event of each of the 16 days, live ops on and off, text
+        /// with <c>_version</c>) are served byte for byte with the collector off, collector.json missing or broken, or the
+        /// store patch known missing; with the collector on, every window that starts before <c>since</c> keeps its text
+        /// and only the windows from <c>since</c> on change (they carry the crate).
+        /// </summary>
+        [Theory]
+        [InlineData("disabled")]
+        [InlineData("contentMissing")]
+        [InlineData("contentBroken")]
+        [InlineData("storePatchMissing")]
+        [InlineData("on")]
+        public void LiveOpsCollectorOffMatchesGolden(string scenario)
+        {
+            Action<GoldenRun> setup;
+            switch (scenario)
+            {
+                case "disabled": setup = run => run.Set("economy.collector.enabled", false); break;
+                case "contentMissing": setup = run => TestContent.Install(run.Context).Hide(CollectorContent.FileName); break;
+                case "contentBroken": setup = run => run.OverrideContent(CollectorContent.FileName, "{\"format\": "); break;
+                case "storePatchMissing": setup = run => run.Context.Features.Get<ClientCapabilities>().StorePatch = false; break;
+                case "on": setup = null; break;
+                default: throw new ArgumentException(scenario);
+            }
+            List<GoldenOutput> events = GoldenScenarios.RunAll(setup)
+                                                       .Where(o => o.Kind == GoldenScenarios.Daily || o.Kind == GoldenScenarios.Weekly).ToList();
+            Assert.Equal(2 * 2 * GoldenScenarios.DayCount, events.Count);
+            bool on = scenario == "on";
+            List<GoldenOutput> kept = events.Where(o => !on || !o.LiveOps || WindowOf(o).Start < GoldenScenarios.Since).ToList();
+            Assert.Empty(GoldenScenarios.Mismatches(kept));
+
+            List<GoldenOutput> changed = events.Except(kept).ToList();
+            int daysFromSince = (int)(GoldenScenarios.FirstDay.AddDays(GoldenScenarios.DayCount) - GoldenScenarios.Since).TotalDays;
+            Assert.Equal(on ? 2 * daysFromSince : 0, changed.Count);       // the daily and the weekly event of 11-09 … 11-17
+            Assert.Equal(changed.Count, GoldenScenarios.Mismatches(changed).Count);
+            foreach (GoldenOutput o in changed)
+            {
+                Assert.Equal(200, o.Status);
+                Assert.Contains(CollectorGuard.CrateId, (string)MiniJson.ParseObject(o.Text)["_template"]);
+            }
+            foreach (GoldenOutput o in kept.Where(o => o.LiveOps)) Assert.DoesNotContain(CollectorGuard.CrateId, o.Text);
+        }
+
+        [Fact]
+        public void TheCrateFollowsTodaysRewardsInEveryWindowFromSince()
+        {
+            using var f = new LiveOpsFixture(AfterSince);
+            LiveOpsCatalog catalog = f.LiveOps.Catalog;
+            LiveOpsCollectorRewards collector = catalog.Collector;
+            Assert.NotNull(collector);
+            Assert.Null(catalog.CollectorProblem);
+            Assert.Equal(Since, collector.Since);
+            CollectorRuntime runtime = f.Runtime;
+            int crateDays = 0, crateSeasons = 0;
+
+            // Quest days at reset hours 0 and 6: a day that starts before since (2026-11-08 06:00) keeps its event.
+            foreach (int resetHour in new[] { 0, 6 })
+            {
+                LiveOpsSettings s = Settings(7, resetHour);
+                for (DateTime t = Since.AddDays(-3); t < Since.AddDays(10); t = t.AddHours(12))
+                {
+                    LiveOpsWindow day = LiveOpsSchedule.DayAt(s, t);
+                    Dictionary<string, object> plain = LiveOpsEvents.DailyQuest(catalog, day);
+                    Dictionary<string, object> served = LiveOpsEvents.DailyQuest(catalog, day, runtime);
+                    Assert.Equal(day.Start >= Since, LiveOpsEvents.CratesIn(catalog, day, runtime));
+                    if (day.Start < Since)
+                    {
+                        Assert.Equal(MiniJson.Serialize(plain), MiniJson.Serialize(served));
+                        continue;
+                    }
+                    crateDays++;
+                    List<Dictionary<string, object>> a = Achievements(served), p = Achievements(plain);
+                    Assert.Equal(p.Count, a.Count);
+                    // The day's first mission gets the crate after its rewards; the other missions and the bonus (with its
+                    // Contracts crate: one crate per milestone) stay as they are.
+                    Assert.Equal(p[0]["primary_tracker"], a[0]["primary_tracker"]);
+                    Assert.Equal(JsonPath.Get(Milestone(p[0], 0), "milestone_value"), JsonPath.Get(Milestone(a[0], 0), "milestone_value"));
+                    Assert.Equal(Rewards(p[0], 0).Concat(new[] { "Crate_Event_Special x1" }), Rewards(a[0], 0));
+                    for (int i = 1; i < a.Count; i++) Assert.Equal(MiniJson.Serialize(p[i]), MiniJson.Serialize(a[i]));
+                    Assert.Equal(new[] { "Crate_Contracts x1" }, Rewards(a.Last(), 0));
+                    AssertOneCratePerMilestone(served);
+                    Assert.NotEqual(plain["_version"], served["_version"]);
+                    Assert.Null(TleTemplateValidator.Problem(served));
+                }
+            }
+
+            // Seasons of 7 days and of 1 day: every tier gets its crates after today's rewards (tier 3 two: the final's,
+            // which holds the event crate); the final stays as it is.
+            foreach (int days in new[] { 7, 1 })
+            {
+                LiveOpsSettings s = Settings(days);
+                LiveOpsModifier standard = catalog.Modifier("standard");
+                for (DateTime t = Since.AddDays(-14); t < Since.AddDays(14); t = t.AddDays(1))
+                {
+                    LiveOpsWindow season = LiveOpsSchedule.SeasonAt(s, t);
+                    Dictionary<string, object> plain = LiveOpsEvents.WeeklyEvent(catalog, season, standard);
+                    Dictionary<string, object> served = LiveOpsEvents.WeeklyEvent(catalog, season, standard, runtime);
+                    if (season.Start < Since)
+                    {
+                        Assert.Equal(MiniJson.Serialize(plain), MiniJson.Serialize(served));
+                        continue;
+                    }
+                    crateSeasons++;
+                    List<Dictionary<string, object>> a = Achievements(served), p = Achievements(plain);
+                    Assert.Equal(p.Count, a.Count);
+                    for (int i = 0; i < a.Count - 1; i++)
+                    {
+                        Assert.Equal(p[i]["primary_tracker"], a[i]["primary_tracker"]);
+                        int milestones = ((List<object>)a[i]["milestones"]).Count;
+                        Assert.Equal(3, milestones);
+                        for (int m = 0; m < milestones; m++)
+                        {
+                            Assert.Equal(JsonPath.Get(Milestone(p[i], m), "milestone_value"), JsonPath.Get(Milestone(a[i], m), "milestone_value"));
+                            Assert.Equal(Rewards(p[i], m).Concat(new[] { "Crate_Event_Special x" + (m == 2 ? 2 : 1) }), Rewards(a[i], m));
+                        }
+                    }
+                    string eventCrate = catalog.EventCrates[(int)(LiveOpsSchedule.Ordinal(season) % catalog.EventCrates.Count)];
+                    Assert.Equal(new[] { "HardCurrency x20", eventCrate + " x1" }, Rewards(a.Last(), 0));
+                    Assert.Equal(MiniJson.Serialize(p.Last()), MiniJson.Serialize(a.Last()));
+                    AssertOneCratePerMilestone(served);
+                    Assert.NotEqual(plain["_version"], served["_version"]);
+                    Assert.Null(TleTemplateValidator.Problem(served));
+                }
+            }
+            Assert.Equal(2 * 2 * 10 - 1, crateDays);                       // 11-09 00:00 … 11-18 12:00, and from 11-09 06:00
+            Assert.Equal(2 * 7 + 14, crateSeasons);                         // two weekly seasons of 7 days each, 14 one-day seasons
+
+            // The catalogue's own lists are never changed by a call.
+            Assert.Equal(new[] { "Crate_Contracts x1" }, catalog.DailyBonusRewards.Select(r => r.Item + " x" + r.Quantity));
+            Assert.All(catalog.WeeklyMilestoneRewards, tier => Assert.DoesNotContain(tier, r => r.Item == CollectorGuard.CrateId));
+        }
+
+        [Fact]
+        public void TogglingTheCollectorChangesTheKeyAndOnlyTheEventsFromSince()
+        {
+            var clock = new ManualClock(AfterSince);
+            using var s = new MiscServer(clock);
+            TestPlayer p = s.NewPlayer("toggle");
+            LiveOpsService live = LiveOpsService.For(s.Context);
+            ClientCapabilities client = s.Context.Features.Get<ClientCapabilities>();
+            // Today and tomorrow, a day before since, the running season, the one before (kept alive) and the next one.
+            string[] ids =
+            {
+                "mcvs_daily_2026111100", "mcvs_daily_2026111200", "mcvs_daily_2026110500",
+                "mcvs_weekly_2026110900x7", "mcvs_weekly_2026110200x7", "mcvs_weekly_2026111600x7",
+            };
+            Dictionary<string, string> Versions()
+            {
+                var body = MiniJson.ParseArray(s.Get("/events?event_ids=" + string.Join(",", ids) + "&language=en", p.OnBehalfToken).BodyText);
+                Assert.Equal(ids.Length, body.Count);
+                return body.Cast<Dictionary<string, object>>().ToDictionary(e => (string)e["id"], e => (string)e["_version"]);
+            }
+            bool FromSince(string id) => (LiveOpsSchedule.TryParseDaily(id) ?? LiveOpsSchedule.TryParseWeekly(id)).Start >= Since;
+
+            string key = live.Snapshot(clock.UtcNow).Key;
+            string keyBefore = live.Snapshot(Wednesday).Key;
+            Dictionary<string, string> on = Versions();
+
+            s.Set("economy.collector.enabled", false);
+            Assert.NotEqual(key, live.Snapshot(clock.UtcNow).Key);
+            Dictionary<string, string> off = Versions();
+            foreach (string id in ids)
+            {
+                if (FromSince(id)) Assert.NotEqual(on[id], off[id]);
+                else Assert.Equal(on[id], off[id]);
+            }
+            // Before since the key changes as well (it is a cache key); the events there do not (above).
+            Assert.NotEqual(keyBefore, live.Snapshot(Wednesday).Key);
+
+            s.Set("economy.collector.enabled", true);
+            Assert.Equal(key, live.Snapshot(clock.UtcNow).Key);
+            Assert.Equal(on, Versions());
+
+            // A setting the crate's presence does not depend on changes neither.
+            s.Set("economy.collector.itemsPerCrate", 3L);
+            s.Set("economy.collector.baseShare", 0.5);
+            Assert.Equal(key, live.Snapshot(clock.UtcNow).Key);
+            Assert.Equal(on, Versions());
+
+            // The store patch known missing: no crate (as disabled); known present: the crate (another key than unknown).
+            client.StorePatch = false;
+            Assert.NotEqual(key, live.Snapshot(clock.UtcNow).Key);
+            Assert.Equal(off, Versions());
+            client.StorePatch = true;
+            Assert.NotEqual(key, live.Snapshot(clock.UtcNow).Key);
+            Assert.Equal(on, Versions());
+            client.StorePatch = null;
+            Assert.Equal(key, live.Snapshot(clock.UtcNow).Key);
+        }
+
+        public static IEnumerable<object[]> BrokenCollectorBlocks()
+        {
+            const string Crate = "{\"item\":\"Crate_Event_Special\",\"quantity\":1}";
+            const string Tiers = "[[" + Crate + "],[" + Crate + "],[" + Crate + "]]";
+            string Block(string since = "\"2026-11-09T00:00:00Z\"", string daily = "[]", string mission = "[" + Crate + "]", string tiers = Tiers,
+                         string final = "[]", string extra = "")
+                => "{\"since\":" + since + ",\"dailyBonus\":" + daily + ",\"dailyMission\":" + mission + ",\"weeklyMilestones\":" + tiers
+                   + ",\"weeklyFinal\":" + final + extra + "}";
+            return new[]
+            {
+                new object[] { "[]", "collector is not an object" },
+                new object[] { "\"on\"", "collector is not an object" },
+                new object[] { "{\"since\":\"2026-11-09T00:00:00Z\",\"dailyBonus\":[],\"weeklyMilestones\":" + Tiers + "}", "missing: dailyMission, weeklyFinal" },
+                new object[] { Block(extra: ",\"weeklyFinals\":[]"), "unknown: weeklyFinals" },
+                new object[] { Block(since: "\"next monday\""), "collector.since \"next monday\" is not an ISO 8601 time" },
+                new object[] { Block(since: "20261109"), "collector.since 20261109 is not an ISO 8601 time" },
+                new object[] { Block(since: "null"), "collector.since null is not an ISO 8601 time" },
+                new object[] { Block(tiers: "[[" + Crate + "],[" + Crate + "]]"), "one reward list per weekly milestone tier (3)" },
+                new object[] { Block(tiers: "[]"), "one reward list per weekly milestone tier (3)" },
+                new object[] { Block(daily: Crate), "collector.dailyBonus must be a list of rewards" },
+                new object[] { Block(tiers: "[[" + Crate + "],[" + Crate + "]," + Crate + "]"), "collector.weeklyMilestones[2] must be a list of rewards" },
+                new object[] { Block(daily: "[{\"item\":\"Crate_Event_Special\",\"quantity\":0}]"), "collector.dailyBonus: the quantity of Crate_Event_Special must be a positive integer" },
+                new object[] { Block(daily: "[{\"item\":\"Crate_Event_Special\",\"quantity\":1.5}]"), "the quantity of Crate_Event_Special must be a positive integer" },
+                new object[] { Block(daily: "[{\"item\":\"Crate_Event_Special\",\"quantity\":\"1\"}]"), "the quantity of Crate_Event_Special must be a positive integer" },
+                new object[] { Block(daily: "[{\"item\":\"Crate_Event_Special\"}]"), "the quantity of Crate_Event_Special must be a positive integer" },
+                new object[] { Block(final: "[{\"quantity\":2}]"), "collector.weeklyFinal: a reward must be an {item, quantity} object" },
+                new object[] { Block(final: "[7]"), "collector.weeklyFinal: a reward must be an {item, quantity} object" },
+                new object[] { Block(final: "[{\"item\":\"Crate_Contracts\",\"quantity\":1}]"), "collector.weeklyFinal: Crate_Contracts is neither a currency nor Crate_Event_Special" },
+                new object[] { Block(daily: "[{\"item\":\"crate_event_special\",\"quantity\":1}]"), "crate_event_special is neither a currency nor Crate_Event_Special" },
+                new object[] { Block(daily: "[{\"item\":\"VersusCoins\",\"quantity\":100}]", mission: "[]", tiers: "[[],[],[]]", final: "[]"), "collector hands out no Crate_Event_Special" },
+                new object[] { Block(mission: Crate), "collector.dailyMission must be a list of rewards" },
+                // One crate per milestone (§3.1): the claim reveals only a milestone's last crate.
+                new object[] { Block(daily: "[" + Crate + "]"), "collector.dailyBonus: the daily bonus already holds a crate (Crate_Contracts)" },
+                new object[] { Block(final: "[" + Crate + "]"), "collector.weeklyFinal: the weekly final already holds a crate (the event crate)" },
+                new object[] { Block(tiers: "[[" + Crate + "," + Crate + "],[],[]]"), "collector.weeklyMilestones[0]: Crate_Event_Special twice in one milestone" },
+                new object[] { Block(mission: "[" + Crate + "," + Crate + "]"), "collector.dailyMission: Crate_Event_Special twice in one milestone" },
+            };
+        }
+
+        /// <summary>A broken block is refused and logged; live ops run exactly as without it (no crate anywhere).</summary>
+        [Theory]
+        [MemberData(nameof(BrokenCollectorBlocks))]
+        public void ABrokenCollectorBlockLeavesLiveOpsRunning(string block, string problem)
+        {
+            var logs = new MemoryLogSink();
+            var logger = new Logger();
+            logger.AddSink(logs);
+            LiveOpsCatalog broken = LiveOpsCatalog.Parse(LiveOpsContent.WithCollector(block), logger.For("liveops"));
+            LiveOpsCatalog without = LiveOpsCatalog.Parse(LiveOpsContent.WithCollector(null), null);
+            Assert.False(broken.IsEmpty);
+            Assert.Null(broken.Collector);
+            Assert.Contains(problem, broken.CollectorProblem);
+            Assert.Equal("no collector block", without.CollectorProblem);
+            LogEntry error = Assert.Single(logs.Snapshot(), e => e.Level >= LogLevel.Warn);
+            Assert.Equal(LogLevel.Error, error.Level);
+            Assert.Contains("collector block refused (" + broken.CollectorProblem + ")", error.Message);
+
+            // Every event of two weeks from since, with a runtime that would hand out the crate, is the one without the block.
+            using var f = new LiveOpsFixture(AfterSince);
+            Assert.True(f.Runtime.CratesInWindow(AfterSince, Since));
+            LiveOpsSettings s = Settings();
+            for (DateTime t = Since.AddDays(-2); t < Since.AddDays(14); t = t.AddDays(1))
+            {
+                LiveOpsWindow day = LiveOpsSchedule.DayAt(s, t), season = LiveOpsSchedule.SeasonAt(s, t);
+                Assert.Equal(MiniJson.Serialize(LiveOpsEvents.DailyQuest(without, day, f.Runtime)), MiniJson.Serialize(LiveOpsEvents.DailyQuest(broken, day, f.Runtime)));
+                LiveOpsModifier m = broken.Modifier("standard");
+                Assert.Equal(MiniJson.Serialize(LiveOpsEvents.WeeklyEvent(without, season, m, f.Runtime)),
+                             MiniJson.Serialize(LiveOpsEvents.WeeklyEvent(broken, season, m, f.Runtime)));
+                Assert.Equal(MiniJson.Serialize(LiveOpsEvents.DivisionSeason(without, season, 7)), MiniJson.Serialize(LiveOpsEvents.DivisionSeason(broken, season, 7)));
+                Assert.DoesNotContain(CollectorGuard.CrateId, MiniJson.Serialize(LiveOpsEvents.DailyQuest(broken, day, f.Runtime)));
+            }
+        }
+
+        [Fact]
+        public void ABrokenCollectorBlockInAnOverrideStillServesEveryEvent()
+        {
+            var clock = new ManualClock(AfterSince);
+            using var s = new MiscServer(clock);
+            OverrideContent(s, LiveOpsCatalog.ContentName, LiveOpsContent.WithCollector("{\"since\":\"soon\"}"));
+            TestPlayer p = s.NewPlayer("broken-block");
+            List<string> ids = Participation(MiscServer.Obj(s.Get("/configs/users/me?access_token=t")));
+            Assert.Equal(17 * 2 + 2 + 1, ids.Count);
+            string body = s.Get("/events?event_ids=" + string.Join(",", ids) + "&language=en", p.OnBehalfToken).BodyText;
+            Assert.Equal(ids.Count, MiniJson.ParseArray(body).Count);
+            Assert.DoesNotContain(CollectorGuard.CrateId, body);
+            Assert.Contains(s.Logs.Snapshot(), e => e.Level == LogLevel.Error && e.Message.Contains("collector block refused"));
+
+            LiveOpsSnapshot snap = LiveOpsService.For(s.Context).Snapshot(clock.UtcNow);
+            Assert.True(snap.On);
+            Assert.Null(snap.CollectorSince);
+            var page = MiscServer.Obj(s.Get("/_mcvs/liveops"));
+            Assert.Equal(true, page["enabled"]);
+            Assert.Equal("Guard", JsonPath.Get(page, "collector.phase"));   // since unknown: the guard from the shipped since
+            Assert.Null(JsonPath.Get(page, "collector.since"));
+            Assert.Empty((List<object>)JsonPath.Get(page, "collector.activeFor"));
+            Assert.StartsWith("collector needs exactly the keys", (string)JsonPath.Get(page, "collector.block"));
+        }
+
+        [Fact]
+        public void CollectorListsMayBeEmptyAsLongAsTheCrateIsHandedOut()
+        {
+            // The content-only fallback of §8: crates on tier 3 and the final only; a comment key; a date-only since.
+            string text = LiveOpsContent.WithCollector("{\"_why\":\"fewer crate objects per screen\",\"since\":\"2026-11-09\",\"dailyBonus\":[],\"dailyMission\":[],"
+                                                       + "\"weeklyMilestones\":[[],[],[{\"item\":\"Crate_Event_Special\",\"quantity\":2},"
+                                                       + "{\"item\":\"VersusCoins\",\"quantity\":100}]],\"weeklyFinal\":[]}");
+            LiveOpsCatalog catalog = LiveOpsCatalog.Parse(text, null);
+            Assert.NotNull(catalog.Collector);
+            Assert.Equal(Since, catalog.Collector.Since);
+            Assert.Equal(DateTimeKind.Utc, catalog.Collector.Since.Kind);
+            LiveOpsCatalog without = LiveOpsCatalog.Parse(LiveOpsContent.WithCollector(null), null);
+
+            using var f = new LiveOpsFixture(AfterSince);
+            LiveOpsWindow day = LiveOpsSchedule.DayAt(Settings(), AfterSince), season = LiveOpsSchedule.SeasonAt(Settings(), AfterSince);
+            // An empty daily list leaves the daily quest (and its _version) as it is, even in a crate window.
+            Assert.Equal(MiniJson.Serialize(LiveOpsEvents.DailyQuest(without, day)), MiniJson.Serialize(LiveOpsEvents.DailyQuest(catalog, day, f.Runtime)));
+            List<Dictionary<string, object>> a = Achievements(LiveOpsEvents.WeeklyEvent(catalog, season, null, f.Runtime));
+            List<Dictionary<string, object>> p = Achievements(LiveOpsEvents.WeeklyEvent(without, season, null));
+            for (int i = 0; i < a.Count - 1; i++)
+            {
+                Assert.Equal(Rewards(p[i], 0), Rewards(a[i], 0));
+                Assert.Equal(Rewards(p[i], 1), Rewards(a[i], 1));
+                Assert.Equal(Rewards(p[i], 2).Concat(new[] { "Crate_Event_Special x2", "VersusCoins x100" }), Rewards(a[i], 2));
+            }
+            Assert.Equal(Rewards(p.Last(), 0), Rewards(a.Last(), 0));
+        }
+
+        [Fact]
+        public void LiveOpsReadNoCollectorSettingDirectly()
+        {
+            // The only parser of economy.collector.* is CollectorOptions: no live-ops source names a key of it.
+            string dir = Path.Combine(ContentTestSupport.RepoRoot, "server", "Services", "Social", "LiveOps");
+            string[] files = Directory.GetFiles(dir, "*.cs");
+            Assert.NotEmpty(files);
+            foreach (string file in files) Assert.DoesNotMatch("\"economy[.\"]", File.ReadAllText(file));
+
+            // What live ops depend on comes in as CollectorRuntime.InputsKey, through the settings fingerprint.
+            using var f = new LiveOpsFixture(AfterSince);
+            LiveOpsSettings before = f.LiveOps.Settings;
+            Assert.Equal(f.Runtime.InputsKey, before.CollectorKey);
+            Assert.EndsWith("|" + f.Runtime.InputsKey, before.Fingerprint);
+            Assert.Same(before, f.LiveOps.Settings);                        // parsed once per input change
+            f.Context.Settings.Override("economy.collector.enabled", false);
+            LiveOpsSettings after = f.LiveOps.Settings;
+            Assert.NotSame(before, after);
+            Assert.EndsWith("|" + f.Runtime.InputsKey, after.Fingerprint);
+            Assert.NotEqual(before.Fingerprint, after.Fingerprint);
+            f.Content.Hide(CollectorContent.FileName);
+            Assert.NotEqual(after.Fingerprint, f.LiveOps.Settings.Fingerprint);
+            // Without a collector key the fingerprint is the one of before the collector.
+            Assert.Null(LiveOpsSettings.From(new Settings(), null).CollectorKey);
+            Assert.DoesNotContain("collector", LiveOpsSettings.From(new Settings(), null).Fingerprint);
+        }
+
+        [Fact]
+        public void ACatalogReadThatThrowsNeverReachesTheRequest()
+        {
+            using var f = new LiveOpsFixture(AfterSince);
+            LiveOpsService live = f.LiveOps;
+            string daily = LiveOpsSchedule.DailyEventId(LiveOpsSchedule.DayAt(Settings(), AfterSince));
+
+            // Before any read: live ops are off for that request, and the next call reads again.
+            f.Content.Fail(LiveOpsCatalog.ContentName, new IOException("The process cannot access the file"));
+            Assert.True(live.Catalog.IsEmpty);
+            Assert.Null(live.FindEvent(daily, "en", AfterSince));
+            Assert.False(live.Snapshot(AfterSince).On);
+            Assert.True(live.TryGetSeasonBoard(LiveOpsSchedule.BoardName(LiveOpsSchedule.SeasonAt(Settings(), AfterSince), 3), out SeasonBoardInfo _));
+            Assert.Single(f.Logs.Snapshot(), e => e.Level == LogLevel.Error && e.Message.Contains("liveops.json could not be read (IOException")
+                                                  && e.Message.Contains("live ops are off until it can be read"));
+
+            f.Content.Fail(LiveOpsCatalog.ContentName, null);
+            LiveOpsCatalog read = live.Catalog;
+            Assert.False(read.IsEmpty);
+            Dictionary<string, object> served = live.FindEvent(daily, "en", AfterSince);
+            Assert.NotNull(served);
+
+            // After a read: the last one is kept (no event changes), one warning per failing streak.
+            f.Content.Fail(LiveOpsCatalog.ContentName, new UnauthorizedAccessException("denied"));
+            Assert.Same(read, live.Catalog);
+            Assert.Same(read, live.Catalog);
+            Assert.Equal(MiniJson.Serialize(served), MiniJson.Serialize(live.FindEvent(daily, "en", AfterSince)));
+            Assert.True(live.Snapshot(AfterSince).On);
+            Assert.Single(f.Logs.Snapshot(), e => e.Level == LogLevel.Warn && e.Message.Contains("keeping the last read"));
+            f.Content.Fail(LiveOpsCatalog.ContentName, null);
+            Assert.Same(read, live.Catalog);                                // same text: not parsed again
+            f.Content.Fail(LiveOpsCatalog.ContentName, new IOException("again"));
+            Assert.Same(read, live.Catalog);
+            Assert.Equal(2, f.Logs.Snapshot().Count(e => e.Level == LogLevel.Warn && e.Message.Contains("keeping the last read")));
+        }
+
+        [Fact]
+        public void TheSnapshotAndTheDiagnosticsPageCarryTheCollector()
+        {
+            var clock = new ManualClock(Wednesday);
+            using var s = new MiscServer(clock);
+            LiveOpsService live = LiveOpsService.For(s.Context);
+            LiveOpsSnapshot snap = live.Snapshot(clock.UtcNow);
+            Assert.True(snap.On);
+            Assert.Equal(Since, snap.CollectorSince);
+            var page = MiscServer.Obj(s.Get("/_mcvs/liveops"));
+            Assert.Equal("Dormant", JsonPath.Get(page, "collector.phase"));
+            Assert.Equal("2026-11-09T00:00:00Z", JsonPath.Get(page, "collector.since"));
+            Assert.Empty((List<object>)JsonPath.Get(page, "collector.activeFor"));
+            Assert.Null(JsonPath.Get(page, "collector.block"));
+            Assert.Null(JsonPath.Get(page, "collector.cratesServed"));
+
+            // The last day before since: tomorrow's quest day and the announced next season get the crate, today's do not;
+            // the TS fetches both today, so the document carries the guard (guardSince = since − 1 day, §2.12).
+            clock.UtcNow = new DateTime(2026, 11, 8, 12, 0, 0, DateTimeKind.Utc);
+            page = MiscServer.Obj(s.Get("/_mcvs/liveops"));
+            Assert.Equal("Guard", JsonPath.Get(page, "collector.phase"));
+            Assert.Equal("before collector.since 2026-11-09T00:00:00Z", JsonPath.Get(page, "collector.reason"));
+            Assert.Equal(new object[] { "mcvs_daily_2026110900", "mcvs_weekly_2026110900x7" }, (List<object>)JsonPath.Get(page, "collector.activeFor"));
+            Assert.Null(JsonPath.Get(page, "collector.cratesServed"));      // the page builds the events, it does not serve them
+            Assert.Contains("Crate_Event_Special", s.Get("/events/mcvs_daily_2026110900?language=en").BodyText);
+            Assert.Equal("2026-11-08T12:00:00Z", JsonPath.Get(MiscServer.Obj(s.Get("/_mcvs/liveops")), "collector.cratesServed"));
+
+            clock.UtcNow = AfterSince;
+            page = MiscServer.Obj(s.Get("/_mcvs/liveops"));
+            Assert.Equal("Active", JsonPath.Get(page, "collector.phase"));
+            Assert.Equal("active since 2026-11-09T00:00:00Z", JsonPath.Get(page, "collector.reason"));
+            Assert.Equal(new object[] { "mcvs_daily_2026111100", "mcvs_daily_2026111200", "mcvs_weekly_2026110900x7" },
+                         (List<object>)JsonPath.Get(page, "collector.activeFor"));
+            var weekly = ((List<object>)page["achievementEvents"]).Cast<Dictionary<string, object>>().Single(e => (string)e["id"] == "mcvs_weekly_2026110900x7");
+            Assert.Equal(MiniJson.ParseObject(s.Get("/events/mcvs_weekly_2026110900x7?language=en").BodyText)["_version"], weekly["_version"]);
+
+            s.Set("economy.collector.enabled", false);
+            page = MiscServer.Obj(s.Get("/_mcvs/liveops"));
+            Assert.Equal("Guard", JsonPath.Get(page, "collector.phase"));
+            Assert.Equal("economy.collector.enabled is false", JsonPath.Get(page, "collector.reason"));
+            Assert.Empty((List<object>)JsonPath.Get(page, "collector.activeFor"));
+
+            // Live ops off: no events, but the snapshot still carries since (the guard starts there either way).
+            s.Set("economy.collector.enabled", true);
+            s.Set("liveops.enabled", false);
+            snap = live.Snapshot(clock.UtcNow);
+            Assert.False(snap.On);
+            Assert.Equal(Since, snap.CollectorSince);
+            page = MiscServer.Obj(s.Get("/_mcvs/liveops"));
+            Assert.Equal("Guard", JsonPath.Get(page, "collector.phase"));
+            Assert.Equal("live ops are off", JsonPath.Get(page, "collector.reason"));
+        }
+
+        /// <summary>
+        /// The live-ops events of every window from two weeks before the shipped since to five weeks after it (quest days
+        /// at reset hours 0 and 6, seasons of 7 and 1 days, every modifier) hold at most one crate per milestone (§3.1:
+        /// ClaimAchievementMilestoneRequest reveals only the last crate of a milestone).
+        /// </summary>
+        [Fact]
+        public void NoGeneratedMilestoneHoldsTwoCrates()
+        {
+            using var f = new LiveOpsFixture(AfterSince);
+            LiveOpsCatalog catalog = f.LiveOps.Catalog;
+            Assert.NotNull(catalog.Collector);
+            int events = 0, withCrate = 0;
+            foreach (int resetHour in new[] { 0, 6 })
+                foreach (int days in new[] { 7, 1 })
+                {
+                    LiveOpsSettings s = Settings(days, resetHour);
+                    for (DateTime t = Since.AddDays(-14); t < Since.AddDays(35); t = t.AddHours(12))
+                    {
+                        var served = new List<Dictionary<string, object>> { LiveOpsEvents.DailyQuest(catalog, LiveOpsSchedule.DayAt(s, t), f.Runtime) };
+                        foreach (LiveOpsModifier m in catalog.Modifiers)
+                            served.Add(LiveOpsEvents.WeeklyEvent(catalog, LiveOpsSchedule.SeasonAt(s, t), m, f.Runtime));
+                        foreach (Dictionary<string, object> e in served)
+                        {
+                            AssertOneCratePerMilestone(e);
+                            events++;
+                            if (((string)e["_template"]).Contains(CollectorGuard.CrateId)) withCrate++;
+                        }
+                    }
+                }
+            Assert.True(withCrate > events / 2, events + " events, " + withCrate + " with the Cosmetic crate");
+        }
+
+        /// <summary>Every milestone of the event holds at most one crate reward (anything but a plain currency).</summary>
+        private static void AssertOneCratePerMilestone(Dictionary<string, object> e)
+        {
+            foreach (Dictionary<string, object> achievement in Achievements(e))
+                for (int m = 0; m < ((List<object>)achievement["milestones"]).Count; m++)
+                {
+                    List<string> crates = Rewards(achievement, m).Where(r => LiveOpsCatalog.IsCrate(r.Substring(0, r.LastIndexOf(" x", StringComparison.Ordinal)))).ToList();
+                    Assert.True(crates.Count <= 1, e["id"] + " " + achievement["primary_tracker"] + " milestone " + m + ": " + string.Join(", ", crates));
+                }
+        }
+
         // ------------------------------------------------------------------------------------------ helpers
+
+        private static LiveOpsWindow WindowOf(GoldenOutput o)
+        {
+            return o.Kind == GoldenScenarios.Daily ? LiveOpsSchedule.TryParseDaily(o.EventId) : LiveOpsSchedule.TryParseWeekly(o.EventId);
+        }
+
+        private static Dictionary<string, object> Milestone(Dictionary<string, object> achievement, int index)
+        {
+            return (Dictionary<string, object>)((List<object>)achievement["milestones"])[index];
+        }
+
+        /// <summary>"item xN" of each reward of a milestone, in order.</summary>
+        private static List<string> Rewards(Dictionary<string, object> achievement, int milestone)
+        {
+            return ((List<object>)Milestone(achievement, milestone)["rewards"]).Cast<Dictionary<string, object>>()
+                                                                             .Select(r => (string)r["item"] + " x" + (long)r["quantity"]).ToList();
+        }
+
+        /// <summary>Writes <c>&lt;data&gt;/content/&lt;name&gt;</c> of a test server (wins over the built-in file).</summary>
+        internal static void OverrideContent(MiscServer s, string name, string text)
+        {
+            string dir = Path.Combine(s.Context.DataDir, "content");
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(Path.Combine(dir, name), text, new UTF8Encoding(false));
+        }
 
         private static LiveOpsCatalog Catalog()
         {
@@ -577,6 +1091,155 @@ namespace McvsOffline.Tests.Misc
             var r = s.Post("/leaderboards/desc/" + board + "/me", p.OnBehalfToken, "score", score.ToString(CultureInfo.InvariantCulture),
                            "display_name", "Me", "_level", level.ToString(CultureInfo.InvariantCulture));
             Assert.Equal(200, r.StatusCode);
+        }
+    }
+
+    /// <summary>The shipped liveops.json and variants of its <c>collector</c> block (economy-collector.md §3.2).</summary>
+    internal static class LiveOpsContent
+    {
+        /// <summary>The built-in server/Content/liveops.json.</summary>
+        public static string Shipped
+        {
+            get
+            {
+                Assert.True(new ContentProvider(null, null, null).TryReadContentText(LiveOpsCatalog.ContentName, out string text));
+                return text;
+            }
+        }
+
+        /// <summary>The shipped file with its <c>collector</c> block replaced by <paramref name="blockJson"/> (any JSON
+        /// value), or removed when it is null.</summary>
+        public static string WithCollector(string blockJson)
+        {
+            Dictionary<string, object> root = MiniJson.ParseObject(Shipped);
+            root.Remove("collector");
+            if (blockJson != null)
+            {
+                Assert.True(MiniJson.TryParse(blockJson, out object block), blockJson);
+                root["collector"] = block;
+            }
+            return MiniJson.Serialize(root);
+        }
+
+        /// <summary>The shipped file with <c>collector.since</c> moved to <paramref name="since"/>.</summary>
+        public static string WithSince(DateTime since)
+        {
+            Dictionary<string, object> root = MiniJson.ParseObject(Shipped);
+            ((Dictionary<string, object>)root["collector"])["since"] = TimeFormat.Iso8601(since);
+            return MiniJson.Serialize(root);
+        }
+    }
+
+    /// <summary>
+    /// The content a test server reads: the built-in files (or another provider's), some of them replaced, hidden
+    /// (missing) or failing the way ContentProvider fails when the &lt;data&gt;/content override changes under it.
+    /// </summary>
+    internal sealed class TestContent : IContentProvider
+    {
+        private readonly IContentProvider inner;
+        private readonly object gate = new object();
+        private readonly Dictionary<string, string> replaced = new Dictionary<string, string>(StringComparer.Ordinal);
+        private readonly Dictionary<string, Exception> failing = new Dictionary<string, Exception>(StringComparer.Ordinal);
+
+        public TestContent(IContentProvider inner = null)
+        {
+            this.inner = inner ?? new ContentProvider(null, null, null);
+        }
+
+        /// <summary>Puts a TestContent over <paramref name="context"/>'s own content (call before the first request).</summary>
+        public static TestContent Install(ServerContext context)
+        {
+            var content = new TestContent(context.Content);
+            typeof(ServerContext).GetProperty(nameof(ServerContext.Content)).SetValue(context, content);
+            Assert.Same(content, context.Content);
+            return content;
+        }
+
+        /// <summary>Serves <paramref name="text"/> as <paramref name="name"/>; null: the file is missing.</summary>
+        public TestContent Replace(string name, string text)
+        {
+            lock (gate) replaced[name] = text;
+            return this;
+        }
+
+        public TestContent Hide(string name)
+        {
+            return Replace(name, null);
+        }
+
+        /// <summary>Reads of <paramref name="name"/> throw <paramref name="failure"/> (null: they work again).</summary>
+        public TestContent Fail(string name, Exception failure)
+        {
+            lock (gate)
+            {
+                if (failure == null) failing.Remove(name);
+                else failing[name] = failure;
+            }
+            return this;
+        }
+
+        public DataPack DataPack => inner.DataPack;
+
+        public List<string> ContentNames => inner.ContentNames;
+
+        public bool TryReadGameFile(string logicalPath, out byte[] data) => inner.TryReadGameFile(logicalPath, out data);
+
+        public bool TryReadGameText(string logicalPath, out string text) => inner.TryReadGameText(logicalPath, out text);
+
+        public bool TryReadContent(string name, out byte[] data)
+        {
+            if (Intercepted(name, out string text))
+            {
+                data = text == null ? null : Encoding.UTF8.GetBytes(text);
+                return data != null;
+            }
+            return inner.TryReadContent(name, out data);
+        }
+
+        public bool TryReadContentText(string name, out string text)
+        {
+            if (Intercepted(name, out text)) return text != null;
+            return inner.TryReadContentText(name, out text);
+        }
+
+        private bool Intercepted(string name, out string text)
+        {
+            lock (gate)
+            {
+                if (failing.TryGetValue(name, out Exception failure)) throw failure;
+                return replaced.TryGetValue(name, out text);
+            }
+        }
+    }
+
+    /// <summary>A bare server context (no modules, no data pack) over <see cref="TestContent"/>, with its live ops and collector.</summary>
+    internal sealed class LiveOpsFixture : IDisposable
+    {
+        private readonly TempDir dir = new TempDir();
+
+        public LiveOpsFixture(DateTime utc)
+        {
+            var logger = new Logger();
+            logger.AddSink(Logs);
+            Clock = new ManualClock(utc);
+            Context = new ServerContext(dir.Path, new Settings(), logger, Clock, Content);
+        }
+
+        public TestContent Content { get; } = new TestContent();
+
+        public MemoryLogSink Logs { get; } = new MemoryLogSink();
+
+        public ManualClock Clock { get; }
+
+        public ServerContext Context { get; }
+
+        public LiveOpsService LiveOps => LiveOpsService.For(Context);
+
+        public CollectorRuntime Runtime => CollectorRuntime.For(Context);
+
+        public void Dispose()
+        {
+            dir.Dispose();
         }
     }
 }

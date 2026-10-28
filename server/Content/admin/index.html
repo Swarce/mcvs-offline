@@ -1,0 +1,2580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MCVS Offline</title>
+<!--
+  The MCVS Offline settings and diagnostics page (docs/design/settings-page.md §2). Hand-written, not generated:
+  one self-contained ES5 page for the game's own in-game browser (a WebView without localStorage, file chooser,
+  downloads or JS bridge, 250-330 CSS px high in landscape). Every rule it follows (§2.3) is checked by
+  tests/McvsOffline.Tests/Admin/PageSmokeTests.cs; page-smoke.js runs it against a live server.
+-->
+<style>
+html, body { height: 100%; margin: 0; padding: 0; }
+body { background: #12151a; color: #e3e7ec; font-family: Roboto, "Noto Sans", "Segoe UI", sans-serif; font-size: 15px; line-height: 1.35; overflow: hidden; }
+* { box-sizing: border-box; }
+button, input, select, textarea, a { touch-action: manipulation; font-family: inherit; }
+button { min-height: 36px; padding: 6px 12px; border: 1px solid #3a4350; border-radius: 4px; background: #262e39; color: #e3e7ec; font-size: 15px; line-height: 1.2; }
+button.primary { background: #2f7de1; border-color: #2f7de1; color: #fff; }
+button.danger { background: #7d2a2a; border-color: #9a3a3a; color: #fff; }
+button.small { padding: 4px 10px; font-size: 13px; }
+button.link { background: transparent; border-color: transparent; color: #6fb3ff; padding: 4px 6px; font-size: 13px; }
+button[disabled] { opacity: 0.4; }
+a.btn { display: inline-block; min-height: 36px; padding: 8px 12px; border: 1px solid #3a4350; border-radius: 4px; background: #262e39; color: #e3e7ec; text-decoration: none; line-height: 1.2; }
+input[type=text], select, textarea { min-height: 36px; padding: 6px 8px; border: 1px solid #3a4350; border-radius: 4px; background: #0d1014; color: #e3e7ec; font-size: 15px; }
+textarea { width: 100%; font-family: monospace; font-size: 12px; line-height: 1.3; resize: none; }
+input[type=checkbox] { min-width: 22px; min-height: 22px; margin: 6px 8px 6px 2px; vertical-align: middle; }
+input.sw { -webkit-appearance: none; appearance: none; position: relative; width: 52px; min-height: 30px; margin: 3px 0; border: 0; border-radius: 15px; background: #3a414c; outline: none; vertical-align: middle; }
+input.sw:after { content: ""; position: absolute; left: 4px; top: 4px; width: 22px; min-height: 22px; border-radius: 11px; background: #cfd6df; }
+input.sw:checked { background: #2f7de1; }
+input.sw:checked:after { left: 26px; background: #fff; }
+input.sw[disabled] { opacity: 0.4; }
+
+#app { display: flex; height: 100%; }
+#nav { flex: 0 0 112px; width: 112px; display: flex; flex-direction: column; overflow-y: auto; background: #0b0d11; border-right: 1px solid #252a32; }
+#nav-title { padding: 7px 2px 5px 6px; font-size: 13px; letter-spacing: -0.2px; font-weight: bold; color: #9fb4ca; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#conn { display: inline-block; width: 8px; min-height: 8px; margin-right: 4px; border-radius: 4px; background: #5c6470; vertical-align: 1px; }
+#conn.ok { background: #3ccf7e; }
+#conn.bad { background: #ff5f56; }
+.navbtn { display: block; width: 100%; min-height: 36px; margin: 0; padding: 6px 6px 6px 9px; border: 0; border-left: 3px solid transparent; border-radius: 0; background: transparent; color: #c9d1db; font-size: 14px; line-height: 24px; text-align: left; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.navbtn.on { background: #1d242e; border-left-color: #4ea1ff; color: #fff; }
+.navbtn[disabled] { opacity: 1; color: #4c535d; }
+.navfill { flex: 1 1 auto; min-height: 4px; }
+#btn-close { color: #ff9a8a; }
+
+#main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+#banners { flex: 0 0 auto; }
+.banner { display: flex; align-items: center; min-height: 38px; padding: 1px 4px 1px 10px; font-size: 13px; border-bottom: 1px solid rgba(0, 0, 0, 0.35); }
+.banner.bad { background: #5a1f1f; color: #ffdcd6; }
+.banner.warn { background: #4b3a10; color: #ffe8b0; }
+.banner.info { background: #173552; color: #d6e9ff; }
+.btext { flex: 1 1 auto; min-width: 0; padding: 4px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.banner.open .btext { white-space: normal; }
+.banner button { flex: 0 0 auto; margin-left: 6px; padding: 4px 10px; font-size: 13px; }
+.banner button.x { min-width: 36px; padding: 4px 6px; background: transparent; border-color: transparent; color: inherit; }
+#pane { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; position: relative; padding: 8px 12px 14px; -webkit-overflow-scrolling: touch; }
+#actionbar { flex: 0 0 auto; min-height: 42px; display: flex; align-items: center; padding: 2px 6px; overflow-x: auto; overflow-y: hidden; white-space: nowrap; background: #0e1116; border-top: 1px solid #252a32; }
+.bar { flex: 1 1 auto; display: flex; align-items: center; justify-content: flex-end; }
+.bar button { flex: 0 0 auto; margin-left: 6px; }
+.bar .grow { flex: 1 1 auto; min-width: 0; padding-left: 4px; overflow: hidden; text-overflow: ellipsis; color: #8b96a3; font-size: 13px; }
+
+h2 { margin: 2px 0 6px; font-size: 17px; }
+h3 { margin: 14px 0 4px; font-size: 14px; color: #9fb4ca; }
+p { margin: 4px 0 8px; }
+.muted { color: #8b96a3; font-size: 13px; }
+.okt { color: #7ee2a8; }
+.warnt { color: #ffd479; }
+.errt { color: #ff8a80; }
+.mono { font-family: monospace; font-size: 13px; word-wrap: break-word; }
+.pre { font-family: monospace; font-size: 12px; white-space: pre-wrap; word-wrap: break-word; }
+.card { margin: 4px 0 8px; padding: 8px 10px; border: 1px solid #262d37; border-radius: 6px; background: #191e25; }
+.btnrow { margin: 6px 0; }
+.btnrow button, .btnrow a.btn { margin: 0 6px 6px 0; }
+.kv { display: flex; min-height: 26px; padding: 4px 0; border-bottom: 1px solid #1d2229; }
+.kv .k { flex: 0 0 34%; max-width: 210px; padding-right: 8px; color: #8b96a3; }
+.kv .v { flex: 1 1 auto; min-width: 0; word-wrap: break-word; }
+.row { display: flex; align-items: center; min-height: 44px; padding: 6px 0; border-bottom: 1px solid #1d2229; }
+.rl { flex: 1 1 auto; min-width: 0; padding-right: 10px; }
+.rc { flex: 0 0 auto; text-align: right; }
+.lbl { font-weight: bold; }
+.help { color: #8b96a3; font-size: 13px; }
+.meta { margin-top: 2px; color: #7c8794; font-size: 12px; }
+.badge { display: inline-block; margin-right: 6px; padding: 0 6px; border: 1px solid #3a4350; border-radius: 8px; font-size: 11px; line-height: 16px; }
+.badge.live { color: #7ee2a8; border-color: #2c5a41; }
+.badge.menu { color: #ffd479; border-color: #5c4a1c; }
+.badge.restart { color: #ff9a8a; border-color: #5c2d28; }
+.chg { display: inline-block; width: 7px; min-height: 7px; margin-right: 6px; border-radius: 4px; background: #4ea1ff; vertical-align: 1px; }
+.rowerr { color: #ff8a80; font-size: 13px; }
+.stepper { display: inline-flex; align-items: center; }
+.stepper button { min-width: 40px; padding: 6px 4px; }
+.stepper button.val { min-width: 66px; margin: 0 4px; background: #0d1014; font-weight: bold; }
+.tok { display: inline-block; margin-left: 8px; font-size: 13px; }
+.field { display: inline-flex; align-items: center; }
+.field input { width: 170px; }
+.field button { margin-left: 4px; }
+.tabs { display: flex; overflow-x: auto; overflow-y: hidden; white-space: nowrap; margin: 0 0 6px; border-bottom: 1px solid #252a32; }
+.tab { flex: 0 0 auto; min-height: 36px; padding: 6px 10px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: #aab4c0; }
+.tab.on { color: #fff; border-bottom-color: #4ea1ff; }
+.item { display: flex; align-items: center; min-height: 40px; padding: 5px 0; border-bottom: 1px solid #1d2229; }
+.item .il { flex: 1 1 auto; min-width: 0; word-wrap: break-word; }
+.item .ir { flex: 0 0 auto; }
+.item .ir button { margin-left: 6px; }
+.item.sel { background: #18202a; }
+.prob .pm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prob.open .pm { white-space: pre-wrap; word-wrap: break-word; }
+.ctlrow { display: flex; flex-wrap: wrap; align-items: center; margin: 0 0 4px; }
+.ctlrow select, .ctlrow button, .ctlrow .field, .ctlrow label { margin: 0 6px 4px 0; }
+#logs-view { font-family: monospace; font-size: 12px; line-height: 1.3; }
+.le { padding: 2px 0; border-bottom: 1px solid #1a1e24; white-space: pre-wrap; word-wrap: break-word; }
+.le.le-w { color: #ffd479; }
+.le.le-e { color: #ff8a80; }
+.le.le-d { color: #8b96a3; }
+
+#dialog { position: fixed; left: 0; top: 0; right: 0; bottom: 0; z-index: 10; display: flex; align-items: center; justify-content: center; padding: 6px 10px; background: rgba(0, 0, 0, 0.65); }
+#dialog-box { display: flex; flex-direction: column; width: 100%; max-width: 600px; max-height: 100%; border: 1px solid #39424f; border-radius: 6px; background: #1b2028; }
+#dialog-title { flex: 0 0 auto; padding: 8px 12px 0; font-weight: bold; }
+#dialog-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 6px 12px 8px; }
+#dialog-buttons { flex: 0 0 auto; display: flex; flex-wrap: wrap; justify-content: flex-end; padding: 4px 6px 2px; border-top: 1px solid #2a313b; }
+#dialog-buttons button { margin: 0 0 4px 6px; }
+#toast { position: fixed; left: 124px; right: 12px; bottom: 50px; z-index: 20; text-align: center; pointer-events: none; }
+#toast-text { display: inline-block; max-width: 100%; padding: 8px 12px; border-radius: 4px; background: #2d3846; color: #fff; font-size: 14px; }
+#copybuf { position: fixed; left: -3000px; top: 0; width: 20px; overflow: hidden; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="nav">
+    <div id="nav-title"><span id="conn"></span>MCVS Offline</div>
+    <button id="nav-status" class="navbtn on" type="button">Status</button>
+    <button id="nav-settings" class="navbtn" type="button" disabled>Settings</button>
+    <button id="nav-saves" class="navbtn" type="button" disabled>Saves</button>
+    <button id="nav-logs" class="navbtn" type="button" disabled>Logs</button>
+    <button id="nav-actions" class="navbtn" type="button" disabled>Actions</button>
+    <button id="nav-about" class="navbtn" type="button">About</button>
+    <div class="navfill"></div>
+    <a id="btn-close" class="navbtn" href="exit:">Close</a>
+  </div>
+  <div id="main">
+    <div id="banners">
+      <div id="banner-nosession" class="banner bad" style="display:none"><span id="banner-nosession-text" class="btext">Open this page from the game: Settings › Account › MCVS Offline, or the MCVS Offline message in the inbox.</span></div>
+      <div id="banner-viewmode" class="banner info" style="display:none"><span id="banner-viewmode-text" class="btext">This view cannot change anything. Open MCVS Offline from the game: Settings › Account › MCVS Offline (or the inbox message in a build with the default patches).</span></div>
+      <div id="banner-error" class="banner bad" style="display:none"><span id="banner-error-text" class="btext">The game is not answering. Go back to the game.</span></div>
+      <div id="banner-staged" class="banner warn" style="display:none"><span id="banner-staged-text" class="btext"></span><button id="banner-staged-restart" type="button">Restart now</button><button id="banner-staged-cancel" type="button">Cancel</button><button id="banner-staged-x" class="x" type="button">×</button></div>
+      <div id="banner-restart" class="banner warn" style="display:none"><span id="banner-restart-text" class="btext"></span><button id="banner-restart-now" type="button">Restart now</button><button id="banner-restart-x" class="x" type="button">×</button></div>
+      <div id="banner-probation" class="banner info" style="display:none"><span id="banner-probation-text" class="btext"></span><button id="banner-probation-x" class="x" type="button">×</button></div>
+    </div>
+    <div id="pane">
+
+      <div id="screen-status">
+        <div id="status-body"><p class="muted">Connecting to the game…</p></div>
+        <div id="status-storage-body"></div>
+      </div>
+
+      <div id="screen-settings" style="display:none">
+        <div id="settings-normal">
+          <div id="settings-tabs" class="tabs"></div>
+          <div id="settings-body"></div>
+          <p class="muted">Changing the system theme or font size while this page is open discards unsaved changes.</p>
+        </div>
+        <div id="settings-repairpanel" style="display:none">
+          <h2>settings.json cannot be read</h2>
+          <p>The game runs with the default settings and leaves your file as it is. The Cosmetic crate is off until then (its switch cannot be read); the repaired file starts from the defaults, where it is on.</p>
+          <div class="kv"><span class="k">Problem</span><span id="settings-error" class="v mono"></span></div>
+          <div class="kv"><span class="k">File</span><span id="settings-path" class="v mono"></span></div>
+          <div class="btnrow"><button id="settings-showfile" type="button">Show the file</button><button id="settings-repair" class="danger" type="button">Move the broken file aside and start from the defaults</button></div>
+          <div id="settings-filetext" class="pre card" style="display:none"></div>
+        </div>
+      </div>
+
+      <div id="screen-saves" style="display:none">
+        <div id="saves-main">
+          <div id="saves-staged" class="card" style="display:none">
+            <div id="saves-staged-text"></div>
+            <div class="btnrow"><button id="staged-restart" class="primary" type="button">Restart now</button><button id="staged-cancel" type="button">Cancel it</button><button id="staged-undo" type="button">Undo</button></div>
+          </div>
+          <h3>Current player</h3>
+          <div id="saves-current" class="card"><p class="muted">Loading…</p></div>
+          <h3 id="saves-backups-title">Backups</h3>
+          <div id="saves-backups"></div>
+          <h3>Other accounts on this phone</h3>
+          <div id="saves-accounts"></div>
+        </div>
+        <div id="saves-export" style="display:none">
+          <h2>Export <span id="export-who"></span></h2>
+          <p id="export-asof" class="muted"></p>
+          <div class="btnrow"><button id="export-save-now" class="small" type="button">Save the game now</button></div>
+          <div class="btnrow"><button id="export-share" class="primary" type="button">Share as a file</button><button id="export-downloads" type="button">Save to Downloads</button><a id="export-link" class="btn" href="#">Download as a file</a></div>
+          <p id="export-result" class="muted"></p>
+          <div id="export-more" class="btnrow" style="display:none"></div>
+          <h3>Copy as text (for chat apps)</h3>
+          <div class="ctlrow"><select id="export-partsize"><option value="60000">Whole parts (60,000 characters)</option><option value="3900">Telegram (3,900)</option><option value="1900">Discord (1,900)</option></select><button id="export-copy" type="button">Copy as text</button></div>
+          <p id="export-info" class="muted"></p>
+          <textarea id="export-text" rows="4" readonly style="display:none"></textarea>
+        </div>
+        <div id="saves-import" style="display:none">
+          <h2>Import a save</h2>
+          <p class="muted">Paste the copied text (everything from MCVS-SAVE to ~). Parts can come in any order, one or several at a time.</p>
+          <textarea id="import-text" rows="3" spellcheck="false" autocomplete="off"></textarea>
+          <div class="btnrow"><button id="import-add" class="primary" type="button">Add</button><button id="import-reset" type="button">Start over</button></div>
+          <p id="import-parts" class="muted"></p>
+          <div id="import-summary"></div>
+          <label id="import-confirm-row" style="display:none"><input id="import-confirm" type="checkbox"><span id="import-confirm-text"></span></label>
+          <h3>Or a file from the import folder</h3>
+          <div id="import-files"></div>
+        </div>
+      </div>
+
+      <div id="screen-logs" style="display:none">
+        <div class="tabs"><button id="logs-tab-view" class="tab on" type="button">View</button><button id="logs-tab-share" class="tab" type="button">Share</button></div>
+        <div id="logs-viewpanel">
+          <div id="logs-files"></div>
+          <div id="logs-viewer" style="display:none">
+            <div class="ctlrow">
+              <select id="logs-level"><option value="trace">All</option><option value="info">Info+</option><option value="warn">Warnings+</option><option value="error">Errors</option></select>
+              <select id="logs-lines"><option value="200">200 lines</option><option value="500">500 lines</option><option value="2000">2000 lines</option></select>
+              <span class="field"><input id="logs-search" type="text" placeholder="Search" autocomplete="off"><button id="logs-search-done" class="small" type="button">Done</button></span>
+              <label class="muted"><input id="logs-autorefresh" type="checkbox">every 5 s</label>
+            </div>
+            <p id="logs-viewinfo" class="muted"></p>
+            <div id="logs-view"></div>
+          </div>
+        </div>
+        <div id="logs-sharepanel" style="display:none">
+          <p class="muted">Collect the logs into one zip file to send with a bug report.</p>
+          <div class="ctlrow"><select id="logs-scope"><option value="recent">Recent (default)</option><option value="all">Everything</option></select></div>
+          <textarea id="logs-note" rows="2" placeholder="What happened? (optional)"></textarea>
+          <div class="btnrow"><button id="logs-note-done" class="small" type="button">Done</button></div>
+          <p id="logs-built" class="muted"></p>
+          <a id="logs-link" class="btn" href="#" style="display:none">Download the zip</a>
+          <h3>Or a short text report</h3>
+          <div class="btnrow"><button id="logs-share-text" type="button">Share a text report</button></div>
+          <div id="logs-textbox" style="display:none">
+            <textarea id="logs-text" rows="5" readonly></textarea>
+            <div class="btnrow"><button id="logs-text-copy" type="button">Copy the report</button></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="screen-actions" style="display:none">
+        <div class="row"><div class="rl"><div class="lbl">Where are my files</div><div class="help">Folders, the import folder and the adb commands for a PC.</div></div><div class="rc"><button id="action-files" type="button">Show</button></div></div>
+        <div id="action-files-body" class="card" style="display:none"></div>
+        <div class="row"><div class="rl"><div class="lbl">Restart the game</div><div id="action-restart-help" class="help">The page closes, the game saves your progress and starts again.</div></div><div class="rc"><button id="action-restart" type="button">Restart</button></div></div>
+        <div class="row"><div class="rl"><div class="lbl">Rebuild the CRM document</div><div class="help">Shop, events and game parameters; takes effect when you close this page.</div></div><div class="rc"><button id="action-crm-reload" type="button">Rebuild</button></div></div>
+        <div id="action-unlock-row" class="row" style="display:none"><div class="rl"><div class="lbl">Grant unlock-all now</div><div class="help">Unlock everything is on: grant what is still missing. Starts when you close this page.</div></div><div class="rc"><button id="action-unlock-now" type="button">Grant</button></div></div>
+      </div>
+
+      <div id="screen-about" style="display:none">
+        <h2>MCVS Offline</h2>
+        <div class="kv"><span class="k">Version</span><span id="about-version" class="v">–</span></div>
+        <p>This page runs inside your game and talks only to the MCVS Offline server on this phone. Nothing leaves the phone unless you share it.</p>
+        <div class="kv"><span class="k">Browser</span><span id="about-ua" class="v mono"></span></div>
+        <div id="page-errors" class="errt mono" style="display:none"></div>
+        <div class="btnrow"><a class="btn" href="exit:">Close this page</a></div>
+      </div>
+
+    </div>
+    <div id="actionbar">
+      <div id="bar-status" class="bar"><span class="grow"></span><button id="status-storage" type="button">Storage usage</button><button id="status-refresh" type="button">Refresh</button></div>
+      <div id="bar-settings" class="bar" style="display:none"><span id="settings-dirty" class="grow"></span><button id="settings-discard" type="button">Discard</button><button id="settings-save" class="primary" type="button">Save</button></div>
+      <div id="bar-saves" class="bar" style="display:none"><button id="saves-save-now" type="button">Save the game now</button><button id="saves-backup-now" type="button">Back up now</button><button id="saves-open-export" type="button">Export</button><button id="saves-open-import" type="button">Import</button></div>
+      <div id="bar-export" class="bar" style="display:none"><button id="export-back" type="button">Back</button><span class="grow"></span><button id="export-copy-next" class="primary" type="button" style="display:none">Copy part 1</button></div>
+      <div id="bar-import" class="bar" style="display:none"><button id="import-back" type="button">Back</button><span class="grow"></span><button id="import-stage" class="primary" type="button" disabled>Stage the import</button></div>
+      <div id="bar-logs" class="bar" style="display:none"><button id="logs-back" type="button" style="display:none">Files</button><span class="grow"></span><button id="logs-copy" type="button">Copy</button><button id="logs-refresh" type="button">Refresh</button></div>
+      <div id="bar-logshare" class="bar" style="display:none"><span class="grow"></span><button id="logs-build" class="primary" type="button">Build the zip</button><button id="logs-share" type="button" disabled>Share</button><button id="logs-downloads" type="button" disabled>Save to Downloads</button></div>
+    </div>
+  </div>
+</div>
+<div id="dialog" style="display:none">
+  <div id="dialog-box">
+    <div id="dialog-title"></div>
+    <div id="dialog-body"></div>
+    <div id="dialog-buttons"><button id="dialog-cancel" type="button">Cancel</button><button id="dialog-ok" class="primary" type="button">OK</button></div>
+  </div>
+</div>
+<div id="toast" style="display:none"><span id="toast-text"></span></div>
+<div id="copybuf"></div>
+<script>
+(function () {
+  'use strict';
+
+  // ------------------------------------------------------------------ constants and state
+
+  var API = '/_mcvs/api/v1/';
+  var MAX_COPY = 128000; // characters per clipboard operation and per paste (design §7.4)
+  var SCREENS = ['status', 'settings', 'saves', 'logs', 'actions', 'about'];
+  var APPLY = { live: 'Now', menu: 'After the next match', restart: 'After a restart' };
+  var POOLS = { auto: 'Automatic', event: 'Before an event', system: 'Before import, restore or a setting', manual: 'Yours' };
+  var SOURCES = {
+    game: 'by the game itself', session: "by the game's last login", device: "by this phone's device id",
+    single: 'the only save on this phone'
+  };
+  var LOG_KINDS = {
+    server: 'server', bootstrap: 'start-up', game: 'game', rotated: 'older', crash: 'crash', exception: 'error',
+    threaddump: 'thread dump', exit: 'exit record', 'unknown-endpoints': 'unknown requests', other: 'other'
+  };
+  var PART_NAMES = { 60000: 'whole parts', 3900: 'Telegram parts', 1900: 'Discord parts' };
+
+  var S = {
+    session: false,      // a valid admin session (cookie)
+    locked: true,        // nav restricted to About (boot, view mode, no session)
+    restarting: false,
+    screen: 'status',
+    status: null,
+    settings: null,
+    group: null,
+    edits: {},           // key -> edited value (only keys that differ from the stored value)
+    problems: {},        // key -> server validation message
+    codes: null,
+    saves: null,
+    account: null,       // account whose backups are shown and exported
+    backups: null,
+    savesView: 'main',   // main | export | import
+    exp: null,           // export as text: {texts, k, chars, parts, size}
+    imp: null,           // import: {parts} while collecting, {result} once validated
+    importFiles: null,
+    logs: { list: null, file: null, data: null, tab: 'view', zip: null, timer: null },
+    pingFails: 0,
+    guard: false,        // our history entry is on top (Back guard, §2.1)
+    asking: false,       // the "Discard your changes?" question is open
+    unwinding: false,    // the page called history.back() to take its entry off; the next popstate is its own
+    dialog: null,
+    dismissed: {},
+    filesOpen: false,
+    bannerKeys: {},
+    errors: 0
+  };
+
+  // ------------------------------------------------------------------ small helpers
+
+  function $(id) { return document.getElementById(id); }
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined && text !== null) e.textContent = String(text);
+    return e;
+  }
+
+  function add(parent, child) { parent.appendChild(child); return child; }
+
+  function clear(node) { node.innerHTML = ''; return node; }
+
+  function show(node, visible) { node.style.display = visible === false ? 'none' : ''; }
+
+  function pageError(e) {
+    S.errors++;
+    var box = $('page-errors');
+    box.textContent = 'Page errors: ' + S.errors + '. Last: ' + (e && e.message ? e.message : String(e));
+    show(box);
+    toast('Page error: ' + (e && e.message ? e.message : String(e)));
+  }
+
+  function safe(fn) {
+    return function () {
+      try { return fn.apply(this, arguments); } catch (e) { pageError(e); }
+    };
+  }
+
+  // Every handler and every answer ends with updateGuard(): the Back guard follows whatever it changed (§2.1).
+  function on(node, type, fn) { node.addEventListener(type, safe(function () { fn(); updateGuard(); })); }
+
+  function btn(label, cls, fn, id) {
+    var b = el('button', cls || null, label);
+    b.setAttribute('type', 'button');
+    if (id) b.setAttribute('id', id);
+    if (fn) on(b, 'click', fn);
+    return b;
+  }
+
+  function kv(parent, key, value, cls) {
+    var row = add(parent, el('div', 'kv'));
+    add(row, el('span', 'k', key));
+    add(row, el('span', 'v' + (cls ? ' ' + cls : ''), value === null || value === undefined || value === '' ? '–' : value));
+    return row;
+  }
+
+  function para(parent, text, cls) { return add(parent, el('p', cls || null, text)); }
+
+  function trim(s) { return String(s || '').replace(/^\s+|\s+$/g, ''); }
+
+  function pad(n) { return n < 10 ? '0' + n : String(n); }
+
+  function parseIso(s) {
+    if (!s) return null;
+    var d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  // ISO 8601 UTC -> the phone's local time: "10:42" today, else "2026-10-26 10:42".
+  function fmtTime(s) {
+    var d = parseIso(s);
+    if (!d) return '–';
+    var now = new Date();
+    var t = pad(d.getHours()) + ':' + pad(d.getMinutes());
+    if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()) return t;
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + t;
+  }
+
+  // A log entry's time: ISO 8601 (server.log, bootstrap.log) in local time; game.log has the game's own clock without a
+  // date ("10:42:01.123"), shown as it is.
+  function fmtClock(s) {
+    if (/^\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(String(s || ''))) return String(s);
+    var d = parseIso(s);
+    return d ? pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) : '';
+  }
+
+  function ago(s) {
+    var d = parseIso(s);
+    if (!d) return '';
+    var secs = Math.round((new Date().getTime() - d.getTime()) / 1000);
+    if (secs < 0) return 'in the future';
+    if (secs < 60) return 'just now';
+    if (secs < 3600) return Math.floor(secs / 60) + ' min ago';
+    if (secs < 172800) return Math.floor(secs / 3600) + ' h ago';
+    return Math.floor(secs / 86400) + ' days ago';
+  }
+
+  function timeAgo(s) { return parseIso(s) ? fmtTime(s) + ', ' + ago(s) : '–'; }
+
+  function fmtNum(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+
+  function fmtSize(bytes) {
+    if (typeof bytes !== 'number' || bytes < 0) return '–';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + ' MB';
+    return (bytes / 1073741824).toFixed(1) + ' GB';
+  }
+
+  function fmtDuration(secs) {
+    if (typeof secs !== 'number') return '';
+    if (secs < 60) return secs + ' s';
+    if (secs < 3600) return Math.floor(secs / 60) + ' min';
+    return Math.floor(secs / 3600) + ' h ' + Math.floor((secs % 3600) / 60) + ' min';
+  }
+
+  function shortId(id) { return id ? String(id).substring(0, 8) + '…' : '–'; }
+
+  function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
+
+  function listText(arr) {
+    if (!arr || !arr.length) return '';
+    if (arr.length === 1) return String(arr[0]);
+    return arr.slice(0, arr.length - 1).join(', ') + ' and ' + arr[arr.length - 1];
+  }
+
+  function host() { return S.status ? S.status.host : null; }
+
+  function cap(name) {
+    var h = host();
+    return !!(h && h.capabilities && h.capabilities[name]);
+  }
+
+  function isStandalone() { return !!(S.status && S.status.host === null); }
+
+  function lastSave() {
+    var p = S.status && S.status.player;
+    if (!p) return null;
+    return p.lastGameSave || p.modified || null;
+  }
+
+  function lastSaveText() { return lastSave() ? fmtTime(lastSave()) : 'unknown'; }
+
+  // ------------------------------------------------------------------ toast
+
+  var toastTimer = null;
+
+  function toast(text, ms) {
+    var t = $('toast');
+    $('toast-text').textContent = text;
+    show(t);
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastTimer = null; show(t, false); }, ms || Math.max(3500, Math.min(9000, text.length * 60)));
+  }
+
+  // ------------------------------------------------------------------ API (XHR, relative URLs, design §2.3/§4.1)
+
+  function errText(st, d) {
+    if (d && typeof d === 'object' && d.message) return d.message;
+    if (st === 0) return 'The game is not answering.';
+    if (st === 401) return 'The session ended: open this page again from the game.';
+    if (st === 404) return 'Not found.';
+    if (st === 413) return 'Too large.';
+    if (st === 429) return 'Too many requests: wait a moment.';
+    if (st === 501) return 'This build cannot do that.';
+    if (st === 503) return 'The settings page is turned off (admin.enabled in settings.json).';
+    return 'Something went wrong (' + st + ').';
+  }
+
+  function api(method, path, body, cb, opts) {
+    opts = opts || {};
+    var xhr = new XMLHttpRequest();
+    var done = false;
+    function finish(st) {
+      if (done) return;
+      done = true;
+      var text = st ? xhr.responseText : '';
+      var type = st ? (xhr.getResponseHeader('Content-Type') || '') : '';
+      var data = text;
+      if (type.indexOf('json') >= 0 && text) {
+        try { data = JSON.parse(text); } catch (e) { data = null; }
+      }
+      if (st === 401 && !opts.quiet401 && S.session) lostSession();
+      if (st === 409 && data && data.error === 'restarting') S.restarting = true;
+      if (cb) safe(cb)(st, data);
+      safe(updateGuard)();
+    }
+    try {
+      xhr.open(method, API + path, true);
+      if (method !== 'GET') {
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.setRequestHeader('X-MCVS', '1');
+      }
+      xhr.timeout = opts.timeout || 30000;
+      xhr.onreadystatechange = function () { if (xhr.readyState === 4) finish(xhr.status); };
+      xhr.ontimeout = function () { finish(0); };
+      xhr.send(method === 'GET' ? null : JSON.stringify(body || {}));
+    } catch (e) {
+      setTimeout(function () { finish(0); }, 0);
+    }
+  }
+
+  // ------------------------------------------------------------------ dialogs (in-page; never alert/confirm/prompt)
+
+  // opts: title, text, nodes (array), ok (label or null), cancel (label or null), onOk, onCancel, danger,
+  // extra [{label, fn, cls}] (more buttons; each closes the dialog, then runs fn).
+  function openDialog(opts) {
+    if (S.dialog) closeDialog(true);
+    S.dialog = opts;
+    $('dialog-title').textContent = opts.title || '';
+    var body = clear($('dialog-body'));
+    if (opts.text) para(body, opts.text);
+    if (opts.nodes) for (var i = 0; i < opts.nodes.length; i++) add(body, opts.nodes[i]);
+    var ok = $('dialog-ok');
+    ok.textContent = opts.ok || 'OK';
+    show(ok, opts.ok !== null);
+    ok.disabled = false;
+    ok.className = opts.danger ? 'danger' : 'primary';
+    var cancel = $('dialog-cancel');
+    cancel.textContent = opts.cancel || 'Cancel';
+    show(cancel, opts.cancel !== null);
+    opts.extraNodes = [];
+    var row = $('dialog-buttons');
+    if (opts.extra) {
+      for (var j = 0; j < opts.extra.length; j++) {
+        var x = btn(opts.extra[j].label, opts.extra[j].cls || null, dialogExtra(opts.extra[j]));
+        row.insertBefore(x, row.firstChild);
+        opts.extraNodes.push(x);
+      }
+    }
+    $('dialog-body').scrollTop = 0;
+    show($('dialog'));
+    updateGuard();
+  }
+
+  function dialogExtra(item) {
+    return function () {
+      closeDialog(true);
+      item.fn();
+      updateGuard();
+    };
+  }
+
+  function closeDialog(silent) {
+    var d = S.dialog;
+    if (!d) return;
+    var row = $('dialog-buttons');
+    for (var i = 0; i < d.extraNodes.length; i++) row.removeChild(d.extraNodes[i]);
+    S.dialog = null;
+    S.asking = false;
+    show($('dialog'), false);
+    clear($('dialog-body'));
+    if (!silent) updateGuard();
+  }
+
+  function dialogOk() {
+    var d = S.dialog;
+    if (!d) return;
+    closeDialog(true);
+    if (d.onOk) d.onOk();
+    updateGuard();
+  }
+
+  function dialogCancel() {
+    var d = S.dialog;
+    if (!d) return;
+    closeDialog(true);
+    if (d.onCancel) d.onCancel();
+    updateGuard();
+  }
+
+  function confirmDialog(title, text, okLabel, onOk, danger) {
+    openDialog({ title: title, text: text, ok: okLabel, onOk: onOk, danger: danger });
+  }
+
+  function checkbox(label) {
+    var row = el('label', 'muted');
+    var c = el('input');
+    c.setAttribute('type', 'checkbox');
+    add(row, c);
+    add(row, document.createTextNode(label));
+    return { row: row, box: c };
+  }
+
+  // ------------------------------------------------------------------ Back guard (§2.1)
+
+  function canPush() { return typeof history !== 'undefined' && history && typeof history.pushState === 'function'; }
+
+  function settingsDirty() {
+    for (var k in S.edits) if (S.edits.hasOwnProperty(k)) return true;
+    return false;
+  }
+
+  function wizardRunning() {
+    if (S.exp && S.exp.k < S.exp.texts.length) return true;
+    return !!(S.imp && (S.imp.parts || S.imp.result));
+  }
+
+  function somethingToLose() { return settingsDirty() || wizardRunning(); }
+
+  // One entry while something is open or unsaved; taken off again (history.back) once nothing is left, so that the
+  // next hardware Back closes the browser (InGameBrowser.onBackPressed: goBack while it can, else close).
+  function updateGuard() {
+    if (S.asking || !canPush()) return;
+    var need = somethingToLose() || !!S.dialog;
+    if (S.guard) {
+      if (!need && !S.unwinding && typeof history.back === 'function') {
+        try {
+          S.unwinding = true;
+          history.back();
+        } catch (e) { S.unwinding = false; }
+      }
+      return;
+    }
+    if (!need) return;
+    try {
+      history.pushState({ mcvs: 1 }, '');
+      S.guard = true;
+    } catch (e) { /* no history entry: Back closes the browser */ }
+  }
+
+  // Hardware Back: closes an open dialog, or asks before discarding. While the question is shown no entry is pushed,
+  // so a second Back leaves the page; "Stay" pushes the entry again.
+  function onPopState(ev) {
+    if (S.unwinding) {
+      // The page's own history.back(): the entry is gone. Something may have opened meanwhile.
+      S.unwinding = false;
+      S.guard = false;
+      updateGuard();
+      return;
+    }
+    if (ev && ev.state && ev.state.mcvs === 1) {
+      // Forward onto the page's entry (the browser's Forward button): it is on top again.
+      S.guard = true;
+      updateGuard();
+      return;
+    }
+    S.guard = false;
+    if (S.dialog) {
+      dialogCancel();
+      return;
+    }
+    if (!somethingToLose()) return;
+    var what = [];
+    if (settingsDirty()) what.push('your unsaved settings');
+    if (S.exp && S.exp.k < S.exp.texts.length) what.push('the export');
+    if (S.imp && (S.imp.parts || S.imp.result)) what.push('the import (pasted parts stay on the server)');
+    S.asking = true;
+    openDialog({
+      title: 'Discard your changes?', text: 'Going back now discards ' + listText(what) + '.',
+      ok: 'Discard', cancel: 'Stay', danger: true,
+      onOk: discardEverything
+    });
+  }
+
+  function discardEverything() {
+    S.edits = {};
+    S.problems = {};
+    S.exp = null;
+    S.imp = null;
+    if (S.screen === 'settings') renderSettings();
+    if (S.screen === 'saves') renderSaves();
+    renderBar();
+  }
+
+  // ------------------------------------------------------------------ copy (3 fallbacks, §7.4)
+
+  function copyText(text, label, cb) {
+    var finished = false;
+    function result(how) {
+      if (finished) return;
+      finished = true;
+      if (how) toast('Copied (' + how + ').');
+      else toast('Could not copy. Select the text and copy it yourself.');
+      if (cb) cb(!!how);
+    }
+    if (text.length > MAX_COPY) {
+      toast('Too long to copy (' + fmtNum(text.length) + ' characters): use Share, or copy it part by part.');
+      if (cb) cb(false);
+      return;
+    }
+    function viaHost() {
+      api('POST', 'clipboard', { label: label, text: text }, function (st) { result(st === 200 ? 'through the game' : null); });
+    }
+    function viaCommand() {
+      var okCmd = false;
+      if (typeof document.execCommand === 'function') {
+        var ta = el('textarea');
+        ta.setAttribute('readonly', '');
+        ta.value = text;
+        var buf = $('copybuf');
+        buf.appendChild(ta);
+        try {
+          ta.select();
+          okCmd = !!document.execCommand('copy');
+        } catch (e) { okCmd = false; }
+        buf.removeChild(ta);
+      }
+      if (okCmd) result('copy command');
+      else viaHost();
+    }
+    if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      try {
+        navigator.clipboard.writeText(text).then(function () { result('clipboard'); }, safe(viaCommand));
+        return;
+      } catch (e) { /* fall through */ }
+    }
+    viaCommand();
+  }
+
+  // ------------------------------------------------------------------ navigation and the action bar
+
+  function lock(locked) {
+    S.locked = locked;
+    for (var i = 0; i < SCREENS.length; i++) {
+      if (SCREENS[i] !== 'about') $('nav-' + SCREENS[i]).disabled = locked;
+    }
+  }
+
+  function go(screen, fresh) {
+    if (S.locked && screen !== 'about') return;
+    S.screen = screen;
+    for (var i = 0; i < SCREENS.length; i++) {
+      var s = SCREENS[i];
+      show($('screen-' + s), s === screen);
+      $('nav-' + s).className = 'navbtn' + (s === screen ? ' on' : '');
+    }
+    $('pane').scrollTop = 0;
+    if (screen === 'status') { if (!fresh) refreshStatus(false); }
+    else if (screen === 'settings') loadSettings();
+    else if (screen === 'saves') loadSaves();
+    else if (screen === 'logs') loadLogs();
+    else if (screen === 'actions') { renderActions(); if (!S.settings) loadSettings(); }
+    else if (screen === 'about') renderAbout();
+    renderBar();
+    updateLogsTimer();
+  }
+
+  function renderBar() {
+    var bars = ['bar-status', 'bar-settings', 'bar-saves', 'bar-export', 'bar-import', 'bar-logs', 'bar-logshare'];
+    var want = null;
+    if (S.screen === 'status' && S.session) want = 'bar-status';
+    else if (S.screen === 'settings' && S.settings && !S.settings.fallback) want = 'bar-settings';
+    else if (S.screen === 'saves') want = S.savesView === 'export' ? 'bar-export' : S.savesView === 'import' ? 'bar-import' : 'bar-saves';
+    else if (S.screen === 'logs') want = S.logs.tab === 'share' ? 'bar-logshare' : 'bar-logs';
+    for (var i = 0; i < bars.length; i++) show($(bars[i]), bars[i] === want);
+    show($('actionbar'), want !== null);
+    if (want === 'bar-settings') renderSettingsBar();
+    if (want === 'bar-logs') {
+      show($('logs-back'), !!S.logs.file);
+      $('logs-copy').disabled = !S.logs.file;
+    }
+  }
+
+  // ------------------------------------------------------------------ banners
+
+  function banner(id, visible, text) {
+    var b = $(id);
+    if (text !== undefined) {
+      var t = $(id + '-text');
+      if (t) t.textContent = text;
+    }
+    show(b, !!visible);
+  }
+
+  function renderBanners() {
+    var st = S.status && S.status.staged;
+    var pending = st && st.pending;
+    var key = pending ? 'staged:' + pending.id : null;
+    banner('banner-staged', pending && S.session && !S.dismissed[key], pending ? 'Waiting for a restart: ' + describeOp(pending) + '.' : '');
+    show($('banner-staged-restart'), cap('exit'));
+
+    var pend = S.status && S.status.settings ? S.status.settings.restartPending : 0;
+    if (S.settings && S.settings.restartPending && typeof S.settings.restartPending.length === 'number') pend = S.settings.restartPending.length;
+    var rkey = 'restart:' + pend;
+    banner('banner-restart', pend > 0 && S.session && !S.dismissed[rkey],
+           plural(pend, 'setting applies', 'settings apply') + ' after a restart.' + (cap('exit') ? '' : ' Close the game and start it again.'));
+    show($('banner-restart-now'), cap('exit'));
+
+    var prob = st && st.probation;
+    var last = st && st.last;
+    var ptext = null;
+    var pkey = null;
+    if (prob) {
+      ptext = describeOp(prob) + ' was applied and waits for the game to load it (start ' + (prob.startsWithoutSave || 1) + ' of 3).';
+      pkey = 'prob:' + prob.id;
+    } else if (last && last.result === 'reverted') {
+      // The server writes a whole sentence that already starts with "Reverted automatically:" (§6.5).
+      var rmsg = last.message || '';
+      ptext = /^Reverted automatically/.test(rmsg) ? sentence(rmsg)
+        : 'Reverted automatically: ' + sentence(rmsg || 'the game did not load the save in 3 starts');
+      pkey = 'rev:' + last.id;
+    } else if (last && last.result === 'failed') {
+      ptext = 'The last operation failed: ' + sentence(last.message || 'see Saves');
+      pkey = 'fail:' + last.id;
+    }
+    banner('banner-probation', ptext && S.session && !S.dismissed[pkey], ptext || '');
+    S.bannerKeys = { staged: key, restart: rkey, probation: pkey };
+  }
+
+  // The text with a full stop, unless it already ends a sentence (server messages usually do).
+  function sentence(text) {
+    var t = String(text || '');
+    return /[.!?)]$/.test(t) ? t : t + '.';
+  }
+
+  function dismiss(which, id) {
+    if (S.bannerKeys[which]) S.dismissed[S.bannerKeys[which]] = true;
+    show($(id), false);
+  }
+
+  function describeOp(op) {
+    if (!op) return '';
+    var sum = op.summary || {};
+    var who = sum.alias || shortId(op.target);
+    var lvl = typeof sum.level === 'number' ? ' (level ' + sum.level + ')' : '';
+    if (op.kind === 'import') {
+      return 'import of ' + who + lvl + (op.plan === 'switch' ? ', played on this phone' : ' over the current progress');
+    }
+    if (op.kind === 'restore') {
+      return 'restore of a backup of ' + who + lvl + (op.plan === 'switch' ? ', played on this phone' : '');
+    }
+    if (op.kind === 'relink') return 'play ' + who + lvl + ' on this phone';
+    if (op.kind === 'undo') return 'undo of the last operation';
+    return (op.kind || 'operation') + ' for ' + who;
+  }
+
+  // ------------------------------------------------------------------ session, boot and liveness (§2.4, §2.5)
+
+  function parseHash(hash) {
+    var r = { t: null, s: null, news: false, nosave: false, empty: true };
+    var h = String(hash || '').replace(/^#/, '');
+    if (!h) return r;
+    r.empty = false;
+    var parts = h.split('&');
+    for (var i = 0; i < parts.length; i++) {
+      var p = parts[i];
+      if (p.indexOf('t=') === 0 && /^[0-9a-f]{32}$/.test(p.substring(2))) r.t = p.substring(2);
+      else if (p.indexOf('s=') === 0 && SCREENS.indexOf(p.substring(2)) >= 0) r.s = p.substring(2);
+      else if (p === 'news') r.news = true;
+      else if (p === 'r=nosave') r.nosave = true;
+    }
+    return r;
+  }
+
+  function removeFragment() {
+    if (typeof history !== 'undefined' && history && typeof history.replaceState === 'function') {
+      try {
+        history.replaceState(null, '', location.pathname);
+        return;
+      } catch (e) { /* fall back below */ }
+    }
+    if (location.hash) location.hash = '';
+  }
+
+  function boot() {
+    var h = parseHash(location.hash);
+    removeFragment();
+    $('about-ua').textContent = navigator.userAgent || '–';
+    lock(true);
+    ping();
+    api('GET', 'status', null, function (st, d) {
+      if (st === 200) { sessionReady(d, h); return; }
+      if (st === 401 && h.t) {
+        api('POST', 'session', { ticket: h.t }, function (st2) {
+          if (st2 !== 200) { noSession(); return; }
+          api('GET', 'status', null, function (st3, d3) {
+            if (st3 === 200) sessionReady(d3, h);
+            else noSession();
+          }, { quiet401: true });
+        }, { quiet401: true });
+        return;
+      }
+      if (st === 0) { banner('banner-error', true); setConn(false); }
+      if (st === 503) toast(errText(st, d), 8000);
+      if (st === 401 && !h.news && !h.empty) noSession();
+      else viewMode();
+    }, { quiet401: true });
+  }
+
+  function sessionReady(status, h) {
+    S.session = true;
+    banner('banner-nosession', false);
+    banner('banner-viewmode', false);
+    lock(false);
+    applyStatus(status);
+    go(h.s || 'status', true);
+    if (h.nosave) toast('The game did not save.', 6000);
+    if (!S.settings) loadSettings();
+  }
+
+  function viewMode() {
+    S.session = false;
+    banner('banner-viewmode', true);
+    lock(true);
+    go('about');
+  }
+
+  function noSession() {
+    S.session = false;
+    banner('banner-nosession', true);
+    lock(true);
+    go('about');
+  }
+
+  function lostSession() {
+    S.session = false;
+    banner('banner-nosession', true);
+    lock(true);
+    renderBanners();
+    renderBar();
+  }
+
+  function setConn(ok) { $('conn').className = ok ? 'ok' : 'bad'; }
+
+  function ping() {
+    var hadSession = S.session;
+    api('GET', 'ping', null, function (st, d) {
+      if (st === 200) {
+        S.pingFails = 0;
+        setConn(true);
+        banner('banner-error', false);
+        if (hadSession && S.session && d && d.session === false) lostSession();
+        return;
+      }
+      if (st === 0 || (st >= 500 && st !== 503)) {
+        S.pingFails++;
+        setConn(false);
+        if (S.pingFails >= 3) banner('banner-error', true);
+      }
+    }, { quiet401: true, timeout: 8000 });
+  }
+
+  // ------------------------------------------------------------------ restart and save now (§4.5)
+
+  function restartDialog(reason, intro) {
+    if (S.restarting) {
+      toast('The game is already restarting.');
+      return;
+    }
+    if (!cap('exit')) {
+      toast('This build cannot restart the game: close it and start it again yourself.', 7000);
+      return;
+    }
+    var when = lastSaveText();
+    var nodes = [];
+    if (intro) nodes.push(el('p', null, intro));
+    nodes.push(el('p', null, 'The page closes, the game saves your progress (last save ' + when + ') and restarts. This takes about 20 seconds.'));
+    var c = checkbox('Restart even if the game does not save (you may lose the progress since ' + when + ')');
+    nodes.push(c.row);
+    nodes.push(el('p', 'muted', 'If the game does not come back by itself, start it again from the home screen.'));
+    openDialog({
+      title: 'Restart the game', nodes: nodes, ok: 'Restart', cancel: 'Not now',
+      onOk: function () {
+        api('POST', 'actions/restart', { confirm: true, reason: reason, restartWithoutSave: !!c.box.checked }, function (st, d) {
+          if (st === 202 || st === 200) {
+            S.restarting = true;
+            toast('Restarting: the page closes, the game saves and starts again.', 9000);
+            return;
+          }
+          toast(errText(st, d), 7000);
+        });
+      }
+    });
+  }
+
+  function saveNow() {
+    if (S.restarting) {
+      toast('The game is restarting.');
+      return;
+    }
+    if (!(cap('save') && cap('openPage'))) {
+      toast('This build cannot ask the game to save. The game saves by itself every few minutes and after each match.', 8000);
+      return;
+    }
+    api('POST', 'actions/save-now', { screen: 'saves' }, function (st, d) {
+      if (st === 202 || st === 200) toast('The page closes, the game saves, and the page opens again here.', 8000);
+      else toast(errText(st, d), 7000);
+    });
+  }
+
+  // ------------------------------------------------------------------ Status
+
+  function refreshStatus(storage) {
+    if (!S.session) return;
+    api('GET', 'status' + (storage ? '?storage=1' : ''), null, function (st, d) {
+      if (st !== 200) {
+        if (st !== 401) toast(errText(st, d));
+        return;
+      }
+      applyStatus(d);
+      if (storage) renderStorage(d.storage);
+    });
+  }
+
+  function applyStatus(d) {
+    S.status = d;
+    if (d && d.exit && d.exit.state && d.exit.state !== 'idle') S.restarting = d.exit.state === 'restarting';
+    renderStatus();
+    renderBanners();
+    renderAbout();
+    if (S.screen === 'actions') renderActions();
+  }
+
+  function renderStatus() {
+    var d = S.status;
+    var body = clear($('status-body'));
+    if (!d) return;
+    add(body, el('h2', null, 'MCVS Offline ' + (d.version || '') + (d.build ? ' (build ' + d.build + ')' : '')));
+
+    add(body, el('h3', null, 'Player'));
+    var p = d.player;
+    if (p && p.account) {
+      kv(body, 'Name', p.alias || '(no name yet)');
+      kv(body, 'Account', p.account, 'mono');
+      if (typeof p.level === 'number') kv(body, 'Level', String(p.level));
+      if (typeof p.revision === 'number') kv(body, 'Save revision', String(p.revision));
+      kv(body, 'Last save by the game', p.lastGameSave ? timeAgo(p.lastGameSave) : 'not since the game started' + (p.modified ? ' (file saved ' + timeAgo(p.modified) + ')' : ''));
+      kv(body, 'Identified', SOURCES[p.source] || p.source || 'unknown');
+      if (p.hasGameProfile === false) kv(body, 'Game progress', 'none stored yet', 'warnt');
+    } else {
+      para(body, 'The page does not know which account the game is playing yet.', 'muted');
+    }
+
+    var ops = d.staged || {};
+    var exit = d.exit || {};
+    if (ops.pending || ops.probation || ops.last || (exit.last && exit.last.kind)) {
+      add(body, el('h3', null, 'Save operations'));
+      if (ops.pending) kv(body, 'Waiting for a restart', describeOp(ops.pending));
+      if (ops.probation) kv(body, 'Waiting for the game to load', describeOp(ops.probation));
+      if (ops.last) kv(body, 'Last', (ops.last.result || '') + ' ' + fmtTime(ops.last.at) + (ops.last.message ? ': ' + ops.last.message : ''));
+      if (exit.last && exit.last.kind) kv(body, 'Last ' + exit.last.kind, (exit.last.result || '') + ' ' + fmtTime(exit.last.at) + (exit.last.message ? ': ' + exit.last.message : ''));
+      if (exit.state && exit.state !== 'idle') kv(body, 'Now', exit.state, 'warnt');
+    }
+
+    add(body, el('h3', null, 'Server'));
+    var sv = d.server || {};
+    kv(body, 'Started', sv.started ? fmtTime(sv.started) + ' (' + fmtDuration(sv.uptimeSeconds) + ' ago)' : '–');
+    kv(body, 'Address', (sv.bind || '?') + ':' + (sv.port || '?') + (sv.lanMode ? ' (LAN mode)' : ''));
+    kv(body, 'Host check', sv.hostCheck === false ? 'off' : 'on');
+    kv(body, 'Data folder', sv.dataDir, 'mono');
+    kv(body, 'Game data', sv.dataPack || 'not found', 'mono');
+    if (sv.instance) kv(body, 'Instance', sv.instance, 'mono');
+    var set = d.settings || {};
+    kv(body, 'settings.json', set.fallback ? 'cannot be read: ' + (set.error || '') + ' (Settings shows how to repair it)' : 'OK', set.fallback ? 'errt' : null);
+    if (set.restartPending) kv(body, 'After a restart', plural(set.restartPending, 'changed setting', 'changed settings'));
+    if (d.crm) kv(body, 'CRM document', fmtNum(d.crm.chars || 0) + ' characters, built ' + fmtTime(d.crm.built) + (d.crm.problems ? ', ' + plural(d.crm.problems, 'problem', 'problems') : ''));
+    if (d.crm && d.crm.collectorPhase) kv(body, 'Cosmetic crate', d.crm.collectorPhase.toLowerCase() + (d.crm.collectorReason ? ' (' + d.crm.collectorReason + ')' : ''));
+
+    add(body, el('h3', null, 'Game host'));
+    var h = d.host;
+    if (!h) {
+      para(body, 'Standalone server (no game on this machine): sharing, restart and save buttons are not available. Use the download links instead.', 'muted');
+    } else {
+      kv(body, 'Platform', (h.platform || '?') + (h.sdkInt ? ', Android API ' + h.sdkInt : ''));
+      kv(body, 'In-game browser', (h.browser || 'unknown') + (h.browserOpen ? ', open' : ''));
+      kv(body, 'Watchdog', h.watchdog);
+      kv(body, 'Log copies', h.mirror);
+      if (typeof h.freeBytes === 'number' && h.freeBytes >= 0) kv(body, 'Free space', fmtSize(h.freeBytes));
+      if (h.gameCredential) kv(body, 'Game login', h.gameCredential, 'mono');
+      var caps = [];
+      var c = h.capabilities || {};
+      for (var k in c) if (c.hasOwnProperty(k)) caps.push(k + (c[k] ? '' : ' (off)'));
+      kv(body, 'Capabilities', caps.join(', '));
+      if (h.missingJni && h.missingJni.length) kv(body, 'Missing JNI members', h.missingJni.join(', '), 'errt');
+      if (h.restartVia) kv(body, 'Restart via', h.restartVia);
+    }
+    kv(body, 'WebView', navigator.userAgent || '–', 'mono');
+
+    add(body, el('h3', null, 'Recent problems'));
+    var probs = d.problems || [];
+    if (!probs.length) para(body, 'None since the game started.', 'muted');
+    for (var i = 0; i < probs.length; i++) add(body, problemRow(probs[i]));
+  }
+
+  function problemRow(pr) {
+    var row = el('div', 'item prob');
+    var left = add(row, el('div', 'il'));
+    var lvl = String(pr.level || '').toUpperCase();
+    add(left, el('div', 'meta' + (lvl.indexOf('ERR') === 0 ? ' errt' : ' warnt'), fmtTime(pr.time) + ' ' + lvl + ' [' + (pr.category || '') + ']' + (pr.source ? ' ' + pr.source : '')));
+    add(left, el('div', 'pm mono', pr.message || ''));
+    on(row, 'click', function () { row.className = row.className.indexOf(' open') >= 0 ? 'item prob' : 'item prob open'; });
+    return row;
+  }
+
+  function renderStorage(st) {
+    var box = clear($('status-storage-body'));
+    if (!st) return;
+    add(box, el('h3', null, 'Storage usage'));
+    var names = { profiles: 'Saves', backups: 'Backups', blobs: 'Blobs', messages: 'Messages', logs: 'Logs', admin: 'Exports and shares', other: 'Other' };
+    for (var k in names) {
+      if (!names.hasOwnProperty(k) || !st[k]) continue;
+      kv(box, names[k], fmtSize(st[k].bytes) + ' in ' + plural(st[k].files || 0, 'file', 'files'));
+    }
+    kv(box, 'Total', fmtSize(st.total) + (st.scanCapped ? ' (stopped counting early)' : ''));
+  }
+
+  // ------------------------------------------------------------------ Settings (rendered from the server's schema, §3)
+
+  function loadSettings(then) {
+    if (!S.session) return;
+    api('GET', 'settings', null, function (st, d) {
+      if (st !== 200) {
+        if (st !== 401) toast(errText(st, d));
+        return;
+      }
+      S.settings = d;
+      if (S.screen === 'settings') renderSettings();
+      if (S.screen === 'actions') renderActions();
+      renderBanners();
+      if (then) then();
+    });
+    if (!S.codes) {
+      api('GET', 'codes', null, function (st, d) {
+        if (st === 200) {
+          S.codes = d;
+          if (S.screen === 'settings') renderSettings();
+        }
+      });
+    }
+  }
+
+  function groups() { return (S.settings && S.settings.groups) || []; }
+
+  function findGroup(id) {
+    var gs = groups();
+    for (var i = 0; i < gs.length; i++) if (gs[i].id === id) return gs[i];
+    return null;
+  }
+
+  function findKey(key) {
+    var gs = groups();
+    for (var i = 0; i < gs.length; i++) {
+      var keys = gs[i].keys || [];
+      for (var j = 0; j < keys.length; j++) if (keys[j].key === key) return keys[j];
+    }
+    return null;
+  }
+
+  function idFor(key) { return 'set-' + String(key).replace(/\./g, '-'); }
+
+  function same(a, b) {
+    if (typeof a === 'number' && typeof b === 'number') return Math.abs(a - b) < 1e-9;
+    return a === b;
+  }
+
+  function current(k) { return S.edits.hasOwnProperty(k.key) ? S.edits[k.key] : k.value; }
+
+  function dflt(k) { return k['default']; }
+
+  function editable(k) {
+    var t = k.type;
+    return k.editable !== false && (t === 'bool' || t === 'int' || t === 'number' || t === 'enum' || t === 'string' || t === 'tokens');
+  }
+
+  function decimals(step) {
+    var s = String(step || 1);
+    var i = s.indexOf('.');
+    return i < 0 ? 0 : s.length - i - 1;
+  }
+
+  function fmtValue(k, v) {
+    if (v === null || v === undefined) return '–';
+    if (k.type === 'bool') return v ? 'on' : 'off';
+    if (k.type === 'number' && typeof v === 'number') return v.toFixed(Math.max(1, decimals(k.step)));
+    if (k.type === 'string' && v === '') return '(empty)';
+    return String(v);
+  }
+
+  function clampStep(k, v, delta) {
+    var step = k.step || 1;
+    var d = decimals(step);
+    var f = Math.pow(10, d);
+    var n = Math.round((v + delta * step) * f) / f;
+    if (typeof k.min === 'number' && n < k.min) n = k.min;
+    if (typeof k.max === 'number' && n > k.max) n = k.max;
+    return n;
+  }
+
+  function setEdit(k, v) {
+    if (same(v, k.value)) delete S.edits[k.key];
+    else S.edits[k.key] = v;
+    delete S.problems[k.key];
+    var ref = S.rowRefs && S.rowRefs[k.key];
+    if (ref) ref.update();
+    renderTabs();
+    renderSettingsBar();
+    updateGuard();
+  }
+
+  function editCount() {
+    var n = 0;
+    for (var k in S.edits) if (S.edits.hasOwnProperty(k)) n++;
+    return n;
+  }
+
+  function renderSettingsBar() {
+    var n = editCount();
+    $('settings-dirty').textContent = n ? plural(n, 'unsaved change', 'unsaved changes') : 'No changes';
+    $('settings-save').disabled = n === 0;
+    $('settings-discard').disabled = n === 0;
+  }
+
+  function groupDirty(g) {
+    var keys = g.keys || [];
+    for (var i = 0; i < keys.length; i++) if (S.edits.hasOwnProperty(keys[i].key)) return true;
+    return false;
+  }
+
+  function renderTabs() {
+    var tabs = clear($('settings-tabs'));
+    var gs = groups();
+    for (var i = 0; i < gs.length; i++) add(tabs, tabButton(gs[i]));
+  }
+
+  function tabButton(g) {
+    return btn(g.label + (groupDirty(g) ? ' •' : ''), 'tab' + (g.id === S.group ? ' on' : ''), function () {
+      S.group = g.id;
+      renderSettings();
+      $('pane').scrollTop = 0;
+    }, 'grp-' + g.id);
+  }
+
+  function renderSettings() {
+    var s = S.settings;
+    var body = clear($('settings-body'));
+    S.rowRefs = {};
+    if (!s) {
+      para(body, 'Loading…', 'muted');
+      return;
+    }
+    var fallback = !!s.fallback;
+    show($('settings-repairpanel'), fallback);
+    show($('settings-normal'), !fallback);
+    renderBar();
+    if (fallback) {
+      $('settings-error').textContent = s.error || 'unknown problem';
+      $('settings-path').textContent = s.file || '';
+      return;
+    }
+    if (!S.group || !findGroup(S.group)) S.group = groups().length ? groups()[0].id : null;
+    renderTabs();
+    var g = findGroup(S.group);
+    if (!g) return;
+    var keys = g.keys || [];
+    var anyEditable = false;
+    var anyMenu = false;
+    for (var i = 0; i < keys.length; i++) {
+      if (editable(keys[i])) anyEditable = true;
+      if (keys[i].apply === 'menu') anyMenu = true;
+    }
+    if (anyMenu) para(body, '"After the next match": the game picks the change up after you close this page, when it returns to the main menu.', 'muted');
+    renderPresets(body, g);
+    if (!anyEditable) para(body, 'Edit settings.json on a PC to change these.', 'muted');
+    for (var j = 0; j < keys.length; j++) add(body, editable(keys[j]) ? settingRow(keys[j]) : readOnlyRow(keys[j]));
+    if (g.id === 'unlocks') renderCodes(body);
+    renderSettingsBar();
+  }
+
+  function renderPresets(body, g) {
+    var presets = (S.settings && S.settings.presets) || [];
+    if (!presets.length) return;
+    var mine = [];
+    for (var i = 0; i < presets.length; i++) {
+      var vals = presets[i].values || {};
+      for (var key in vals) {
+        if (vals.hasOwnProperty(key) && keyInGroup(g, key)) { mine.push(presets[i]); break; }
+      }
+    }
+    if (!mine.length) return;
+    var row = add(body, el('div', 'btnrow'));
+    add(row, el('span', 'muted', 'Presets: '));
+    for (var j = 0; j < mine.length; j++) add(row, presetButton(g, mine[j]));
+  }
+
+  function keyInGroup(g, key) {
+    var keys = g.keys || [];
+    for (var i = 0; i < keys.length; i++) if (keys[i].key === key) return true;
+    return false;
+  }
+
+  // Whether any preset sets this key: only those keys belong to the presets.
+  function presetKey(key) {
+    var presets = (S.settings && S.settings.presets) || [];
+    for (var i = 0; i < presets.length; i++) {
+      var vals = presets[i].values || {};
+      if (vals.hasOwnProperty(key)) return true;
+    }
+    return false;
+  }
+
+  // A preset fills the controls (the other presets' keys it leaves out go back to their defaults; keys no preset sets,
+  // such as the Cosmetic crate's, stay as they are); Save writes them.
+  function presetButton(g, preset) {
+    return btn(preset.label || preset.id, 'small', function () {
+      var keys = g.keys || [];
+      var vals = preset.values || {};
+      for (var i = 0; i < keys.length; i++) {
+        var k = keys[i];
+        if (!editable(k)) continue;
+        if (vals.hasOwnProperty(k.key)) setEdit(k, vals[k.key]);
+        else if (presetKey(k.key) && (k.type === 'number' || k.type === 'int')) setEdit(k, dflt(k));
+      }
+      renderSettings();
+      toast('Preset ' + (preset.label || preset.id) + ' filled in: press Save to keep it.');
+    }, 'preset-' + preset.id);
+  }
+
+  function readOnlyRow(k) {
+    var row = el('div', 'kv');
+    add(row, el('span', 'k', k.label || k.key));
+    var v = k.display !== undefined && k.display !== null ? String(k.display) : fmtValue(k, k.value);
+    var span = add(row, el('span', 'v mono', v));
+    span.setAttribute('id', idFor(k.key));
+    return row;
+  }
+
+  function settingRow(k) {
+    var row = el('div', 'row');
+    var left = add(row, el('div', 'rl'));
+    add(left, el('div', 'lbl', k.label || k.key));
+    if (k.help) add(left, el('div', 'help', k.help));
+    if (k.invalidStored) add(left, el('div', 'rowerr', k.invalidNote || 'The value in settings.json is not valid; the default is used.'));
+    var meta = add(left, el('div', 'meta'));
+    var errLine = add(left, el('div', 'rowerr'));
+    var right = add(row, el('div', 'rc'));
+    var control = buildControl(k, right);
+    function update() {
+      clear(meta);
+      var v = current(k);
+      if (!same(v, dflt(k))) add(meta, el('span', 'chg'));
+      add(meta, el('span', 'badge ' + (k.apply || ''), APPLY[k.apply] || k.apply || ''));
+      if (S.edits.hasOwnProperty(k.key)) add(meta, el('span', 'warnt', 'changed '));
+      if (!same(v, dflt(k))) {
+        add(meta, btn('Reset', 'link', function () {
+          setEdit(k, dflt(k));
+          renderSettings();
+        }));
+      }
+      errLine.textContent = S.problems[k.key] || control.problem() || '';
+      show(errLine, !!errLine.textContent);
+    }
+    S.rowRefs[k.key] = { update: update };
+    update();
+    return row;
+  }
+
+  function buildControl(k, parent) {
+    var id = idFor(k.key);
+    var noProblem = function () { return ''; };
+    if (k.type === 'bool') {
+      var c = add(parent, el('input', 'sw'));
+      c.setAttribute('type', 'checkbox');
+      c.setAttribute('id', id);
+      c.checked = !!current(k);
+      on(c, 'change', function () { setEdit(k, !!c.checked); });
+      return { problem: noProblem };
+    }
+    if (k.type === 'int' || k.type === 'number') {
+      var box = add(parent, el('span', 'stepper'));
+      var val = btn(fmtValue(k, current(k)), 'val', function () { valueDialog(k, val); }, id);
+      add(box, btn('−', null, function () { setEdit(k, clampStep(k, Number(current(k)), -1)); val.textContent = fmtValue(k, current(k)); }));
+      add(box, val);
+      add(box, btn('+', null, function () { setEdit(k, clampStep(k, Number(current(k)), 1)); val.textContent = fmtValue(k, current(k)); }));
+      return { problem: noProblem };
+    }
+    if (k.type === 'enum') {
+      var sel = add(parent, el('select'));
+      sel.setAttribute('id', id);
+      var opts = k.options || [];
+      for (var i = 0; i < opts.length; i++) {
+        var o = add(sel, el('option', null, opts[i]));
+        o.value = String(opts[i]);
+      }
+      sel.value = String(current(k));
+      on(sel, 'change', function () { setEdit(k, sel.value); });
+      return { problem: noProblem };
+    }
+    if (k.type === 'tokens') {
+      var wrap = add(parent, el('span'));
+      wrap.setAttribute('id', id);
+      var all = k.options || [];
+      var boxes = [];
+      for (var j = 0; j < all.length; j++) boxes.push(tokenBox(k, wrap, all[j], boxes));
+      return { problem: noProblem };
+    }
+    // string: a typed field with its own Done button (the keyboard covers half the pane, §2.1)
+    var field = add(parent, el('span', 'field'));
+    var input = add(field, el('input'));
+    input.setAttribute('type', 'text');
+    input.setAttribute('id', id);
+    input.setAttribute('autocomplete', 'off');
+    input.setAttribute('spellcheck', 'false');
+    if (k.maxLength) input.setAttribute('maxlength', String(k.maxLength));
+    var upper = !!(k.pattern && k.pattern.indexOf('A-Z') >= 0 && k.pattern.indexOf('a-z') < 0);
+    if (upper) input.setAttribute('autocapitalize', 'characters');
+    input.value = current(k) === null || current(k) === undefined ? '' : String(current(k));
+    var done = add(field, btn('Done', 'small', function () {
+      if (upper) input.value = input.value.toUpperCase();
+      setEdit(k, input.value);
+      done.focus();
+    }));
+    on(input, 'input', function () { setEdit(k, upper ? input.value.toUpperCase() : input.value); });
+    on(input, 'click', function () { scrollToField(input); });
+    return {
+      problem: function () {
+        var v = String(current(k) || '');
+        if (k.pattern) {
+          try {
+            if (!new RegExp(k.pattern).test(v)) return 'Not a valid value for this setting.';
+          } catch (e) { return ''; }
+        }
+        return '';
+      }
+    };
+  }
+
+  function tokenBox(k, wrap, token, boxes) {
+    var label = add(wrap, el('label', 'tok'));
+    var c = add(label, el('input'));
+    c.setAttribute('type', 'checkbox');
+    c.setAttribute('id', idFor(k.key) + '-' + token);
+    add(label, document.createTextNode(token));
+    var have = ' ' + String(current(k) || '') + ' ';
+    c.checked = have.indexOf(' ' + token + ' ') >= 0;
+    on(c, 'change', function () {
+      var picked = [];
+      var all = k.options || [];
+      for (var i = 0; i < all.length; i++) if (boxes[i] && boxes[i].checked) picked.push(all[i]);
+      setEdit(k, picked.join(' '));
+    });
+    return c;
+  }
+
+  function scrollToField(field) { $('pane').scrollTop = Math.max(0, field.offsetTop - 8); }
+
+  // Wide ranges are slow with +/- alone: the value button opens bigger steps, Min, Default and Max.
+  function valueDialog(k, valButton) {
+    var shownValue = el('div', 'lbl', fmtValue(k, current(k)));
+    var nodes = [shownValue];
+    var steps = [1];
+    var range = (typeof k.max === 'number' && typeof k.min === 'number') ? (k.max - k.min) / (k.step || 1) : 0;
+    if (range >= 20) steps.push(10);
+    if (range >= 200) steps.push(100);
+    var row = el('div', 'btnrow');
+    function bump(delta) {
+      return function () {
+        setEdit(k, clampStep(k, Number(current(k)), delta));
+        shownValue.textContent = fmtValue(k, current(k));
+        valButton.textContent = fmtValue(k, current(k));
+      };
+    }
+    function setTo(v) {
+      return function () {
+        setEdit(k, v);
+        shownValue.textContent = fmtValue(k, current(k));
+        valButton.textContent = fmtValue(k, current(k));
+      };
+    }
+    for (var i = steps.length - 1; i >= 0; i--) add(row, btn('−' + stepText(k, steps[i]), null, bump(-steps[i])));
+    for (var j = 0; j < steps.length; j++) add(row, btn('+' + stepText(k, steps[j]), null, bump(steps[j])));
+    nodes.push(row);
+    var row2 = el('div', 'btnrow');
+    if (typeof k.min === 'number') add(row2, btn('Min ' + fmtValue(k, k.min), 'small', setTo(k.min)));
+    add(row2, btn('Default ' + fmtValue(k, dflt(k)), 'small', setTo(dflt(k))));
+    if (typeof k.max === 'number') add(row2, btn('Max ' + fmtValue(k, k.max), 'small', setTo(k.max)));
+    nodes.push(row2);
+    openDialog({ title: k.label || k.key, nodes: nodes, ok: 'Done', cancel: null });
+  }
+
+  function stepText(k, times) {
+    var d = decimals(k.step);
+    return fmtNum((Math.round(times * (k.step || 1) * Math.pow(10, d)) / Math.pow(10, d)).toFixed(d));
+  }
+
+  function renderCodes(body) {
+    var c = S.codes;
+    add(body, el('h3', null, 'Unlock codes'));
+    if (!c) {
+      para(body, 'Loading…', 'muted');
+      return;
+    }
+    para(body, 'Type them in Settings › Account › Redeem code. Each code works once per save; codes marked "+ number" work again with a number added (UNLOCKALL2).', 'muted');
+    if (c.enabled === false) para(body, 'Unlock codes are off: turn on "Unlock codes" above.', 'warnt');
+    var codes = c.codes || [];
+    for (var i = 0; i < codes.length; i++) add(body, codeRow(codes[i]));
+    if (c.pageCode) para(body, c.pageCode + ' opens this page from Redeem code (the game then says the code does not exist).', 'muted');
+  }
+
+  function codeRow(code) {
+    var row = el('div', 'item');
+    var left = add(row, el('div', 'il'));
+    add(left, el('div', 'mono lbl', code.code + (code.numericSuffix ? ' (+ number)' : '')));
+    if (code.description) add(left, el('div', 'help', code.description));
+    var right = add(row, el('div', 'ir'));
+    add(right, btn('Copy', 'small', function () { copyText(code.code, 'MCVS Offline code'); }));
+    return row;
+  }
+
+  function changeNeedsConfirm(k, oldV, newV) {
+    if (!k.confirm) return false;
+    var when = k.confirmWhen || 'any';
+    if (when === 'enable') return !oldV && !!newV;
+    if (when === 'decrease') return typeof oldV === 'number' && typeof newV === 'number' && newV < oldV;
+    return true;
+  }
+
+  function saveSettings() {
+    var changes = {};
+    var texts = [];
+    var n = 0;
+    for (var key in S.edits) {
+      if (!S.edits.hasOwnProperty(key)) continue;
+      var k = findKey(key);
+      changes[key] = S.edits[key];
+      n++;
+      if (k && changeNeedsConfirm(k, k.value, S.edits[key])) texts.push((k.label || key) + ': ' + k.confirm);
+    }
+    if (!n) return;
+    if (texts.length) {
+      var nodes = [];
+      for (var i = 0; i < texts.length; i++) nodes.push(el('p', null, texts[i]));
+      openDialog({ title: 'Save these changes?', nodes: nodes, ok: 'Save', onOk: function () { postSettings(changes, false); } });
+      return;
+    }
+    postSettings(changes, false);
+  }
+
+  function postSettings(changes, force) {
+    var fp = S.settings ? S.settings.fingerprint : null;
+    $('settings-save').disabled = true;
+    api('POST', 'settings', { changes: changes, fingerprint: fp, force: !!force }, function (st, d) {
+      renderSettingsBar();
+      if (st === 200 && d) {
+        S.edits = {};
+        S.problems = {};
+        if (d.settings) S.settings = d.settings;
+        var msg = 'Saved.';
+        var applies = {};
+        var applied = d.applied || [];
+        for (var i = 0; i < applied.length; i++) applies[applied[i].apply] = true;
+        if (applies.restart || d.restartRequired) msg += ' Some changes apply after a restart.';
+        else if (applies.menu) msg += ' Applies after the next match.';
+        if (d.backup && d.backup.id) msg += ' A backup of your save was made first.';
+        if (d.overwrittenCopy) msg += ' The edited file was kept as ' + d.overwrittenCopy + '.';
+        if (d.warnings && d.warnings.length) msg += ' ' + d.warnings.join(' ');
+        toast(msg, 7000);
+        if (!d.settings) loadSettings();
+        renderSettings();
+        renderBanners();
+        updateGuard();
+        refreshStatusQuietly();
+        return;
+      }
+      if (st === 400 && d && d.error === 'invalid') {
+        var probs = (d.details && d.details.problems) || [];
+        for (var j = 0; j < probs.length; j++) S.problems[probs[j].key] = probs[j].message;
+        renderSettings();
+        toast(errText(st, d));
+        return;
+      }
+      if (st === 409 && d && d.error === 'file_changed') { fileChangedDialog(changes); return; }
+      if (st === 409 && d && d.error === 'settings_fallback') { loadSettings(); toast(errText(st, d)); return; }
+      toast(errText(st, d), 7000);
+    });
+  }
+
+  function refreshStatusQuietly() {
+    api('GET', 'status', null, function (st, d) { if (st === 200) applyStatus(d); }, { quiet401: true });
+  }
+
+  function fileChangedDialog(changes) {
+    var canRestart = cap('exit');
+    openDialog({
+      title: 'settings.json was changed',
+      text: 'The file was edited outside this page (on a PC?) since the game started. Keep the edited file, or overwrite it with your changes? (A copy of the edited file is kept.)',
+      ok: canRestart ? 'Keep the edited file and restart' : 'Keep the edited file',
+      onOk: function () {
+        S.edits = {};
+        renderSettings();
+        updateGuard();
+        if (canRestart) restartDialog('settings');
+        else toast('Close the game and start it again to load the edited file.', 7000);
+      },
+      extra: [{ label: 'Overwrite it', fn: function () { postSettings(changes, true); } }]
+    });
+  }
+
+  function showSettingsFile() {
+    api('GET', 'settings/file', null, function (st, d) {
+      var box = $('settings-filetext');
+      if (st !== 200) {
+        toast(errText(st, d));
+        return;
+      }
+      box.textContent = typeof d === 'string' ? d : JSON.stringify(d, null, 2);
+      show(box);
+    });
+  }
+
+  function repairSettings() {
+    confirmDialog('Repair settings.json',
+      'The broken file is renamed (kept next to it) and the defaults are saved. Your changes in the broken file are not used; restart the game afterwards.',
+      'Move it aside', function () {
+        api('POST', 'settings/repair', { confirm: 'move-aside' }, function (st, d) {
+          if (st !== 200) {
+            toast(errText(st, d), 7000);
+            return;
+          }
+          toast('Moved to ' + (d.movedTo || 'a backup name') + '. Restart the game to load the defaults.', 8000);
+          show($('settings-filetext'), false);
+          loadSettings();
+          refreshStatusQuietly();
+        });
+      }, true);
+  }
+
+  // ------------------------------------------------------------------ Saves (§4.6, §6)
+
+  function loadSaves() {
+    if (!S.session) return;
+    api('GET', 'saves', null, function (st, d) {
+      if (st !== 200) {
+        clear($('saves-current'));
+        para($('saves-current'), errText(st, d), 'errt');
+        return;
+      }
+      S.saves = d;
+      if (!S.account || !findAccount(S.account)) {
+        var cur = d.current && d.current.account;
+        S.account = cur && findAccount(cur) ? cur : firstWithProfile();
+      }
+      renderSaves();
+      if (S.account) loadBackups();
+    });
+  }
+
+  function accounts() { return (S.saves && S.saves.accounts) || []; }
+
+  function findAccount(id) {
+    var a = accounts();
+    for (var i = 0; i < a.length; i++) if (a[i].account === id) return a[i];
+    return null;
+  }
+
+  function firstWithProfile() {
+    var a = accounts();
+    for (var i = 0; i < a.length; i++) if (a[i].hasGameProfile) return a[i].account;
+    return a.length ? a[0].account : null;
+  }
+
+  function currentAccountId() { return S.saves && S.saves.current ? S.saves.current.account : null; }
+
+  function accountName(a) { return a ? (a.alias || shortId(a.account)) : '–'; }
+
+  function loadBackups() {
+    var acct = S.account;
+    api('GET', 'saves/' + acct + '/backups', null, function (st, d) {
+      if (acct !== S.account) return;
+      S.backups = st === 200 ? d : { error: errText(st, d) };
+      renderBackups();
+    });
+  }
+
+  function applySavesView() {
+    var view = S.savesView;
+    show($('saves-main'), view === 'main');
+    show($('saves-export'), view === 'export');
+    show($('saves-import'), view === 'import');
+    renderBar();
+    if (view === 'export') renderExport();
+    if (view === 'import') renderImport();
+  }
+
+  function setSavesView(view) {
+    S.savesView = view;
+    $('pane').scrollTop = 0;
+    applySavesView();
+    if (view === 'import') loadImportFiles();
+  }
+
+  function renderSaves() {
+    applySavesView();
+    var d = S.saves;
+    if (!d) return;
+    renderStaged();
+    var cur = clear($('saves-current'));
+    var curId = currentAccountId();
+    var me = curId ? findAccount(curId) : null;
+    if (me) {
+      add(cur, el('div', 'lbl', accountName(me)));
+      kv(cur, 'Account', me.account, 'mono');
+      if (typeof me.level === 'number') kv(cur, 'Level', String(me.level));
+      if (typeof me.revision === 'number') kv(cur, 'Save revision', String(me.revision));
+      kv(cur, 'Last saved by the game', me.lastGameSave ? timeAgo(me.lastGameSave) : 'not since the game started (file: ' + timeAgo(me.modified) + ')');
+      para(cur, 'Backups and exports contain the progress as of that save. "Save the game now" saves first.', 'muted');
+    } else {
+      para(cur, 'The page does not know which account the game is playing. Pick an account below to see its backups.', 'warnt');
+    }
+
+    var list = clear($('saves-accounts'));
+    var others = 0;
+    var all = accounts();
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].account === curId) continue;
+      others++;
+      add(list, accountRow(all[i]));
+    }
+    if (!others) para(list, 'None.', 'muted');
+    var sel = findAccount(S.account);
+    $('saves-backups-title').textContent = 'Backups of ' + accountName(sel);
+    $('saves-backup-now').disabled = !S.account;
+    $('saves-open-export').disabled = !S.account;
+  }
+
+  function accountRow(a) {
+    var row = el('div', 'item' + (a.account === S.account ? ' sel' : ''));
+    var left = add(row, el('div', 'il'));
+    add(left, el('div', 'lbl', accountName(a)));
+    var bits = [];
+    if (typeof a.level === 'number') bits.push('level ' + a.level);
+    if (typeof a.revision === 'number') bits.push('revision ' + a.revision);
+    if (a.modified) bits.push('saved ' + fmtTime(a.modified));
+    if (typeof a.backups === 'number') bits.push(plural(a.backups, 'backup', 'backups'));
+    if (!a.hasGameProfile) bits.push('no game progress');
+    add(left, el('div', 'help', bits.join(', ')));
+    var right = add(row, el('div', 'ir'));
+    add(right, btn('Backups', 'small', function () {
+      S.account = a.account;
+      S.backups = null;
+      renderSaves();
+      renderBackups();
+      loadBackups();
+    }));
+    if (a.hasGameProfile) add(right, btn('Play this account on this phone', 'small', function () { relinkDialog(a); }, 'relink-' + a.account));
+    return row;
+  }
+
+  function renderStaged() {
+    var d = S.saves;
+    var box = $('saves-staged');
+    var text = clear($('saves-staged-text'));
+    var any = false;
+    if (d.pending || d.staged) {
+      var p = d.staged || d.pending;
+      add(text, el('p', 'warnt', 'Waiting for a restart: ' + describeOp(p) + '.'));
+      any = true;
+    }
+    if (d.probation) {
+      add(text, el('p', null, describeOp(d.probation) + ' was applied; it is confirmed once the game has loaded it.'));
+      any = true;
+    }
+    var last = d.last;
+    if (last) {
+      add(text, el('p', 'muted', 'Last operation: ' + (last.kind || '') + ' ' + (last.result || '') + ' ' + fmtTime(last.at) + (last.message ? ': ' + last.message : '')));
+      any = true;
+    }
+    var hasPending = !!(d.staged || d.pending);
+    show($('staged-restart'), hasPending && cap('exit'));
+    show($('staged-cancel'), hasPending);
+    show($('staged-undo'), !hasPending && !!(last && last.undoable));
+    show(box, any);
+  }
+
+  function renderBackups() {
+    var box = clear($('saves-backups'));
+    var b = S.backups;
+    if (!S.account) {
+      para(box, 'No account with a save yet.', 'muted');
+      return;
+    }
+    if (!b) {
+      para(box, 'Loading…', 'muted');
+      return;
+    }
+    if (b.error) {
+      para(box, b.error, 'errt');
+      return;
+    }
+    var list = b.backups || [];
+    if (!list.length) para(box, 'No backups yet.', 'muted');
+    var manual = 0;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].pool === 'manual') manual++;
+      add(box, backupRow(list[i]));
+    }
+    if (b.limits) para(box, 'Yours: ' + manual + ' of ' + b.limits.manual + ' (only you delete them). Automatic: newest ' + b.limits.auto + ' kept.', 'muted');
+  }
+
+  function backupRow(bk) {
+    var row = el('div', 'item');
+    var left = add(row, el('div', 'il'));
+    add(left, el('div', 'lbl', fmtTime(bk.date) + ' · ' + (POOLS[bk.pool] || bk.reason || bk.pool || '')));
+    var bits = [];
+    if (typeof bk.revision === 'number') bits.push('revision ' + bk.revision);
+    if (typeof bk.level === 'number') bits.push('level ' + bk.level);
+    if (typeof bk.size === 'number') bits.push(fmtSize(bk.size));
+    if (bk.reason && bk.pool !== bk.reason) bits.push(bk.reason);
+    add(left, el('div', 'help', bits.join(', ')));
+    var right = add(row, el('div', 'ir'));
+    add(right, btn('Restore', 'small', function () { restoreDialog(bk); }, 'restore-' + bk.id));
+    if (bk.deletable) add(right, btn('Delete', 'small danger', function () { deleteBackup(bk); }, 'delete-' + bk.id));
+    return row;
+  }
+
+  function backupNow() {
+    if (!S.account) return;
+    api('POST', 'saves/' + S.account + '/backups', {}, function (st, d) {
+      if (st === 200) {
+        toast('Backup made (progress as of ' + (d && d.asOf ? fmtTime(d.asOf) : 'the last save') + ').');
+        loadSaves();
+        return;
+      }
+      toast(errText(st, d), 7000);
+    });
+  }
+
+  function deleteBackup(bk) {
+    confirmDialog('Delete this backup?', 'Your backup of ' + fmtTime(bk.date) + ' is deleted. This cannot be undone.', 'Delete', function () {
+      api('DELETE', 'saves/' + S.account + '/backups/' + encodeURIComponent(bk.id), {}, function (st, d) {
+        if (st === 200) {
+          toast('Deleted.');
+          loadSaves();
+          return;
+        }
+        toast(errText(st, d));
+      });
+    }, true);
+  }
+
+  // Asks before replacing an operation that already waits for a restart (409 staged_exists).
+  function stagedExistsDialog(retry) {
+    var p = S.saves && (S.saves.staged || S.saves.pending);
+    confirmDialog('Another operation is waiting', 'Already waiting for a restart: ' + (p ? describeOp(p) : 'another operation') + '. Replace it?', 'Replace it', retry);
+  }
+
+  function afterStaged(d) {
+    S.savesView = 'main';
+    loadSaves();
+    refreshStatusQuietly();
+    var what = d && d.staged ? describeOp(d.staged) : 'the operation';
+    if (cap('exit')) restartDialog('import', 'Staged: ' + what + ' is applied when the game starts next.');
+    else toast('Staged: ' + what + ' is applied when the game starts next. Close the game and start it again.', 9000);
+  }
+
+  function restoreDialog(bk) {
+    var acct = findAccount(S.account);
+    var isCurrent = S.account === currentAccountId();
+    var nodes = [el('p', null, 'Backup of ' + accountName(acct) + ' from ' + fmtTime(bk.date) + (typeof bk.level === 'number' ? ', level ' + bk.level : '') + '. It is restored when the game starts next; a backup of the progress it replaces is made first.')];
+    var plan = null;
+    if (!isCurrent) {
+      plan = el('select');
+      var o1 = add(plan, el('option', null, 'Restore it for ' + accountName(acct) + ' (keep playing your current account)'));
+      o1.value = 'restore-other';
+      var o2 = add(plan, el('option', null, 'Restore it and play it on this phone'));
+      o2.value = 'switch';
+      plan.value = 'restore-other';
+      nodes.push(plan);
+    }
+    openDialog({
+      title: 'Restore this backup?', nodes: nodes, ok: 'Restore',
+      onOk: function () { postRestore(bk, isCurrent ? 'replace' : plan.value, false); }
+    });
+  }
+
+  function postRestore(bk, plan, replace) {
+    api('POST', 'saves/' + S.account + '/restore', { backup: bk.id, plan: plan, confirm: plan, replace: replace }, function (st, d) {
+      if (st === 200) { afterStaged(d); return; }
+      if (st === 409 && d && d.error === 'staged_exists') { stagedExistsDialog(function () { postRestore(bk, plan, true); }); return; }
+      toast(errText(st, d), 8000);
+    });
+  }
+
+  function relinkDialog(a) {
+    confirmDialog('Play ' + accountName(a) + ' on this phone?',
+      'From the next start the game plays ' + accountName(a) + (typeof a.level === 'number' ? ' (level ' + a.level + ')' : '') + '. Your current save stays on the phone, and you can switch back the same way.',
+      'Play it', function () { postRelink(a, false); });
+  }
+
+  function postRelink(a, replace) {
+    api('POST', 'saves/' + a.account + '/relink', { confirm: 'switch', replace: replace }, function (st, d) {
+      if (st === 200) { afterStaged(d); return; }
+      if (st === 409 && d && d.error === 'staged_exists') { stagedExistsDialog(function () { postRelink(a, true); }); return; }
+      toast(errText(st, d), 8000);
+    });
+  }
+
+  function cancelStaged() {
+    confirmDialog('Cancel the waiting operation?', 'Nothing is changed at the next start.', 'Cancel it', function () {
+      api('DELETE', 'saves/staged', {}, function (st, d) {
+        if (st === 200) {
+          toast('Cancelled.');
+          loadSaves();
+          refreshStatusQuietly();
+          return;
+        }
+        toast(errText(st, d));
+      });
+    }, true);
+  }
+
+  function undoLast(replace) {
+    api('POST', 'saves/staged/undo', { confirm: 'undo', replace: !!replace }, function (st, d) {
+      if (st === 200) {
+        if (d && d.description) toast(d.description, 8000);
+        afterStaged(d);
+        return;
+      }
+      if (st === 409 && d && d.error === 'staged_exists') { stagedExistsDialog(function () { undoLast(true); }); return; }
+      toast(errText(st, d), 8000);
+    });
+  }
+
+  function undoDialog() {
+    var last = S.saves && S.saves.last;
+    openDialog({
+      title: 'Undo the last operation?',
+      text: 'Goes back to how things were before ' + (last ? (last.kind || 'it') + ' of ' + fmtTime(last.at) : 'it') + ' at the next start. If it replaced a save, the progress made since then is lost: back up first if unsure.',
+      ok: 'Undo', onOk: function () { undoLast(false); },
+      extra: [{ label: 'Back up now', fn: backupNow }]
+    });
+  }
+
+  // ---- export wizard
+
+  function openExport() {
+    if (!S.account) return;
+    S.exp = null;
+    $('export-result').textContent = '';
+    exportOptions(null);
+    setSavesView('export');
+  }
+
+  // 413 too_large of an export (§4.6): details.unit 'parts' = more than 999 parts of details.partChars characters,
+  // 'bytes' = more than the transfer text can carry. Offers what works: larger parts, a file, the .json file.
+  function exportOptions(d, retry, isFile) {
+    var box = clear($('export-more'));
+    var det = d && d.details;
+    if (det && det.unit === 'parts') {
+      var sizes = [3900, 60000];
+      for (var i = 0; i < sizes.length; i++) {
+        if (sizes[i] > (det.partChars || 0)) add(box, btn('Use ' + PART_NAMES[sizes[i]] + ' (' + fmtNum(sizes[i]) + ')', 'small', usePartSize(sizes[i], retry)));
+      }
+      if (!isFile && cap('shareFile')) add(box, btn('Share as a file', 'small', usePartSize(60000, function () { exportFile('share'); })));
+    } else if (det && det.unit === 'bytes' && cap('shareFile')) {
+      add(box, btn('Share as a .json file', 'small', function () { exportFile('share', 'json'); }));
+    }
+    show(box, !!box.firstChild);
+  }
+
+  function usePartSize(size, then) {
+    return function () {
+      $('export-partsize').value = String(size);
+      S.exp = null;
+      renderExport();
+      then();
+    };
+  }
+
+  function renderExport() {
+    var a = findAccount(S.account);
+    $('export-who').textContent = accountName(a);
+    var isCurrent = S.account === currentAccountId();
+    var when = a ? (a.lastGameSave || a.modified) : null;
+    $('export-asof').textContent = 'Contains the progress as of ' + (isCurrent ? "the game's last save" : 'its last save') + ': ' + timeAgo(when) + '.' + (isCurrent ? ' Played since then? Save the game first.' : '');
+    show($('export-save-now'), isCurrent && cap('save') && cap('openPage'));
+    show($('export-share'), cap('shareFile'));
+    show($('export-downloads'), cap('saveToDownloads'));
+    var link = $('export-link');
+    show(link, isStandalone());
+    if (isStandalone()) link.setAttribute('href', API + 'saves/' + S.account + '/export?format=transfer');
+    var e = S.exp;
+    var next = $('export-copy-next');
+    var ta = $('export-text');
+    if (!e) {
+      $('export-info').textContent = 'Shows the number of parts before copying. Chat apps suit small saves; above 4 parts, Share as a file is easier.';
+      show(next, false);
+      show(ta, false);
+      return;
+    }
+    var info = fmtNum(e.chars) + ' characters in ' + plural(e.parts, 'part', 'parts') + ' (' + (PART_NAMES[e.size] || e.size) + ').';
+    if (e.parts > 4) info += ' That is a lot of parts: Share as a file is easier.';
+    if (e.k >= e.texts.length) info += ' All parts copied: paste them in Saves › Import on the other phone.';
+    else info += ' Paste each part where you keep it before copying the next.';
+    $('export-info').textContent = info;
+    var k = e.k < e.texts.length ? e.k : 0;
+    ta.value = e.texts[k];
+    show(ta);
+    next.textContent = e.k < e.texts.length ? 'Copy part ' + (k + 1) + ' of ' + e.texts.length : 'Copy again from part 1';
+    show(next);
+  }
+
+  function exportFile(target, format) {
+    var size = parseInt($('export-partsize').value, 10) || 60000;
+    $('export-result').textContent = 'Preparing…';
+    exportOptions(null);
+    api('POST', 'saves/' + S.account + '/export', { target: target, format: format || 'transfer', partChars: size, includeSettings: false }, function (st, d) {
+      if (st !== 200 || !d) {
+        $('export-result').textContent = errText(st, d);
+        if (st === 413) exportOptions(d, function () { exportFile(target, format); }, true);
+        return;
+      }
+      var parts = [];
+      if (d.file) parts.push(d.file + ' (' + fmtSize(d.size) + ')');
+      if (d.share && d.share.message) parts.push(d.share.message);
+      if (d.share && d.share.publicPath) parts.push('Copy in ' + d.share.publicPath + '.');
+      if (target === 'share' && d.share && d.share.ok) parts.push('Come back to the game within a minute.');
+      $('export-result').textContent = parts.join(' ');
+    });
+  }
+
+  function exportText() {
+    var size = parseInt($('export-partsize').value, 10) || 60000;
+    $('export-info').textContent = 'Preparing…';
+    exportOptions(null);
+    api('POST', 'saves/' + S.account + '/export', { target: 'text', format: 'transfer', partChars: size, includeSettings: false }, function (st, d) {
+      var t = d && d.transfer;
+      if (st !== 200 || !t || !t.texts || !t.texts.length) {
+        if (st === 413) {
+          // The message goes next to the choices (under the file buttons).
+          $('export-info').textContent = '';
+          $('export-result').textContent = errText(st, d);
+          exportOptions(d, exportText, false);
+          return;
+        }
+        $('export-info').textContent = errText(st, d);
+        return;
+      }
+      S.exp = { texts: t.texts, k: 0, chars: t.chars || 0, parts: t.parts || t.texts.length, size: size };
+      renderExport();
+      updateGuard();
+    });
+  }
+
+  function copyNextPart() {
+    var e = S.exp;
+    if (!e) return;
+    if (e.k >= e.texts.length) e.k = 0;
+    var k = e.k;
+    copyText(e.texts[k], 'MCVS Offline save, part ' + (k + 1) + ' of ' + e.texts.length, function (ok) {
+      if (!ok || S.exp !== e) return;
+      e.k = k + 1;
+      renderExport();
+      updateGuard();
+    });
+  }
+
+  // ---- import wizard
+
+  function openImport() {
+    setSavesView('import');
+  }
+
+  function loadImportFiles() {
+    api('GET', 'saves/import/files', null, function (st, d) {
+      S.importFiles = st === 200 ? d : { error: errText(st, d) };
+      renderImportFiles();
+    });
+  }
+
+  function renderImportFiles() {
+    var box = clear($('import-files'));
+    var f = S.importFiles;
+    if (!f) return;
+    if (f.error) {
+      para(box, f.error, 'errt');
+      return;
+    }
+    var files = f.files || [];
+    if (!files.length) para(box, 'No files in ' + (f.directory || 'the import folder') + '.', 'muted');
+    for (var i = 0; i < files.length; i++) add(box, importFileRow(files[i]));
+    if (f.writableBy) para(box, f.writableBy, 'muted');
+  }
+
+  function importFileRow(file) {
+    var row = el('div', 'item');
+    var left = add(row, el('div', 'il'));
+    add(left, el('div', 'lbl mono', file.name));
+    add(left, el('div', 'help', fmtSize(file.size) + ', ' + fmtTime(file.modified)));
+    var right = add(row, el('div', 'ir'));
+    add(right, btn('Check', 'small', function () {
+      api('POST', 'saves/import/validate', { file: file.name }, function (st, d) {
+        if (st !== 200) {
+          $('import-parts').textContent = errText(st, d);
+          return;
+        }
+        S.imp = { result: d, note: 'File ' + file.name + ' checked.' };
+        renderImport();
+        updateGuard();
+      });
+    }));
+    return row;
+  }
+
+  function addPaste() {
+    var ta = $('import-text');
+    var text = ta.value;
+    if (!trim(text)) {
+      toast('Paste the copied text into the box first.');
+      return;
+    }
+    if (text.length > MAX_COPY) {
+      toast('Too long: paste at most ' + fmtNum(MAX_COPY) + ' characters at a time (fewer parts).', 7000);
+      return;
+    }
+    $('import-add').disabled = true;
+    api('POST', 'saves/import/paste', { text: text }, function (st, d) {
+      $('import-add').disabled = false;
+      if (st !== 200 || !d) {
+        $('import-parts').textContent = errText(st, d);
+        return;
+      }
+      ta.value = '';
+      if (d.complete) S.imp = { result: d, note: 'All parts received.' };
+      else S.imp = { parts: d };
+      renderImport();
+      updateGuard();
+    });
+  }
+
+  function partsText(p) {
+    var have = p.have || [];
+    var msg = have.length ? 'Parts ' + have.join(', ') + ' of ' + p.total + ' received.' : 'No part received yet.';
+    if (p.missing && p.missing.length) msg += ' Missing: ' + p.missing.join(', ') + '.';
+    var rej = p.rejected || [];
+    for (var i = 0; i < rej.length; i++) msg += ' Part ' + rej[i].part + ' rejected: ' + rej[i].reason + '.';
+    return msg;
+  }
+
+  function renderImport() {
+    var imp = S.imp;
+    var sum = clear($('import-summary'));
+    var confirmRow = $('import-confirm-row');
+    var box = $('import-confirm');
+    if (!imp) {
+      $('import-parts').textContent = '';
+      show(confirmRow, false);
+      box.checked = false;
+      $('import-stage').disabled = true;
+      return;
+    }
+    if (imp.parts) {
+      $('import-parts').textContent = imp.parts.message || partsText(imp.parts);
+      if (imp.parts.rejected && imp.parts.rejected.length && imp.parts.message) $('import-parts').textContent += ' ' + partsText({ have: [], rejected: imp.parts.rejected });
+      show(confirmRow, false);
+      $('import-stage').disabled = true;
+      return;
+    }
+    var r = imp.result;
+    $('import-parts').textContent = (imp.note || '') + (r.rejected && r.rejected.length ? ' ' + partsText({ have: [], rejected: r.rejected }) : '');
+    var card = add(sum, el('div', 'card'));
+    var b = r.bundle || {};
+    add(card, el('div', 'lbl', 'The save: ' + (b.alias || shortId(b.account))));
+    kv(card, 'Level', typeof b.level === 'number' ? String(b.level) : '–');
+    kv(card, 'Revision', typeof b.revision === 'number' ? String(b.revision) : '–');
+    kv(card, 'Saved', b.modified ? fmtTime(b.modified) : '–');
+    kv(card, 'Game progress', b.hasGameProfile ? 'yes' : 'no', b.hasGameProfile ? null : 'errt');
+    var loc = r.local;
+    if (loc && loc.exists) kv(card, 'This phone has', 'revision ' + loc.revision + (loc.isCurrent ? ' (the account you play)' : '') + ', saved ' + fmtTime(loc.modified));
+    var plan = r.plan;
+    var curName = r.current ? (r.current.alias || shortId(r.current.account)) : 'the current player';
+    if (plan === 'replace') kv(card, 'Plan', 'replace the progress of ' + curName);
+    else if (plan === 'switch') kv(card, 'Plan', 'play this save on this phone; ' + curName + ' stays on the phone');
+    var errs = r.errors || [];
+    for (var i = 0; i < errs.length; i++) add(card, el('p', 'errt', errs[i]));
+    var warns = r.warnings || [];
+    for (var j = 0; j < warns.length; j++) add(card, el('p', 'warnt', warns[j]));
+    var can = !!r.canStage;
+    show(confirmRow, can);
+    if (!can) box.checked = false;
+    $('import-confirm-text').textContent = plan === 'replace' ? 'Replace the progress of ' + curName + ' with this save'
+      : 'Play this save on this phone; your current save stays on the phone';
+    $('import-stage').disabled = !(can && box.checked);
+  }
+
+  function stageImport(allowOlder, replace) {
+    var r = S.imp && S.imp.result;
+    if (!r || !r.canStage || !$('import-confirm').checked) return;
+    api('POST', 'saves/import/stage', { uploadId: r.uploadId, confirm: r.plan, replace: !!replace, allowOlder: !!allowOlder }, function (st, d) {
+      if (st === 200) {
+        S.imp = null;
+        $('import-confirm').checked = false;
+        renderImport();
+        afterStaged(d);
+        return;
+      }
+      if (st === 409 && d && d.error === 'newer_save') {
+        confirmDialog('This phone has a newer save', errText(st, d) + ' Stage the older save anyway?', 'Stage it anyway', function () { stageImport(true, replace); }, true);
+        return;
+      }
+      if (st === 409 && d && d.error === 'staged_exists') { stagedExistsDialog(function () { stageImport(allowOlder, true); }); return; }
+      toast(errText(st, d), 8000);
+    });
+  }
+
+  // ------------------------------------------------------------------ Logs (§4.7, §7)
+
+  function loadLogs() {
+    if (!S.session) return;
+    setLogsTab(S.logs.tab);
+    api('GET', 'logs', null, function (st, d) {
+      if (st !== 200) {
+        clear($('logs-files'));
+        para($('logs-files'), errText(st, d), 'errt');
+        return;
+      }
+      S.logs.list = d;
+      renderLogFiles();
+      if (S.logs.file) loadLogTail();
+    });
+  }
+
+  function setLogsTab(tab) {
+    S.logs.tab = tab;
+    show($('logs-viewpanel'), tab === 'view');
+    show($('logs-sharepanel'), tab === 'share');
+    $('logs-tab-view').className = 'tab' + (tab === 'view' ? ' on' : '');
+    $('logs-tab-share').className = 'tab' + (tab === 'share' ? ' on' : '');
+    if (tab === 'share') renderLogShare();
+    renderBar();
+    updateLogsTimer();
+  }
+
+  function renderLogFiles() {
+    var box = clear($('logs-files'));
+    var d = S.logs.list;
+    show(box, !S.logs.file);
+    show($('logs-viewer'), !!S.logs.file);
+    if (!d) return;
+    var files = d.files || [];
+    if (!files.length) para(box, 'No log files yet.', 'muted');
+    for (var i = 0; i < files.length; i++) add(box, logFileRow(files[i]));
+    if (d.mirror) para(box, 'Copies in Downloads › MCVS-Offline: ' + d.mirror, 'muted');
+  }
+
+  function logFileRow(f) {
+    var row = el('div', 'item');
+    var left = add(row, el('div', 'il'));
+    add(left, el('div', 'lbl mono', f.name));
+    add(left, el('div', 'help', (LOG_KINDS[f.kind] || f.kind || '') + ', ' + fmtSize(f.size) + ', ' + fmtTime(f.modified) + (f.dir ? ', internal storage' : '')));
+    on(row, 'click', function () { openLogFile(f); });
+    return row;
+  }
+
+  function openLogFile(f) {
+    S.logs.file = f;
+    S.logs.data = null;
+    clear($('logs-view'));
+    $('logs-viewinfo').textContent = 'Loading ' + f.name + '…';
+    renderLogFiles();
+    renderBar();
+    loadLogTail();
+    updateLogsTimer();
+  }
+
+  function closeLogFile() {
+    S.logs.file = null;
+    S.logs.data = null;
+    renderLogFiles();
+    renderBar();
+    updateLogsTimer();
+  }
+
+  function loadLogTail() {
+    var f = S.logs.file;
+    if (!f) return;
+    var q = 'dir=' + (f.dir || 0) + '&lines=' + encodeURIComponent($('logs-lines').value) + '&min=' + encodeURIComponent($('logs-level').value);
+    var search = trim($('logs-search').value);
+    if (search) q += '&q=' + encodeURIComponent(search.substring(0, 100));
+    api('GET', 'logs/' + encodeURIComponent(f.name) + '?' + q, null, function (st, d) {
+      if (S.logs.file !== f) return;
+      if (st !== 200 || !d) {
+        $('logs-viewinfo').textContent = errText(st, d);
+        return;
+      }
+      S.logs.data = d;
+      renderLogTail();
+    });
+  }
+
+  function levelClass(l) {
+    l = String(l || '').toUpperCase();
+    if (l.indexOf('ERR') === 0) return 'le le-e';
+    if (l.indexOf('WARN') === 0) return 'le le-w';
+    if (l === 'DEBUG' || l === 'TRACE') return 'le le-d';
+    return 'le';
+  }
+
+  function renderLogTail() {
+    var d = S.logs.data;
+    var view = clear($('logs-view'));
+    if (!d) return;
+    var entries = d.entries || [];
+    $('logs-viewinfo').textContent = d.name + ', ' + fmtSize(d.size) + ': ' + plural(entries.length, 'entry', 'entries') + (d.truncatedHead ? ' from the last ' + fmtSize(d.window) : '') + ', newest last.';
+    for (var i = 0; i < entries.length; i++) {
+      var e = entries[i];
+      add(view, el('div', levelClass(e.l), (e.t ? fmtClock(e.t) + ' ' : '') + (e.l || '') + (e.c ? ' [' + e.c + ']' : '') + ' ' + (e.m || '')));
+    }
+    if (!entries.length) para(view, 'Nothing matches.', 'muted');
+    $('pane').scrollTop = 100000000;
+  }
+
+  function visibleLogText() {
+    var d = S.logs.data;
+    if (!d) return '';
+    var lines = [];
+    var entries = d.entries || [];
+    for (var i = 0; i < entries.length; i++) {
+      var e = entries[i];
+      lines.push((e.t || '') + ' ' + (e.l || '') + ' [' + (e.c || '') + '] ' + (e.m || ''));
+    }
+    return lines.join('\n');
+  }
+
+  function updateLogsTimer() {
+    var want = S.screen === 'logs' && S.logs.tab === 'view' && !!S.logs.file && $('logs-autorefresh').checked && S.session;
+    if (want && !S.logs.timer) {
+      S.logs.timer = setInterval(safe(function () { if (!document.hidden) loadLogTail(); }), 5000);
+    } else if (!want && S.logs.timer) {
+      clearInterval(S.logs.timer);
+      S.logs.timer = null;
+    }
+  }
+
+  function renderLogShare() {
+    var z = S.logs.zip;
+    var link = $('logs-link');
+    show(link, isStandalone());
+    if (isStandalone()) link.setAttribute('href', API + 'logs/bundle?scope=' + encodeURIComponent($('logs-scope').value));
+    $('logs-share').disabled = !(z && cap('shareFile'));
+    $('logs-downloads').disabled = !(z && cap('saveToDownloads'));
+    show($('logs-share'), cap('shareFile') || !isStandalone());
+    show($('logs-downloads'), cap('saveToDownloads'));
+  }
+
+  function fitsText(z) {
+    var f = z.fits || {};
+    if (f.discord) return 'fits Discord (10 MB) and Gmail (25 MB)';
+    if (f.gmail) return 'too big for Discord (10 MB); fits Gmail (25 MB)';
+    return 'too big for Discord (10 MB) and Gmail (25 MB): use Recent, or Drive';
+  }
+
+  function buildZip() {
+    var note = $('logs-note').value || '';
+    $('logs-built').textContent = 'Building…';
+    $('logs-build').disabled = true;
+    api('POST', 'logs/zip', { scope: $('logs-scope').value, note: note.substring(0, 4000) }, function (st, d) {
+      $('logs-build').disabled = false;
+      if (st !== 200 || !d) {
+        S.logs.zip = null;
+        $('logs-built').textContent = errText(st, d);
+        renderLogShare();
+        return;
+      }
+      S.logs.zip = d;
+      $('logs-built').textContent = d.file + ', ' + fmtSize(d.size) + ': ' + fitsText(d) + '.' + (d.skipped ? ' ' + plural(d.skipped, 'file', 'files') + ' left out (size limit).' : '');
+      renderLogShare();
+    });
+  }
+
+  function shareZip(target) {
+    var z = S.logs.zip;
+    if (!z) return;
+    api('POST', 'logs/share', { file: z.file, target: target }, function (st, d) {
+      var sh = d && d.share;
+      if (st === 200 && sh) {
+        var msg = sh.message || (sh.ok ? 'Done.' : 'Could not share.');
+        if (sh.publicPath) msg += ' Copy in ' + sh.publicPath + '.';
+        if (target === 'share' && sh.ok) msg += ' Come back to the game within a minute.';
+        $('logs-built').textContent = msg;
+        toast(msg, 8000);
+        return;
+      }
+      toast(errText(st, d), 7000);
+    });
+  }
+
+  function shareTextReport() {
+    api('POST', 'logs/share-text', { note: ($('logs-note').value || '').substring(0, 4000) }, function (st, d) {
+      var sh = d && d.share;
+      if (st === 200 && sh) {
+        // ok: the sheet is open. Not ok but 'text': it was started late and may still open. Else it failed.
+        if (sh.ok) toast((sh.message || 'Shared.') + ' Come back to the game within a minute.', 8000);
+        else if (sh.method === 'text') toast((sh.message || 'The share sheet is slow to open.') + ' If it opens, come back to the game within a minute; if not, try again.', 9000);
+        else toast(sh.message || 'Could not share the report.', 7000);
+        return;
+      }
+      if (st === 501 && d && d.text) {
+        $('logs-text').value = d.text;
+        show($('logs-textbox'));
+        toast('This build cannot share: copy the report instead.', 7000);
+        return;
+      }
+      toast(errText(st, d), 7000);
+    });
+  }
+
+  // ------------------------------------------------------------------ Actions and About
+
+  function settingValue(key) {
+    var k = findKey(key);
+    return k ? k.value : null;
+  }
+
+  function renderActions() {
+    show($('action-restart'), cap('exit'));
+    $('action-restart-help').textContent = cap('exit')
+      ? 'The page closes, the game saves your progress (last save ' + lastSaveText() + ') and starts again.'
+      : 'This build cannot restart the game: close it and start it again yourself.';
+    show($('action-unlock-row'), settingValue('unlockAll') === true);
+    if (S.filesOpen) renderFiles();
+  }
+
+  function renderFiles() {
+    var box = clear($('action-files-body'));
+    var d = S.status || {};
+    var sv = d.server || {};
+    var h = d.host;
+    var data = sv.dataDir || '';
+    kv(box, 'Data folder', data, 'mono');
+    kv(box, 'Logs', (h && h.logsDir) || (data ? data + '/logs' : ''), 'mono');
+    if (h && h.fallbackLogsDir) kv(box, 'Logs (internal storage)', h.fallbackLogsDir, 'mono');
+    kv(box, 'Copies for sharing', (h && h.publicLogsDir) || 'Download/MCVS-Offline/', 'mono');
+    kv(box, 'Import folder', data ? data + '/import' : '', 'mono');
+    para(box, (S.importFiles && S.importFiles.writableBy) || 'On Android 10 and older any file manager can put files in the import folder; on Android 11 and later use a PC (USB file transfer or adb).', 'muted');
+    if (h && h.platform === 'android' && data) {
+      add(box, el('h3', null, 'With a PC (adb)'));
+      var cmds = [
+        'adb pull ' + data + ' mcvs-save-backup',
+        'adb push mcvs-save-backup/. ' + data + '/',
+        'adb pull ' + data + '/logs',
+        'adb push my-save.txt ' + data + '/import/',
+        'adb logcat -s McvsOffline mono-stdout'
+      ];
+      for (var i = 0; i < cmds.length; i++) add(box, el('div', 'pre card', cmds[i]));
+      para(box, 'Restore a full copy only while the game is closed (Settings › Apps › Force stop).', 'muted');
+    }
+  }
+
+  function renderAbout() {
+    var d = S.status;
+    $('about-version').textContent = d && d.version ? d.version + (d.build ? ' (build ' + d.build + ')' : '') : '–';
+    $('about-ua').textContent = navigator.userAgent || '–';
+  }
+
+  // ------------------------------------------------------------------ wiring
+
+  function wire() {
+    for (var i = 0; i < SCREENS.length; i++) on($('nav-' + SCREENS[i]), 'click', goTo(SCREENS[i]));
+    on($('dialog-ok'), 'click', dialogOk);
+    on($('dialog-cancel'), 'click', dialogCancel);
+    var banners = ['banner-nosession', 'banner-viewmode', 'banner-error', 'banner-staged', 'banner-restart', 'banner-probation'];
+    for (var j = 0; j < banners.length; j++) on($(banners[j] + '-text'), 'click', toggleOpen($(banners[j])));
+    on($('banner-staged-restart'), 'click', function () { restartDialog('import'); });
+    on($('banner-staged-cancel'), 'click', cancelStaged);
+    on($('banner-staged-x'), 'click', function () { dismiss('staged', 'banner-staged'); });
+    on($('banner-restart-now'), 'click', function () { restartDialog('settings'); });
+    on($('banner-restart-x'), 'click', function () { dismiss('restart', 'banner-restart'); });
+    on($('banner-probation-x'), 'click', function () { dismiss('probation', 'banner-probation'); });
+
+    on($('status-refresh'), 'click', function () { refreshStatus(false); toast('Refreshed.'); });
+    on($('status-storage'), 'click', function () { toast('Counting…'); refreshStatus(true); });
+
+    on($('settings-save'), 'click', saveSettings);
+    on($('settings-discard'), 'click', function () {
+      S.edits = {};
+      S.problems = {};
+      renderSettings();
+      toast('Changes discarded.');
+    });
+    on($('settings-showfile'), 'click', showSettingsFile);
+    on($('settings-repair'), 'click', repairSettings);
+
+    on($('saves-save-now'), 'click', saveNow);
+    on($('saves-backup-now'), 'click', backupNow);
+    on($('saves-open-export'), 'click', openExport);
+    on($('saves-open-import'), 'click', openImport);
+    on($('staged-restart'), 'click', function () { restartDialog('import'); });
+    on($('staged-cancel'), 'click', cancelStaged);
+    on($('staged-undo'), 'click', undoDialog);
+    on($('export-back'), 'click', function () { S.exp = null; setSavesView('main'); updateGuard(); });
+    on($('export-share'), 'click', function () { exportFile('share'); });
+    on($('export-downloads'), 'click', function () { exportFile('downloads'); });
+    on($('export-copy'), 'click', exportText);
+    on($('export-partsize'), 'change', function () { S.exp = null; exportOptions(null); renderExport(); });
+    on($('export-copy-next'), 'click', copyNextPart);
+    on($('import-back'), 'click', function () { setSavesView('main'); });
+    on($('import-add'), 'click', addPaste);
+    on($('import-reset'), 'click', function () { S.imp = null; $('import-text').value = ''; renderImport(); });
+    on($('import-text'), 'click', function () { scrollToField($('import-text')); });
+    on($('import-confirm'), 'change', function () { renderImport(); });
+    on($('import-stage'), 'click', function () { stageImport(false, false); });
+
+    on($('logs-tab-view'), 'click', function () { setLogsTab('view'); });
+    on($('logs-tab-share'), 'click', function () { setLogsTab('share'); });
+    on($('logs-back'), 'click', closeLogFile);
+    on($('logs-refresh'), 'click', function () { if (S.logs.file) loadLogTail(); else loadLogs(); });
+    on($('logs-level'), 'change', loadLogTail);
+    on($('logs-lines'), 'change', loadLogTail);
+    on($('logs-search'), 'click', function () { scrollToField($('logs-search')); });
+    on($('logs-search-done'), 'click', function () { $('logs-search-done').focus(); loadLogTail(); });
+    on($('logs-autorefresh'), 'change', updateLogsTimer);
+    on($('logs-copy'), 'click', function () { copyText(visibleLogText(), 'MCVS Offline log'); });
+    on($('logs-scope'), 'change', function () { S.logs.zip = null; $('logs-built').textContent = ''; renderLogShare(); });
+    on($('logs-note'), 'click', function () { scrollToField($('logs-note')); });
+    on($('logs-note-done'), 'click', function () { $('logs-note-done').focus(); });
+    on($('export-save-now'), 'click', saveNow);
+    on($('logs-build'), 'click', buildZip);
+    on($('logs-share'), 'click', function () { shareZip('share'); });
+    on($('logs-downloads'), 'click', function () { shareZip('downloads'); });
+    on($('logs-share-text'), 'click', shareTextReport);
+    on($('logs-text-copy'), 'click', function () { copyText($('logs-text').value, 'MCVS Offline report'); });
+
+    on($('action-files'), 'click', function () {
+      S.filesOpen = !S.filesOpen;
+      $('action-files').textContent = S.filesOpen ? 'Hide' : 'Show';
+      show($('action-files-body'), S.filesOpen);
+      if (S.filesOpen) renderFiles();
+    });
+    on($('action-restart'), 'click', function () { restartDialog('user'); });
+    on($('action-crm-reload'), 'click', function () {
+      api('POST', 'actions/crm-reload', {}, function (st, d) {
+        toast(st === 200 ? 'Done: takes effect when you close this page.' : errText(st, d), 6000);
+      });
+    });
+    on($('action-unlock-now'), 'click', function () {
+      api('POST', 'actions/unlock-now', {}, function (st, d) {
+        if (st !== 200) {
+          toast(errText(st, d), 7000);
+          return;
+        }
+        var close = el('a', 'btn', 'Close this page now');
+        close.setAttribute('href', 'exit:');
+        openDialog({
+          title: 'Unlock-all is queued', nodes: [el('p', null, 'It starts when you close this page; the game lags for a while as it levels up. Close it now?'), close],
+          ok: null, cancel: 'Later'
+        });
+      });
+    });
+
+    window.addEventListener('popstate', safe(onPopState));
+    document.addEventListener('visibilitychange', safe(function () { if (!document.hidden) ping(); }));
+    setInterval(safe(function () { if (!document.hidden) ping(); }), 10000);
+  }
+
+  function goTo(screen) { return function () { go(screen); }; }
+
+  function toggleOpen(b) {
+    return function () { b.className = b.className.indexOf(' open') >= 0 ? b.className.replace(' open', '') : b.className + ' open'; };
+  }
+
+  try {
+    wire();
+    boot();
+  } catch (e) {
+    pageError(e);
+  }
+})();
+</script>
+</body>
+</html>

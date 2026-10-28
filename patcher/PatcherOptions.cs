@@ -36,10 +36,19 @@ namespace McvsOffline.Patcher
         /// <summary>
         /// Optional patches applied when --patch is not given. "debloat" is not only IL: it also removes dead SDK components
         /// from the manifest (Manifest.ManifestDebloat) and drops the Crashlytics/Fabric files (ApkPatcher.DebloatDroppedEntries).
+        /// "adminpage" and "adminlink" open the settings page (Settings › Account button, inbox message) through
+        /// McvsOffline.AdminHooks of the embedded server.
         /// </summary>
-        public static readonly string[] DefaultPatches = { "nativeonline", "waits", "geo", "bottile", "finder", "store", "signatures", "debloat" };
+        public static readonly string[] DefaultPatches =
+        {
+            "nativeonline", "waits", "geo", "bottile", "finder", "store", "signatures", "debloat", "adminpage", "adminlink",
+        };
 
-        public static readonly string[] OptionalPatches = { "nativeonline", "waits", "geo", "bottile", "finder", "lan", "store", "signatures", "debloat" };
+        /// <summary>Every id --patch accepts; "lan" and "forum" are the ones not in <see cref="DefaultPatches"/>.</summary>
+        public static readonly string[] OptionalPatches =
+        {
+            "nativeonline", "waits", "geo", "bottile", "finder", "lan", "store", "signatures", "debloat", "adminpage", "adminlink", "forum",
+        };
 
         /// <summary>
         /// Patches applied whatever --patch says: the server hook and the fixes the in-process TS/GS Worlds need (headless-World

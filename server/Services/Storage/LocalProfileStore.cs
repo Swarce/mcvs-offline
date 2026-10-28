@@ -50,6 +50,7 @@ namespace McvsOffline.Server.Services.Storage
         private readonly ProfileBackups backups;
         private readonly HashSet<string> reportedWarnings = new HashSet<string>(StringComparer.Ordinal);
         private readonly Dictionary<string, CachedDocument> cache = new Dictionary<string, CachedDocument>(StringComparer.Ordinal);
+        private readonly Dictionary<string, long> backupLevels = new Dictionary<string, long>(StringComparer.Ordinal);
 
         internal LocalProfileStore(string rootDirectory, IClock clock, Log log, StorageSettings settings,
                                    AccountStore accounts, EventHub events)
@@ -154,7 +155,7 @@ namespace McvsOffline.Server.Services.Storage
                     var item = ProfileJson.NewObject();
                     item["id"] = b.Id;
                     item["date"] = TimeFormat.Iso8601(b.DateUtc);
-                    item["level"] = BackupLevel(target.AccountId, b);
+                    item["level"] = BackupLevel(b);
                     item["size"] = b.Size;
                     item["totalSpend"] = 0L;
                     item["index"] = i.ToString(CultureInfo.InvariantCulture);
@@ -222,6 +223,17 @@ namespace McvsOffline.Server.Services.Storage
         public WriteOutcome Commit(string accountId, string operation, string selector, string source,
                                    Func<ProfileDocument, WriteOutcome> apply)
         {
+            return Commit(accountId, operation, selector, source, apply, true);
+        }
+
+        /// <summary>
+        /// As <see cref="Commit(string, string, string, string, Func{ProfileDocument, WriteOutcome})"/>; with
+        /// <paramref name="allowAutoBackup"/> false no <c>auto</c> backup is taken (the settings page's staged operations
+        /// take their own <c>system</c> backup first).
+        /// </summary>
+        internal WriteOutcome Commit(string accountId, string operation, string selector, string source,
+                                     Func<ProfileDocument, WriteOutcome> apply, bool allowAutoBackup)
+        {
             if (string.IsNullOrEmpty(accountId)) throw new ArgumentException("account id required", "accountId");
             if (apply == null) throw new ArgumentNullException("apply");
             Dictionary<string, object> change = null;
@@ -258,7 +270,8 @@ namespace McvsOffline.Server.Services.Storage
                         if (existed)
                         {
                             if (reason != null) Backup(accountId, doc.Revision, reason);
-                            else if (settings.BackupsKeep > 0 && backups.IsDue(accountId, clock.UtcNow, settings.BackupIntervalMinutes))
+                            else if (allowAutoBackup && settings.BackupsKeep > 0
+                                     && backups.IsDue(accountId, clock.UtcNow, settings.BackupIntervalMinutes))
                                 Backup(accountId, doc.Revision, "auto");
                         }
                         string now = TimeFormat.Iso8601(clock.UtcNow);
@@ -286,6 +299,110 @@ namespace McvsOffline.Server.Services.Storage
             if (change != null && events != null) events.Publish(ChangedTopic, change);
             return outcome;
         }
+
+        // ------------------------------------------------------------------ backups for the settings page (design §6.3)
+
+        /// <summary>
+        /// Copies the account's current file into its backups, whatever <c>storage.backups.keep</c> says. Reasons:
+        /// <c>manual</c> (the player's own; an 11th throws <see cref="ManualBackupLimitException"/>), <c>preimport</c>,
+        /// <c>prerestore</c>, <c>presettings</c>, <c>prerevert</c>. Null when the account has no stored profile.
+        /// </summary>
+        public BackupInfo CreateBackup(string accountId, string reason)
+        {
+            string copied;
+            return CreateBackup(accountId, reason, out copied);
+        }
+
+        /// <summary>
+        /// As <see cref="CreateBackup(string, string)"/>, with the file text that was copied; the pool's prune leaves
+        /// <paramref name="spare"/> alone (the backup a staged restore copies).
+        /// </summary>
+        internal BackupInfo CreateBackup(string accountId, string reason, out string copiedText, string spare = null)
+        {
+            copiedText = null;
+            if (string.IsNullOrEmpty(accountId)) throw new ArgumentException("account id required", "accountId");
+            if (reason != ProfileBackups.PoolManual && Array.IndexOf(ProfileBackups.SystemReasons, reason) < 0)
+                throw new ArgumentException("not a backup reason of the settings page: '" + reason + "'", "reason");
+            using (locks.Acquire(accountId))
+            {
+                ProfileDocument doc = LoadUnlocked(accountId);
+                if (!doc.IsStored) return null;
+                string fileText = AtomicFile.ReadAllTextOrNull(PathFor(accountId));
+                if (fileText == null) return null;
+                BackupInfo info = backups.Create(accountId, fileText, doc.Revision, reason, clock.UtcNow, settings.BackupsKeep, spare);
+                copiedText = fileText;
+                log.Info("backup " + info.Id + " of " + accountId);
+                return info;
+            }
+        }
+
+        /// <summary>Deletes one of the player's own (manual) backups. False for an unknown id or any other pool (design I4).</summary>
+        public bool DeleteBackup(string accountId, string id)
+        {
+            if (string.IsNullOrEmpty(accountId)) return false;
+            using (locks.Acquire(accountId))
+            {
+                BackupInfo info = backups.Find(accountId, id);
+                if (info == null || info.Pool != ProfileBackups.PoolManual) return false;
+                if (!backups.Delete(accountId, id)) return false;
+                log.Info("backup " + id + " of " + accountId + " deleted by the player");
+                return true;
+            }
+        }
+
+        /// <summary>The text of one backup file, or null for an unknown or malformed id.</summary>
+        public string ReadBackupText(string accountId, string id)
+        {
+            if (string.IsNullOrEmpty(accountId)) return null;
+            using (locks.Acquire(accountId)) return backups.Read(accountId, id);
+        }
+
+        /// <summary>
+        /// The player level in a backup (the profile root's <c>level</c>), 0 when absent. Backups never change, so the
+        /// value is remembered per file; the file is scanned, not parsed (a backup is up to ~1.4 MB).
+        /// </summary>
+        public long BackupLevel(BackupInfo backup)
+        {
+            if (backup == null || backup.Path == null) return 0;
+            string key = backup.Path + "|" + backup.Size.ToString(CultureInfo.InvariantCulture);
+            long level;
+            lock (backupLevels)
+            {
+                if (backupLevels.TryGetValue(key, out level)) return level;
+            }
+            string text;
+            try
+            {
+                text = AtomicFile.ReadAllTextOrNull(backup.Path);
+            }
+            catch (IOException)
+            {
+                return 0;
+            }
+            level = LevelOfFileText(text);
+            lock (backupLevels)
+            {
+                if (backupLevels.Count > 1000) backupLevels.Clear();
+                backupLevels[key] = level;
+            }
+            return level;
+        }
+
+        /// <summary>The root <c>level</c> of a profile file's text ("profile.level", or "level" in a plain document), or 0.</summary>
+        internal static long LevelOfFileText(string text)
+        {
+            if (text == null) return 0;
+            foreach (string[] path in LevelPaths)
+            {
+                int start, length;
+                if (!JsonSpanScanner.TryFindValue(text, path, out start, out length) || length > 64) continue;
+                object value;
+                if (MiniJson.TryParse(text.Substring(start, length), out value)) return JsonValue.AsLong(value) ?? 0;
+            }
+            return 0;
+        }
+
+        private static readonly string[][] LevelPaths = { new[] { "profile", "level" }, new[] { "level" } };
 
         /// <summary>
         /// The document as the game sees it: for a stored document, the server-maintained read-only fields
@@ -487,16 +604,17 @@ namespace McvsOffline.Server.Services.Storage
             return null;
         }
 
-        /// <summary>Copies the current file (the state before the write being committed) into the backups.</summary>
+        /// <summary>
+        /// Copies the current file (the state before the write being committed) into the backups. Every reason is
+        /// backed up; <c>storage.backups.keep</c> only caps the <c>auto</c> pool (and 0 means Commit asks for none).
+        /// </summary>
         private void Backup(string accountId, long revision, string reason)
         {
-            int keep = settings.BackupsKeep;
-            if (keep <= 0) return;
             try
             {
                 string fileText = AtomicFile.ReadAllTextOrNull(PathFor(accountId));
                 if (fileText == null) return;
-                BackupInfo info = backups.Create(accountId, fileText, revision, reason, clock.UtcNow, keep);
+                BackupInfo info = backups.Create(accountId, fileText, revision, reason, clock.UtcNow, settings.BackupsKeep);
                 log.Debug("backup " + info.Id + " of " + accountId);
             }
             catch (IOException ex)
@@ -504,15 +622,10 @@ namespace McvsOffline.Server.Services.Storage
                 // A failed backup must not fail the save itself.
                 log.Warn("cannot back up the profile of " + accountId, ex);
             }
-        }
-
-        private long BackupLevel(string accountId, BackupInfo backup)
-        {
-            object parsed;
-            string text = AtomicFile.ReadAllTextOrNull(backup.Path);
-            if (text == null || !MiniJson.TryParse(text, out parsed)) return 0;
-            object level = JsonPath.Get(parsed, "profile.level") ?? JsonPath.Get(parsed, "level");
-            return JsonValue.AsLong(level) ?? 0;
+            catch (ManualBackupLimitException ex)
+            {
+                log.Warn("cannot back up the profile of " + accountId + ": " + ex.Message);
+            }
         }
 
         private sealed class CachedDocument

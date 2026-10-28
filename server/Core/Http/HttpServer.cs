@@ -58,6 +58,14 @@ namespace McvsOffline.Server.Core.Http
         /// <summary>Signalled when <see cref="Stop"/> begins; streaming handlers watch it.</summary>
         public WaitHandle StopSignal { get { return stopSignal; } }
 
+        /// <summary>
+        /// Optional per-request body limit (method, request-target, headers → bytes; negative: the global
+        /// <see cref="HttpServerLimits.MaxBodyBytes"/>), asked after the headers and before the body is read. A larger
+        /// body is answered 413 without being read (the settings page's header-time limit, design §5.2 rule 5).
+        /// Set before <see cref="Start"/>.
+        /// </summary>
+        public Func<string, string, HttpHeaders, long> RequestBodyLimit { get; set; }
+
         public int ActiveConnections
         {
             get { lock (gate) return connections.Count; }
@@ -261,7 +269,15 @@ namespace McvsOffline.Server.Core.Http
                         HttpRequest request;
                         try
                         {
-                            request = HttpRequestParser.Read(reader, stream, limits, remote, local);
+                            request = HttpRequestParser.Read(reader, stream, limits, remote, local, RequestBodyLimit);
+                        }
+                        catch (RequestBodyLimitException ex)
+                        {
+                            // The body was not read: answer and close (the rest of it would be taken for the next request).
+                            Warn("refused from " + remote + ": " + ex.Message + " -> 413", null);
+                            HttpResponseWriter.Write(stream, null, LocalAccessGate.TooLarge(ex.Limit), false, stopSignal);
+                            DrainBeforeClose(socket, stream);
+                            break;
                         }
                         catch (HttpProtocolException ex)
                         {
@@ -307,6 +323,33 @@ namespace McvsOffline.Server.Core.Http
                 connection.Abort();
                 lock (gate) connections.Remove(connection);
                 connection.Done.Set();
+            }
+        }
+
+        /// <summary>
+        /// After answering a request whose body was not read: closing a socket with unread input makes the kernel send a
+        /// reset, which can destroy the answer before the client reads it. So the sending side is shut first and what the
+        /// client still sends is read and discarded (never buffered), at most 256 KiB or 500 ms.
+        /// </summary>
+        private static void DrainBeforeClose(Socket socket, NetworkStream stream)
+        {
+            try
+            {
+                socket.Shutdown(SocketShutdown.Send);
+                stream.ReadTimeout = 500;
+                var scratch = new byte[8192];
+                int total = 0;
+                int deadline = Environment.TickCount + 500;
+                while (total < 256 * 1024 && Environment.TickCount - deadline < 0)
+                {
+                    int n = stream.Read(scratch, 0, scratch.Length);
+                    if (n <= 0) break;
+                    total += n;
+                }
+            }
+            catch (Exception)
+            {
+                // Timeout or reset: the connection is closed next anyway.
             }
         }
 

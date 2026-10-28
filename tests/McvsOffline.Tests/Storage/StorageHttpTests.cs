@@ -69,7 +69,7 @@ namespace McvsOffline.Tests.Storage
                 // Same connection (keep-alive): a chunked merge, then the reads.
                 string merge = "operation=merge&object=" + UrlEncoding.Encode(GameData.SectionsMerge) + "&access_token=" + token;
                 var chunked = new StringBuilder();
-                chunked.Append("POST /profiles/me/myprofile HTTP/1.1\r\nHost: x\r\nContent-Type: application/x-www-form-urlencoded\r\nTransfer-Encoding: chunked\r\n\r\n");
+                chunked.Append("POST /profiles/me/myprofile HTTP/1.1\r\nHost: 127.0.0.1:" + server.Port + "\r\nContent-Type: application/x-www-form-urlencoded\r\nTransfer-Encoding: chunked\r\n\r\n");
                 for (int i = 0; i < merge.Length; i += 100)
                 {
                     string piece = merge.Substring(i, System.Math.Min(100, merge.Length - i));
@@ -79,14 +79,14 @@ namespace McvsOffline.Tests.Storage
                 client.Send(chunked.ToString());
                 Assert.Equal(200, client.ReadResponse().Status);
 
-                client.Send("GET /profiles/me/myprofile/_mcvs.gameProfile?access_token=" + token + " HTTP/1.1\r\nHost: x\r\n\r\n");
+                client.Send("GET /profiles/me/myprofile/_mcvs.gameProfile?access_token=" + token + " HTTP/1.1\r\nHost: 127.0.0.1:" + server.Port + "\r\n\r\n");
                 var reread = client.ReadResponse();
                 Assert.Equal(200, reread.Status);
                 Assert.Equal(dump, reread.BodyText);
                 Assert.Null(reread.Header("ETag"));
 
                 client.Send("GET /profiles/me/myprofile?include_fields=" + UrlEncoding.Encode(GameData.SectionsIncludeFields)
-                            + "&access_token=" + token + " HTTP/1.1\r\nHost: x\r\n\r\n");
+                            + "&access_token=" + token + " HTTP/1.1\r\nHost: 127.0.0.1:" + server.Port + "\r\n\r\n");
                 var sections = MiniJson.ParseObject(client.ReadResponse().BodyText);
                 Assert.Equal(1000L, JsonPath.Get(sections, "_mcvs.snapshot.MatchMakingRating"));
             }
