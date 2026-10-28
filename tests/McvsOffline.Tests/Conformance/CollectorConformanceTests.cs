@@ -1172,7 +1172,10 @@ namespace McvsOffline.Tests.Conformance
         private static string Ms(double ms) => ms.ToString("F1", CultureInfo.InvariantCulture) + " ms";
     }
 
-    /// <summary>The collector conformance tests run alone: their timing (test 8) must not measure the other tests.</summary>
+    /// <summary>
+    /// The collector conformance tests (and <c>PlayerInventoryTests</c>) run alone: their timings (test 8, the dump scan)
+    /// must not measure the other tests of this assembly.
+    /// </summary>
     [CollectionDefinition(Name, DisableParallelization = true)]
     public sealed class CollectorTimingCollection
     {
