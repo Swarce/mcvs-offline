@@ -24,14 +24,12 @@ namespace McvsOffline.Embed.Tests.Patcher
             this.output = output;
         }
 
-        /// <summary>
-        /// Report notes per IL patch id on the real 1.17.32 assemblies. A new IL patch adds its id here (the debloat IL
-        /// patches: ["debloat"] = their note count, once they are registered in ApkPatcher.AllPatches).
-        /// </summary>
+        /// <summary>Report notes per IL patch id on the real 1.17.32 assemblies. A new IL patch adds its id here.</summary>
         internal static readonly IReadOnlyDictionary<string, int> IlPatchNotes = new Dictionary<string, int>(StringComparer.Ordinal)
         {
             ["hook"] = 1, ["headless"] = 5, ["headless-engine"] = 3, ["physics"] = 2, ["nativeonline"] = 1, ["waits"] = 2, ["geo"] = 1,
-            ["bottile"] = 1, ["finder"] = 1, ["lan"] = 3, ["store"] = 2, ["signatures"] = 2, ["debloat"] = 7,
+            ["bottile"] = 1, ["finder"] = 1, ["lan"] = 3, ["store"] = 2, ["signatures"] = 2, ["debloat"] = 7, ["adminpage"] = 2,
+            ["adminlink"] = 1, ["forum"] = 1,
         };
 
         /// <summary>
@@ -52,7 +50,7 @@ namespace McvsOffline.Embed.Tests.Patcher
         public void EveryPatchSiteIsFoundInTheRealApk()
         {
             string apk = TestEnvironment.GameApk;
-            string server = TestEnvironment.EmbeddedServerDll;
+            string server = RealAdminPagePatchTests.EmbeddedServer(output);
             if (apk == null || server == null)
             {
                 output.WriteLine("original APK (MCVS_APK) or embedded server DLL not available: skipped");
@@ -73,8 +71,8 @@ namespace McvsOffline.Embed.Tests.Patcher
                                  "res/raw/args.txt" },
                          report.Modified.OrderBy(m => m, StringComparer.Ordinal));
             Assert.Equal(new[] { "assemblies/McvsOffline.Server.dll" }, report.Added);
-            // 24 IL patch notes, the manifest permission rename, the res/raw/args.txt rewrite, the ABI selection, and debloat's
-            // 44 manifest removals and file drop: 72 (see IlPatchNotes / ExpectedNotes).
+            // 35 IL patch notes, the manifest permission rename, the res/raw/args.txt rewrite, the ABI selection, and debloat's
+            // 44 manifest removals and file drop: 83 (see IlPatchNotes / ExpectedNotes).
             Assert.Equal(ExpectedNotes(options.Patches), report.Notes.Count);
             Assert.Equal(ManifestDebloat.Targets.Count, report.Notes.Count(n => n.StartsWith("manifest: removed <", StringComparison.Ordinal)));
             Assert.Contains(report.Notes, n => n.StartsWith("debloat: dropped 8 Crashlytics/Fabric files", StringComparison.Ordinal));   // armeabi-v7a's went with its ABI
@@ -96,6 +94,10 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Contains(report.Notes, n => n.StartsWith("manifest: vendor-wide signature permission glshare.permission.ACCESS_SHARED_DATA renamed"));
             Assert.Contains(report.Notes, n => n.Contains("<NativeStartMatchWithBots>b__354_0") && n.Contains("IL_0007"));
             Assert.Contains(report.Notes, n => n.Contains("http://127.0.0.1:51780/location/?ip="));
+            Assert.Contains(report.Notes, n => n.Contains("PlayerProfileComponent::GetAccountMenuButtonList") && n.Contains("AdminHooks.AccountMenuButtons(list)"));
+            Assert.Contains(report.Notes, n => n.Contains("PlayerProfileComponent::ProcessAccountMenuButtonAction") && n.Contains("OpenPage(\"account\", World)"));
+            Assert.Contains(report.Notes, n => n.Contains("BrowserComponent::OpenUrl") && n.Contains("OpenIfPageMarker(url, this)"));
+            Assert.Contains(report.Notes, n => n.Contains("UIComponent::GoToForum") && n.Contains("OpenPage(\"forum\", World)"));
             // arm64-v8a loses the AOT images of exactly the four modified assemblies; v1 signature files go.
             var aot = report.Removed.Where(r => r.Contains("(AOT image")).Select(r => r.Split(' ')[0]).OrderBy(r => r).ToList();
             Assert.Equal(4, aot.Count);
@@ -121,17 +123,27 @@ namespace McvsOffline.Embed.Tests.Patcher
         public void DefaultPatchSetLeavesLocalAnubisManagerAlone()
         {
             string apk = TestEnvironment.GameApk;
-            string server = TestEnvironment.EmbeddedServerDll;
+            string server = RealAdminPagePatchTests.EmbeddedServer(output);
             if (apk == null || server == null)
             {
                 output.WriteLine("original APK (MCVS_APK) or embedded server DLL not available: skipped");
                 return;
             }
-            PatchReport report = ApkPatcher.Run(new PatcherOptions { InputApk = apk, ServerDll = server, DryRun = true }, null);
-            // 21 IL patch notes (hook, headless 5 + 3, physics 2, nativeonline, waits 2, geo, bottile, finder, store 2,
-            // signatures 2), the manifest rename, res/raw/args.txt, the ABI selection, debloat's 44 + 1: 69.
+            var log = new List<string>();
+            PatchReport report = ApkPatcher.Run(new PatcherOptions { InputApk = apk, ServerDll = server, DryRun = true }, log.Add);
+            // 31 IL patch notes (hook, headless 5 + 3, physics 2, nativeonline, waits 2, geo, bottile, finder, store 2,
+            // signatures 2, debloat 7, adminpage 2, adminlink), the manifest rename, res/raw/args.txt, the ABI selection,
+            // debloat's 44 + 1: 79.
             Assert.Equal(ExpectedNotes(PatcherOptions.DefaultPatches), report.Notes.Count);
             Assert.DoesNotContain(report.Notes, n => n.Contains("LocalAnubisManager"));
+
+            // The settings-page triggers are verified and listed by the default dry run; the Forum button is not touched.
+            Assert.Contains(log, l => l.StartsWith("patch adminpage: Settings > Account: an 'MCVS Offline' button", StringComparison.Ordinal));
+            Assert.Contains(log, l => l.StartsWith("patch adminlink: the 'MCVS Offline' inbox message", StringComparison.Ordinal));
+            Assert.DoesNotContain(log, l => l.StartsWith("patch forum:", StringComparison.Ordinal));
+            Assert.Equal(2, report.Notes.Count(n => n.Contains("PlayerProfileComponent::") && n.Contains("AdminHooks.")));
+            Assert.Single(report.Notes, n => n.Contains("BrowserComponent::OpenUrl") && n.Contains("OpenIfPageMarker"));
+            Assert.DoesNotContain(report.Notes, n => n.Contains("GoToForum"));
 
             // --game-log fatal leaves res/raw/args.txt byte for byte (VerifyUnchanged checks the bytes).
             PatchReport fatal = ApkPatcher.Run(new PatcherOptions { InputApk = apk, ServerDll = server, DryRun = true, GameLog = GameLogMode.Fatal }, null);

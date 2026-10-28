@@ -340,7 +340,8 @@ namespace McvsOffline.Embed.Tests.Patcher
             string refs = Refs();
             if (refs == null) return;
             Dictionary<string, byte[]> images = Patched(refs, out byte[] serverImage);
-            // Alone, and in the patcher's run of every default Game.dll / Gameloft.Engine.dll patch (debloat last).
+            // Alone, and in the patcher's run of every default Game.dll / Gameloft.Engine.dll patch (in ApkPatcher.AllPatches order:
+            // debloat, then adminlink on the same Gameloft.Engine.dll).
             Dictionary<string, byte[]> all = RealGamePatchTests.PatchReal(refs, serverImage, null, RealGamePatchTests.DefaultGamePatches);
             foreach (Dictionary<string, byte[]> set in new[] { images, all })
             {

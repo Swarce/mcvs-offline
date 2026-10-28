@@ -133,12 +133,18 @@ deterministic id the auth module derives).
   own copy, with shared immutable leaves: the dump is neither copied nor parsed per request, and it is parsed
   only when a read goes inside it. Without the cache, a 1.4 MB dump cost about 210 ms per request (even an R8
   `currentMatch` read) on the dev machine, and more on a phone. `storage.cache: false` turns it off.
-- **Backups** in `<data>/storage/backups/<account>/<yyyyMMddTHHmmssfffZ>-r<revision>-<reason>.json`:
-  - `auto`: before a save when the newest backup is older than `storage.backups.intervalMinutes`;
-  - `delete`: before a profile delete;
-  - `replace`: before a root set;
-  - `wipe`: before any write that empties a stored game profile, such as the R7 reset.
-  The newest `storage.backups.keep` are kept. The backups also back the Seshat backups endpoint.
+- **Backups** in `<data>/storage/backups/<account>/<yyyyMMddTHHmmssfffZ>-r<revision>-<token>.json` (the token is the
+  reason with only `[a-z0-9]` kept), in four pools per account, each pruned on its own (build 9):
+
+  | Pool | Tokens | Kept |
+  |---|---|---|
+  | `auto` | `auto`: before a save when the newest **automatic** backup is older than `storage.backups.intervalMinutes` | the newest `storage.backups.keep`; with `keep` 0 none are taken and none pruned |
+  | `event` | `delete` (before a profile delete), `replace` (before a root set), `wipe` (before a write that empties a stored game profile, such as the R7 reset), `unlockall`, other reasons | 20 |
+  | `system` | the settings page's `preimport`, `prerestore`, `presettings`, `prerevert` | 10 |
+  | `manual` | `manual` (the page's "Back up now") | at most 10, **never** deleted automatically: an 11th is refused; only the player deletes one |
+
+  Every backup but `auto` is taken whatever `keep` says. `LocalProfileStore.CreateBackup`, `DeleteBackup` (manual only)
+  and `ReadBackupText` serve the settings page. The backups also back the Seshat backups endpoint.
 - **Corruption.** If a stored file exists but cannot be parsed, it is moved aside (`*.corrupt-<ms>`) and replaced
   by its newest readable backup, with an ERROR log. With no backup, requests answer 503 and the file is left
   untouched for repair. A broken file is never treated as a new profile.
@@ -156,11 +162,26 @@ deterministic id the auth module derives).
 
 | Key | Default | Meaning |
 |---|---|---|
-| `storage.backups.keep` | 20 | backups kept per account; 0 disables backups |
-| `storage.backups.intervalMinutes` | 30 | minimum minutes between two `auto` backups; 0 = before every save |
+| `storage.backups.keep` | 20 | automatic backups kept per account (the `auto` pool only); 0 takes no new automatic backups and keeps the existing ones. Lowering it deletes the oldest automatic ones at the next automatic backup. Every other backup is always taken |
+| `storage.backups.intervalMinutes` | 30 | minimum minutes between two `auto` backups (other pools do not count); 0 = before every save |
 | `storage.autoRestoreCorrupt` | true | restore an unreadable profile from its newest backup |
 | `storage.cache` | true | keep parsed profiles in memory (validated against the file on every request) |
 | `storage.absentField` | `"empty"` | `"404"` answers 404 for absent selectors, except `_mcvs.gameProfile`, `_mcvs.currentMatch` and the four object sections, which stay `{}` |
+
+## Staged operations and probation (settings page, build 9)
+
+The settings page never writes the profile of the account the game is playing (the running menu server holds it and
+saves it back). An import, a restore, a relink ("play this account on this phone") or an undo is **staged** under
+`<data>/admin/staged/` (`pending.json`, the payload, and at staging a `system` backup of the target as a restore point)
+and applied by the `admin-saves` module at the next start, **before the port opens**: profile through
+`LocalProfileStore.Commit` with source `admin` (and a `system` backup when the file changed since staging), the
+inbox/secured mailboxes of an import, then the relink of the phone's anonymous credential (`AccountStore.LinkCredential`
+plus `TokenService.RevokeCredential`). Every step is recorded, so an interrupted apply resumes; after 3 attempts it gives
+up. When the phone's login opens the target afterwards (a replace, or a switch or relink that moved the login), the
+operation is on **probation**: the TS's first save of the target (`storage.profile.changed` with source `http`) confirms
+it; after the apply start and two more starts without such a save it is reverted before the port opens (the
+pre-operation backup back in place, the credential back on its previous account). Results and history:
+[../design/settings-page.md](../design/settings-page.md) §6.4–§6.5.
 
 ## Seams for other modules
 
@@ -183,7 +204,7 @@ deterministic id the auth module derives).
 
 | Topic | Payload | Publisher → typical subscriber |
 |---|---|---|
-| `storage.profile.changed` | `{account, fedId, revision, operation, selector, deleted, source: "http"\|"api"}` | storage, after every saved change → anything that mirrors profiles (LAN sync) |
+| `storage.profile.changed` | `{account, fedId, revision, operation, selector, deleted, source: "http"\|"api"\|"admin"}` | storage, after every saved change → unlocks, the settings page (the game's last save; probation), anything that mirrors profiles (LAN sync) |
 | `storage.inventory.changed` | `{account, fedId, section, key, count, delta}` | storage `IProfileAccess.AddToLedger` → alerts (push a `set_profile` alert so a running TS re-checks the ledger without a re-login, EN/IapStoreComponent.cs:958-969) |
 
 ## Decisions

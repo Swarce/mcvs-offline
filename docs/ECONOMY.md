@@ -35,6 +35,10 @@ Evidence: report 04 (economy), verify-C5 (unlock-all, store paths), verify-C4 (m
   list shrinks as the player progresses. Two exceptions stay visible: `ModTier_*` (no ownership check in the client)
   and `MercAccessory_*_Random` (the client's availability check does not look at the pool). Buying an exhausted
   mystery accessory pays out the game's duplicate compensation (`AlternateRewards`) instead.
+* **The Cosmetic crate is the play path for the no-source set** (§5): ~600 cosmetics that nothing in 1.17.32 hands out
+  (avatars, backgrounds, sounds 2–5, 16 skins, 12 hidden jerseys, the agents Witch and Bli-P) come from a random crate
+  in the daily missions, the weekly event and the season rewards, together with the camos and jerseys the VIP pool
+  used to give. The shop keeps selling what it sold.
 * **Excluded on purpose:** the Kayac (Japan) collaboration camos/accessories and the 3 skins the 1.17.32 tables flag
   `Locked` (collab skins), ecomm-only ids that have no design-table row (the client has no specs for them), the
   placeholder merc 0, `Mod_*` items (hidden in generic tabs by an inverted `IsAvailable`), and anything `Reset*`.
@@ -86,6 +90,8 @@ unlock-all switches).
 | `crm.dailyCapMultiplier` (1.0) | extra factor on the two daily caps only |
 | `crm.offlineStore` (`generated`) | `merge` also keeps the shipped preconfiguration's other items; `preconfig` serves the shipped catalogue only |
 | `crm.redeemCoupons` (true) | shows Settings › Account › Redeem code |
+| `economy.collector.enabled` (true) | the Cosmetic crate (§5); `false` restores the original rewards |
+| `economy.collector.itemsPerCrate` (5) | items in one Cosmetic crate, 1–10 (§5) |
 
 Examples: *relaxed* = `versusCoinsMultiplier 2` + `priceMultiplier 0.5` (≈4× faster); *fast* =
 `versusCoinsMultiplier 5`. Multipliers are sent as `_OverrideTables` MUL cells (`"*2"`) on the existing rows listed in
@@ -155,9 +161,9 @@ Weekly division seasons, daily missions and weekly events add a second, play-dri
 
 | Source | Per | VersusCoins | Other |
 |---|---|---:|---|
-| Daily missions (3 of 6) | day | 450–600 | 30–35 Credits, the *Daily mission loot crate* (`Crate_Contracts`: mercs, tokens, gear, Credits) for all 3 |
-| Weekly event (4 objectives × 3 milestones) | week | 7,600 | 80 Credits, 600 upgrade tokens; final: 20 HardCurrency + one cosmetic event crate (`Crate_Event_<n>`, 65 in rotation) |
-| End-of-season reward (the game's `PVPDivisionRewards`) | week | – | tier crate for ranks 1–30, 120 Credits for 31–60; `liveops.seasonRewardMultiplier` scales it |
+| Daily missions (3 of 6) | day | 450–600 | 30–35 Credits, the *Daily mission loot crate* (`Crate_Contracts`: mercs, tokens, gear, Credits) for all 3; one Cosmetic crate with one of the missions (its card shows the crate) |
+| Weekly event (4 objectives × 3 milestones) | week | 7,600 | 80 Credits, 600 upgrade tokens, 16 Cosmetic crates (1, 1 and 2 per objective's tiers); final: 20 HardCurrency + one cosmetic event crate (`Crate_Event_<n>`, 65 in rotation) |
+| End-of-season reward (the game's `PVPDivisionRewards`) | week | – | ranks 1–3: HardCurrency, a gear crate and a season emblem; 4–30: a Cosmetic crate of 1–4 × `itemsPerCrate` items by tier (it replaces one gear piece); 31–60: 120 Credits; `liveops.seasonRewardMultiplier` scales it |
 
 For a player at the daily match cap (7,000–21,000 VC a week by division) that is about +35–60 % VC, the first
 renewable diamonds (20 a week, ≈1,000 a year) and a steady source of the event-crate cosmetics (camos and jerseys
@@ -165,7 +171,61 @@ that the store sells only as mystery packs). Weekly modifiers (Coin rush ×1.5 V
 bounty ×3 MVP, Rival surge ×1.25 both, Trophy fever ×1.5 division trophies) multiply into the same `_OverrideTables`
 cells as the `economy.*` multipliers (one MUL cell holding the product), so both settings compose.
 
-## 5. Open points (device test)
+## 5. The Cosmetic crate
+
+Build 9 (design and numbers: [design/economy-collector.md](design/economy-collector.md)). In the game it is called
+**CUSTOMIZATION CRATE** (`crm.CrateCustomization`, a name no other crate uses); it is the game's unused
+`Crate_Event_Special`, filled through CRM `_OverrideTables` cells. No game code is patched for it, but it needs the
+patcher's default `store` patch (without it the crate stays off).
+
+**Where crates come from** (from `collector.since`, 2026-11-09, a Monday; before that nothing changes):
+
+| Source | Crates |
+|---|---|
+| Daily missions: the day's first mission | 1 a day |
+| Weekly event: tier 1 and tier 2 of each objective | 1 each (8 a week) |
+| Weekly event: tier 3 of each objective | 2 each (8 a week) |
+| Season end, ranks 4–30 | one crate of 1–4 × `itemsPerCrate` items (Starter/Bronze 1, Silver/Gold 2, Platinum/Diamond 3, Master 4; at most 40 items) instead of one gear piece |
+| Season end, ranks 1–3 | no crate: a ★★★/★★/★ season emblem the player does not own yet, on top of the usual reward |
+
+A milestone holds at most one crate (the game reveals only the last crate of a claim), so the daily "complete all"
+bonus and the weekly final keep their own crates and get no Cosmetic crate. A claim with a crate shows only the crate's
+items; the milestone's VersusCoins, Credits and tokens are credited without being shown.
+
+**What is inside.** Each item is one draw from 39 rows: 1 = 70 VersusCoins (only once everything is owned), 2 = a random
+avatar, 3 = a random background, 4–7 = a random background plus signature sound 2–5, 8–23 = the 16 skins, 24–35 = the
+12 hidden jerseys (for a random unlocked agent), 36–37 = Witch and Bli-P, 38 = a random camo, 39 = a random jersey. The
+weights are made per player from the saved profile: 75 % of the draws go to the no-source items while some are left,
+the rest to camos and jerseys, and inside each part every missing item is equally likely, so owned items are not drawn
+again. Never in the crate: Kayac (Japan) avatars and items, the 36 starred season emblems (kept for ranks 1–3),
+unreleased content. An unlock-all profile gets 70 VersusCoins per item.
+
+**Pace** (5 items per crate, 25 crates a week for a regular player, simulated): the ~600 no-source items in about 8
+weeks (casual ~18 weeks), everything including the ~9,400 camo and jersey pairs in about 81 weeks (casual ~4 years;
+the shop's 10-packs stay the faster way to the camos and jerseys). 10 items per crate halves these times.
+
+**Switches.** On the page (Settings › Economy): "Cosmetic crate" (`economy.collector.enabled`) and "Items per Cosmetic
+crate" (`economy.collector.itemsPerCrate`, 1–10, default 5); both apply after the next match, also to crates already
+earned but not opened. Switching the crate asks first, because the running daily missions and weekly event restart. The presets do not touch them. More keys for testers (in `settings.json` only: `baseShare`,
+`weights`, `seasonCrates`, `maxSeasonItems`, `seasonEmblems`, `unlockableWindow`, `levelUpAvatars`, `exhaustedReward`)
+are listed in the design, §4.4.
+
+* **Kill switch**: `"economy": {"collector": {"enabled": false}}` (or `"collector": false`; saving the item count on
+  the page keeps it off). A value the server cannot read counts as **off**, and the page says so; so does a
+  settings.json the server cannot parse at all (until it is fixed, or repaired on the page, which starts from the
+  defaults: on). Off: the events go back to their old rewards (the running day and
+  week, and an ended week still waiting for its claims, are replaced once, losing their progress), ranks 4–30 get
+  their gear piece again, and a Cosmetic crate that is still claimable pays 70 VersusCoins.
+* **The guard and its latch file.** From a day before `since`, and for good once the server has handed out an event
+  with the crate, every CRM document gives the crate at least a 5-cell "guard" (one row of 70 VersusCoins), so a crate
+  can never be empty: claiming an empty crate throws on the menu server. "Handed out" is remembered in
+  `<data>/collector-guard.json` (`cratesServed`, `firstWindow`, `event`); an unreadable file counts as set. Deleting
+  it while the game is closed resets a test setup.
+* **What the server sees**: `GET /_mcvs/crm` (`collector`: phase Dormant / Guard / Active and why, `since`,
+  `cratesServed`), `GET /_mcvs/collector?account=<id>` (what was read from the player's save and what is left per
+  category), `GET /_mcvs/liveops` (`collector`), and the Status screen of the page (one line).
+
+## 6. Open points (device test)
 
 * The VersusCoins hub renders weapons, gear slots, mod tiers, crates, packs and VIP (verify-C5 marks the SWF side
   unverified); names of our packs show the raw `crm.<name>` key unless the SWF uses the content's names.
@@ -173,3 +233,4 @@ cells as the `economy.*` multipliers (one MUL cell holding the product), so both
   two-price mercs, so the client supports it).
 * The ≈11k-reward UNLOCKALL inbox message (UI and save size) — the split codes exist for this.
 * MUL cells on integer table columns (`"*1.5"` makes a double) are converted back by the typed table readers.
+* The Cosmetic crate on the phone (STATUS.md, build 9, checks 14–28): reveals, screen times, the season crate.

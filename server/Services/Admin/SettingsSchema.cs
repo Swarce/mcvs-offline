@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Json;
+using McvsOffline.Server.Services.Crm.Collector;
 
 namespace McvsOffline.Server.Services.Admin
 {
@@ -51,11 +52,21 @@ namespace McvsOffline.Server.Services.Admin
         /// <summary>any or enable: a "presettings" backup of the current player's save is taken before saving; or null.</summary>
         public string BackupBefore { get; internal set; }
 
+        /// <summary>
+        /// For a key whose module does not simply fall back to its default (the Cosmetic crate's, read by
+        /// <c>CollectorOptions</c>): the value the module uses, read from the whole settings, and a note when it differs
+        /// from what is stored (null: <see cref="SettingsSchema.Coerce"/> of the stored value).
+        /// </summary>
+        internal SettingReader Reader { get; set; }
+
         /// <summary>The server-side check of a string value (patterns without a regex engine) and its message.</summary>
         internal Func<string, bool> Check { get; set; }
 
         internal string CheckMessage { get; set; }
     }
+
+    /// <summary>The value a module uses for a key, and a note for the page when it is not what settings.json holds.</summary>
+    internal delegate object SettingReader(SettingDefinition def, Settings settings, out string invalidNote);
 
     public sealed class SettingGroup
     {
@@ -96,6 +107,9 @@ namespace McvsOffline.Server.Services.Admin
         public const string Live = "live";
         public const string Menu = "menu";
         public const string Restart = "restart";
+
+        /// <summary>The Cosmetic crate's kill switch (O7).</summary>
+        public const string CollectorEnabledKey = CollectorOptions.SettingsPath + ".enabled";
 
         private static readonly SettingGroup[] GroupList =
         {
@@ -323,6 +337,23 @@ namespace McvsOffline.Server.Services.Admin
             }
         }
 
+        /// <summary>The page's note for a stored value of the wrong type (<see cref="Coerce"/>).</summary>
+        public const string InvalidNote = "The value in settings.json is not valid; the default is used.";
+
+        /// <summary>
+        /// The value a key has now, as the server uses it (the page's <c>value</c>): <see cref="Coerce"/> of the stored
+        /// (effective) value, or the key's <see cref="SettingDefinition.Reader"/>. <paramref name="invalidNote"/> is null
+        /// when settings.json holds exactly that value (or nothing), else what the page says about it (<c>invalidStored</c>).
+        /// </summary>
+        public static object Read(SettingDefinition def, Settings settings, out string invalidNote)
+        {
+            if (def.Reader != null) return def.Reader(def, settings, out invalidNote);
+            bool invalid;
+            object value = Coerce(def, settings.Get(def.Key), out invalid);
+            invalidNote = invalid ? InvalidNote : null;
+            return value;
+        }
+
         /// <summary>
         /// The stored (effective) value for display, coerced to the key's type: null gives the default; a value of the
         /// wrong type gives the default with <paramref name="invalid"/> set.
@@ -357,6 +388,42 @@ namespace McvsOffline.Server.Services.Admin
             }
             invalid = true;
             return JsonValue.DeepClone(def.Default);
+        }
+
+        /// <summary>
+        /// The Cosmetic crate's keys as <see cref="CollectorOptions.FromSettings"/> reads them (the only parser of
+        /// <c>economy.collector.*</c>): the shorthand <c>"collector": false</c>, the spellings "off"/"yes"/1, an
+        /// unreadable kill switch or an unreadable settings.json (off, O7), item counts as strings or out of range (the
+        /// collector's value). Flagged whenever that is not what settings.json holds as the key's type.
+        /// </summary>
+        private static object ReadCollectorKey(SettingDefinition def, Settings settings, out string invalidNote)
+        {
+            invalidNote = null;
+            bool isSwitch = def.Key == CollectorEnabledKey;
+            CollectorOptions used = CollectorOptions.FromSettings(settings, null);
+            object value = isSwitch ? (object)used.Enabled : (long)used.ItemsPerCrate;
+            if (settings.IsFallback)
+            {
+                if (isSwitch) invalidNote = "settings.json cannot be read, so the Cosmetic crate is off until it is repaired.";
+                return value;
+            }
+            object collector = settings.Get(CollectorOptions.SettingsPath);
+            var block = collector as Dictionary<string, object>;
+            object stored = null;
+            if (block != null) block.TryGetValue(def.Key.Substring(CollectorOptions.SettingsPath.Length + 1), out stored);
+            else if (isSwitch) stored = collector; // "collector": false, the shorthand of the kill switch
+            if (stored == null) return value;
+            bool invalid;
+            object coerced = Coerce(def, stored, out invalid);
+            if (!invalid && JsonValue.DeepEquals(coerced, value)) return value;
+            string held = "settings.json holds " + MiniJson.Serialize(stored) + (block == null ? " as economy.collector" : "");
+            if (isSwitch && !CollectorOptions.Switch(stored).HasValue)
+                invalidNote = held + ", which the server cannot read as on or off: the Cosmetic crate is off.";
+            else if (isSwitch)
+                invalidNote = held + ", which the server reads as " + (used.Enabled ? "on" : "off") + ".";
+            else
+                invalidNote = held + "; the server uses " + used.ItemsPerCrate.ToString(CultureInfo.InvariantCulture) + ".";
+            return value;
         }
 
         /// <summary>The schema fields of a key as the page reads them (design §4.4), without value.</summary>
@@ -448,6 +515,17 @@ namespace McvsOffline.Server.Services.Admin
                        "Scales every VersusCoins price in the offline shop (at least 1)."),
                 Number("economy", "crm.dailyCapMultiplier", "Daily cap", 0.1, 20, 0.1, Menu,
                        "Extra factor on the two daily caps only."),
+                // Read by CollectorOptions at the next CRM fetch (docs/design/economy-collector.md §4.4), and shown as it
+                // reads them: a stored kill switch it cannot read switches the crate off (O7), and the page says so.
+                // Switching replaces the running daily missions and weekly event once (their progress is lost, §3.2).
+                ReadingCollector(Confirmed(Bool("economy", CollectorEnabledKey, "Cosmetic crate", true, Menu,
+                                                "Random cosmetic crates in daily missions, weekly events and season rewards. "
+                                                + "Off restores the original rewards. Switching restarts the running daily "
+                                                + "missions and weekly event."),
+                                           "The running daily missions and weekly event are replaced after the next match: "
+                                           + "their progress is lost (rewards already claimed stay).", "any", null)),
+                ReadingCollector(Integer("economy", CollectorOptions.SettingsPath + ".itemsPerCrate", "Items per Cosmetic crate",
+                                         CollectorOptions.DefaultItemsPerCrate, 1, 10, 1, Menu, "")),
 
                 // Unlocks & codes
                 Confirmed(Bool("unlocks", "unlockAll", "Unlock everything", false, Live,
@@ -522,6 +600,12 @@ namespace McvsOffline.Server.Services.Admin
         private static SettingDefinition Bool(string group, string key, string label, bool defaultValue, string apply, string help)
         {
             return Base(group, key, label, TypeBool, defaultValue, apply, help);
+        }
+
+        private static SettingDefinition ReadingCollector(SettingDefinition def)
+        {
+            def.Reader = ReadCollectorKey;
+            return def;
         }
 
         private static SettingDefinition Integer(string group, string key, string label, long defaultValue, long min, long max, long step,

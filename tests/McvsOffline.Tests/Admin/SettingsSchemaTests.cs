@@ -5,6 +5,7 @@ using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Json;
 using McvsOffline.Server.Services.Admin;
 using McvsOffline.Server.Services.Crm;
+using McvsOffline.Server.Services.Crm.Collector;
 using McvsOffline.Server.Services.Social.LiveOps;
 using McvsOffline.Server.Services.Storage;
 using Xunit;
@@ -19,6 +20,7 @@ namespace McvsOffline.Tests.Admin
         {
             "instantBots", "devMenu", "leaderboards.virtualPlayers", "geo.country",
             "economy.versusCoinsMultiplier", "economy.creditsMultiplier", "economy.xpMultiplier", "economy.priceMultiplier", "crm.dailyCapMultiplier",
+            "economy.collector.enabled", "economy.collector.itemsPerCrate",
             "unlockAll", "assets.couponsEnabled", "crm.redeemCoupons", "unlocks.batchSize", "admin.redeemCode",
             "liveops.enabled", "liveops.divisionSeasons", "liveops.dailyQuests", "liveops.weeklyEvents", "liveops.seasonDays",
             "liveops.seasonStart", "liveops.dailyResetHour", "liveops.modifiers", "liveops.difficulty", "liveops.seasonRewardMultiplier",
@@ -64,7 +66,7 @@ namespace McvsOffline.Tests.Admin
         {
             Dictionary<string, object> core = Settings.CreateDefaults();
             foreach (string key in new[] { "instantBots", "devMenu", "unlockAll", "economy.versusCoinsMultiplier", "economy.creditsMultiplier",
-                                           "economy.xpMultiplier", "economy.priceMultiplier", "logging.fileLevel" })
+                                           "economy.xpMultiplier", "economy.priceMultiplier", "logging.fileLevel", "economy.collector.enabled" })
                 Assert.True(JsonValue.DeepEquals(JsonPath.Get(core, key), Default(key)), key);
 
             var storage = new StorageSettings(new Settings());
@@ -83,6 +85,11 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal(liveOps.Modifiers, Default("liveops.modifiers"));
             Assert.Equal(liveOps.Difficulty, Default("liveops.difficulty"));
             Assert.Equal(liveOps.SeasonRewardMultiplier, Default("liveops.seasonRewardMultiplier"));
+
+            var collector = new CollectorOptions();
+            Assert.Equal(collector.Enabled, Default("economy.collector.enabled"));
+            Assert.Equal((long)collector.ItemsPerCrate, Default("economy.collector.itemsPerCrate"));
+            Assert.Equal(5L, Default("economy.collector.itemsPerCrate"));   // O3
 
             var crm = new CrmOptions();
             Assert.Equal(crm.DailyCapMultiplier, Default("crm.dailyCapMultiplier"));
@@ -245,6 +252,92 @@ namespace McvsOffline.Tests.Admin
             Assert.True(invalid);
             Assert.Equal("rotate", SettingsSchema.Coerce(Def("liveops.modifiers"), "nonsense", out invalid));
             Assert.True(invalid);
+        }
+
+        /// <summary>
+        /// The Cosmetic crate's two keys (docs/design/economy-collector.md §4.4): a switch and a 1-10 stepper in the Economy
+        /// group, read at the next CRM fetch; switching asks first (the running events restart). Both show what the
+        /// collector reads (<see cref="SettingsSchema.Read"/>), flagged when settings.json holds something else: a kill
+        /// switch it cannot read is off (O7), not the default; the shorthand <c>"collector": false</c> is off.
+        /// </summary>
+        [Fact]
+        public void TheCosmeticCrateKeys()
+        {
+            SettingDefinition enabled = Def("economy.collector.enabled");
+            Assert.Equal(("economy", "bool", "menu", "Cosmetic crate"), (enabled.Group, enabled.Type, enabled.Apply, enabled.Label));
+            Assert.Contains("daily missions, weekly events and season rewards", enabled.Help);
+            Assert.Contains("Off restores the original rewards", enabled.Help);
+            Assert.Contains("progress is lost", enabled.Confirm);
+            Assert.Equal(("any", null), (enabled.ConfirmWhen, enabled.BackupBefore));
+            SettingDefinition items = Def("economy.collector.itemsPerCrate");
+            Assert.Equal(("economy", "int", "menu", "Items per Cosmetic crate"), (items.Group, items.Type, items.Apply, items.Label));
+            Assert.Equal((1.0, 10.0, 1.0), (items.Min.Value, items.Max.Value, items.Step.Value));
+            Assert.True(Check("economy.collector.itemsPerCrate", 10L).ok);
+            Assert.False(Check("economy.collector.itemsPerCrate", 11L).ok);
+            Assert.False(Check("economy.collector.itemsPerCrate", 0L).ok);
+            Assert.False(Check("economy.collector.itemsPerCrate", 2.5).ok);
+            Assert.False(Check("economy.collector.enabled", "off").ok);
+
+            object Shown(SettingDefinition def, object collector, out string note)
+            {
+                var settings = new Settings();
+                settings.Override("economy.collector", collector);
+                return SettingsSchema.Read(def, settings, out note);
+            }
+            Dictionary<string, object> Block(string key, object value) => new Dictionary<string, object> { [key] = value };
+            string n;
+
+            foreach (var (stored, shown, readable) in new (object, bool, bool)[]
+                     { ("maybe", false, false), (2.5, false, false), ("off", false, true), (0L, false, true), ("yes", true, true), (1L, true, true) })
+            {
+                Assert.Equal(shown, Shown(enabled, Block("enabled", stored), out n));
+                Assert.Equal("settings.json holds " + MiniJson.Serialize(stored)
+                             + (readable ? ", which the server reads as " + (shown ? "on." : "off.") : ", which the server cannot read as on or off: the Cosmetic crate is off."), n);
+                Assert.Equal(shown, CollectorOptions.ReadEnabled(stored));
+
+                // The same values as the whole of economy.collector (the shorthand).
+                Assert.Equal(shown, Shown(enabled, stored, out n));
+                Assert.StartsWith("settings.json holds " + MiniJson.Serialize(stored) + " as economy.collector, which ", n);
+                Assert.Equal(5L, Shown(items, stored, out n));
+                Assert.Null(n);
+            }
+            Assert.Equal(true, Shown(enabled, null, out n));
+            Assert.Null(n);
+            Assert.Equal(false, Shown(enabled, Block("enabled", false), out n));
+            Assert.Null(n);
+            // "collector": false is the documented shorthand: off, and not flagged.
+            Assert.Equal(false, Shown(enabled, false, out n));
+            Assert.Null(n);
+            Assert.Equal(true, Shown(enabled, true, out n));
+            Assert.Null(n);
+            Assert.Equal(true, Shown(enabled, Block("itemsPerCrate", 3L), out n));
+            Assert.Null(n);
+
+            // itemsPerCrate as the collector reads it: numeric strings, clamped to 1..10, the default for the rest.
+            Assert.Equal(3L, Shown(items, Block("itemsPerCrate", 3L), out n));
+            Assert.Null(n);
+            Assert.Equal(3L, Shown(items, Block("itemsPerCrate", 3.0), out n));
+            Assert.Null(n);
+            Assert.Equal(8L, Shown(items, Block("itemsPerCrate", "8"), out n));
+            Assert.Equal("settings.json holds \"8\"; the server uses 8.", n);
+            Assert.Equal(10L, Shown(items, Block("itemsPerCrate", 15L), out n));
+            Assert.Equal("settings.json holds 15; the server uses 10.", n);
+            Assert.Equal(1L, Shown(items, Block("itemsPerCrate", 0L), out n));
+            Assert.Equal("settings.json holds 0; the server uses 1.", n);
+            Assert.Equal(5L, Shown(items, Block("itemsPerCrate", "many"), out n));
+            Assert.Equal("settings.json holds \"many\"; the server uses 5.", n);
+            Assert.Equal(5L, Shown(items, Block("itemsPerCrate", true), out n));
+            Assert.NotNull(n);
+
+            // The other keys: the default for a value of the wrong type, with the generic note.
+            var other = new Settings();
+            other.Override("instantBots", "maybe");
+            Assert.Equal(true, SettingsSchema.Read(Def("instantBots"), other, out n));
+            Assert.Equal(SettingsSchema.InvalidNote, n);
+
+            // The presets keep to the currency keys.
+            foreach (SettingPreset preset in SettingsSchema.Presets)
+                Assert.DoesNotContain(preset.Values.Keys, k => k.StartsWith("economy.collector.", StringComparison.Ordinal));
         }
 
         [Fact]

@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using McvsOffline.Embed.Tests.Support;
 using McvsOffline.Embedded.Diagnostics;
@@ -10,7 +11,11 @@ using Xunit;
 
 namespace McvsOffline.Embed.Tests.Embedded
 {
-    /// <summary>The crash reporter and the game-thread watchdog, off the device.</summary>
+    /// <summary>
+    /// The crash reporter and the game-thread watchdog, off the device. In the GameHooks collection: EmbeddedHost.Start (the host
+    /// tests) sets CrashReporter's crash directory, flush and context too, and a parallel start sent these tests' crash files there.
+    /// </summary>
+    [Collection("GameHooks")]
     public class DiagnosticsTests
     {
         [Fact]
@@ -115,6 +120,202 @@ namespace McvsOffline.Embed.Tests.Embedded
                 CrashReporter.SetCrashDirectory(null);
                 CrashReporter.ResetForTests();
             }
+        }
+
+        /// <summary>Design §5.4: crash and exception files are mirrored to Download/ and zipped for sharing: no ticket or password in them.</summary>
+        [Fact]
+        public void CrashFilesAreRedacted()
+        {
+            string dir = TestEnvironment.NewTempDir("crash-redact");
+            CrashReporter.Install();
+            CrashReporter.ResetForTests();
+            CrashReporter.SetCrashDirectory(dir);
+            const string ticket = "0123456789abcdef0123456789abcdef";
+            try
+            {
+                CrashReporter.Context = () => "last request POST /auth/authorize password=hunter2secret";
+                CrashReporter.Report("AppDomain.UnhandledException",
+                                     new InvalidOperationException("could not open http://127.0.0.1:51780/_mcvs/ui/#t=" + ticket + " (cookie mcvs_s=" + ticket + ticket + ")"), true);
+                string text = File.ReadAllText(Assert.Single(Directory.GetFiles(dir, "crash-*.txt")));
+                Assert.Contains("/_mcvs/ui/#t=<redacted>", text);
+                Assert.Contains("mcvs_s=<redacted>", text);
+                Assert.Contains("password=hunt…<redacted>", text);
+                Assert.DoesNotContain(ticket, text);
+                Assert.DoesNotContain("hunter2secret", text);
+                Assert.Contains("FATAL unhandled exception via AppDomain.UnhandledException", text);
+            }
+            finally
+            {
+                CrashReporter.Context = null;
+                CrashReporter.SetCrashDirectory(null);
+                CrashReporter.ResetForTests();
+            }
+        }
+
+        /// <summary>
+        /// Design §7.5, D7 (the 0-byte uploads): every copy goes through a new temp file renamed over the old copy (a new file, never
+        /// an in-place rewrite of the old one), one media scan per cycle lists what changed, rotated logs, unknown endpoints and this
+        /// session's dumps are mirrored (again while they are still being written), old sessions and diagnostics pruned, leftover
+        /// temp files deleted.
+        /// </summary>
+        [Fact]
+        public void TheLogMirrorWritesThroughTempFilesAndAsksForAScan()
+        {
+            string downloads = TestEnvironment.NewTempDir("mirror-downloads");
+            string logs = TestEnvironment.NewTempDir("mirror-logs");
+            string target = Path.Combine(downloads, "MCVS-Offline");
+            Directory.CreateDirectory(target);
+            // Leftovers: a killed copy's temp file, seven old sessions, 25 old crash copies, a file of an earlier install.
+            File.WriteAllText(Path.Combine(target, "20200101-000000-server.log.txt.3.tmp"), "partial");
+            for (int i = 1; i <= 7; i++) File.WriteAllText(Path.Combine(target, "2020010" + i + "-000000-bootstrap.log.txt"), "old");
+            for (int i = 0; i < 25; i++)
+            {
+                string crash = Path.Combine(target, "crash-20200101-0000" + i.ToString("00") + "-000-1.txt");
+                File.WriteAllText(crash, "old crash");
+                File.SetLastWriteTimeUtc(crash, new DateTime(2020, 1, 1, 0, 0, i, DateTimeKind.Utc));
+            }
+            File.WriteAllText(Path.Combine(target, "notes.txt"), "not ours");
+
+            string server = Path.Combine(logs, "server.log"), bootstrap = Path.Combine(logs, "bootstrap.log"), game = Path.Combine(logs, "game.log");
+            File.WriteAllText(server, "server line 1\n");
+            File.WriteAllText(server + ".1", "the end of the previous session\n");
+            File.WriteAllText(bootstrap, "boot\n");
+            File.WriteAllText(Path.Combine(logs, "unknown-endpoints.jsonl"), "{\"path\":\"/x\"}\n");
+            File.WriteAllText(Path.Combine(logs, "threaddump-20261026-101500.txt"), "dump");
+            File.WriteAllText(Path.Combine(logs, "exit-1234-anr.txt"), "anr");
+            string oldDump = Path.Combine(logs, "exception-20200101-000000-000-1.txt");
+            File.WriteAllText(oldDump, "an older session's exception");
+            File.SetLastWriteTimeUtc(oldDump, DateTime.UtcNow.AddDays(-2));
+
+            var scans = new List<string[]>();
+            var lines = new List<string>();
+            var mirror = new McvsOffline.Embedded.Android.PublicMirror(new[] { bootstrap, server, game }, logs, s => lines.Add(s))
+            {
+                SdkInt = () => 34,
+                DownloadsDir = () => downloads,
+                Scan = paths => scans.Add(paths),
+            };
+            Assert.Equal("starting", mirror.Describe());
+            Assert.True(mirror.Open());
+            string p = mirror.SessionPrefix;
+            Assert.True(File.Exists(Path.Combine(target, p + "session.txt")));
+            Assert.Empty(Directory.GetFiles(target, "*.tmp"));
+            Assert.Equal(new[] { Path.Combine(target, p + "session.txt") }, Assert.Single(scans));
+            // 5 sessions kept (ours and the four newest old ones), 20 diagnostics, the foreign file untouched.
+            Assert.Equal(4, Directory.GetFiles(target, "2020010?-000000-bootstrap.log.txt").Length);
+            Assert.False(File.Exists(Path.Combine(target, "20200103-000000-bootstrap.log.txt")));
+            Assert.Equal(20, Directory.GetFiles(target, "crash-*.txt").Length);
+            Assert.False(File.Exists(Path.Combine(target, "crash-20200101-000004-000-1.txt")));
+            Assert.True(File.Exists(Path.Combine(target, "crash-20200101-000005-000-1.txt")));
+            Assert.True(File.Exists(Path.Combine(target, "notes.txt")));
+
+            scans.Clear();
+            mirror.CopyAll();
+            string[] scanned = Assert.Single(scans);
+            var expected = new[]
+            {
+                p + "bootstrap.log.txt", p + "server.log.txt", p + "server.log.1.txt", p + "unknown-endpoints.jsonl.txt",
+                "threaddump-20261026-101500.txt", "exit-1234-anr.txt",
+            };
+            Assert.Equal(expected.Select(n => Path.Combine(target, n)).OrderBy(x => x), scanned.OrderBy(x => x));
+            Assert.Equal("server line 1\n", File.ReadAllText(Path.Combine(target, p + "server.log.txt")));
+            Assert.Equal("the end of the previous session\n", File.ReadAllText(Path.Combine(target, p + "server.log.1.txt")));
+            Assert.False(File.Exists(Path.Combine(target, "exception-20200101-000000-000-1.txt")));   // an older session's: not again
+            Assert.Empty(Directory.GetFiles(target, "*.tmp"));
+            Assert.StartsWith("active, 7 files, last copy ", mirror.Describe());
+
+            // Nothing changed: no copy, no scan.
+            scans.Clear();
+            mirror.CopyAll();
+            Assert.Empty(scans);
+
+            // The log grows: only that copy is rewritten (through a temp file) and scanned; a rotation copies .1 once more.
+            string serverCopy = Path.Combine(target, p + "server.log.txt");
+            string heldServerCopy = HoldOldFile(serverCopy, Path.Combine(downloads, "held-server-copy"));
+            File.AppendAllText(server, "server line 2\n");
+            mirror.CopyAll();
+            Assert.Equal(new[] { serverCopy }, Assert.Single(scans));
+            Assert.Equal("server line 1\nserver line 2\n", File.ReadAllText(serverCopy));
+            // A new file took the name: the old one, still reachable through the second name, kept its text. An in-place
+            // O_TRUNC rewrite of the old copy (what left MediaStore with a stale or 0 size) would have changed it too.
+            Assert.Equal("server line 1\n", File.ReadAllText(heldServerCopy));
+            scans.Clear();
+            File.WriteAllText(server + ".1", "rotated again\n");
+            mirror.CopyAll();
+            Assert.Equal(new[] { Path.Combine(target, p + "server.log.1.txt") }, Assert.Single(scans));
+
+            // A thread dump is written for up to 10 s and an ANR trace streams in on the exit-reasons thread: copied again while
+            // they change (through new files as well), not once at whatever size the first cycle saw.
+            scans.Clear();
+            string dumpCopy = Path.Combine(target, "threaddump-20261026-101500.txt"), anrCopy = Path.Combine(target, "exit-1234-anr.txt");
+            string heldDumpCopy = HoldOldFile(dumpCopy, Path.Combine(downloads, "held-dump-copy"));
+            File.AppendAllText(Path.Combine(logs, "threaddump-20261026-101500.txt"), " continued");
+            File.AppendAllText(Path.Combine(logs, "exit-1234-anr.txt"), " trace");
+            mirror.CopyAll();
+            Assert.Equal(new[] { anrCopy, dumpCopy }, Assert.Single(scans).OrderBy(x => x, StringComparer.Ordinal));
+            Assert.Equal("dump continued", File.ReadAllText(dumpCopy));
+            Assert.Equal("anr trace", File.ReadAllText(anrCopy));
+            Assert.Equal("dump", File.ReadAllText(heldDumpCopy));
+            scans.Clear();
+            mirror.CopyAll();
+            Assert.Empty(scans);   // finished: not copied again
+
+            // The crash path copies at once and scans.
+            scans.Clear();
+            string crashFile = Path.Combine(logs, "crash-20261026-101600-000-1.txt");
+            File.WriteAllText(crashFile, "FATAL");
+            mirror.CopyCrashFile(crashFile);
+            Assert.Contains(Path.Combine(target, "crash-20261026-101600-000-1.txt"), Assert.Single(scans));
+            // Still at most 20 crash/thread-dump/exception/exit copies in all: the oldest crash copies made room.
+            Assert.Equal(20, Directory.GetFiles(target, "crash-*.txt").Length + Directory.GetFiles(target, "threaddump-*").Length +
+                             Directory.GetFiles(target, "exit-*").Length);
+            Assert.True(File.Exists(Path.Combine(target, "crash-20261026-101600-000-1.txt")));
+            Assert.True(File.Exists(Path.Combine(target, "threaddump-20261026-101500.txt")));
+            Assert.True(File.Exists(Path.Combine(target, "exit-1234-anr.txt")));
+
+            // An exception file the crash path copied is not copied again by the next cycle; it grows: copied again.
+            string exceptionFile = Path.Combine(logs, "exception-20261026-101700-000-2.txt");
+            File.WriteAllText(exceptionFile, "unobserved");
+            mirror.CopyCrashFile(exceptionFile);
+            scans.Clear();
+            mirror.CopyAll();
+            Assert.Empty(scans);
+            File.AppendAllText(exceptionFile, " and more");
+            mirror.CopyAll();
+            Assert.Equal(new[] { Path.Combine(target, "exception-20261026-101700-000-2.txt") }, Assert.Single(scans));
+            Assert.Equal("unobserved and more", File.ReadAllText(Path.Combine(target, "exception-20261026-101700-000-2.txt")));
+            Assert.Equal(20, new[] { "crash-*", "threaddump-*", "exception-*", "exit-*" }.Sum(pattern => Directory.GetFiles(target, pattern).Length));
+            Assert.Empty(Directory.GetFiles(target, "*.tmp"));
+        }
+
+        /// <summary>
+        /// A second name for <paramref name="path"/> (a hard link, libc link): it keeps the file's text when the mirror replaces the
+        /// copy with a new file, and shows any in-place rewrite of it.
+        /// </summary>
+        private static string HoldOldFile(string path, string secondName)
+        {
+            Assert.True(Libc.link(path, secondName) == 0, "link failed, errno " + Marshal.GetLastWin32Error());
+            return secondName;
+        }
+
+        private static class Libc
+        {
+            [DllImport("libc", SetLastError = true)]
+            public static extern int link(string oldpath, string newpath);
+        }
+
+        [Fact]
+        public void TheLogMirrorStaysOffBeforeAndroid11()
+        {
+            var lines = new List<string>();
+            var mirror = new McvsOffline.Embedded.Android.PublicMirror(new string[0], null, s => lines.Add(s))
+            {
+                SdkInt = () => 29,
+                DownloadsDir = () => TestEnvironment.NewTempDir("mirror-29"),
+            };
+            Assert.False(mirror.Open());
+            Assert.Equal("off: Android API 29 (< 30)", mirror.Describe());
+            Assert.Contains("[mirror] Android API 29 (< 30): no copy of the logs in Download/", lines);
         }
 
         [Fact]

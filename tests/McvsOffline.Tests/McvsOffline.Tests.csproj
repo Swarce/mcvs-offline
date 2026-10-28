@@ -18,5 +18,8 @@
 
   <ItemGroup>
     <ProjectReference Include="../../server/McvsOffline.Server.csproj" />
+    <!-- The collector conformance tests run the player's Game.dll with the patcher's default 'store' patch applied in
+         memory (Conformance/RealTables.cs), as the Embed tests' RealStorePatchTests do. -->
+    <ProjectReference Include="../../patcher/McvsOffline.Patcher.csproj" />
   </ItemGroup>
 </Project>

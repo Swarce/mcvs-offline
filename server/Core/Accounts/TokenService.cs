@@ -127,10 +127,12 @@ namespace McvsOffline.Server.Core.Accounts
         }
 
         /// <summary>
-        /// The last grant issued (or re-issued) in this process directly to an "anonymous:" credential, i.e. without an
-        /// actor: the player's own login, never an on-behalf token of the game server or a "game:" grant. A copy with its
-        /// ClientId and DeviceId; null until the first such grant. The settings page uses it to find the current player
-        /// (design §6.6, source "session").
+        /// The last grant issued (or re-issued) in this process directly to an "anonymous:" credential (without an actor)
+        /// that its caller marked as the player's own login (<c>playerLogin</c> of <see cref="Issue"/>; auth/authorize
+        /// sets it only for a POST from loopback with a device id, no browser header and the game's User-Agent): never an on-behalf
+        /// token of the game server, a "game:" grant, or a grant a web page's request obtained. A copy with its ClientId
+        /// and DeviceId; null until the first such grant. The settings page uses it to find the current player (design
+        /// §6.6, source "session").
         /// </summary>
         public TokenInfo LastDirectAnonymous
         {
@@ -168,10 +170,12 @@ namespace McvsOffline.Server.Core.Accounts
 
         /// <summary>
         /// Issues (or re-issues) a token. <paramref name="credential"/> is the subject; <paramref name="actor"/> is the
-        /// super credential for on-behalf tokens. Scope order is kept as requested.
+        /// super credential for on-behalf tokens. Scope order is kept as requested. <paramref name="playerLogin"/>: the
+        /// caller checked that this is the game's own login, so a direct "anonymous:" grant becomes
+        /// <see cref="LastDirectAnonymous"/>.
         /// </summary>
         public TokenInfo Issue(string accountId, string credential, string clientId, IEnumerable<string> scopes,
-                               string deviceId = null, string actor = null)
+                               string deviceId = null, string actor = null, bool playerLogin = false)
         {
             if (string.IsNullOrEmpty(accountId)) throw new ArgumentException("account id required", "accountId");
             var scopeList = new List<string>();
@@ -191,7 +195,7 @@ namespace McvsOffline.Server.Core.Accounts
                         info.DeviceId = deviceId;
                         SaveUnlocked();
                     }
-                    RememberDirectAnonymous(info);
+                    if (playerLogin) RememberDirectAnonymous(info);
                     // Echo the scopes in the order of this request.
                     var echo = info.Clone();
                     echo.Scopes = scopeList;
@@ -210,7 +214,7 @@ namespace McvsOffline.Server.Core.Accounts
                 Add(info, grant);
                 while (order.Count > capacity) Evict(order[0]);
                 SaveUnlocked();
-                RememberDirectAnonymous(info);
+                if (playerLogin) RememberDirectAnonymous(info);
                 return info.Clone();
             }
         }
@@ -234,7 +238,7 @@ namespace McvsOffline.Server.Core.Accounts
                 if (revoke.Count > 0)
                 {
                     SaveUnlocked();
-                    log.Info("revoked " + revoke.Count + " token(s) of " + credential);
+                    log.Info("revoked " + revoke.Count + " token(s) of " + Credential.Mask(credential));
                 }
                 return revoke.Count;
             }

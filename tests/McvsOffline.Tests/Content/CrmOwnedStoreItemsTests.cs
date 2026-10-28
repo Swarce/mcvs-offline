@@ -9,41 +9,14 @@ using Xunit;
 
 namespace McvsOffline.Tests.Content
 {
-    /// <summary>The owned kill signatures left out of a player's offline_store (CrmOwnedStoreItems).</summary>
+    /// <summary>
+    /// The owned kill signatures left out of a player's offline_store (CrmOwnedStoreItems), through the HTTP routes. The
+    /// dump fixtures of the old CrmOwnedStoreItems.Scan live in PlayerInventoryTests (PlayerInventory.Scan replaced it); the
+    /// collector's per-player documents are in CollectorDocumentTests.
+    /// </summary>
     public class CrmOwnedStoreItemsTests
     {
         private static readonly string[] ServerScopes = { "auth", "storage", "storage_ro", "storage_restricted", "storage_admin", "config" };
-
-        [Fact]
-        public void ScanReadsTheSignatureListsOfTheDump()
-        {
-            string dump = "{\"@version\":\"0.1\",\"$default\":{\"/Profile\":{\"@type\":\"Game.PlayerProfileComponent\","
-                          + "\"KillSignatureAvatars\" : [ \"1\", \"22\",5 ],\"KillSignatureBackgrounds\":[],"
-                          + "\"KillSignatureSounds\":[\"2\"],\"Name\":\"KillSignatureAvatars\","
-                          + "\"Note\":\"\\\"KillSignatureBackgrounds\\\":[\\\"9\\\"]\"}}}";
-            var set = CrmOwnedStoreItems.Scan(dump, out string problem);
-            Assert.Null(problem);
-            Assert.Equal(new[] { "KillSignature_Avatar_1", "KillSignature_Avatar_22", "KillSignature_Avatar_5" }, Sorted(set.Names));
-            Assert.Equal(3, set.Avatars);
-            Assert.Equal(0, set.Backgrounds);
-
-            var none = CrmOwnedStoreItems.Scan("{\"$default\":{\"/Profile\":{\"Version\":57}}}", out problem);
-            Assert.Null(problem);
-            Assert.Empty(none.Names);
-        }
-
-        [Theory]
-        [InlineData("{\"a\":{\"KillSignatureAvatars\":[\"1\"]},\"b\":{\"KillSignatureAvatars\":[\"2\"]}}", "appears more than once")]
-        [InlineData("{\"KillSignatureAvatars\":[{\"@value\":\"1\"}]}", "not an array of ids")]
-        [InlineData("{\"KillSignatureBackgrounds\":{}}", "not an array of ids")]
-        [InlineData("{\"KillSignatureAvatars\":[\"1\\u0031\"]}", "not an array of ids")]
-        [InlineData("{\"KillSignatureAvatars\":[\"1\",]}", "not an array of ids")]
-        [InlineData("{\"KillSignatureAvatars\":[\"1\"", "not an array of ids")]
-        public void ScanRefusesAnythingUnexpected(string dump, string reason)
-        {
-            Assert.Null(CrmOwnedStoreItems.Scan(dump, out string problem));
-            Assert.Contains(reason, problem);
-        }
 
         [Fact]
         public void JsonWithoutKeepsEverythingElse()
@@ -64,7 +37,7 @@ namespace McvsOffline.Tests.Content
         public void OwnedSignaturesLeaveTheStoreAtTheNextGameProfileRead()
         {
             using var dir = new TempDir();
-            using var server = ContentTestSupport.CreateServer(dir.Combine("data"));
+            using var server = CreateServer(dir.Combine("data"));
             string player = Token(server, "p1");
             string other = Token(server, "p2");
 
@@ -111,7 +84,7 @@ namespace McvsOffline.Tests.Content
         {
             using var dir = new TempDir();
             var logs = new MemoryLogSink();
-            using var server = ContentTestSupport.CreateServer(dir.Combine("data"), logs: logs);
+            using var server = CreateServer(dir.Combine("data"), logs);
             string player = Token(server, "p1");
             string full = Crm(server, null);
 
@@ -124,6 +97,24 @@ namespace McvsOffline.Tests.Content
             ReadGameProfile(server, player);
             Assert.Equal(full, Crm(server, player));
             Assert.True(logs.Contains("appears more than once); serving the whole store"));
+        }
+
+        /// <summary>
+        /// A composed server on a clock before the shipped collector.since: the collector is Dormant, so these tests see the
+        /// store filter alone whatever today's date is (the collector's per-player documents: CollectorDocumentTests).
+        /// </summary>
+        private static McvsServer CreateServer(string dataDir, MemoryLogSink logs = null)
+        {
+            var options = new ServerOptions
+            {
+                DataDir = dataDir,
+                Port = 51780,
+                ConsoleLog = false,
+                FileLog = false,
+                Clock = new ManualClock(CrmNewsfeedTests.Wednesday),
+            };
+            if (logs != null) options.ExtraSinks.Add(logs);
+            return McvsServer.Create(options);
         }
 
         private static string Token(McvsServer server, string user)
@@ -158,13 +149,6 @@ namespace McvsOffline.Tests.Content
         {
             var response = ContentTestSupport.Get(server, "/profiles/me/myprofile/_mcvs.gameProfile?access_token=" + Uri.EscapeDataString(token));
             Assert.Equal(200, response.StatusCode);
-        }
-
-        private static string[] Sorted(IEnumerable<string> names)
-        {
-            var list = new List<string>(names);
-            list.Sort(StringComparer.Ordinal);
-            return list.ToArray();
         }
     }
 }

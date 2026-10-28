@@ -17,6 +17,13 @@ the Federation client at `http://127.0.0.1:51780/`. `adb reverse` makes that pho
 - This repository, built once: `scripts/build.sh` (add `MCVS_REFS=/path/to/apk/assemblies` to also build the
   embedded DLL and run the real-client tests; the dev loop itself does not need it).
 
+Test switches of `scripts/build.sh` (the full check sets all of them): `MCVS_REFS` (the game's assemblies; with them the
+embedded DLL and the real-client tests are required), `MCVS_APK` (the original APK: patcher runs, the JNI table against
+its dex), `MCVS_ANDROID_JAR` (an API 29 `android.jar` for the JNI table test; default
+`platforms/android-29/android.jar` next to the build tools; required with `MCVS_REQUIRE_REAL_CLIENT=1`),
+`MCVS_REQUIRE_NODE=1` (`node` must be on `PATH`: the settings page smoke against its fixtures and against a live server
+then cannot skip) and the optional `MCVS_ACORN=<path to acorn.js>` (the page script must also parse as ECMAScript 5).
+
 ## 2. Start the server on the PC
 
 ```sh
@@ -36,6 +43,16 @@ scripts/run-standalone.sh --datapack ./device-data/Data --log-level debug
 ```
 
 Check it answers: `curl http://127.0.0.1:51780/` prints `{"eve":"on",...}`.
+
+The console also prints `Settings page: http://127.0.0.1:51780/_mcvs/ui/#t=<ticket>`: open it in a browser on the PC
+within two minutes (the ticket works once) for the settings page. On the PC it has no game host, so share, restart, save
+now and the in-game clipboard are not offered; exports and the logs zip download as files instead.
+
+**Host check.** Every route refuses a `Host` header that is not `127.0.0.1`, `localhost` or `[::1]` (404, and
+`gate: refused Host '<host>' for <path> (DNS rebinding?)` in the log, once a minute), while the server is bound to
+loopback and not in LAN mode. `curl` and the game through `adb reverse` send `127.0.0.1:51780` and pass. To reach the
+PC server from another device, use `--lan` (or, for a quick test only, `"security": {"hostCheck": false}` in
+`settings.json`). `/_mcvs/*` always answers loopback callers only, with a loopback `Host` and this port.
 
 ## 3. Forward the port over USB
 
@@ -117,8 +134,9 @@ The first requests appear in the server console within seconds: `GET /config/<cl
 | `data/logs/unknown-endpoints.jsonl` | One JSON object per request no route handled: method, target, query, form, body, headers. This is the list of what is still missing |
 | `GET /_mcvs/status`, `/_mcvs/routes` | Server state and every registered route |
 | `GET /_mcvs/storage`, `/_mcvs/storage/profiles/<account>` | Stored profiles (loopback only) |
-| `GET /_mcvs/crm`, `POST /_mcvs/crm/reload` | The CRM document's sources and size; rebuild after editing `data/content/` |
-| `GET /_mcvs/unlocks` | `unlockAll` progress per account |
+| `GET /_mcvs/crm`, `POST /_mcvs/crm/reload` | The CRM document's sources and size; rebuild after editing `data/content/` (`curl -X POST -H 'X-MCVS: 1' http://127.0.0.1:51780/_mcvs/crm/reload`: every `_mcvs` write needs that header) |
+| `GET /_mcvs/unlocks`, `POST /_mcvs/unlocks/grant` | `unlockAll` progress per account; grant now (`-H 'X-MCVS: 1'`) |
+| `/_mcvs/ui/` | The settings page (open the console's link; `GET /_mcvs/api/v1/ping` answers without a session) |
 | `adb logcat` | The game's own log. Filter with `adb logcat | grep -i -E "mono|gameloft|Online|Profile"` |
 
 A quick summary of the unknown endpoints after a session:
@@ -135,7 +153,8 @@ Log lines worth searching for: `UNKNOWN ENDPOINT`, `401 for`, `service-prefixed 
 Edit `data/settings.json` and restart the server (Ctrl+C, run again). Handy ones: `"devMenu": true` (the game's
 developer cheat menu, opened with taps top-left, top-right, bottom-left, bottom-right, top-left, bottom-right within
 1.5 s each, verify-C5), `"unlockAll": true`, `"instantBots": false`, the `economy` multipliers. Module settings are
-listed in [PROTOCOL.md](PROTOCOL.md).
+listed in [PROTOCOL.md](PROTOCOL.md). The settings page (section 2) edits the same file without a restart for the
+settings that apply at once; `security.hostCheck` (default `true`) can be changed only in the file.
 
 Your progress lives in `data/storage/profiles/` (one readable JSON file per account) with automatic backups in
 `data/storage/backups/`. Copy the whole `data/` folder to keep a session.
@@ -160,3 +179,5 @@ its `-DeviceId` and, if you changed it, its port.
 | Requests arrive, the game shows "Incorrect datacenter" or an update popup | `GET /config/.../urls` must answer without a `status` key (eve, verify-C2 §1.2); look for errors in `server.log` |
 | The game waits forever at "connecting" | `configs/users/me/game` must answer 200 (the GS waits otherwise); check `GET /_mcvs/crm` |
 | The profile resets | Look for a 403/404 on a `profiles/...` request or `storage unavailable` in the log; restore from `data/storage/backups/` |
+| Every request gets 404, `gate: refused Host` in the log | The client sends a `Host` that is not loopback (another device, a host name): use `adb reverse` and `127.0.0.1`, or `--lan` |
+| A `curl -X POST` to `/_mcvs/...` answers 403 | Add `-H 'X-MCVS: 1'` |

@@ -93,11 +93,7 @@ namespace McvsOffline.Server.Core.Content
             if (overrideDirectory != null)
             {
                 string file = Path.Combine(overrideDirectory, normalized.Replace('/', Path.DirectorySeparatorChar));
-                if (File.Exists(file))
-                {
-                    data = File.ReadAllBytes(file);
-                    return true;
-                }
+                if (File.Exists(file) && TryReadOverride(file, out data)) return true;
             }
             byte[] builtIn;
             if (BuiltInContent.All.TryGetValue(normalized, out builtIn))
@@ -115,6 +111,30 @@ namespace McvsOffline.Server.Core.Content
             if (!TryReadContent(name, out data)) return false;
             text = DecodeText(data);
             return true;
+        }
+
+        /// <summary>
+        /// Reads an override file that <c>File.Exists</c> just saw. It can be gone by the time it is opened (deleted, or
+        /// replaced by a rename, while a tester or the settings page edits &lt;data&gt;/content): that is a missing override,
+        /// as if the check had not seen it, never a FileNotFoundException for the caller (CRM, live ops and the collector
+        /// read content on every request). Other I/O errors still propagate.
+        /// </summary>
+        private bool TryReadOverride(string file, out byte[] data)
+        {
+            try
+            {
+                data = File.ReadAllBytes(file);
+                return true;
+            }
+            catch (FileNotFoundException)
+            {
+            }
+            catch (DirectoryNotFoundException)
+            {
+            }
+            data = null;
+            log.Debug("content override " + file + " disappeared while it was read; using the built-in content");
+            return false;
         }
 
         private static string DecodeText(byte[] data)

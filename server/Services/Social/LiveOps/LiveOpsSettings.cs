@@ -18,6 +18,9 @@ namespace McvsOffline.Server.Services.Social.LiveOps
     ///   "seasonRewardMultiplier": 1.0          // scales the end-of-season reward quantities (PVPDivisionRewards)
     /// }
     /// </code>
+    /// The economy collector's settings are not read here: <c>CollectorOptions</c> is their only parser
+    /// (docs/design/economy-collector.md §3.2, §4.4). What live ops depend on (whether the Cosmetic crate may be handed
+    /// out) comes in as <c>CollectorRuntime.InputsKey</c>, which <see cref="Fingerprint"/> carries.
     /// </summary>
     public sealed class LiveOpsSettings
     {
@@ -45,7 +48,10 @@ namespace McvsOffline.Server.Services.Social.LiveOps
 
         public double SeasonRewardMultiplier { get; private set; }
 
-        /// <summary>Changes whenever any value above does (part of the CRM cache key).</summary>
+        /// <summary>The collector inputs these settings were read with (<c>CollectorRuntime.InputsKey</c>); null: none.</summary>
+        public string CollectorKey { get; private set; }
+
+        /// <summary>Changes whenever any value above does, <see cref="CollectorKey"/> included (part of the CRM cache key).</summary>
         public string Fingerprint { get; private set; }
 
         public static LiveOpsSettings Defaults()
@@ -54,6 +60,13 @@ namespace McvsOffline.Server.Services.Social.LiveOps
         }
 
         public static LiveOpsSettings From(Settings settings, Log log)
+        {
+            return From(settings, log, null);
+        }
+
+        /// <param name="collectorKey"><c>CollectorRuntime.InputsKey</c> (enabled, collector.json validity, store patch):
+        /// the events of windows from <c>collector.since</c> on depend on it, so the fingerprint does too. Null: left out.</param>
+        public static LiveOpsSettings From(Settings settings, Log log, string collectorKey)
         {
             var s = new LiveOpsSettings();
             s.Enabled = Bool(settings, "liveops.enabled", true);
@@ -74,12 +87,14 @@ namespace McvsOffline.Server.Services.Social.LiveOps
             if (s.Modifiers.Length == 0) s.Modifiers = "rotate";
             s.Difficulty = Clamp(settings == null ? 1.0 : settings.GetDouble("liveops.difficulty", 1.0), 0.1, 10.0);
             s.SeasonRewardMultiplier = Clamp(settings == null ? 1.0 : settings.GetDouble("liveops.seasonRewardMultiplier", 1.0), 0.1, 100.0);
+            s.CollectorKey = collectorKey;
             s.Fingerprint = string.Join("|", new[]
             {
                 s.Enabled ? "on" : "off", TimeFormat.Iso8601(s.SeasonAnchor), Str(s.SeasonDays), Str(s.DailyResetHour),
                 s.DivisionSeasons ? "s" : "-", s.DailyQuests ? "q" : "-", s.WeeklyEvents ? "w" : "-", s.Modifiers,
                 s.Difficulty.ToString("R", CultureInfo.InvariantCulture), s.SeasonRewardMultiplier.ToString("R", CultureInfo.InvariantCulture),
             });
+            if (collectorKey != null) s.Fingerprint += "|" + collectorKey;
             return s;
         }
 

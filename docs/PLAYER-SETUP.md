@@ -78,7 +78,7 @@ The patcher prints every change it makes and finishes with a signature check. Us
 
 | Option | Meaning |
 |---|---|
-| `--patch nativeonline,waits,geo,bottile,finder,store,signatures,debloat` | The optional patches (this is the default set; `debloat` removes dead ad/analytics/social/push pieces, see ARCHITECTURE.md §2). `none` keeps only the mandatory patches (the server hook, the headless-server fixes and the server physics), `all` adds `lan`. |
+| `--patch nativeonline,waits,geo,bottile,finder,store,signatures,debloat,adminpage,adminlink` | The optional patches (this is the default set; `debloat` removes dead ad/analytics/social/push pieces, see ARCHITECTURE.md §2; `adminpage` and `adminlink` open the MCVS Offline page, section 7). `none` keeps only the mandatory patches (the server hook, the headless-server fixes and the server physics), `all` adds `lan` and `forum`, `default,forum` adds only `forum`. |
 | `--game-log all` | The game's own log at every level in logcat (`mono-stdout`), for bug reports; this is the default while the offline build is being tested. `--game-log fatal` keeps the game's original setting (fatal errors only). |
 | `--keystore <file.p12>` | Your signing key. Without it a key is created once in `~/.config/McvsOffline/` (Windows: `%APPDATA%\McvsOffline\`) and reused. |
 | `--build-tools <dir>` | Folder with `apksigner` and `zipalign`; otherwise they are looked up on `PATH` and in `$ANDROID_HOME/build-tools`. |
@@ -115,6 +115,11 @@ What the patches do:
 - **store**: opening the shop crashed the game because of the kill-signature sounds it sells (the game's availability
   check had no code for sounds). With the patch sounds work, and any shop item whose check still fails is left out of the
   shop (and logged as `[McvsOffline] store item <id> threw ...`) instead of closing the game.
+- **adminpage**: Settings › Account gets an **MCVS Offline** button (after "Recover progress") that opens the MCVS
+  Offline page (section 7).
+- **adminlink**: the button of the "MCVS Offline" inbox message opens the page with full access. Without this patch
+  the message opens a view-only page.
+- **forum** (not in the default set): the Forum button in Settings opens the page too.
 - **lan** (experimental): groundwork for LAN play (see the end of this guide). It changes nothing for single-device
   play.
 
@@ -222,9 +227,75 @@ file cannot be written, logcat says so (`[logfile] cannot write ... at stage ...
 internal storage. Copying the folder over USB with a file manager on the PC can show stale sizes while the game runs;
 the copies in Downloads do not have that problem.
 
-## 7. Saves, settings and backups
+## 7. The MCVS Offline page
 
-Everything MCVS Offline stores is in one folder:
+The offline build has its own page for settings, saves and logs. It runs inside the game, in the game's own browser,
+and nothing on it leaves the phone unless you share it.
+
+**Opening it** (the game's own browser opens over the game; its Close button or Back takes you back):
+
+- Settings › Account › **MCVS Offline** (patch `adminpage`).
+- The **MCVS Offline** message in the inbox: tap its button (patch `adminlink`; without the patch the page opens view-only).
+- Settings › Account › Redeem code: type `MCVSOFFLINE`. The page opens and the game then says the code does not exist;
+  that is expected, nothing is claimed. `admin.redeemCode` in `settings.json` changes the code (empty turns it off).
+  The code does nothing while `lanMode` is on.
+- The Forum button, if you patched with `--patch default,forum`.
+
+**Chrome is not supported.** Open the page only from the game. In Chrome (or any other browser)
+`http://127.0.0.1:51780/_mcvs/ui/` shows a view-only page at most: Android freezes the game about a minute after it leaves the screen, and the page's
+one-time links go only to the game's own browser.
+
+**Screens:** Status (version, the player, the last save by the game, recent problems), Settings, Saves, Logs, Actions
+and About. Each setting says when it applies: **Now**, **After the next match** (after you close the page) or **After a
+restart**. Saving writes `settings.json`; risky settings (cheat menu, unlock everything, season length) make a backup of
+your save first.
+
+**Save the game now, and restart.** The game saves on its own only every few minutes and after certain events, never
+when it is closed. **Saves › Save the game now** closes the page, lets the game save and opens the page again (with
+"The game did not save" if it did not). **Actions › Restart the game** (and the Restart buttons of a staged import or
+a restart setting) first lets the game save, then restarts it; when the game does not save it does not restart, unless
+you tick "Restart even if the game does not save". If the game does not come back by itself after about 20 seconds,
+start it again from the home screen.
+
+**Backups** (Saves): automatic ones (`storage.backups.keep`, default 20), one before every import, restore and risky
+setting, and your own (**Back up now**, at most 10, never deleted automatically). Restore one, or delete your own.
+A restore, like an import, is applied at the next start, before the game loads your save.
+
+**Moving to another phone, or reinstalling, without a PC:**
+
+1. Saves › Export: **Share as a file** (a `.txt` to e-mail, Drive, Telegram's Saved Messages...) or **Copy as text**,
+   part by part: whole parts of 60,000 characters, or 3,900 (Telegram) or 1,900 (Discord). The page shows the number of
+   parts first; above 4 parts a file is easier.
+2. On the other phone, in the offline build: Saves › Import, paste the parts (everything from `MCVS-SAVE` to `~`, in any
+   order, one or several at a time), check the summary, tick the confirmation and **Stage**, then restart.
+3. At the next start the save is put in place and that phone's login now opens the imported account. The account the
+   phone had before stays on the phone: **Play this account on this phone** (Saves › Other accounts) or **Undo** take
+   you back. If the imported save never reaches the menu, it is undone by itself after three starts.
+
+With a PC, `adb push` the exported file into `McvsOffline/import/` and pick it in Saves › Import. Which way works where:
+
+| | Android 5–9 | Android 10 | Android 11 and later |
+|---|---|---|---|
+| Export: Share as a file | yes (some apps need the storage permission) | yes | yes |
+| Export: Save to Downloads | no | yes | yes |
+| Export / import: copy and paste the text | yes | yes | yes |
+| Import: a file in `McvsOffline/import/` put there on the phone | any file manager | most file managers | not with most file managers: use a PC (USB file transfer or `adb push`) |
+| Import: a file in `Download/` | no | no | no |
+
+**Logs** (Logs): read the server, start-up and game logs with filters, then **Share**: **Build** makes a zip (scope
+"Recent" stays under 8 MB, which fits Discord and Gmail; "Everything" can be larger) and shows its size; **Share** opens
+Android's share sheet, **Save to Downloads** puts it in `Download/MCVS-Offline/`. **Share a text report** sends a short
+plain-text summary instead. After starting a share, come back to the game within a minute.
+
+Settings for the page (in `settings.json` only): `admin.enabled` (`false` turns the page, the button and the inbox
+message off), `crm.newsfeedLink` (the inbox message, also on the page), `admin.openVia` (`auto`, `game`, `jni`, `post`:
+how the browser is opened; for testing), `admin.restartVia` (`game`, `host`, `none`), `security.hostCheck` (keep `true`:
+it stops web pages from reaching the server through a hostile DNS name).
+
+## 8. Saves, settings and backups
+
+Most of this can be done on the phone with the MCVS Offline page (section 7). Everything MCVS Offline stores is in
+one folder:
 
 ```
 /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/
@@ -280,7 +351,7 @@ and keep the exact spelling of values such as `Embedded`.
 If you used the development loop before ([DEV-LOOP.md](DEV-LOOP.md)), delete its `args.txt` before the first start of
 the offline build: its lines sit outside the managed block, so they would keep overriding the managed values.
 
-## 8. LAN play (experimental, not working end-to-end yet)
+## 9. LAN play (experimental, not working end-to-end yet)
 
 Patching with `--patch all` (or `default,lan`) adds the pieces a LAN host and its guests need on the game side
 (verify-C6 P1-P3). The backend part (guests using the host's backend, roadmap M3) is still being built, so this is
@@ -309,7 +380,7 @@ For reviewers (details and evidence: `docs/research/verify-C7-integrity-patching
   only; physics: `PhysicsComponent`'s constructor asks `McvsPhysics.UseMultithreading(this)` instead of reading the
   game option, and `UpdateSimulationSteps` runs inside a process-wide, time-bounded gate). Optional: `Gameloft.Engine.dll`
   (nativeonline, waits: `WaitHandle.WaitAny(handles)` -> `WaitAny(handles, 100)` in both `TaskExtension.WaitAndWork`
-  overloads, finder, lan), `Gameloft.Util.dll` (geo), `Game.dll` (bottile; store: `KillSignatureRewardItem.GetAvailableId` handles sounds, the `GameUnifiedStoreComponent.SelectItems` availability filter skips an item that throws; signatures: set lookups in `GetSignatureAssetsList`, one list per `GetKillSignItems` call). Each site is checked against the exact code
+  overloads, finder, lan), `Gameloft.Util.dll` (geo), `Game.dll` (bottile; store: `KillSignatureRewardItem.GetAvailableId` handles sounds, the `GameUnifiedStoreComponent.SelectItems` availability filter skips an item that throws; signatures: set lookups in `GetSignatureAssetsList`, one list per `GetKillSignItems` call; adminpage: `PlayerProfileComponent.GetAccountMenuButtonList` passes its list through `McvsOffline.AdminHooks.AccountMenuButtons`, and `ProcessAccountMenuButtonAction("mcvs_offline")` calls `AdminHooks.OpenPage`; forum: `UIComponent.GoToForum` calls `AdminHooks.OpenPage`), `Gameloft.Engine.dll` (adminlink: `BrowserComponent.OpenUrl` first asks `AdminHooks.OpenIfPageMarker`, which handles only the inbox message's fixed link). Each site is checked against the exact code
   of 1.17.32 first (the device-test-2 patches against an IL fingerprint of the whole method); if anything differs, the
   patcher stops without writing.
 - `res/raw/args.txt` (with `--game-log all`, the default): `-LogCategoryFilter Fatal` is replaced by a line the game

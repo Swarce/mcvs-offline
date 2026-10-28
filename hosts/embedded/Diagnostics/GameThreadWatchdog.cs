@@ -27,6 +27,10 @@ namespace McvsOffline.Embedded.Diagnostics
     /// gettid() in a try/catch (a heartbeat that ever runs on another thread is reported once: the "it would have run in a
     /// pumping wait" reasoning of device test 2 relies on the beat running on the game thread). Off when GameApplication cannot
     /// be found (tests, other builds).
+    /// <para>
+    /// A lease (<see cref="PauseFor"/>, design §8.5) tells it that the game loop is paused on purpose: while the settings page
+    /// is shown in the in-game browser the main activity is paused and the game thread runs no frame, which is not a stall.
+    /// </para>
     /// </summary>
     public sealed class GameThreadWatchdog
     {
@@ -53,6 +57,11 @@ namespace McvsOffline.Embedded.Diagnostics
         private FieldInfo suspendField;
         private FieldInfo totalTimeField;
         private SendOrPostCallback beatCallback;
+        private readonly object pauseGate = new object();
+        private int pausedUntil;               // Environment.TickCount at which the lease ends (under pauseGate)
+        private bool pauseActive;              // a lease was granted and not ended (under pauseGate)
+        private string pauseReason;            // under pauseGate
+        private bool pauseReported;            // watchdog thread only
 
         /// <param name="serverState">e.g. the boot trace's Describe().</param>
         /// <param name="report">Where snapshots go (logcat + bootstrap.log).</param>
@@ -71,6 +80,13 @@ namespace McvsOffline.Embedded.Diagnostics
             this.intervalMs = intervalMs < 20 ? 20 : intervalMs;
             ReportAtMs = reportAtMs != null && reportAtMs.Length > 0 ? reportAtMs : DefaultReportAtMs;
         }
+
+        /// <summary>
+        /// Routine lines that are not problems (the game thread's tid, a lease's "paused: ..." and "resumed"): EmbeddedHost logs them
+        /// at INFO, because WARN lines are the settings page's "recent problems" and every page open would add two. Null: they go
+        /// to the report callback with the rest. Set before <see cref="Start"/>.
+        /// </summary>
+        public Action<string> Notice { get; set; }
 
         public int GameTid { get { return gameTid; } }
 
@@ -93,9 +109,38 @@ namespace McvsOffline.Embedded.Diagnostics
         /// <summary>A short status for crash reports.</summary>
         public string Describe()
         {
+            string reason;
+            string paused = IsPaused(out reason) ? ", paused: " + reason : "";
             return "game thread tid " + gameTid.ToString(CultureInfo.InvariantCulture) + " ('" + (gameThreadName ?? "?") +
                    "'), last work item " + (Environment.TickCount - lastBeat).ToString(CultureInfo.InvariantCulture) + " ms ago, " +
-                   beats.ToString(CultureInfo.InvariantCulture) + " beats";
+                   beats.ToString(CultureInfo.InvariantCulture) + " beats" + paused;
+        }
+
+        /// <summary>Treat the game thread as paused (not stalled) until now + ms; the latest call wins; 0 ends it. Thread-safe.</summary>
+        public void PauseFor(int ms, string reason)
+        {
+            lock (pauseGate)
+            {
+                if (ms <= 0)
+                {
+                    pauseActive = false;
+                    return;
+                }
+                pausedUntil = Environment.TickCount + ms;
+                pauseActive = true;
+                pauseReason = string.IsNullOrEmpty(reason) ? "paused" : reason;
+            }
+        }
+
+        /// <summary>True while a lease of <see cref="PauseFor"/> runs.</summary>
+        public bool IsPaused(out string reason)
+        {
+            lock (pauseGate)
+            {
+                reason = pauseReason;
+                if (pauseActive && pausedUntil - Environment.TickCount <= 0) pauseActive = false;   // expired (wrap-safe)
+                return pauseActive;
+            }
         }
 
         /// <summary>Resolves the Gameloft.Engine members; false (and one line) when the game is not there.</summary>
@@ -159,13 +204,33 @@ namespace McvsOffline.Embedded.Diagnostics
                     if (!announced && gameTid != 0)
                     {
                         announced = true;
-                        report("[watchdog] game thread is tid " + gameTid.ToString(CultureInfo.InvariantCulture) + " '" + gameThreadName + "'");
+                        Note("[watchdog] game thread is tid " + gameTid.ToString(CultureInfo.InvariantCulture) + " '" + gameThreadName + "'");
                     }
                     if (!otherBeatReported && otherBeatTid != 0)
                     {
                         otherBeatReported = true;
                         report("[watchdog] a heartbeat ran on tid " + otherBeatTid.ToString(CultureInfo.InvariantCulture) + ", not on the game thread " +
                                gameTid.ToString(CultureInfo.InvariantCulture) + ": another thread drains GameApplication.Context too");
+                    }
+
+                    // The settings page (§8.5): the game loop is paused on purpose; behave as in the background.
+                    string pauseText;
+                    if (IsPaused(out pauseText))
+                    {
+                        if (!pauseReported)
+                        {
+                            pauseReported = true;
+                            Note("[watchdog] paused: " + pauseText);
+                        }
+                        lastBeat = Environment.TickCount;
+                        stallReports = 0;
+                        continue;
+                    }
+                    if (pauseReported)
+                    {
+                        pauseReported = false;
+                        lastBeat = Environment.TickCount;   // the lease ended: the next stall is measured from here
+                        Note("[watchdog] resumed");
                     }
 
                     double total = totalTimeField == null ? -2 : (double)totalTimeField.GetValue(app);
@@ -198,6 +263,13 @@ namespace McvsOffline.Embedded.Diagnostics
                     try { Thread.Sleep(10000); } catch (Exception) { }
                 }
             }
+        }
+
+        private void Note(string line)
+        {
+            Action<string> notice = Notice;
+            if (notice != null) notice(line);
+            else report(line);
         }
 
         /// <summary>The thread dump runs on its own thread: it may block (a runtime lock held by the stalled thread).</summary>

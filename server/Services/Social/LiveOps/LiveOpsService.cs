@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Json;
+using McvsOffline.Server.Services.Crm.Collector;
 
 namespace McvsOffline.Server.Services.Social.LiveOps
 {
@@ -24,7 +25,19 @@ namespace McvsOffline.Server.Services.Social.LiveOps
         /// <summary><c>_OverrideTables</c> MUL cells: the season's modifier and the season-reward multiplier.</summary>
         public List<LiveOpsCells> Cells = new List<LiveOpsCells>();
 
-        /// <summary>Changes exactly when <see cref="EventIds"/>, <see cref="Expiry"/> or <see cref="Cells"/> do.</summary>
+        /// <summary>Live ops serve events (<c>liveops.enabled</c> and a non-empty catalogue): the "live ops on" the CRM
+        /// builder passes to <c>CollectorRuntime.Status</c>.</summary>
+        public bool On;
+
+        /// <summary>
+        /// liveops.json <c>collector.since</c> (null: no valid collector block), whether or not live ops are on: the CRM
+        /// builder passes it to <c>CollectorRuntime.Status</c>, so the layer starts exactly where the crates do (D5) and
+        /// the guard at <c>CollectorRuntime.GuardSince(since)</c> (a day before <c>min(since, CollectorGuard.ShippedSince)</c>).
+        /// </summary>
+        public DateTime? CollectorSince;
+
+        /// <summary>Changes whenever <see cref="EventIds"/>, <see cref="Expiry"/>, <see cref="Cells"/> or the events' content
+        /// do (the settings fingerprint with the collector inputs, the catalogue hash, the windows).</summary>
         public string Key = "";
     }
 
@@ -71,9 +84,11 @@ namespace McvsOffline.Server.Services.Social.LiveOps
         private readonly object gate = new object();
         private string catalogText;
         private bool catalogParsed;
+        private bool catalogReadFailing;
         private LiveOpsCatalog catalog = new LiveOpsCatalog();
         private string settingsKey;
         private LiveOpsSettings settings = LiveOpsSettings.Defaults();
+        private bool collectorFailing;
         private readonly HashSet<string> warned = new HashSet<string>(StringComparer.Ordinal);
 
         public LiveOpsService(ServerContext context)
@@ -147,16 +162,19 @@ namespace McvsOffline.Server.Services.Social.LiveOps
 
         public DivisionTables Tables { get; private set; }
 
+        /// <summary>The settings, parsed again when the <c>liveops</c> subtree or the collector's
+        /// <see cref="CollectorRuntime.InputsKey"/> changed (the fingerprint carries it).</summary>
         public LiveOpsSettings Settings
         {
             get
             {
-                string key = MiniJson.Serialize(JsonValue.Get(context.Settings.Snapshot(), "liveops"));
+                string collectorKey = CollectorKey();
+                string key = MiniJson.Serialize(JsonValue.Get(context.Settings.Snapshot(), "liveops")) + "|" + collectorKey;
                 lock (gate)
                 {
                     if (settingsKey == null || !string.Equals(settingsKey, key, StringComparison.Ordinal))
                     {
-                        settings = LiveOpsSettings.From(context.Settings, log);
+                        settings = LiveOpsSettings.From(context.Settings, log, collectorKey);
                         settingsKey = key;
                     }
                     return settings;
@@ -164,14 +182,71 @@ namespace McvsOffline.Server.Services.Social.LiveOps
             }
         }
 
+        /// <summary>The server's collector runtime (the one predicate for the Cosmetic crate, economy-collector.md §2.12).</summary>
+        public CollectorRuntime Collector
+        {
+            get { return CollectorRuntime.For(context); }
+        }
+
+        /// <summary><see cref="CollectorRuntime.InputsKey"/>; never throws (a failure is logged once per failing streak).</summary>
+        private string CollectorKey()
+        {
+            try
+            {
+                string key = Collector.InputsKey;
+                lock (gate) collectorFailing = false;
+                return key;
+            }
+            catch (Exception ex)
+            {
+                lock (gate)
+                {
+                    if (!collectorFailing)
+                    {
+                        collectorFailing = true;
+                        log.Error("liveops: the collector's inputs cannot be read: no Cosmetic crate in the events until they can", ex);
+                    }
+                }
+                return "collector:unavailable";
+            }
+        }
+
+        /// <summary>
+        /// liveops.json, parsed again when its text changed. A read that throws (the &lt;data&gt;/content override changed
+        /// between the provider's File.Exists and its read: an edit, a delete, a sharing violation) never reaches the
+        /// request: the last read is kept (before any, the empty catalogue, read again on the next call), logged once per
+        /// failing streak.
+        /// </summary>
         public LiveOpsCatalog Catalog
         {
             get
             {
                 string text;
-                if (!context.Content.TryReadContentText(LiveOpsCatalog.ContentName, out text)) text = null;
+                Exception failure = null;
+                try
+                {
+                    if (!context.Content.TryReadContentText(LiveOpsCatalog.ContentName, out text)) text = null;
+                }
+                catch (Exception ex)
+                {
+                    text = null;
+                    failure = ex;
+                }
                 lock (gate)
                 {
+                    if (failure != null)
+                    {
+                        if (!catalogReadFailing)
+                        {
+                            catalogReadFailing = true;
+                            string why = LiveOpsCatalog.ContentName + " could not be read (" + failure.GetType().Name + ": " + failure.Message + ")";
+                            if (catalogParsed) log.Warn("liveops: " + why + "; keeping the last read until it can be read again");
+                            else log.Error("liveops: " + why + "; live ops are off until it can be read");
+                        }
+                        // Keep the last read: a transient failure must not switch live ops off and on (or replace events).
+                        return catalog;
+                    }
+                    catalogReadFailing = false;
                     if (!catalogParsed || !string.Equals(text, catalogText, StringComparison.Ordinal))
                     {
                         catalogParsed = true;
@@ -179,7 +254,11 @@ namespace McvsOffline.Server.Services.Social.LiveOps
                         catalog = LiveOpsCatalog.Parse(text, log);
                         if (!catalog.IsEmpty)
                             log.Info("liveops: " + catalog.Divisions.Count + " divisions, " + catalog.Objectives.Count + " objectives, "
-                                     + catalog.Modifiers.Count + " modifiers (content " + catalog.Hash + ")");
+                                     + catalog.Modifiers.Count + " modifiers, "
+                                     + (catalog.Collector != null
+                                            ? "Cosmetic crates from " + TimeFormat.Iso8601(catalog.Collector.Since)
+                                            : "no Cosmetic crates (" + catalog.CollectorProblem + ")")
+                                     + " (content " + catalog.Hash + ")");
                     }
                     return catalog;
                 }
@@ -223,6 +302,7 @@ namespace McvsOffline.Server.Services.Social.LiveOps
             LiveOpsSettings s = Settings;
             LiveOpsCatalog c = Catalog;
             var snap = new LiveOpsSnapshot { Settings = s };
+            if (c.Collector != null) snap.CollectorSince = c.Collector.Since;
             // A document served a moment before a boundary must not expire before the TS reads it: the TS refetches
             // CRM on every frame while the expiry is in the past.
             DateTime at = utc.AddSeconds(2);
@@ -233,6 +313,7 @@ namespace McvsOffline.Server.Services.Social.LiveOps
                 snap.Key = "off|" + s.Fingerprint + "|" + c.Hash;
                 return snap;
             }
+            snap.On = true;
             var next = new LiveOpsWindow(snap.Season.End, snap.Season.Days);
             DateTime expiry = snap.Season.End;
             bool advertise = false;
@@ -296,11 +377,36 @@ namespace McvsOffline.Server.Services.Social.LiveOps
             int division;
             if (LiveOpsSchedule.TryParseDivisionEvent(eventId, out window, out division))
                 return s.DivisionSeasons && c.Divisions.Contains(division) ? LiveOpsEvents.DivisionSeason(c, window, division) : null;
+            // The Cosmetic crate (economy-collector.md §3.2): only in windows CollectorRuntime.CratesInWindow allows; the
+            // events of every other window are exactly as without the collector.
             window = LiveOpsSchedule.TryParseDaily(eventId);
-            if (window != null) return s.DailyQuests ? LiveOpsEvents.DailyQuest(c, window) : null;
+            if (window != null) return s.DailyQuests ? Served(eventId, window, LiveOpsEvents.DailyQuest(c, window, Collector), utcNow) : null;
             window = LiveOpsSchedule.TryParseWeekly(eventId);
-            if (window != null) return s.WeeklyEvents ? LiveOpsEvents.WeeklyEvent(c, window, ModifierFor(window, s, c)) : null;
+            if (window != null)
+                return s.WeeklyEvents ? Served(eventId, window, LiveOpsEvents.WeeklyEvent(c, window, ModifierFor(window, s, c), Collector), utcNow) : null;
             return null;
+        }
+
+        /// <summary>
+        /// An event handed to the TS. When it carries the Cosmetic crate the collector's latch is set
+        /// (<see cref="CollectorRuntime.NoteCratesServed"/>): the CRM document keeps the guard from then on, whatever later
+        /// happens to collector.since or the clock (economy-collector.md §2.12, D9).
+        /// </summary>
+        private Dictionary<string, object> Served(string eventId, LiveOpsWindow window, Dictionary<string, object> e, DateTime utcNow)
+        {
+            string template = e == null ? null : e["_template"] as string;
+            if (template != null && template.IndexOf("\"" + CollectorGuard.CrateId + "\"", StringComparison.Ordinal) >= 0)
+            {
+                try
+                {
+                    Collector.NoteCratesServed(eventId, window.Start, utcNow);
+                }
+                catch (Exception ex)
+                {
+                    log.Error("liveops: the collector's latch could not be set for " + eventId, ex);
+                }
+            }
+            return e;
         }
 
         // ------------------------------------------------------------------------------------------ season boards
@@ -355,12 +461,14 @@ namespace McvsOffline.Server.Services.Social.LiveOps
             var ids = new List<object>();
             foreach (string id in snap.EventIds) ids.Add(id);
             o["eventIds"] = ids;
+            CollectorRuntime runtime = Collector;
             var quests = new List<object>();
-            Dictionary<string, object> daily = snap.Settings.DailyQuests ? LiveOpsEvents.DailyQuest(c, snap.Day) : null;
+            Dictionary<string, object> daily = snap.Settings.DailyQuests ? LiveOpsEvents.DailyQuest(c, snap.Day, runtime) : null;
             if (daily != null) quests.Add(Summary(daily));
-            Dictionary<string, object> weekly = snap.Settings.WeeklyEvents ? LiveOpsEvents.WeeklyEvent(c, snap.Season, snap.Modifier) : null;
+            Dictionary<string, object> weekly = snap.Settings.WeeklyEvents ? LiveOpsEvents.WeeklyEvent(c, snap.Season, snap.Modifier, runtime) : null;
             if (weekly != null) quests.Add(Summary(weekly));
             o["achievementEvents"] = quests;
+            o["collector"] = DescribeCollector(snap, c, runtime, utc);
             o["divisionTablesFromDataPack"] = Tables.IsLoaded;
             o["settings"] = new Dictionary<string, object>(StringComparer.Ordinal)
             {
@@ -371,6 +479,48 @@ namespace McvsOffline.Server.Services.Social.LiveOps
                 ["difficulty"] = snap.Settings.Difficulty,
                 ["seasonRewardMultiplier"] = snap.Settings.SeasonRewardMultiplier,
             };
+            return o;
+        }
+
+        /// <summary>
+        /// <c>collector: {phase, reason, since, activeFor, block, cratesServed}</c> (economy-collector.md §3.2): the phase a
+        /// CRM document served now has (<see cref="CollectorRuntime.Status"/>), <c>since</c> from the catalogue, the listed
+        /// daily and weekly event ids whose window gets the Cosmetic crate, why the catalogue has no collector block (null
+        /// when it has one) and when live ops first served the crate (the latch, null: never).
+        /// </summary>
+        private Dictionary<string, object> DescribeCollector(LiveOpsSnapshot snap, LiveOpsCatalog c, CollectorRuntime runtime, DateTime utc)
+        {
+            var o = new Dictionary<string, object>(StringComparer.Ordinal);
+            try
+            {
+                CollectorStatus status = runtime.Status(utc, snap.On, snap.CollectorSince);
+                o["phase"] = status.Phase.ToString();
+                o["reason"] = status.Reason;
+            }
+            catch (Exception ex)
+            {
+                log.Error("liveops: the collector status cannot be read", ex);
+                o["phase"] = null;
+                o["reason"] = ex.GetType().Name + ": " + ex.Message;
+            }
+            o["since"] = snap.CollectorSince.HasValue ? (object)TimeFormat.Iso8601(snap.CollectorSince.Value) : null;
+            var active = new List<object>();
+            foreach (string id in snap.EventIds)
+            {
+                LiveOpsWindow window = LiveOpsSchedule.TryParseDaily(id) ?? LiveOpsSchedule.TryParseWeekly(id);
+                if (window != null && LiveOpsEvents.CratesIn(c, window, runtime)) active.Add(id);
+            }
+            o["activeFor"] = active;
+            o["block"] = c.CollectorProblem;
+            try
+            {
+                DateTime? served = runtime.CratesServedAt;
+                o["cratesServed"] = served.HasValue ? (object)TimeFormat.Iso8601(served.Value) : null;
+            }
+            catch (Exception ex)
+            {
+                o["cratesServed"] = "unavailable (" + ex.Message + ")";
+            }
             return o;
         }
 

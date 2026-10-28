@@ -14,6 +14,7 @@ settings and open device questions in its own note under [protocol/](protocol/);
 | [protocol/misc.md](protocol/misc.md) | MISC | social, messaging, alerts, leaderboards, game_stats, profanity, chat, clans, wall, bantool, geo, catch-all | Hermes mailboxes; the Kairos stream; league-group leaderboards; time-limited event validation; tracking and marketing catch-alls; list-shaped unknown endpoints answered `[]` |
 | [protocol/unlocks.md](protocol/unlocks.md) | core | `settings.unlockAll` | the inventory-ledger unlock: order, batches, `set_profile` alerts, backup |
 | [ECONOMY.md](ECONOMY.md) | CONTENT | offline store | prices, earn rates, tuning |
+| [design/settings-page.md](design/settings-page.md) | admin | admin, admin-logs, admin-saves | the in-game settings page: `_mcvs/ui` and `_mcvs/api/v1/*`, one-time tickets and session cookies, the access gate on every route, saves transfer, staged operations |
 
 ## Shared conventions
 
@@ -25,11 +26,19 @@ settings and open device questions in its own note under [protocol/](protocol/);
   (upgrade-required on eve, a profile wipe on storage), other 4xx abort the request. No response is ever empty JSON.
 - No `ETag` is ever sent (verify-C3 §3.5). Every request is logged; unknown endpoints are logged in full and collected
   in `logs/unknown-endpoints.jsonl`.
+- **The Host check applies to every route** (`LocalAccessGate`, before the router; [design/settings-page.md](design/settings-page.md)
+  §5.2). While the listener is bound to loopback, `lanMode` is off and `security.hostCheck` is on, a Federation request
+  whose `Host` is not `127.0.0.1`, `localhost` or `[::1]` (any port) or the `publicUrl` host gets 404 and one WARN per
+  minute (`gate: refused Host ...`): a web page that resolved its own name to 127.0.0.1 (DNS rebinding) reaches nothing.
+  A missing `Host` is allowed; the game always sends `127.0.0.1:<port>`. `/_mcvs/*` always needs a loopback caller and
+  the Host `127.0.0.1`/`localhost`/`[::1]` with this server's port (also in LAN mode); `OPTIONS` there is 405, and every
+  write needs `X-MCVS: 1`, an allowed `Origin` if one is sent and no cross-site `Sec-Fetch-Site`. Without a session
+  cookie a `/_mcvs/` request body is limited to 1 KiB at header time (413 before the body is read).
 - Module seams, features and event topics between modules: [MODULES.md](MODULES.md).
 
 ## Endpoint map
 
-All routes the server registers (186; `GET /_mcvs/routes` prints the live list). `{x}` is one path segment, `{*x}` the
+All routes the server registers (227; `GET /_mcvs/routes` prints the live list). `{x}` is one path segment, `{*x}` the
 rest of the path.
 
 | Module | Routes |
@@ -54,6 +63,9 @@ rest of the path.
 | bantool | `api/action`, `api/asset`, `api/campaign`, `api/reason` |
 | geo | `GET location`, `GET location/{ip}` (and `location/?ip=`), `GET dump/dump.edgelist` |
 | unlocks | `GET _mcvs/unlocks`, `POST _mcvs/unlocks/grant` |
+| admin | the settings page: `GET _mcvs/ui[/\|/index.html]`, `POST _mcvs/ui` (post mode); under `_mcvs/api/v1/`: `session` (POST/DELETE), `ping`, `status`, `settings` (GET/POST), `settings/reset`, `settings/file`, `settings/repair`, `codes`, `clipboard`, `actions/{save-now,restart,crm-reload,unlock-now}`; `* _mcvs/api/{*rest}` (404) |
+| admin-logs | `_mcvs/api/v1/logs`, `logs/{name}`, `logs/zip`, `logs/share`, `logs/share-text`, `logs/bundle` |
+| admin-saves | `_mcvs/api/v1/saves`, `saves/import/{files,paste,validate,stage}`, `saves/staged` (GET/DELETE), `saves/staged/undo`, `saves/{account}/backups[/{id}]`, `saves/{account}/{restore,relink,export}` |
 | misc | `POST /`, `ets`, `etsv2`, `tracking` (+ subpaths), `* redir/{*rest}`, `* ios/{*rest}`, `POST api/index.php`; the array-aware unknown-endpoint fallback |
 
 ## Settings by module
@@ -71,4 +83,5 @@ keys, with defaults and meaning in each protocol note:
 | assets | `assets.couponsEnabled`, `assets.coupons` |
 | misc | `alerts.streamSeconds`, `alerts.keepAliveSeconds`, `alerts.replaySeconds`, `chat.streamSeconds`, `chat.keepAliveSeconds`, `chat.historySize`, `messaging.maxMessagesPerMailbox`, `leaderboards.groupSize`, `leaderboards.virtualPlayers`, `leaderboards.virtualTopScore`, `wall.maxPostsPerWall`, `geo.country`, `tracking.disable` |
 | unlocks | `unlocks.batchSize`, `unlocks.batchDelaySeconds`, `unlocks.startDelaySeconds`, `unlocks.streamWaitSeconds` |
+| admin (settings page) | `admin.enabled`, `admin.redeemCode`, `admin.openVia`, `admin.restartVia`, `crm.newsfeedLink`, `security.hostCheck` ([design/settings-page.md](design/settings-page.md) §3) |
 | embedded host | `embedded.manageArgs`, `embedded.lanAdvertiseHost` ([PLAYER-SETUP.md](PLAYER-SETUP.md)) |

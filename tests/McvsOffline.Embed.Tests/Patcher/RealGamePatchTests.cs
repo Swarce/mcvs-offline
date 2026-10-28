@@ -68,6 +68,16 @@ namespace McvsOffline
 
         public static void StoreItemException(object item, System.Exception exception) { StoreCalls++; LastStoreItem = item; LastStoreException = exception; }
     }
+
+    // patches 'adminpage', 'adminlink', 'forum': pass-through stand-ins (the recording ones: RealAdminPagePatchTests.HooksSource)
+    public static class AdminHooks
+    {
+        public static System.Collections.Generic.IEnumerable<object> AccountMenuButtons(System.Collections.Generic.IEnumerable<object> buttons) { return buttons; }
+
+        public static void OpenPage(string trigger, object world) { }
+
+        public static bool OpenIfPageMarker(string url, object browserComponent) { return false; }
+    }
 }";
 
         private readonly ITestOutputHelper output;
@@ -116,7 +126,7 @@ namespace McvsOffline
         internal static readonly IlPatch[] DefaultGamePatches =
         {
             new HeadlessGamePatch(), new HeadlessEnginePatch(), new PhysicsPatch(), new NativeOnlinePatch(), new WaitsPatch(), new BotTilePatch(), new FinderPatch(),
-            new StorePatch(), new SignaturesPatch(), new DebloatEnginePatch(),
+            new StorePatch(), new SignaturesPatch(), new AdminPagePatch(), new DebloatEnginePatch(), new AdminLinkPatch(),
         };
 
         [Fact]
@@ -329,6 +339,8 @@ namespace McvsOffline
                     ("Game", "Game.GameUnifiedStoreComponent+<>c__DisplayClass25_0", "<SelectItems>b__8"),
                     ("Game", "Game.McvsStoreSafety", "Report"), ("Game", "Game.McvsStoreSafety", "Forward"),
                     ("Game", "Game.PlayerProfileComponent", "GetSignatureAssetsList"), ("Game", "Game.GameOfflineStore", "GetKillSignItems"),
+                    ("Game", "Game.PlayerProfileComponent", "GetAccountMenuButtonList"), ("Game", "Game.PlayerProfileComponent", "ProcessAccountMenuButtonAction"),
+                    ("Gameloft.Engine", "Gameloft.Engine.BrowserComponent", "OpenUrl"),
                 };
                 foreach (var (assembly, type, name) in sites)
                 {
@@ -361,6 +373,8 @@ namespace McvsOffline
             Assert.Throws<PatchException>(() => PatchReal(dir, server, null, new StorePatch()));
             Assert.Contains("IL fingerprint", Assert.Throws<PatchException>(() => PatchReal(dir, server, null, new SignaturesPatch())).Message);
             Assert.Contains("already patched", Assert.Throws<PatchException>(() => PatchReal(dir, server, null, new DebloatEnginePatch())).Message);   // its helper type is there
+            Assert.Contains("IL fingerprint", Assert.Throws<PatchException>(() => PatchReal(dir, server, null, new AdminPagePatch())).Message);
+            Assert.Contains("IL fingerprint", Assert.Throws<PatchException>(() => PatchReal(dir, server, null, new AdminLinkPatch())).Message);
 
             // A different Init_private body (ldarg.2 -> ldarg.1) is refused, and so is a server without GameHooks.
             string changed = TestEnvironment.NewTempDir("changed");

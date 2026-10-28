@@ -295,6 +295,11 @@ namespace McvsOffline.Server.Services.Admin
                 o["built"] = TimeFormat.Iso8601Millis(doc.BuiltUtc);
                 o["chars"] = (long)doc.Json.Length;
                 o["problems"] = (long)doc.Problems.Count;
+                // The Cosmetic crate (docs/design/economy-collector.md §2.12): the phase the document carries and why.
+                CrmCollector collector = doc.Collector;
+                o["collectorPhase"] = doc.CollectorPhase.ToString();
+                o["collectorReason"] = collector == null ? null
+                    : collector.Failure ?? (collector.Status != null ? collector.Status.Reason : null);
                 return o;
             }
             catch (Exception ex)

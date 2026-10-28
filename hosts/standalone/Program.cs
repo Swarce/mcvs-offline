@@ -5,6 +5,7 @@ using System.Runtime.Loader;
 using System.Threading;
 using McvsOffline.Server;
 using McvsOffline.Server.Core;
+using McvsOffline.Server.Services.Admin;
 
 namespace McvsOffline.Standalone
 {
@@ -68,11 +69,24 @@ namespace McvsOffline.Standalone
             };
 
             Console.WriteLine("MCVS Offline server running on " + server.Context.BaseUrl + " - press Ctrl+C to stop.");
+            string page = SettingsPageUrl(server);
+            if (page != null) Console.WriteLine("Settings page: " + page);
             stopRequested.Wait();
             Console.WriteLine("Stopping...");
             server.Dispose();
             stopped.Set();
             return 0;
+        }
+
+        /// <summary>
+        /// The settings page with a one-time ticket (trigger "console", design §8.10), for a browser on this PC; null when the
+        /// page is turned off (admin.enabled) or the admin module is missing. Written to the console only, never to a log:
+        /// the ticket opens a session (once, within 120 s).
+        /// </summary>
+        internal static string SettingsPageUrl(McvsServer server)
+        {
+            IAdminPortal portal = server.Context.Features.Get<IAdminPortal>();
+            return portal == null ? null : portal.MintPageUrl(AdminTriggers.Console, null);
         }
 
         /// <summary>Returns null when help was requested.</summary>

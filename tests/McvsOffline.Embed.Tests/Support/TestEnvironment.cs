@@ -81,11 +81,38 @@ namespace McvsOffline.Embed.Tests.Support
             }
         }
 
+        private static readonly object PruneLock = new object();
+        private static bool pruned;
+
+        /// <summary>A new folder under the temp dir. Tests never delete theirs (APKs and DLLs often stay mapped), so the
+        /// first call of a run removes folders older than an hour, which earlier runs left behind.</summary>
         public static string NewTempDir(string prefix)
         {
-            string dir = Path.Combine(Path.GetTempPath(), "mcvs-embed-tests", prefix + "-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            string root = Path.Combine(Path.GetTempPath(), "mcvs-embed-tests");
+            PruneStale(root, TimeSpan.FromHours(1));
+            string dir = Path.Combine(root, prefix + "-" + Guid.NewGuid().ToString("N").Substring(0, 8));
             Directory.CreateDirectory(dir);
             return dir;
+        }
+
+        private static void PruneStale(string root, TimeSpan age)
+        {
+            lock (PruneLock)
+            {
+                if (pruned) return;
+                pruned = true;
+                if (!Directory.Exists(root)) return;
+                DateTime cutoff = DateTime.UtcNow - age;
+                foreach (string old in Directory.GetDirectories(root))
+                {
+                    try
+                    {
+                        if (Directory.GetLastWriteTimeUtc(old) < cutoff) Directory.Delete(old, true);
+                    }
+                    catch (IOException) { }
+                    catch (UnauthorizedAccessException) { }
+                }
+            }
         }
 
         public static int FreePort()

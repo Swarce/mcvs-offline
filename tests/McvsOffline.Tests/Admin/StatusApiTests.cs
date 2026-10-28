@@ -5,6 +5,7 @@ using System.Linq;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Json;
 using McvsOffline.Server.Services.Admin;
+using McvsOffline.Server.Services.Crm;
 using McvsOffline.Server.Services.Storage;
 using Xunit;
 
@@ -43,6 +44,9 @@ namespace McvsOffline.Tests.Admin
             Assert.Null(JsonPath.Get(body, "exit.last"));
             Assert.True(((Dictionary<string, object>)body["staged"]).ContainsKey("pending"));
             Assert.True(JsonPath.Get(body, "crm.chars") is long chars && chars > 1000);
+            CrmDocument doc = server.Context.Features.Get<CrmDocumentCache>().Get(0);
+            Assert.Equal(doc.CollectorPhase.ToString(), JsonPath.Get(body, "crm.collectorPhase"));
+            Assert.Equal(doc.Collector?.Failure ?? doc.Collector?.Status?.Reason, JsonPath.Get(body, "crm.collectorReason"));
             Assert.False(body.ContainsKey("storage"));
         }
 

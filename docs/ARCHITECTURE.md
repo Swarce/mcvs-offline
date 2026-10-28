@@ -29,8 +29,9 @@ with no game patch.
 server/        McvsOffline.Server — the Federation emulator (C#; one source tree, two builds)
   Core/        HTTP/1.1 server on TcpListener, router, MiniJson, accounts/tokens, storage engine, settings, logging
   Services/    one file/folder per Gameloft service (Eve, Pandora, Auth, Storage, Crm, Matchmaker, Social,
-               Messaging, Alerts, Leaderboards, Assets, GameStats, Profanity, Misc catch-all)
-  Content/     generated JSON (store catalogue, economy) produced by tools/content-gen
+               Messaging, Alerts, Leaderboards, Assets, GameStats, Profanity, Misc catch-all), plus Unlocks and
+               Admin (the in-game settings page: admin, admin-logs, admin-saves; design/settings-page.md)
+  Content/     generated JSON (store catalogue, economy) produced by tools/content-gen; admin/index.html (the page)
 hosts/
   standalone/  net8 console host: dev loop against a stock APK, LAN/community host, conformance target
   embedded/    Bootstrap compiled into McvsOffline.Server.dll for the game's Mono runtime
@@ -142,8 +143,24 @@ Recommended extra IL patches (all optional, patcher flags):
   Sns; a login tap fails one frame later through `GameApplication.Context`, like a failed login). Kept on purpose: the
   IAP code, KeyProvider, local push and `RECEIVE_BOOT_COMPLETED`, FacebookActivity and the app-id meta-data, Google
   Analytics, VIBRATE/BILLING, all dex code and Bind*.dll.
+- `adminpage` (default, build 9): Settings › Account gets an "MCVS Offline" button. Game.dll
+  `PlayerProfileComponent.GetAccountMenuButtonList` returns its list through `McvsOffline.AdminHooks.AccountMenuButtons`
+  (one more entry, `customAction "mcvs_offline"`), and `ProcessAccountMenuButtonAction` first sends that action to
+  `AdminHooks.OpenPage("account", World)`, which opens the settings page in the game's own browser with a one-time
+  ticket ([design/settings-page.md](design/settings-page.md) §9.2).
+- `adminlink` (default, build 9): Gameloft.Engine.dll `BrowserComponent.OpenUrl` first asks
+  `AdminHooks.OpenIfPageMarker(url, this)`: the CRM inbox item's fixed link `http://127.0.0.1:<port>/_mcvs/ui/#news`
+  (no secret) opens the page with a fresh ticket; every other URL runs the original body (§9.3).
+- `forum` (optional): Game.dll `UIComponent.GoToForum` opens the page (`AdminHooks.OpenPage("forum", World)`, §9.4).
 - `lan`: P1 Finder prefix `"*"`, P2 cache a real `PublicHost` at `LocalAnubisManager.Start`, P3
   `ClientSettings.LocalAnubisFinderHost = Args.RemoteIp ?? PublicHost` (verify-C6).
+
+The three hook patches are fingerprint-verified like the others and call only `McvsOffline.AdminHooks` in the embedded
+server DLL (`hosts/embedded/Admin/AdminHooks.cs`; `AdminHooksContractTests` keeps both sides in step). **Invariant I1:
+the patched APK keeps `targetSdkVersion` 29** (`ManifestTargetSdkTests`, after every default patch): the settings
+page's restart (the game's own `PendingIntent` without `FLAG_IMMUTABLE`), the share chooser (no package-visibility
+filtering), the relaunch alarm (Android 10 background-start rules), the browser layout (no forced edge-to-edge) and the
+`file://` share on Android 7–9 all rely on it.
 
 ## 3. Server behaviour (normative summary — details in docs/PROTOCOL.md and research/)
 
@@ -187,7 +204,14 @@ testing reveals what is missing.
 **Settings** (`settings.json`, next to the data): port, `unlockAll`, `devMenu`, economy multipliers,
 instant-bots, LAN mode, live ops (`liveops.*`, [LIVEOPS.md](LIVEOPS.md)), installer-data restore (`install.*`, embedded only,
 [INSTALL-OFFLINE.md](INSTALL-OFFLINE.md)). Data dir: embedded `<GlfRootPath>/McvsOffline/` (user-visible, easy to back
-up; removed on uninstall), standalone `./data/`.
+up; removed on uninstall), standalone `./data/`. The in-game **settings page** (`/_mcvs/ui/`, build 9,
+[design/settings-page.md](design/settings-page.md)) edits an allowlist of these keys in the server's copy, and manages
+backups, save export/import (staged and applied at the next start, before the port opens) and logs.
+
+**Local access.** Every request passes `LocalAccessGate` first: while bound to loopback (and not in LAN mode) a foreign
+`Host` header gets 404 on every route (DNS rebinding; `security.hostCheck`), `/_mcvs/*` needs a loopback caller and
+`X-MCVS: 1` on writes, and the page's API needs a session from a one-time ticket that only the game's own browser
+receives.
 
 ## 4. Roadmap
 
