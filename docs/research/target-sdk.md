@@ -138,11 +138,21 @@ Not reachable offline (left alone): GCM (`GCMRegistrar`, `gcm/a`, `GoogleCloudMe
 `TaskStackBuilder`, `MediaSessionCompat`, `TransportMediator`, `SearchView`. Consequence: target >= 31 must require
 `debloat` (or the patcher refuses the combination).
 
-P8 needs a register: `const/4 v2, 0` is also the request code. In place, without growing the method: replace the
-10 bytes at @0x2f2a70 (`const-string v3, "android.intent.category.LAUNCHER"` + `invoke-virtual addCategory`, result
-unused) by `const/high16 v6, 0x0400` + 3 `nop`, and change the invoke's last register nibble v2 -> v6 (@0x2f2a92
-`7140 a301 2720` -> `...2760`). v6 is a local first written at 0x006d; the intent keeps action MAIN and its explicit
-component (`ComponentName(..., "com.gameloft.android.XamarinMainActivity")`), so the dropped category changes nothing.
+P8 needs a register: `const/4 v2, 0` is also the request code. In place, without growing the method: rebuild the
+same intent in fewer code units and use the room for the flags. The 24 units at @0x2f2a62 (pc 0x25-0x3c:
+`new Intent("android.intent.action.MAIN")`, `addCategory("android.intent.category.LAUNCHER")`,
+`setComponent(new ComponentName("com.gameloft.android.ANMP.GloftMVHM", "com.gameloft.android.XamarinMainActivity"))`)
+become `new-instance v3 ComponentName` + the two `const-string` + `invoke-direct ComponentName.<init>` +
+`invoke-static {v3} Intent.makeMainActivity` (method@0290, already in `classes.dex`: MAIN + LAUNCHER + component) +
+`move-result-object v0` + `const/high16 v6, 0x0400` + 9 `nop`, and the invoke's last register nibble changes v2 -> v6
+(@0x2f2a92 `7140 a301 2720` -> `...2760`). v6 is a local first written at 0x006d; v0, v3, v4 and v5 leave the block
+holding what they held before. The category must stay. The first patcher version dropped it, assuming that an explicit
+intent does not need it. That was wrong. The task's root intent is the launcher's MAIN + LAUNCHER + component, and
+GameInstaller sits on top of XamarinMainActivity while it shows this notification. A notification `PendingIntent` is
+started with `FLAG_ACTIVITY_NEW_TASK` and reuses that task. `ActivityStarter.complyActivityFlags` then adds a new
+activity to the task when the intent is not `filterEquals` to the root intent (`Task.isSameIntentFilter`), and
+`filterEquals` compares the categories. Without LAUNCHER, a tap would start a second XamarinMainActivity, and with it
+a second GameInstaller, instead of bringing the task back.
 
 Our host [V]: `AndroidExit.ScheduleRelaunch` already passes `FLAG_CANCEL_CURRENT | FLAG_IMMUTABLE` on 23+
 (`hosts/embedded/Android/AndroidExit.cs:115-129`). No other `PendingIntent` in `hosts/embedded` or `server/`.
