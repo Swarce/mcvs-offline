@@ -6,6 +6,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Text;
+using McvsOffline.Patcher.Art;
 using McvsOffline.Patcher.Manifest;
 using McvsOffline.Patcher.Patches;
 using McvsOffline.Patcher.Signing;
@@ -130,14 +131,16 @@ namespace McvsOffline.Patcher
             }
 
             byte[] rawArgs = RawArgsFor(input, options, report);
+            ArtResult art = ArtPatch.Prepare(input, options, report, log);
 
             CheckAbis(input, options.Abis, report);
-            List<ZipEntry> output = ComposeEntries(input, modifiedAssemblies, manifest, rawArgs, serverBytes, options.StripAot, options.Abis, debloat, report);
+            List<ZipEntry> output = ComposeEntries(input, modifiedAssemblies, manifest, rawArgs, art, serverBytes, options.StripAot, options.Abis, debloat, report);
             report.Warnings.AddRange(StaleAotNotes(input, output, modifiedAssemblies.Keys));
             byte[] unsigned = ZipArchiveWriter.Write(output);
             var modifiedEntries = modifiedAssemblies.Keys.Select(f => KnownBuild.AssembliesDir + f).ToList();
             if (manifest != null) modifiedEntries.Add(ManifestPatch.EntryName);
             if (rawArgs != null) modifiedEntries.Add(KnownBuild.RawArgsEntry);
+            if (art != null) modifiedEntries.AddRange(art.Replaced.Keys);
             VerifyUnchanged(input, ZipArchiveReader.Read(unsigned), modifiedEntries, report);
 
             if (options.DryRun)
@@ -259,7 +262,7 @@ namespace McvsOffline.Patcher
         }
 
         private static List<ZipEntry> ComposeEntries(ZipArchiveReader.Archive input, Dictionary<string, byte[]> modified, byte[] manifest,
-                                                     byte[] rawArgs, byte[] serverBytes, AotStripMode stripAot, SortedSet<string> keepAbis,
+                                                     byte[] rawArgs, ArtResult art, byte[] serverBytes, AotStripMode stripAot, SortedSet<string> keepAbis,
                                                      bool debloat, PatchReport report)
         {
             var removeAot = new HashSet<string>(modified.Keys.Select(f => "libaot-" + f + ".so"), StringComparer.Ordinal);
@@ -316,6 +319,18 @@ namespace McvsOffline.Patcher
                 {
                     output.Add(e.Method == ZipEntry.MethodStored ? ZipEntry.CreateStored(e.Name, rawArgs, e) : ZipEntry.CreateDeflated(e.Name, rawArgs, e));
                     report.Modified.Add(e.Name);
+                    continue;
+                }
+                if (art != null && art.Replaced.ContainsKey(e.Name))
+                {
+                    // Icon PNGs and resources.arsc stay STORED, the adaptive-icon XML DEFLATED, as shipped.
+                    output.Add(art.Entry(e));
+                    report.Modified.Add(e.Name);
+                    foreach (ZipEntry added in art.Additions(e))
+                    {
+                        output.Add(added);
+                        report.Added.Add(added.Name);
+                    }
                     continue;
                 }
                 if (manifest != null && e.Name == ManifestPatch.EntryName)

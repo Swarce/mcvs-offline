@@ -1,0 +1,22 @@
+{
+  // Copy this file to art.json (same folder) and change the colours. Every key is optional; "#RRGGBB" only.
+  // Spec: README.md in this folder.
+  "icon": {
+    // The adaptive icon's background layer as a flat colour. Leave this out when you draw icon/background.png.
+    // Using the splash background colour gives the cleanest launch screen (only the foreground is drawn on it).
+    "background": "#10181F"
+  },
+  "splash": {
+    // The launch screen colour (Android 12+). Dark is recommended: the next screen, the game's installer, is black.
+    "background": "#10181F",
+    // Dark mode; leave it out to use "background" there too.
+    "backgroundNight": "#000000",
+    // A disc of this colour behind the icon on the launch screen (null = none).
+    "iconBackground": null,
+    // Show the icon also when the game is started by a reminder or the settings page's Restart (Android 13+).
+    "iconPreferred": true,
+    // Also paint the window behind the game with the splash colour (it also changes the background of the MCVS
+    // Offline page and of the installer screens; leave false until it has been checked on a phone).
+    "windowBackground": false
+  }
+}

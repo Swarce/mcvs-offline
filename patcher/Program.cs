@@ -88,6 +88,10 @@ namespace McvsOffline.Patcher
                         else if (gameLog == "fatal") o.GameLog = GameLogMode.Fatal;
                         else throw new ArgumentException("--game-log must be all or fatal");
                         break;
+                    case "--art":
+                        o.Art = Value(args, ref i);
+                        if (o.Art.Length == 0) throw new ArgumentException("--art needs auto, stock or a folder");
+                        break;
                     case "--force": o.Force = true; break;
                     case "--dry-run": o.DryRun = true; break;
                     case "-v":
@@ -176,6 +180,9 @@ namespace McvsOffline.Patcher
                 "  --signer <s>          auto (default: apksigner if found, else built-in), apksigner, builtin (v1+v2, no Java needed)\n" +
                 "  --strip-aot <m>       modified (default): delete the AOT images of patched assemblies; all: delete every AOT image\n" +
                 "  --abi <list>          native-library ABIs to keep (default: all; e.g. " + PatcherOptions.Arm64 + " for a 64-bit-only APK)\n" +
+                "  --art <a>             launcher icon and launch screen: auto (default: the project's art built into this\n" +
+                "                        patcher from art/android/, if any; otherwise Gameloft's icon is kept), stock (never\n" +
+                "                        change them), or a folder laid out like art/android/ (see art/android/README.md)\n" +
                 "  --dry-run             verify every patch site and report, write nothing\n" +
                 "  --force               patch an APK that is not the verified " + KnownBuild.Version + " build (sites are still verified)\n" +
                 "  -v, --verbose         more output\n\n" +
