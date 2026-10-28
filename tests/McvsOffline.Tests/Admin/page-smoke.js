@@ -723,6 +723,8 @@ async function fullRun(url, jar, mode, fx) {
   await screenCheck(p, 'actions', () => !!p.el('action-files'), '#action-files');
   await screenCheck(p, 'about', () => p.text('about-ua') === UA && p.text('about-version') !== '–', '#about-ua / #about-version');
   await screenCheck(p, 'status', () => /Player/.test(p.text('status-body')), '#status-body');
+  check((mode === 'fixtures' ? /Cosmetic crate\s*guard \(live ops are off\)/ : /Cosmetic crate\s*(dormant|guard|active)/).test(p.text('status-body')),
+    'run 1: Status does not show the Cosmetic crate phase');
   await p.tap('status-storage');
   check(/Total/.test(p.text('status-storage-body')), 'run 1: storage usage not shown');
 
@@ -1235,7 +1237,7 @@ function startFixtures(html) {
     staged: { pending: state.staged, probation: null, last: state.last },
     exit: { state: 'idle', last: { kind: 'restart', result: 'cancelled', at: ISO(Date.now() - 7200000), message: 'The game did not save, so it was not restarted.' } },
     problems: [{ time: ISO(Date.now() - 60000), level: 'WARN', category: 'crm', message: 'CRM document: 2 store items dropped\n  first: X\n  second: Y', source: 'server' }],
-    crm: { built: ISO(Date.now() - 300000), chars: 89282, problems: 0 },
+    crm: { built: ISO(Date.now() - 300000), chars: 89282, problems: 0, collectorPhase: 'Guard', collectorReason: 'live ops are off' },
     storage: storage ? { profiles: { files: 2, bytes: 1251000 }, backups: { files: 4, bytes: 2450000 }, blobs: { files: 0, bytes: 0 }, messages: { files: 2, bytes: 3000 }, logs: { files: 6, bytes: 30000000 }, admin: { files: 1, bytes: 107000 }, other: { files: 9, bytes: 40000 }, total: 33801000, scanCapped: false } : undefined,
   });
   const account = (id) => (id === ACCOUNT

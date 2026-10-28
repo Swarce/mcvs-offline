@@ -1064,6 +1064,7 @@ p { margin: 4px 0 8px; }
     kv(body, 'settings.json', set.fallback ? 'cannot be read: ' + (set.error || '') + ' (Settings shows how to repair it)' : 'OK', set.fallback ? 'errt' : null);
     if (set.restartPending) kv(body, 'After a restart', plural(set.restartPending, 'changed setting', 'changed settings'));
     if (d.crm) kv(body, 'CRM document', fmtNum(d.crm.chars || 0) + ' characters, built ' + fmtTime(d.crm.built) + (d.crm.problems ? ', ' + plural(d.crm.problems, 'problem', 'problems') : ''));
+    if (d.crm && d.crm.collectorPhase) kv(body, 'Cosmetic crate', d.crm.collectorPhase.toLowerCase() + (d.crm.collectorReason ? ' (' + d.crm.collectorReason + ')' : ''));
 
     add(body, el('h3', null, 'Game host'));
     var h = d.host;
