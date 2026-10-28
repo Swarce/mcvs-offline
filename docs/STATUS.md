@@ -73,7 +73,7 @@ The settings and diagnostics page of [design/settings-page.md](design/settings-p
   and the page shows the switch as the server reads it. Requires the
   `store` patch (the embedded host reports it). Status screen and `GET /_mcvs/crm` show the phase; `GET
   /_mcvs/collector?account=` what was read from the save.
-* **Checked (both features, `6bcb3d8` plus the loose ends)**: the full check as above: **McvsOffline.Tests 1338/1338,
+* **Checked (both features, `6bcb3d8` plus the loose ends and the build-9 review)**: the full check as above: **McvsOffline.Tests 1345/1345,
   McvsOffline.Embed.Tests 283/283, 0 skipped**, content-gen `--check` and its 28 unit tests. For the crate: every
   output of 16 days of golden scenarios byte-identical to `ac64bfd` before the guard starts and equal after removing
   the 5 guard cells; the cells, the per-player document and the events through the real client (`StandardCrm.Data`,
