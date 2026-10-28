@@ -82,7 +82,7 @@ namespace McvsOffline.PcSpike
                 foreach (string q in Questions)
                 {
                     Console.Write("  " + q + " ");
-                    string a = Console.ReadLine();
+                    string a = ConsoleLines.Stdin.ReadLine();
                     answers.Add(new KeyValuePair<string, string>(q, string.IsNullOrWhiteSpace(a) ? "(no answer)" : a.Trim()));
                 }
             }
@@ -258,6 +258,10 @@ namespace McvsOffline.PcSpike
                     s.AppendLine("  " + Path.GetFileName(csv) + ": " + rows + " samples, peak private " + privateMb.ToString("0", CultureInfo.InvariantCulture) +
                                  " MB, peak virtual " + virtualMb.ToString("0", CultureInfo.InvariantCulture) + " MB (" +
                                  (virtualMb / 20.48).ToString("0", CultureInfo.InvariantCulture) + " % of 2048 MB)");
+                }
+                else if (rows < 0)
+                {
+                    s.AppendLine("  " + Path.GetFileName(csv) + ": could not be read (still open in another program?)");
                 }
                 else
                 {

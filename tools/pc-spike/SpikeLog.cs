@@ -51,8 +51,15 @@ namespace McvsOffline.PcSpike
             {
                 if (echo)
                 {
-                    if (level == "ERROR" || level == "WARN") Console.Error.WriteLine(level.ToLowerInvariant() + ": " + message);
-                    else Console.WriteLine(message);
+                    // The console may already be going away (the window was closed); the file still gets the line.
+                    try
+                    {
+                        if (level == "ERROR" || level == "WARN") Console.Error.WriteLine(level.ToLowerInvariant() + ": " + message);
+                        else Console.WriteLine(message);
+                    }
+                    catch (IOException)
+                    {
+                    }
                 }
                 if (path == null) return;
                 try

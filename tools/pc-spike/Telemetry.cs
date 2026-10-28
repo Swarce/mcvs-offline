@@ -57,20 +57,41 @@ namespace McvsOffline.PcSpike
             return "\"" + text.Replace("\r", " ").Replace("\n", " ").Replace("\"", "\"\"") + "\"";
         }
 
-        /// <summary>Peak private and virtual megabytes in a CSV this class wrote (for summary.txt); false when it has no rows.</summary>
+        /// <summary>
+        /// Peak private and virtual megabytes in a CSV this class wrote (for summary.txt); false when it has no rows.
+        /// The file may still be open in a running 'start' or 'telemetry' (<see cref="TelemetrySampler"/> writes with
+        /// FileShare.Read, so a plain File.ReadLines fails on Windows): it is opened with FileShare.ReadWrite, and a file
+        /// that still cannot be read gives false with <paramref name="rows"/> = -1 instead of an exception.
+        /// </summary>
         public static bool Peaks(string csvFile, out double privateMb, out double virtualMb, out int rows)
         {
             privateMb = 0;
             virtualMb = 0;
             rows = 0;
-            foreach (string line in File.ReadLines(csvFile).Skip(1))
+            try
             {
-                string[] f = line.Split(',');
-                if (f.Length < 5) continue;
-                double p, v;
-                if (double.TryParse(f[3], NumberStyles.Float, CultureInfo.InvariantCulture, out p)) privateMb = Math.Max(privateMb, p);
-                if (double.TryParse(f[4], NumberStyles.Float, CultureInfo.InvariantCulture, out v)) virtualMb = Math.Max(virtualMb, v);
-                rows++;
+                using (var stream = new FileStream(csvFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                using (var reader = new StreamReader(stream, Encoding.UTF8))
+                {
+                    reader.ReadLine();
+                    string line;
+                    while ((line = reader.ReadLine()) != null)
+                    {
+                        string[] f = line.Split(',');
+                        if (f.Length < 5) continue;
+                        double p, v;
+                        if (double.TryParse(f[3], NumberStyles.Float, CultureInfo.InvariantCulture, out p)) privateMb = Math.Max(privateMb, p);
+                        if (double.TryParse(f[4], NumberStyles.Float, CultureInfo.InvariantCulture, out v)) virtualMb = Math.Max(virtualMb, v);
+                        rows++;
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                privateMb = 0;
+                virtualMb = 0;
+                rows = -1;
+                return false;
             }
             return rows > 0;
         }

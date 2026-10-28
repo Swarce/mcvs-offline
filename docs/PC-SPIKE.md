@@ -38,9 +38,13 @@ What it does to your PC:
    ```
 
    It prints the game folder. If it says the game was not found, add `--game "<folder that holds ModernCombatVersus.exe>"`
-   to **every** command below, for example `--game "D:\SteamLibrary\steamapps\common\Modern Combat Versus"`.
+   to **every** command below, for example `--game "D:\SteamLibrary\steamapps\common\Modern Combat Versus"`. In Steam,
+   right-click Modern Combat Versus, then **Manage** > **Browse local files** opens that folder. Instead of `--game` you
+   can also set it once for the terminal window: `$env:MCVS_PC_GAME = "<folder>"`.
 
-If you double-click the exe instead, it shows a numbered menu with the same commands.
+If you double-click the exe instead, it shows a numbered menu with the same commands. If it does not find the game, it
+asks for the folder first: paste it, or drag `ModernCombatVersus.exe` into the window, and press Enter. Menu entry 8
+asks again. After `start` ends with Ctrl+C, the menu comes back: choose `stop`, then `collect`.
 
 ## 3. Part A: the redirect test (about 5 minutes)
 
@@ -86,7 +90,8 @@ That result is useful too.
 3. **Windows Firewall.** If a firewall window appears at any point, note when (menu, match start, …) and which
    program it names, then choose **Cancel**. The test works without that permission.
 4. **If the game crashes or hangs**, note on which screen. End it in Task Manager if needed, then go on to step 5.
-5. Back in the kit's window, press **Ctrl+C**. Then run:
+5. Back in the kit's window, press **Ctrl+C**. (If you close the window instead, the kit still stops the server and
+   finishes its logs, but you then need a new terminal for the next step.) Then run:
 
    ```powershell
    .\McvsOffline.PcSpike.exe stop
@@ -99,6 +104,9 @@ That result is useful too.
 ```powershell
 .\McvsOffline.PcSpike.exe collect
 ```
+
+Run it after you quit the game and stopped `start` with Ctrl+C. If either still runs, it warns you; the zip is still
+made, but the memory record may be cut short.
 
 It asks six short questions: menu reached, bot match, the news link, firewall, graphics setting, anything else. Press
 Enter to skip one. It then writes `McvsOffline-pc-spike-<date>-<time>.zip` to your desktop. Send us that file.

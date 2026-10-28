@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Threading;
 using McvsOffline.Embedded;
 using McvsOffline.Server;
@@ -23,6 +23,12 @@ namespace McvsOffline.PcSpike
     /// </summary>
     public static class Program
     {
+        /// <summary>Set once the console window is closing (or the process was told to end): the menu ends instead of asking.</summary>
+        private static volatile bool closing;
+
+        /// <summary>Running from the double-click menu (errors point at its entries instead of --game).</summary>
+        private static bool inMenu;
+
         public static int Main(string[] args)
         {
             SpikeOptions options;
@@ -145,48 +151,33 @@ namespace McvsOffline.PcSpike
             Console.WriteLine("  4. Press Ctrl+C here when done, then run 'stop' and 'collect'.");
             Console.WriteLine();
 
-            var stopRequested = new ManualResetEventSlim(false);
-            Console.CancelKeyPress += (sender, e) =>
-            {
-                e.Cancel = true;
-                stopRequested.Set();
-            };
-            // Closing the window (CTRL_CLOSE_EVENT) arrives as SIGTERM on Windows: stop cleanly so the logs are complete.
-            using (PosixSignalRegistration.Create(PosixSignal.SIGTERM, context =>
-            {
-                context.Cancel = true;
-                stopRequested.Set();
-            }))
+            using (var stop = new StopSignal())
             {
                 var notes = new Thread(() =>
                 {
-                    try
+                    string line;
+                    while (ConsoleLines.Stdin.TryReadLine(stop.Token, out line))
                     {
-                        string line;
-                        while (!stopRequested.IsSet && (line = Console.ReadLine()) != null)
-                        {
-                            if (line.Trim().Length == 0) continue;
-                            log.Info("note: " + line.Trim());
-                            if (telemetry != null) telemetry.AddNote(line);
-                        }
-                    }
-                    catch (Exception)
-                    {
+                        if (line.Trim().Length == 0) continue;
+                        log.Info("note: " + line.Trim());
+                        if (telemetry != null) telemetry.AddNote(line);
                     }
                 }) { IsBackground = true, Name = "notes" };
                 notes.Start();
-                stopRequested.Wait();
-            }
+                stop.Wait();
 
-            Console.WriteLine("Stopping...");
-            if (capture != null) capture.Dispose();
-            if (telemetry != null)
-            {
-                telemetry.Dispose();
-                log.Info("telemetry: " + telemetry.Samples + " samples in " + telemetry.CsvPath);
+                // After the window's close button this runs inside Windows' 5 s limit: the close handler holds until Dispose.
+                if (stop.Closing) closing = true;
+                log.Info("Stopping...");
+                if (capture != null) capture.Dispose();
+                if (telemetry != null)
+                {
+                    telemetry.Dispose();
+                    log.Info("telemetry: " + telemetry.Samples + " samples in " + telemetry.CsvPath);
+                }
+                server.Dispose();
+                log.Info("server stopped. args.txt still points at it: run 'stop' to restore it, then 'collect'.");
             }
-            server.Dispose();
-            log.Info("server stopped. args.txt still points at it: run 'stop' to restore it, then 'collect'.");
             return 0;
         }
 
@@ -241,30 +232,19 @@ namespace McvsOffline.PcSpike
         {
             var log = new SpikeLog(options.DataDir);
             log.Info("== telemetry");
+            using (var stop = new StopSignal())
             using (var sampler = new TelemetrySampler(options.DataDir, TimeSpan.FromSeconds(options.TelemetrySeconds), log))
             {
-                var stop = new ManualResetEventSlim(false);
-                Console.CancelKeyPress += (sender, e) =>
-                {
-                    e.Cancel = true;
-                    stop.Set();
-                };
                 sampler.StartBackground();
                 Console.WriteLine("Type a note + Enter to mark a moment (e.g. 'match start'); Ctrl+C to stop. It also stops when the game exits.");
                 var notes = new Thread(() =>
                 {
-                    try
+                    string line;
+                    while (ConsoleLines.Stdin.TryReadLine(stop.Token, out line))
                     {
-                        string line;
-                        while (!stop.IsSet && (line = Console.ReadLine()) != null)
-                        {
-                            if (line.Trim().Length == 0) continue;
-                            log.Info("note: " + line.Trim());
-                            sampler.AddNote(line);
-                        }
-                    }
-                    catch (Exception)
-                    {
+                        if (line.Trim().Length == 0) continue;
+                        log.Info("note: " + line.Trim());
+                        sampler.AddNote(line);
                     }
                 }) { IsBackground = true, Name = "notes" };
                 notes.Start();
@@ -272,6 +252,8 @@ namespace McvsOffline.PcSpike
                 {
                     if (sampler.GameExited) break;
                 }
+                if (stop.Closing) closing = true;
+                stop.Request();
                 log.Info("telemetry: " + sampler.Samples + " samples in " + sampler.CsvPath);
             }
             return 0;
@@ -282,6 +264,8 @@ namespace McvsOffline.PcSpike
             var log = new SpikeLog(options.DataDir);
             log.Info("== collect");
             GameLocation game = FindGame(options, log);
+            foreach (string running in StillRunning())
+                log.Warn(running + " is still running: its files may be incomplete. Close it (Ctrl+C in the kit's window, quit the game), then run 'collect' again.");
             bool ask = !options.NoQuestions && !Console.IsInputRedirected;
             string zip = Collector.Run(options, game, log, ask);
             Console.WriteLine();
@@ -308,22 +292,49 @@ namespace McvsOffline.PcSpike
 
         // ------------------------------------------------------------------------------------------------ helpers
 
+        /// <summary>The game or another copy of the kit, still running while 'collect' reads their files.</summary>
+        private static IEnumerable<string> StillRunning()
+        {
+            var running = new List<string>();
+            int self = Environment.ProcessId;
+            foreach (string name in new[] { TelemetrySampler.ProcessName, "McvsOffline.PcSpike" })
+            {
+                try
+                {
+                    foreach (Process p in Process.GetProcessesByName(name))
+                    {
+                        using (p)
+                        {
+                            if (p.Id != self && !running.Contains(name + ".exe")) running.Add(name + ".exe");
+                        }
+                    }
+                }
+                catch (Exception ex) when (ex is InvalidOperationException || ex is System.ComponentModel.Win32Exception || ex is NotSupportedException)
+                {
+                }
+            }
+            return running;
+        }
+
         private static GameLocation FindGame(SpikeOptions options, SpikeLog log)
         {
             string problem;
             GameLocation game = SteamLocator.Locate(options.GameDir, out problem);
             if (game == null)
             {
-                log.Error(problem + ". Pass the folder that holds " + SteamLocator.ExeName + " with --game \"<folder>\".");
+                log.Error(problem + (inMenu
+                    ? ". Choose " + (Array.IndexOf(MenuCommands, "game-folder") + 1) + " in the menu to give the folder that holds " + SteamLocator.ExeName + "."
+                    : ". Pass the folder that holds " + SteamLocator.ExeName + " with --game \"<folder>\"."));
                 return null;
             }
             log.Info("game folder: " + game.Directory + " (" + game.How + ")");
             return game;
         }
 
+        private static readonly string[] MenuCommands = { "start", "stop", "redirect-test", "redirect-undo", "telemetry", "collect", "status", "game-folder" };
+
         private static int Menu(SpikeOptions options)
         {
-            string[] commands = { "start", "stop", "redirect-test", "redirect-undo", "telemetry", "collect", "status" };
             string[] labels =
             {
                 "start          - run the test server and point the game at it (args.txt)",
@@ -333,22 +344,73 @@ namespace McvsOffline.PcSpike
                 "telemetry      - record the game's memory use only",
                 "collect        - make the zip to send back (on your desktop)",
                 "status         - show what is installed",
+                "game folder    - give the folder that holds " + SteamLocator.ExeName + " (when it was not found)",
             };
+            inMenu = true;
             Console.WriteLine("MCVS Offline - PC spike kit (see PC-SPIKE.md)");
+            string problem;
+            if (SteamLocator.Locate(options.GameDir, out problem) == null)
+                AskGameFolder(options, problem, ConsoleLines.Stdin, Console.Out);
             while (true)
             {
                 Console.WriteLine();
                 for (int i = 0; i < labels.Length; i++) Console.WriteLine("  " + (i + 1) + ". " + labels[i]);
                 Console.WriteLine("  0. quit");
                 Console.Write("Choose: ");
-                string choice = Console.ReadLine();
+                string choice = ConsoleLines.Stdin.ReadLine();
                 if (choice == null) return 0;
                 int n;
-                if (!int.TryParse(choice.Trim(), out n) || n < 0 || n > commands.Length) continue;
+                if (!int.TryParse(choice.Trim(), out n) || n < 0 || n > MenuCommands.Length) continue;
                 if (n == 0) return 0;
-                options.Command = commands[n - 1];
+                string command = MenuCommands[n - 1];
+                if (command == "game-folder")
+                {
+                    SteamLocator.Locate(options.GameDir, out problem);
+                    AskGameFolder(options, problem, ConsoleLines.Stdin, Console.Out);
+                    continue;
+                }
+                options.Command = command;
                 Run(options, false);
-                if (options.Command == "start") return 0;   // Ctrl+C ends the whole program
+                if (closing) return 0;   // the window is closing (or the process was told to end)
+                if (command == "start" || command == "telemetry")
+                {
+                    // Lines typed after Ctrl+C are not menu choices.
+                    ConsoleLines.Stdin.DiscardPending();
+                    if (command == "start")
+                    {
+                        Console.WriteLine();
+                        Console.WriteLine("Next: choose " + (Array.IndexOf(MenuCommands, "stop") + 1) + " (stop) to restore args.txt, then " +
+                                          (Array.IndexOf(MenuCommands, "collect") + 1) + " (collect).");
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// The menu's way to the game folder (a double-click cannot pass --game): asks until a folder with the exe is given
+        /// (a pasted path, quoted or not, or the exe itself dragged into the window) and sets <see cref="SpikeOptions.GameDir"/>.
+        /// An empty line or the end of the input keeps the current setting; returns whether a folder was set.
+        /// </summary>
+        internal static bool AskGameFolder(SpikeOptions options, string problem, ConsoleLines input, TextWriter output)
+        {
+            output.WriteLine();
+            if (!string.IsNullOrEmpty(problem)) output.WriteLine("The game was not found: " + problem + ".");
+            while (true)
+            {
+                output.WriteLine("Paste the folder that holds " + SteamLocator.ExeName + " (or drag the exe into this window), then Enter.");
+                output.WriteLine("In Steam: right-click Modern Combat Versus > Manage > Browse local files shows it. Enter alone skips this.");
+                output.Write("Game folder: ");
+                string line = input.ReadLine();
+                if (line == null || line.Trim().Trim('"').Length == 0) return false;
+                string notFound;
+                GameLocation game = SteamLocator.Locate(line, out notFound);
+                if (game != null)
+                {
+                    options.GameDir = game.Directory;
+                    output.WriteLine("game folder: " + game.Directory);
+                    return true;
+                }
+                output.WriteLine(notFound + ".");
             }
         }
 
