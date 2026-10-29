@@ -308,6 +308,7 @@ namespace Game
                     GraphicsHooks.ConfigureWindows(true);
                     Assert.Null(GraphicsHooks.ReadInGamePreferences(null));
                     Assert.Null(GraphicsHooks.CaptureInGame(prefs));                     // no instance yet
+                    GraphicsHooks.GameOptionsJson(LookAlike);
                     Assert.Contains("; in-game graphics options not read yet", GraphicsHooks.Describe());
 
                     object component = Activator.CreateInstance(prefs);
