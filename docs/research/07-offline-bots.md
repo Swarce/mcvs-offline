@@ -6,6 +6,18 @@ matches. For each one: how it starts, what it simulates where, which maps/modes/
 uses, what it pays out, what server pieces it needs, and what to change so that bot matches become a
 first-class offline mode with full progression.
 
+> **Correction (October 2026, match-modes research; supersedes the tile claims below):** there is no "BOTMATCH
+> tile". The only main-menu entry that calls `StartMatchWithBots` is tile **`SOLO`** (MCVS_Meta `MainMenuElements`
+> row 13, action `LINK_SOLO`, label `menu.BotBattleTxt` = "PRACTICE"), and the shipped data hides it
+> (`Displayed=false`; the shipped CRM preconfiguration's override for it is empty). `BOTMATCH` is row 2 of
+> `MenuMatchInfos`, which only supplies the title and text of the "play a battle vs bots?" confirm popup and is never
+> used to decide whether a tile shows. Battle opens "Select game mode" after the tutorial: Classic multiplayer (group
+> lobby → `StartGroupPlay` → GS quick match), Special Event (the Arena mode) and Join a group; there is no bot box.
+> So the full-reward bot match is Battle › Classic multiplayer with `instantBots`, and the `bottile` patch is dormant
+> unless the tile is shown (our opt-in CRM setting `crm.practiceTile`). Evidence: the exported UI.swf ActionScript
+> (`MenuMainV2.as:631-688, 737-749`, `PopupSolo_Bot_Match.as:51-83`, `PopupMatchType.as`), `GM/MainMenuComponent.cs:436-480,
+> 642-660, 722-770`. The lines below are corrected in place where they named the tile.
+
 Paths are relative to `/home/user/mcvs-work`. Abbreviations:
 
 * `GM/` = `decompiled/Game/Game/`
@@ -51,8 +63,9 @@ Companion reports: 01 (argument injection), 02 (Federation stub), 03 (profile st
      the AI-DB tables `TutoMatches` and `Match<N>`. After every match the player gets career trophies; once the
      league division is no longer `IsFTUE`, the TS calls `ActivatePVP`. From then on "Battle" goes to real
      matchmaking (GS).
-   * **Bot match** (`MatchConnectionType.OfflineMatchWithBots`, UI `StartMatchWithBots`, menu item type
-     `BOTMATCH`): always allowed. The map is random among maps flagged `BotMatch`, the match type is drawn by
+   * **Bot match** (`MatchConnectionType.OfflineMatchWithBots`, UI `StartMatchWithBots`, started from the main-menu
+     tile `SOLO` (MainMenuElements row 13, action `LINK_SOLO`, label "PRACTICE"), **hidden in the shipped data**
+     (`Displayed=false`); `BOTMATCH` is the `MenuMatchInfos` row that only supplies the confirm popup's text): always allowed. The map is random among maps flagged `BotMatch`, the match type is drawn by
      probability, the bots are 3 allies plus 4 enemies, and the difficulty ramps with that day's bot wins.
      `BotMatchesAvailable` is never set to `false` anywhere, so the menu entry is never locked by code.
    **[V]** (`GM/OfflineBotsGameplayComponent.cs:271-298, 317-354`, `GM/MetagameComponent.cs:1155-1164`, `GM/MainMenuComponent.cs:762-769`)
@@ -145,15 +158,17 @@ registers them as follows:
 | `LoadOfflineLevel(path)` | `NativeLoadOfflineLevel` | `LoadOfflineLevel("OfflineLevel_Connected", path)` | `GM/GameClientComponent.cs:3811, 3968-3971` |
 | `UnloadOfflineLevel` | `UnloadOfflineLevel()` | disconnects the current link if it is offline | `GM/GameClientComponent.cs:3723-3729, 3813` |
 | `Practice(mercId)` | `MercsComponent.NativePractive` | `LoadOfflineLevel("PracticeLevel_<id>", "Levels/Gym/Gym_PVP.level")`, then `DefaultMercDeck[0] = id` | `GM/MercsComponent.cs:225, 391, 2347-2361` |
-| `GetMatchTypeInfo` | `MainMenuComponent.NativeGetMatchTypeInfo` | menu match tiles from table `MenuMatchInfos`. For `Type == "BOTMATCH"`, `isLocked = !profile.BotMatchesAvailable` plus a timer | `GM/MainMenuComponent.cs:73, 134, 702-770` |
+| `GetMatchTypeInfo` | `MainMenuComponent.NativeGetMatchTypeInfo` | title/description for `PopupSolo_Bot_Match` (`typeData[1]`) from `MenuMatchInfos`; not a tile list. For `Type == "BOTMATCH"`, `isLocked = !profile.BotMatchesAvailable` plus a timer | `GM/MainMenuComponent.cs:73, 134, 702-770` |
 | `GetExitPermit` | `GameplayComponent.GetExitPermit` | true for ShootingRange, and for a bot match only when `MatchConnectionType == OfflineMatchWithBots` | `GM/GameplayComponent.cs:1410-1422` |
 
 Also: `StartAutoMatchSameAsPlayerLevel()` (public, same as `StartMatchWithBots`) is only called by the cheat
 `PlayAgainstBots` (`GM/CheatsComponent.cs:693, 2443-2450`).
 
-**[L]** The "Battle" button calls `StartAutoMatch`. The `BOTMATCH` tile (when `MenuMatchInfos` marks it
-`Displayed`) calls `StartMatchWithBots`. The UI scripts are not in the APK, so this wiring is inferred from the
-names.
+**[V]** (UI.swf ActionScript, `MenuMainV2.as:631-688`, `PopupSolo_Bot_Match.as:51-83`, `PopupMatchType.as`) Battle
+(`LINK_BATTLE`) calls `StartAutoMatch` during the tutorial; afterwards it opens "Select game mode" (Classic → group lobby
+→ `StartGroupPlay`, Arena, Join group). Only the hidden SOLO tile (`LINK_SOLO`) → `PopupSolo_Bot_Match` calls
+`StartMatchWithBots`. `MenuMatchInfos.Displayed` is never read. (Earlier text: "[L] ... the `BOTMATCH` tile (when
+`MenuMatchInfos` marks it `Displayed`) calls `StartMatchWithBots`", inferred from the names; wrong.)
 
 ### 2.1 Start sequence (bot match) [V]
 
@@ -379,7 +394,7 @@ trophies), but skips achievements and `OnMatchOver`.
 | Onboarding via "Battle" (`OnlineAndTutorial`) | **true** | true | Win: `GenerateOnboardingMatchRewards`, i.e. `AIOnboardingSpecs[Match-1 == AllTimeOfflineVictories].RewardsTable` ("Regular" rows). After the last spec it returns `null`, which means no reward. Lose: `[]`. |
 | Bot match (`OfflineMatchWithBots`), any phase | false | true | `GenerateOfflineMatchRewards`: **first row only** of MetaDB `BotMatchesInfo` (`Match, HasCrate, WinRewardsTableName, LoseRewardsTableName`; `HasCrate` is unused). Each `DatabaseReward` gets `CreateRandomRewards`. `Credits` are capped at the division `CreditsCurrencyMatchRewards.DailyCap - PVPCurrencyRewardCountForWins`. |
 | GS PvP (`GameplayComponent.ProcessRewards`) | false | false | `GenerateCurrency`: Credits and VersusCoins by division (`CreditsCurrencyMatchRewards` / `VersusCoinsMatchRewards`: `VictoryAmount, DefeatAmount, MVPAmount, DailyCap`), with Arena multipliers. Plus MVP. |
-| Private match / tournament | – | – | inbox and Hermes messages only |
+| Private match / tournament | – | – | inbox and Hermes messages only: the `_rewardId` prize crate on a win, the ticket cost refunded on a draw. Never bot-filled (the GS skips `FillWithBots` for private rooms, `GM/GameServerComponent.cs:345-424`; `instantBots` and CRM are ignored there), and no trophies, currency, MVP, mastery XP, stats or leaderboard post (`GM/GameplayComponent.cs:779-789, 865-914, 1156-1159`). `CratesTrackWinsCount` and achievements still advance (daily/weekly objectives probably too, **[I]**; match-modes verify T8). |
 | `UIComponent.TutorialCompleted` (tutorial script) | true | false | onboarding rewards, but computed and claimed **on the client** for display only (`GM/UIComponent.cs:2128-2136`) |
 
 ### 5.5 What each path actually grants [V]
@@ -586,9 +601,9 @@ lists it in `MatchTypeProbability`.
 | CRM refresh (optional) | after `ActivatePVP` | ignored | `GM/OfflineBotsGameplayComponent.cs:627-630` |
 | Analytics/ads | tracking, post-match ad boost (`CanShowPostMatchAds` needs CRM pointcuts and `AllTimeOfflineVictories > 1`) | silently fail; disable ads | `GM/PlayerProfileComponent.cs:838-850`, `GM/GameCrmComponent.cs:43-56` |
 
-No CRM/remote-config flag in C# gates offline bot matches. The only soft gates are data: `MenuMatchInfos`
-(is the `BOTMATCH` tile displayed or locked?) and `BotMatchesAvailable` (always true, see §0.4). **[V]** for the
-code; **[L]** that the shipped `MenuMatchInfos` shows the tile.
+No CRM/remote-config flag in C# gates offline bot matches. The only soft gates are data: `MainMenuElements` row 13
+`SOLO` `Displayed` (false in the shipped data, so the tile is hidden) and `BotMatchesAvailable` (lock badge; always
+true, see §0.4). **[V]** both (the earlier "[L] the shipped `MenuMatchInfos` shows the tile" was wrong).
 
 ---
 
@@ -604,8 +619,8 @@ Prerequisites from other reports: the Federation stub (02), storage (03), CRM/co
 2. **Onboarding bot matches:** tap "Battle" (`StartAutoMatch`). The TS returns an onboarding match (`TutoMatches` row
    = wins + 1), and the client loads `TrainingMatchWithBots` with the `Match<N>` bots. Each win gives trophies,
    onboarding rewards, MVP and merc XP. When the league leaves FTUE, the TS activates PvP.
-3. **Free bot matches (any time):** use the `BOTMATCH` tile (`StartMatchWithBots`), or the developer cheat
-   `PlayAgainstBots` (LOCAL). This gives a random BotMatch map, 3+4 bots, difficulty from `SoloBots`, and
+3. **Free bot matches:** only through the developer cheat `PlayAgainstBots` (LOCAL), or after showing the SOLO tile
+   through CRM (`MainMenuElements` `Id@Displayed`/`Id@OrderId` for row 13, our `crm.practiceTile`; `StartMatchWithBots`). This gives a random BotMatch map, 3+4 bots, difficulty from `SoloBots`, and
    `BotMatchesInfo` rewards.
 4. **Practice range:** merc screen → Practice (`Practice(mercId)`).
 5. **After PvP activation, "Battle" needs a GS.** With Embedded, `ConnectGameplayServer(QuickMatchServerLink)` →
@@ -635,8 +650,9 @@ The cheat menu shows LOCAL cheats to everyone, but opening it needs `NativeCanUs
 Treat "bot match" as "PvP room with 1 human". It needs no Game.dll change and gives every progression effect in §5.5.
 It is also the only path where other humans can later join and replace bots (P2P/LAN, report 06).
 
-* UI: keep "Battle" as the entry point. Optionally repoint the `BOTMATCH` tile to the same flow by patching
-  `NativeStartMatchWithBots` to call `StartAutoMatch`, or leave it as the light PvE mode.
+* UI: keep "Battle" as the entry point. Optionally repoint the (hidden) SOLO/PRACTICE tile to the same flow by
+  patching `NativeStartMatchWithBots` to call `StartAutoMatch`, or leave it as the light PvE mode (done as `bottile`;
+  dormant unless the tile is shown).
 * Config: §12.1 step 5 values. Raise `CreditsCurrencyMatchRewards` / `VersusCoinsMatchRewards` `DailyCap` through CRM
   table overrides if the daily caps feel restrictive offline.
 * Divisions/seasons need leaderboard endpoints in the stub (report 02). Otherwise `PostScoreAsync` silently does nothing.
@@ -677,7 +693,7 @@ Optional extras:
 ### 12.4 Data-only improvements (no patch, no GS)
 
 * CRM `_OverrideTables` for `BotMatchesInfo` (bigger win/lose tables, crates), `SoloBots` (flat difficulty),
-  `MenuMatchInfos` (show and unlock the `BOTMATCH` tile), `TutoMatches` (shorter onboarding, e.g. one row).
+  `MainMenuElements` row 13 `Displayed`/`OrderId` (show the PRACTICE tile; `MenuMatchInfos` only sets its popup text), `TutoMatches` (shorter onboarding, e.g. one row).
 * `DailyCap` overrides on `CreditsCurrencyMatchRewards` (offline Credits share that cap).
 
 ---
@@ -705,9 +721,9 @@ Optional extras:
 
 ## 14. Answers to the brief
 
-* **How is an offline bot match started?** Through the UI natives `StartAutoMatch` (only during onboarding) or
-  `StartMatchWithBots` (always), from the menu while connected to a TS. There are no remote-config gates in code.
-  The menu tile visibility comes from the `MenuMatchInfos` data. There is no connection-failure fallback. **[V]**
+* **How is an offline bot match started?** Through the UI natives `StartAutoMatch` (Battle during the tutorial) or
+  `StartMatchWithBots` (hidden SOLO tile only), from the menu while connected to a TS. There are no remote-config
+  gates in code. Tile visibility comes from `MainMenuElements.Displayed`. There is no connection-failure fallback. **[V]**
 * **Maps, modes, bot counts, difficulties?** The mode set is TeamDeathMatch, ControlPoint, Uphold, Dominion
   (Survivor is unused; plus Tutorial and ShootingRange). Maps are data-driven (`AvailableInGameModes` contains
   `BotMatch`), with probabilities from `MatchTypeProbability`. Onboarding bots come from `Match<N>`. Bot matches use

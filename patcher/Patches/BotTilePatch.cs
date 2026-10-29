@@ -5,7 +5,8 @@ using Mono.Cecil.Cil;
 namespace McvsOffline.Patcher.Patches
 {
     /// <summary>
-    /// Optional 'bottile' patch (verify-C4 §6): the menu's BOTMATCH tile runs
+    /// Optional 'bottile' patch (verify-C4 §6): the hidden main-menu tile SOLO ("PRACTICE", MCVS_Meta MainMenuElements
+    /// row 13, Displayed=false; Flash LINK_SOLO -> PopupSolo_Bot_Match -> Native.StartMatchWithBots) runs
     /// <code>
     /// private void NativeStartMatchWithBots()
     /// {
@@ -20,6 +21,9 @@ namespace McvsOffline.Patcher.Patches
     /// behaves like "Battle": onboarding before PvP activation, then bot-filled PvP on the in-process GS with full
     /// progression. The lambda is found through the <c>ldftn</c> in NativeStartMatchWithBots (not by its generated
     /// name), and every instruction and the enum values are checked before the one byte (0x18 -> 0x17) changes.
+    /// Dormant with the shipped data: no visible UI reaches StartMatchWithBots unless the CRM shows the tile (server
+    /// setting crm.practiceTile); the full-reward bot match is Battle > Classic multiplayer, which needs no patch. The
+    /// developer cheat PlayAgainstBots uses another, unpatched lambda (StartAutoMatchSameAsPlayerLevel).
     /// </summary>
     public sealed class BotTilePatch : IlPatch
     {
@@ -30,7 +34,7 @@ namespace McvsOffline.Patcher.Patches
 
         public override string AssemblyFile => "Game.dll";
 
-        public override string Description => "BOTMATCH tile -> bot-filled PvP on the in-process GS (full progression)";
+        public override string Description => "PRACTICE tile (hidden by default) -> bot-filled PvP on the in-process GS (full progression)";
 
         public override void Apply(ModuleDefinition module, PatchContext context)
         {

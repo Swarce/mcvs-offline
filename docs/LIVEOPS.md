@@ -224,10 +224,14 @@ What the game offers for "season modifiers":
   rewards and trophies) `game._ServerConfig.default._OverrideTables` (the builder mirrors them). A MUL cell (`"*1.5"`)
   on an existing row (CRM cannot add rows). The season's modifier cells are combined with the static economy
   multipliers (`economy.*`: one cell, product of both) and change at the season boundary with the CRM refresh.
-* **`ArenaModeEvent`** (not used): `EndMatchRewardMultipliers`, restricted agents, map, match type, but only for the
-  separate Arena mode the player has to select (`GameClientComponent IsArenaSelected` → `filters._arena`), carried in
-  the matchmaker room kwargs (`default_room_kwargs._arenaParams`), i.e. a LocalAnubis change; regular quick matches
-  never see it.
+* **`ArenaModeEvent`**: `EndMatchRewardMultipliers`, restricted agents, map, match type, but only for the separate
+  Arena mode the player has to select: the **Special Event** box of Battle's "Select game mode" popup
+  (`GameClientComponent IsArenaSelected` → `filters._arena`), carried in the matchmaker room kwargs
+  (`default_room_kwargs._arenaParams`). The in-process LocalAnubis already copies `default_room_kwargs` into the room
+  (`LA/Lobby.cs:338-350`), so **no LocalAnubis change is needed**; regular quick matches never see it. Without an
+  `ArenaModeEvent` the Special Event box stays locked; live ops generates them in this release. Client traps: `img`
+  is mandatory (a missing one aborts the whole event list), the agent list must be non-empty and without "Any", and
+  the windows must be contiguous (a gap leaves the GS without `_arenaParams`).
 * **`BonusMultiplierEvent`** (not used): only the texts of the ad-reward "boost" banner; ads do not exist offline.
 * The **trophy curve** itself: `PlayerLevelXP.DivisionTrophiesBonus` (trophies per win) and `DivisionsList`
   `DivisionTrophies.*` are table values, so a modifier can scale them (Trophy fever).

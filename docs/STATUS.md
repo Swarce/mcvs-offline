@@ -100,7 +100,7 @@ Physics, the game log bridge attaches, and there is no tracker traffic with the 
 The kit `McvsOffline.PcKit.exe` (win-x64, one file, SHA-256 `0aa37f249bb57661e49d50af50596e2765052a2f37390e23073156a9d7f6a7be`) and the
 owner's guide for **WR3**: [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) (design §13). The expected `verify` values were
 re-recorded for build 14 (the config and all five DLLs changed). WR3 repeats the steps WR2 could not reach with
-`Game.dll` active, and does the untested ones (the page's actions, the bot-match tile, minimise and fullscreen, Steam
+`Game.dll` active, and does the untested ones (the page's actions, a bot match from Battle › Classic multiplayer, minimise and fullscreen, Steam
 achievements, Restart, uninstall).
 
 **Android: the shared changes.** Android's behaviour changes only where the code is shared, all small:
@@ -1503,9 +1503,13 @@ modules' open issues.
    app, start again: same profile. `data/storage/profiles/<account>.json` grows; backups appear every 30 minutes.
 10. **Match end on the GS** saves the result; the bot-match resume race (verify-C3 §4): a match result followed
     quickly by a resume GET must not restore the pre-match state.
-11. **Bot matches.** With the `bottile` patch the BOTMATCH tile goes through the GS flow and pays full rewards
-    (trophies, MVP, merc XP) once PvP is activated; quick PvP starts at once and is filled with 7 bots (`instantBots`)
-    (verify-C4).
+11. **Bot matches.** Battle › Classic multiplayer goes to the GS and pays full rewards (trophies, MVP, merc XP) once
+    PvP is activated; it starts at once, filled with 7 bots (`instantBots`) (verify-C4). There is no visible
+    bot-match tile: `bottile` only affects the hidden PRACTICE tile (MainMenuElements row 13, `Displayed=false`), which
+    the opt-in `crm.practiceTile` shows (placement and art untested). Tournaments (custom matches) are private matches:
+    the GS never fills them with bots and they give no trophies, currency, MVP, agent XP or stats, by design; play
+    them with other humans on LAN, or Classic for bots. Special Event is the game's Arena mode; live ops generates
+    its events in this release.
 12. **The GS's Lobby round-trips** (`encrypt_token`/`verify` for its own super session, `GetRoomInfo`) never fail: a
     failure there plays the match and grants nothing (verify-C4 §4.1). Fed ids must match on both paths (§4.3).
 13. **Matchmaking after a network change** (Wi-Fi or airplane mode toggled while the game runs), fixed by the default

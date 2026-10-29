@@ -110,8 +110,10 @@ What the patches do:
   limits the delay to 100 ms in both. It changes nothing else.
 - **geo**: the game looks up your country at a hard-coded Gameloft address while it connects to its own server. Offline
   that lookup can hang longer than the connection timeout; the patch sends it to the embedded server.
-- **bottile**: the BOTMATCH tile in the menu normally starts a "free" bot match that pays almost nothing. With the
-  patch it starts the same bot-filled match as "Battle", with full rewards and progression (after the tutorial).
+- **bottile**: the game's "Practice" bot-match tile is hidden in the shipped data, so this patch normally does
+  nothing. If the tile is shown (setting `crm.practiceTile`, section 6 "Match modes"), the patch makes it start the
+  same bot-filled match as Battle (full rewards and progression, after the tutorial) instead of a free bot match that
+  pays 5 Credits.
 - **finder**: the game's matchmaking service listens on all network interfaces instead of the one that was active at
   start-up, so switching Wi-Fi or airplane mode on and off does not break matchmaking until a restart.
 - **store**: opening the shop crashed the game because of the kill-signature sounds it sells (the game's availability
@@ -223,6 +225,27 @@ rewards arrive as one inbox message and are claimed in order.
 Redeeming an agent code again when you already own the agents gives the game's usual duplicate compensation (random
 gear) for each one. `settings.json` `"unlockAll": true` grants the same as `UNLOCKALL` without a code. Details and the
 exact item lists: [ECONOMY.md](ECONOMY.md).
+
+### Match modes
+
+- **Bot matches with full rewards: Battle › Classic multiplayer.** The match starts at once and 7 bots fill the other
+  slots (`instantBots`); you get trophies, division progress, Credits, VersusCoins, the MVP bonus and agent XP, as in
+  an online match. During the tutorial Battle starts the game's scripted onboarding matches instead.
+- **Special Event** (the second box after Battle) is the game's Arena mode: a time-limited event with a twist (Havoc,
+  Blitz, Competitive best-of-3, Grand Bounty and others) that sets the mode, the map, the allowed agents and reward
+  multipliers. Live ops generates these events; the box is locked while none is running.
+- **Tournaments** are the game's private matches. The game never fills a private match with bots (no setting changes
+  that), and a tournament gives no trophies, division progress, Credits, VersusCoins, MVP bonus, agent XP or stats, by
+  the game's design: only the prize crate when you win (its gem cost is paid when you press Start, refunded on a
+  draw), the crate-track win count, tournament achievements and probably daily and weekly mission progress. Play them
+  with other players over LAN (experimental, section 9); for bot matches use Classic.
+- **The Practice tile** (optional, off by default). The game has its own bot-match tile, "PRACTICE", but Gameloft's
+  data hides it. Setting **Practice tile in the main menu** (`crm.practiceTile`, page: Settings › Gameplay) shows it as
+  the sixth tile of the main menu: tap it, confirm, and with the default `bottile` patch you get the same bot-filled,
+  full-reward match as Classic, without the mode and group screens (without `bottile`: the game's free bot match, 5
+  Credits per win). It applies at the next CRM fetch: after your next match, or at the next start. **Untested on a
+  phone or PC:** where the tile sits in this menu layout and how it looks are unknown, and it may show a "VICTORY
+  LIMIT REACHED" lock badge. Turn it off again if the menu looks wrong.
 
 ### Logs, if something goes wrong
 

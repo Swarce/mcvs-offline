@@ -159,7 +159,7 @@ namespace McvsOffline.Patcher
                 "                                   is true (its network threads stalled boot with the internet on)\n" +
                 "                          waits    the engine's pumping waits (TaskExtension.WaitAndWork) re-check every 100 ms (hardening)\n" +
                 "                          geo      IP geolocation URL -> the embedded server (no DNS wait in the handshake)\n" +
-                "                          bottile  BOTMATCH tile -> bot-filled PvP with full progression\n" +
+                "                          bottile  hidden PRACTICE tile -> bot-filled PvP (dormant unless the tile is shown)\n" +
                 "                          finder   LocalAnubis Finder on all interfaces (survives Wi-Fi changes)\n" +
                 "                          lan      LAN hosting helpers, implies finder (experimental)\n" +
                 "                          store    kill-signature store items: no null list for sounds, a failing item is skipped\n" +
