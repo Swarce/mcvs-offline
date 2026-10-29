@@ -71,7 +71,9 @@
       <_McvsKitTests>$(McvsRepoRoot)tests/McvsOffline.PcKit.Tests/McvsOffline.PcKit.Tests.csproj</_McvsKitTests>
       <_McvsKitTestsDll>$(McvsRepoRoot)artifacts/bin/McvsOffline.PcKit.Tests/$(McvsConfigDir)/McvsOffline.PcKit.Tests.dll</_McvsKitTestsDll>
     </PropertyGroup>
-    <Exec Command="&quot;$(_McvsDotnet)&quot; build &quot;$(_McvsKitTests)&quot; -c $(Configuration) -nologo -v quiet" />
+    <!-- The nested restore must keep the win-x64 target in the shared assets files of the kit and the patcher, or this
+         publish fails afterwards with NETSDK1047. -->
+    <Exec Command="&quot;$(_McvsDotnet)&quot; build &quot;$(_McvsKitTests)&quot; -c $(Configuration) -p:RuntimeIdentifiers=$(RuntimeIdentifier) -nologo -v quiet" />
     <Exec Command="&quot;$(_McvsDotnet)&quot; &quot;$(_McvsKitTestsDll)&quot; check-server &quot;$(McvsPcServerDll)&quot;" />
   </Target>
 
