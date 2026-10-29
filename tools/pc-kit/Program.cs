@@ -63,7 +63,7 @@ namespace McvsOffline.PcKit
                     if (game == null) log.Warn(problem + " (the folder checks are skipped)");
                     foreach (string line in Probe.Run(env.Probe, game == null ? null : game.Directory, options.Bcl ?? env.DefaultBcl())) log.Info(line);
                     return PcExitCodes.Ok;
-                case "watch": return Watch.Run(env, KitFolder(env, game == null ? null : game.Directory), log);
+                case "watch": return Watch.Run(env, game == null ? null : game.Directory, KitFolder(env, game == null ? null : game.Directory), log);
                 case "collect": return CollectCommand(env, options, game, log);
                 default:
                     log.Error("unknown command '" + options.Command + "'");

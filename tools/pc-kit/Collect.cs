@@ -16,7 +16,9 @@ namespace McvsOffline.PcKit
     /// our logs (McvsOffline\logs, the %TEMP% fallback, the kit's folder), settings.json, install.json, the config, args.txt, a
     /// listing of the game folder, the status and probe output, the game's Windows event-log entries and decoded crash logs,
     /// and a listing (names, sizes, dates; never contents) of the engine's own id files and folders. Never profiles\,
-    /// accounts\, tokens.json, and never the contents of the Gameloft id files.
+    /// accounts\, tokens.json, and never the contents of the Gameloft id files. The stall dumps of 'watch'
+    /// (%LOCALAPPDATA%\McvsOffline\dumps) and the WER LocalDumps of the game (%LOCALAPPDATA%\CrashDumps) are listed with path
+    /// and size in summary.txt and dumps.txt, never zipped (1.5-2 GB each: the player sends them separately).
     /// </summary>
     public static class Collect
     {
@@ -67,6 +69,7 @@ namespace McvsOffline.PcKit
                 if (probeLines != null) AddText(zip, "probe.txt", string.Join("\r\n", probeLines) + "\r\n");
                 AddText(zip, "gameloft-files-listing.txt", GameloftListing(game, env));
                 GameloftCrashLogs(zip, env, summary);
+                Dumps(zip, env, summary);
                 WindowsEvents(zip, summary);
                 AddText(zip, "summary.txt", summary.ToString());
             }
@@ -137,6 +140,31 @@ namespace McvsOffline.PcKit
                     AddText(zip, entry + ".decrypt-error.txt", ex.Message);
                 }
             }
+        }
+
+        /// <summary>The game's WER LocalDumps folder (DumpFolder unset: %LOCALAPPDATA%\CrashDumps; docs/PLAYER-SETUP-PC.md).</summary>
+        public static string WerDumpFolder(KitEnvironment env)
+        {
+            return string.IsNullOrEmpty(env.LocalAppData) ? null : Path.Combine(env.LocalAppData, "CrashDumps");
+        }
+
+        /// <summary>Path and size of every stall dump and WER dump of the game (listed, never zipped).</summary>
+        private static void Dumps(ZipArchive zip, KitEnvironment env, StringBuilder summary)
+        {
+            var lines = new List<string>();
+            lines.AddRange(StallDumps.Listing(env));
+            string wer = WerDumpFolder(env);
+            if (wer != null && Directory.Exists(wer))
+            {
+                foreach (FileInfo f in SafeFiles(wer).Where(f => f.Name.StartsWith(GameFolder.ExeName + ".", StringComparison.OrdinalIgnoreCase) &&
+                                                                  f.Extension.Equals(".dmp", StringComparison.OrdinalIgnoreCase))
+                                                    .OrderBy(f => f.Name, StringComparer.Ordinal))
+                    lines.Add(f.FullName + "\t" + f.Length.ToString(CultureInfo.InvariantCulture) + " bytes\t" +
+                              f.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture));
+            }
+            summary.Append("dumps (not in this zip, send them separately): ").Append(lines.Count).Append("\r\n");
+            foreach (string line in lines) summary.Append("  dump: ").Append(line).Append("\r\n");
+            AddText(zip, "dumps.txt", "# dumps of the game (path, size, time); they are NOT in this zip\r\n" + string.Join("\r\n", lines) + "\r\n");
         }
 
         /// <summary>Application Error / .NET Runtime / WER / Hang entries of the last 7 days that name the game (Windows only).</summary>
