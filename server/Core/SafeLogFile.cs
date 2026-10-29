@@ -128,6 +128,7 @@ namespace McvsOffline.Server.Core
         private long totalFailures;
         private bool usingFallback;
         private bool justSwitched;
+        private bool startPending;   // NewFileAtStart and not done yet (ioGate)
         private volatile bool stopping;
         private volatile string path;
         private volatile string lastError;
@@ -143,7 +144,8 @@ namespace McvsOffline.Server.Core
             maxBytes = Num.Max(4096L, this.options.MaxBytes);
             maxFiles = Num.Max(1, this.options.MaxFiles);
             if (this.options.ReportInitialSize) ReportInitialSize();
-            if (this.options.NewFileAtStart && this.options.Synchronous)
+            startPending = this.options.NewFileAtStart;
+            if (startPending && this.options.Synchronous)
             {
                 lock (ioGate) StartNewFileLocked();
             }
@@ -188,6 +190,7 @@ namespace McvsOffline.Server.Core
             {
                 lock (ioGate)
                 {
+                    StartNewFileLocked();   // the earlier start's file is name.1 before anything is judged (no-op once done)
                     var candidates = new List<string>();
                     string primaryDir = System.IO.Path.GetDirectoryName(primaryPath);
                     AddOlderFiles(primaryDir, false, beforeUtc, candidates);
@@ -412,7 +415,7 @@ namespace McvsOffline.Server.Core
             {
                 if (options.NewFileAtStart)
                 {
-                    lock (ioGate) StartNewFileLocked();
+                    lock (ioGate) StartNewFileLocked();   // first thing: before any line, also before the log retention runs
                 }
                 RunLoop();
             }
@@ -495,6 +498,7 @@ namespace McvsOffline.Server.Core
         /// <summary>Caller holds ioGate. Never throws; false when the batch could not be written.</summary>
         private bool WriteBatchLocked(List<string> batch, bool fsync)
         {
+            StartNewFileLocked();   // the crash path (FlushNow) can come before the writer thread's first turn
             string stage = "encode";
             string current = path;
             try
@@ -576,6 +580,8 @@ namespace McvsOffline.Server.Core
         /// </summary>
         private void StartNewFileLocked()
         {
+            if (!startPending) return;   // once per process: whoever takes the I/O lock first (writer, DeleteFilesBefore)
+            startPending = false;
             try
             {
                 var info = new FileInfo(path);

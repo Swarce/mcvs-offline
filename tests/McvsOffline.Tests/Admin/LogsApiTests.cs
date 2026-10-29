@@ -249,5 +249,25 @@ namespace McvsOffline.Tests.Admin
             Assert.DoesNotContain(Ticket, report);
             Assert.True(report.Length <= LogsApi.ReportMaxChars);
         }
+
+        /// <summary>
+        /// The embedded host starts new log files at every start: "the game broke, I restarted it and opened the page" finds the
+        /// broken start in the .1 files, so the report has their problems too, after the current files.
+        /// </summary>
+        [Fact]
+        public void TheTextReportHasThePreviousStartsProblems()
+        {
+            using var s = Phone(out string logs, out _);
+            File.WriteAllText(Path.Combine(logs, "bootstrap.log.1"),
+                "2026-10-25T09:00:00.000Z INFO  [boot] started\n2026-10-25T09:05:00.000Z WARN  [watchdog] game thread stalled\n");
+            s.Host.Info.CanShareText = false;
+            string report = (string)J(s.Client.Post("logs/share-text", new Dictionary<string, object>()))["text"];
+            int current = report.IndexOf("== server.log (last warnings and errors) ==", StringComparison.Ordinal);
+            int previous = report.IndexOf("== bootstrap.log.1 (previous start, last warnings and errors) ==", StringComparison.Ordinal);
+            Assert.True(current >= 0 && previous > current, report);
+            Assert.Contains("WARN [watchdog] game thread stalled", report.Substring(previous));
+            Assert.Contains("== server.log.1 (previous start, last warnings and errors) ==", report);   // listed, nothing above INFO
+            Assert.DoesNotContain("[boot] started", report.Substring(previous));
+        }
     }
 }

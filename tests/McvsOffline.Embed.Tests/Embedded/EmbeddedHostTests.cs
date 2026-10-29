@@ -58,6 +58,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.Contains("\"nativeOnlineSdk\": false", settings);
                 Assert.Contains("\"levels\": \"error warning\"", settings);
                 Assert.Contains("\"watchdog\": true", settings);
+                Assert.Contains("\"keepStarts\": 1", settings);
                 Assert.False(McvsOffline.GameHooks.AllowNativeOnlineInit("mcvs"));
                 Assert.Contains("native online SDK init requested", string.Join("\n", host.Boot.Milestones()));
                 Assert.Contains("boot: ", host.DescribeState());
@@ -84,6 +85,80 @@ namespace McvsOffline.Embed.Tests.Embedded
             {
                 again.Server?.Dispose();
             }
+        }
+
+        /// <summary>
+        /// Log retention per start (docs/design/settings-page.md §7.7): every start begins new log files, records itself in
+        /// logs/starts.txt and deletes the files of starts older than the previous one; the restart marker is still taken.
+        /// </summary>
+        [Fact]
+        public void EachStartBeginsNewLogFilesAndDeletesOlderStarts()
+        {
+            string root = TestEnvironment.NewTempDir("logret-host");
+            string logs = Path.Combine(root, "McvsOffline", "logs");
+            Directory.CreateDirectory(logs);
+            DateTime before = DateTime.UtcNow.AddHours(-1);
+            void Plant(string name)
+            {
+                File.WriteAllText(Path.Combine(logs, name), name + "\n");
+                File.SetLastWriteTimeUtc(Path.Combine(logs, name), before);
+            }
+            Plant("server.log.4");
+            Plant("crash-20261028-101010-000-1.txt");
+            Plant("notes.txt");
+
+            EmbeddedHost first = Run(root, "first");
+            Assert.Equal(1, first.Retention.KeepStarts);
+            Assert.Null(first.Retention.CutoffUtc);   // nothing recorded before: nothing deleted by age
+            Assert.True(File.Exists(Path.Combine(logs, "server.log.4")));
+            Assert.Single(File.ReadAllLines(Path.Combine(logs, "starts.txt")));
+            Assert.Contains("[logs] keeping this start and 1 previous: only 0 starts recorded so far, nothing deleted this time",
+                            File.ReadAllText(Path.Combine(logs, "bootstrap.log")));
+            File.WriteAllText(Path.Combine(logs, "restart-requested.txt"), "2026-10-29T08:00:00.000Z settings\n");
+            File.SetLastWriteTimeUtc(Path.Combine(logs, "restart-requested.txt"), before);
+
+            EmbeddedHost second = Run(root, "second");
+            Assert.NotNull(second.Retention.CutoffUtc);
+            string[] starts = File.ReadAllLines(Path.Combine(logs, "starts.txt"));
+            Assert.Equal(2, starts.Length);
+            Assert.All(starts, l => Assert.Matches(@"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z directory \S+$", l));
+            string bootstrap = File.ReadAllText(Path.Combine(logs, "bootstrap.log"));
+            string previous = File.ReadAllText(Path.Combine(logs, "bootstrap.log.1"));
+            Assert.Contains("embedded host starting", previous);
+            Assert.Contains("run first", previous);
+            Assert.DoesNotContain("run second", previous);
+            Assert.Contains("run second", bootstrap);
+            Assert.DoesNotContain("run first", bootstrap);
+            Assert.Contains("restart requested from the settings page (settings)", bootstrap);
+            Assert.False(File.Exists(Path.Combine(logs, "restart-requested.txt")));
+            // server.log of the first run is now .1; the planted (older than both starts) files are gone.
+            Assert.Contains("MCVS Offline server", File.ReadAllText(Path.Combine(logs, "server.log.1")));
+            Assert.False(File.Exists(Path.Combine(logs, "server.log.4")));
+            Assert.False(File.Exists(Path.Combine(logs, "server.log.5")));
+            Assert.False(File.Exists(Path.Combine(logs, "crash-20261028-101010-000-1.txt")));
+            Assert.True(File.Exists(Path.Combine(logs, "notes.txt")));
+            Assert.Matches(@"\[logs\] keeping this start and 1 previous \(since [^)]+\): deleted 2 files, 0\.0 MB \(server\.log\.5, crash 1\)", bootstrap);
+        }
+
+        /// <summary>One start that ends completely (server and bootstrap logger closed), its retention finished.</summary>
+        private static EmbeddedHost Run(string root, string marker)
+        {
+            EmbeddedHost host = EmbeddedHost.Start(new DirectoryPlatform(root, false),
+                                                   new EmbeddedHostOptions { Port = TestEnvironment.FreePort(), Watchdog = false, StatusIntervalMs = 0 });
+            try
+            {
+                Assert.True(host.WaitForServer(30000));
+                Assert.NotNull(host.Server);
+                Assert.True(host.WaitLogRetention(30000));
+                host.Log.Info("run " + marker);
+                Assert.True(host.FlushLogs(10000));
+            }
+            finally
+            {
+                host.Server?.Dispose();
+                host.Logger.Dispose();   // the next "process" must not share this one's bootstrap.log writer
+            }
+            return host;
         }
 
         [Fact]

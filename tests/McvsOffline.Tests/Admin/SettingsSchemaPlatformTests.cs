@@ -50,6 +50,7 @@ namespace McvsOffline.Tests.Admin
             }
             Assert.Contains("hd.enabled", AllKeys(views));
             Assert.Contains("install.manageInstaller", AllKeys(views));
+            Assert.Contains("logging.keepStarts", AllKeys(views));
             Assert.DoesNotContain("embedded.physics.keepPhysicsLayer", AllKeys(views));
         }
 
@@ -59,6 +60,8 @@ namespace McvsOffline.Tests.Admin
             List<SettingGroupView> views = SettingsSchema.GroupsFor("windows");
             List<string> keys = AllKeys(views).ToList();
             Assert.DoesNotContain(keys, AndroidOnly);
+            // The PC host deletes the logs of older starts the same way (McvsOffline\logs and %TEMP%\McvsOffline\logs).
+            Assert.Equal(keys.IndexOf("logging.fileLevel") + 1, keys.IndexOf("logging.keepStarts"));
             // Everything else is still there, in the same order.
             List<string> android = AllKeys(SettingsSchema.GroupsFor("android")).Where(k => !AndroidOnly(k)).ToList();
             Assert.Equal(android, keys.Where(k => k != "embedded.physics.keepPhysicsLayer").ToList());
