@@ -71,6 +71,11 @@ namespace McvsOffline.Patcher.Pc
             foreach (string path in r.Written)
                 lines.Add((dryRun ? "would write " : "wrote    ") + path + "  sha256 " + r.WrittenSha256[path]);
             foreach (string removed in r.Removed) lines.Add("removed  " + removed);
+            if (r.SettingsPort.HasValue)
+            {
+                lines.Add("port     " + r.SettingsPort.Value.ToString(CultureInfo.InvariantCulture) + (dryRun ? " would be" : " is") + " the server port in " +
+                          GameFolder.DataDirName + "\\" + PcSettingsPort.FileName + " (the game reads it there; your other settings are unchanged)");
+            }
             if (dryRun) lines.Add("dry run: every patch site verified, nothing written");
             return lines;
         }

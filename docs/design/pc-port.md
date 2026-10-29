@@ -1057,6 +1057,13 @@ resolve (nothing written), 4 the game is running.
 and the framework folder on Windows; no Steam lookup (the kit does that). The APK command line is unchanged (the `pc`
 verb is new; `--apk` stays the default form).
 
+`--port n` (patcher and kit) bakes the port into the `geo` patch, records it in `install.json` and sets `"port"` in
+`McvsOffline\settings.json`, the key the game's server listens on (`EmbeddedHost`; the settings page never changes it):
+only that key, through `settings.json.mcvs-tmp` + rename as the last write, the file created when missing. A
+`settings.json` that is not one JSON object refuses the install before anything is written. Without `--port`
+`settings.json` is left alone. Every `.mcvs-tmp` → target rename retries a sharing/lock violation (and, on Windows, an
+access denial: a virus scanner holding the file) up to 10 times 100 ms apart (`PcFileOps.Rename`).
+
 ---------------------------------------------------------------------------------------------------
 
 ## 8. The PC patch set (WP4)

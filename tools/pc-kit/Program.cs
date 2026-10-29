@@ -104,6 +104,7 @@ namespace McvsOffline.PcKit
                     ServerFolder = temp,
                     BclDirectory = options.Bcl ?? env.DefaultBcl(),
                     Port = options.Port,
+                    SetSettingsPort = options.PortGiven,
                     OptionalPatches = options.Patches,
                     Force = options.Force,
                     DryRun = options.DryRun,
@@ -375,7 +376,8 @@ namespace McvsOffline.PcKit
             "Options:\n" +
             "  --game <folder>   the folder with ModernCombatVersus.exe (default: found through Steam); env MCVS_PC_GAME\n" +
             "  --bcl <folder>    the .NET Framework 4 folder (default %WINDIR%\\Microsoft.NET\\Framework\\v4.0.30319)\n" +
-            "  --server <dll>    install this McvsOffline.Server.dll instead of the kit's own (development)\n\n" +
+            "  --server <dll>    install this McvsOffline.Server.dll instead of the kit's own (development)\n" +
+            "  --port <n>        install: the server port (default 51780), set in McvsOffline\\settings.json (only that key)\n\n" +
             "Exit codes: 0 ok, 1 I/O, 2 usage, 3 refused (unknown build, site mismatch; nothing written), 4 the game is running.";
     }
 }

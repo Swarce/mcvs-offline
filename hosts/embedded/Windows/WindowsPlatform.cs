@@ -77,7 +77,8 @@ namespace McvsOffline.Embedded.Windows
             get
             {
                 return "Another program holds the port, or Windows reserves it (Hyper-V/WSL excluded port ranges: " +
-                       "netsh int ipv4 show excludedportrange protocol=tcp); change 'port' and run the kit's install again.";
+                       "netsh int ipv4 show excludedportrange protocol=tcp); pick a free port with 'McvsOffline.PcKit install --port <n>', " +
+                       "which sets 'port' in McvsOffline\\settings.json (the port the server uses) and in the patched game.";
             }
         }
 

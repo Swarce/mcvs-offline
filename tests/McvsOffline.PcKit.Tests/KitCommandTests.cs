@@ -131,6 +131,35 @@ namespace McvsOffline.PcKit.Tests
             }
         }
 
+        /// <summary>
+        /// install --port n asks the installer to set settings.json "port" (the key the game's server listens on) and prints where;
+        /// without --port settings.json is left alone.
+        /// </summary>
+        [Fact]
+        public void InstallWithAPortSetsItInSettingsJson()
+        {
+            using (var box = new KitSandbox())
+            {
+                Assert.True(KitOptions.Parse(new[] { "install", "--port", "51790" }, null).PortGiven);
+                Assert.False(KitOptions.Parse(new[] { "install" }, null).PortGiven);
+
+                PcInstallOptions seen = null;
+                box.Env.Install = o =>
+                {
+                    seen = o;
+                    return new PcInstallReport { SettingsPort = o.SetSettingsPort ? o.Port : (int?)null };
+                };
+                Assert.Equal(PcExitCodes.Ok, Program.Run(box.Env, box.Options("install", "--port", "51790")));
+                Assert.True(seen.SetSettingsPort);
+                Assert.Equal(51790, seen.Port);
+                Assert.Contains("port     51790 is the server port in McvsOffline\\settings.json", box.Out.ToString());
+
+                Assert.Equal(PcExitCodes.Ok, Program.Run(box.Env, box.Options("install")));
+                Assert.False(seen.SetSettingsPort);
+                Assert.Equal(51780, seen.Port);
+            }
+        }
+
         [Fact]
         public void AKitWithoutItsServerDllSaysSo()
         {

@@ -39,7 +39,10 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.Equal("EngineBridge.Class1.Start", platform.EntryPoint);
             Assert.Equal("MainLoop_Start", platform.ArgsReader);
             Assert.Contains("netsh int ipv4 show excludedportrange protocol=tcp", platform.PortInUseHint);
-            Assert.Contains("run the kit's install again", platform.PortInUseHint);
+            // The real action: install --port sets settings.json "port", which the server listens on (not only install.json).
+            Assert.Contains("McvsOffline.PcKit install --port <n>", platform.PortInUseHint);
+            Assert.Contains("McvsOffline\\settings.json", platform.PortInUseHint);
+            Assert.DoesNotContain("run the kit's install again", platform.PortInUseHint);
             Assert.IsType<DebugOutputSink>(platform.CreateSystemLogSink(LogLevel.Info));
             Assert.Equal(Path.GetTempPath(), platform.FallbackLogDirectory());
             Assert.Null(platform.JavaStacks("main"));
