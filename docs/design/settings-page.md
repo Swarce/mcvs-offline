@@ -297,6 +297,7 @@ save before saving the change, §4.4).
 | Group | Key | Label | Type / page range | Default | Apply | Help / confirm |
 |---|---|---|---|---|---|---|
 | Gameplay | `instantBots` | Instant bot matches | bool | true | menu | Matches start at once and bots fill the empty slots. Off: the game waits for other players first. |
+| Gameplay | `crm.practiceTile` | Practice tile in the main menu | bool | false | menu | Shows the game's own hidden PRACTICE tile (a bot match) as the last tile of the main menu. With the bottile patch (default) it starts the same bot-filled, full-reward match as Battle > Classic multiplayer, without the mode and group screens; without it, the game's free bot match (5 Credits per win). Untested: where the tile sits in this menu and how it looks; turn it off again if the menu looks wrong. Two CRM SET cells on MCVS_Meta `MainMenuElements` row 13 ([protocol/content.md](../protocol/content.md) step 5). |
 | Gameplay | `devMenu` | Developer cheat menu | bool | false | restart | Gameloft's developer menu (`IsDevelopment` in the menu server handshake). `confirmWhen: enable`, `backupBefore: enable`: "Cheats can damage your profile. A backup of your save is made now." |
 | Gameplay | `leaderboards.virtualPlayers` | Leaderboard opponents | bool | true | live | Division leaderboards are filled with generated players. |
 | Gameplay | `geo.country` | Country | string `^[A-Z]{2}$` | `US` | restart | Two-letter country code reported to the game. |

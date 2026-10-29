@@ -74,7 +74,8 @@ namespace McvsOffline.Server.Services.Crm
     /// <item><c>iap</c> = <c>{"prices":[]}</c> or the preconfiguration catalogue of one language (<c>crm.iap</c>);</item>
     /// <item>settings: <c>_ServerConfig.default.IsDevelopment</c> = devMenu (explicitly false otherwise: the dev cheat menu
     /// is on by default over loopback, verify-C5 (a)), <c>Matchmaking {MinPlayers:1, MaxOpenTimeInSeconds:0}</c> when
-    /// instantBots (verify-C4 §3.4), age gate, the RedeemCoupons switch, economy multipliers as <c>_OverrideTables</c>;</item>
+    /// instantBots (verify-C4 §3.4), age gate, the RedeemCoupons switch, the PRACTICE tile (crm.practiceTile), economy
+    /// multipliers as <c>_OverrideTables</c>;</item>
     /// <item><c>crm.overlay</c> from settings.json;</item>
     /// <item><c>newsfeeds</c>: our inbox item (<see cref="CrmNewsfeed"/>) appended to whatever the layers above put there.</item>
     /// </list>
@@ -91,6 +92,23 @@ namespace McvsOffline.Server.Services.Crm
     {
         /// <summary>Ad pointcut types: the ad SDK cannot work offline, and they only add ad buttons.</summary>
         private static readonly string[] AdActionTypes = { "show_ad", "show_ad_button", "show_ad_banner" };
+
+        /// <summary>The database of the main-menu tiles (<c>Design/MCVS_Meta.xlsx</c>; the changer key is the file name).</summary>
+        public const string PracticeTileDatabase = "MCVS_Meta";
+
+        /// <summary>The main-menu tile table (GM/MainMenuComponent.cs <c>MainMenuElementsTableName</c>).</summary>
+        public const string PracticeTileTable = "MainMenuElements";
+
+        /// <summary>Row 13: <c>SOLO</c>, label <c>menu.BotBattleTxt</c> ("PRACTICE"), action <c>LINK_SOLO</c>, shipped with
+        /// <c>Displayed = "false"</c> and no OrderId.</summary>
+        public const string PracticeTileRow = "13";
+
+        /// <summary>
+        /// Its OrderId. The menu sorts the displayed rows by OrderId (GM/MainMenuComponent.cs GetMenuElements); the five
+        /// shipped tiles have 1-5, so 6 puts it last, in the sixth and last Flash slot <c>mc_promo5</c> (unused today). Left
+        /// at 0 it would sort first and take <c>mc_promo0</c>, the big Battle tile.
+        /// </summary>
+        public const long PracticeTileOrderId = 6;
 
         public static Dictionary<string, object> Build(Dictionary<string, object> preconfig, CrmContent content, CrmOptions options, Log log)
         {
@@ -145,6 +163,7 @@ namespace McvsOffline.Server.Services.Crm
 
             var game = ChildObject(doc, "game");
             ApplyGameParameters(game, options);
+            ApplyPracticeTile(ChildObject(game, "_OverrideTables"), options);
             ApplyMultipliers(ChildObject(game, "_OverrideTables"), content.Economy, options, log);
             ApplyLiveOpsCells(ChildObject(game, "_OverrideTables"), liveOps);
             ApplyCollector(ChildObject(game, "_OverrideTables"), collector, liveOps, log);
@@ -506,6 +525,22 @@ namespace McvsOffline.Server.Services.Crm
                 }
                 if (options.MatchmakingOverrides != null) JsonPath.DeepMerge(mm, options.MatchmakingOverrides);
             }
+        }
+
+        /// <summary>
+        /// <c>crm.practiceTile</c>: shows the hidden SOLO/PRACTICE tile (match-modes research, bottile option 2) with two SET
+        /// cells, <c>MCVS_Meta.MainMenuElements</c> <c>Id@Displayed {"13": "true"}</c> and <c>Id@OrderId {"13": 6}</c>
+        /// (<see cref="PracticeTileOrderId"/>). The client applies them at its next CRM fetch: <c>CRMComponent.CrmConfig</c>
+        /// calls <c>RefreshDatabases</c>, the new <c>Database.Changer</c> reloads the table and the <c>MenuElementsCollection</c>
+        /// refills (EN/CRMComponent.cs, EN/Database.cs, EN/TableLoader.cs). Tapping the tile opens <c>PopupSolo_Bot_Match</c>
+        /// and then <c>StartMatchWithBots</c>, which the default <c>bottile</c> patch sends to the GS. Off: nothing is written
+        /// (a cell from the preconfiguration or <c>crm.overlay</c> stays; the overlay is merged later and wins either way).
+        /// </summary>
+        internal static void ApplyPracticeTile(Dictionary<string, object> tables, CrmOptions options)
+        {
+            if (!options.PracticeTile) return;
+            SetCell(tables, PracticeTileDatabase, PracticeTileTable, "Id", "Displayed", PracticeTileRow, "true");
+            SetCell(tables, PracticeTileDatabase, PracticeTileTable, "Id", "OrderId", PracticeTileRow, PracticeTileOrderId);
         }
 
         private static void ApplyEvents(Dictionary<string, object> doc, CrmOptions options, LiveOpsSnapshot liveOps)

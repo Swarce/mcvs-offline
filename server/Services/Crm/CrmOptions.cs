@@ -38,7 +38,7 @@ namespace McvsOffline.Server.Services.Crm
     ///   "offlineStore": "generated|merge|preconfig", "iap": "empty|preconfig", "iapLanguage": "en",
     ///   "keepAdPointcuts": false, "pointcutActions": [], "eventIds": [], "matchmaking": {},
     ///   "dailyCapMultiplier": 1.0, "usePreconfiguration": true, "dataPackDir": "", "overlay": {},
-    ///   "newsfeedLink": true, "omitOwnedSignatures": true
+    ///   "newsfeedLink": true, "omitOwnedSignatures": true, "practiceTile": false
     /// }
     /// </code>
     /// <see cref="Fingerprint"/> changes whenever any of them does, so the cached document is rebuilt.
@@ -105,6 +105,13 @@ namespace McvsOffline.Server.Services.Crm
         /// </summary>
         public bool OmitOwnedSignatures { get; set; }
 
+        /// <summary>
+        /// Show the game's hidden PRACTICE bot-match tile in the main menu (<c>crm.practiceTile</c>, off by default):
+        /// two SET cells on MCVS_Meta <c>MainMenuElements</c> row 13 (<see cref="CrmDocumentBuilder.ApplyPracticeTile"/>).
+        /// Its placement and art in the v9 menu are untested.
+        /// </summary>
+        public bool PracticeTile { get; set; }
+
         public CrmOptions()
         {
             DeveloperIpRange = "";
@@ -158,6 +165,7 @@ namespace McvsOffline.Server.Services.Crm
             o.Overlay = settings.GetObject("crm.overlay");
             o.NewsfeedLink = settings.GetBool("crm.newsfeedLink", true);
             o.OmitOwnedSignatures = settings.GetBool("crm.omitOwnedSignatures", true);
+            o.PracticeTile = settings.GetBool("crm.practiceTile", false);
             return o;
         }
 
@@ -191,6 +199,7 @@ namespace McvsOffline.Server.Services.Crm
                 d["overlay"] = Overlay;
                 d["news"] = NewsfeedLink;
                 d["omitOwned"] = OmitOwnedSignatures;
+                d["practice"] = PracticeTile;
                 return MiniJson.Serialize(d);
             }
         }

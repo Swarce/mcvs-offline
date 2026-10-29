@@ -56,6 +56,16 @@ Built by `CrmDocumentBuilder`, layers in order (last wins):
    with `crm.matchmaking`; `game.AgeGateParams.Ignore = crm.skipAgeGate` (true: no age gate on first boot);
    `crm.redeemCoupons=false` removes the RedeemCoupons cell; economy multipliers become `_OverrideTables` MUL cells
    (`economy.json` targets, see ECONOMY.md); `crm.eventIds` → `groupware.events.participation`.
+   `crm.practiceTile` (default false) adds two SET cells, `_OverrideTables.MCVS_Meta.MainMenuElements`
+   `Id@Displayed {"13": "true"}` and `Id@OrderId {"13": 6}`, mirrored like every cell: row 13 is the game's hidden
+   SOLO tile ("PRACTICE", action `LINK_SOLO` → `PopupSolo_Bot_Match` → `StartMatchWithBots`, which the `bottile`
+   patch sends to the GS). The menu lists the `Displayed` rows ordered by `OrderId` into six Flash slots; the shipped
+   tiles have 1-5, so 6 puts SOLO in the last slot (`mc_promo5`, unused today), while the row's empty OrderId (0) would
+   take slot 0, the big Battle tile. The client applies the cells at its next CRM fetch (`CRMComponent.CrmConfig` →
+   `RefreshDatabases` → the table reloads and `MenuElementsCollection` refills): after the next match, or at the next
+   start. `Conformance/PracticeTileConformanceTests` applies the served trees to the real table with the game's own
+   code; the PC data pack's `MainMenuElements` is identical. Untested on a device: the tile's placement and art, and
+   whether the `BotMatchesAvailable` lock badge shows.
 5b. **Live ops** ([../LIVEOPS.md](../LIVEOPS.md), from `LiveOpsService.Snapshot(now)`): the current and next season's 17
    division event ids, today's and tomorrow's daily missions, the season's weekly event (and the next one during the
    last day) appended to `groupware.events.participation` (after `crm.eventIds`); top-level **`expiry`** = the next
