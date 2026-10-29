@@ -111,7 +111,8 @@ namespace McvsOffline.Embedded.Windows
 
         /// <summary>
         /// Installs <see cref="NativeCrashFilter"/> on Windows (once per process) and adds it to the "[crash] hooks:" line; the
-        /// filter writes to the crash directory, or %TEMP%\McvsOffline\logs before the host knows the game folder. Never throws.
+        /// filter writes to the crash directory, or %TEMP%\McvsOffline\logs (which Install creates) before the host knows the game
+        /// folder or when that one is not writable. Never throws.
         /// </summary>
         internal static void InstallNativeCrashFilter()
         {

@@ -2,12 +2,15 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using McvsOffline.Embed.Tests.Support;
 using McvsOffline.Embedded;
 using McvsOffline.Embedded.Diagnostics;
 using McvsOffline.Embedded.Windows;
+using Mono.Cecil;
+using Mono.Cecil.Cil;
 using Xunit;
 
 namespace McvsOffline.Embed.Tests.Embedded
@@ -31,7 +34,15 @@ namespace McvsOffline.Embed.Tests.Embedded
             public readonly List<string> Created = new List<string>();
             public readonly List<string> Refused = new List<string>();
             public int Flushes;
+            public int Prepares;
+            public Exception PrepareThrows;
             private long next = 100;
+
+            public void Prepare()
+            {
+                Prepares++;
+                if (PrepareThrows != null) throw PrepareThrows;
+            }
 
             public IntPtr SetFilter(IntPtr filter)
             {
@@ -154,6 +165,11 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.Equal(NativeCrashFilter.FilterPointer, native.Installed);
                 Assert.Equal(native.Previous, NativeCrashFilter.PreviousFilter);
                 Assert.Equal("native filter ok (already installed)", NativeCrashFilter.Install(native, 4321, null));
+                // The crash path was compiled ahead once (imports bound, dry run of the formatting), and the dry run left nothing.
+                Assert.Null(NativeCrashFilter.PrepareFailure);
+                Assert.Equal(1, native.Prepares);
+                Assert.Empty(native.Created);
+                Assert.Equal("", NativeCrashFilter.FormattedText());
 
                 NativeCrashFilter.Clock = () => CrashTime;
                 CrashReporter.SetCrashDirectory(dir);
@@ -246,14 +262,17 @@ namespace McvsOffline.Embed.Tests.Embedded
             }
 
             // No previous filter (none installed before ours): EXCEPTION_CONTINUE_SEARCH; before the host knows the game folder
-            // the report goes to the fallback folder (%TEMP%\McvsOffline\logs).
-            string fallback = TestEnvironment.NewTempDir("native-crash-fallback");
+            // the report goes to the fallback folder (%TEMP%\McvsOffline\logs), which Install creates (CreateFileW does not).
+            string fallback = Path.Combine(TestEnvironment.NewTempDir("native-crash-fallback"), EmbeddedPaths.DataFolderName, "logs");
             var alone = new FakeNative();
             try
             {
                 CrashReporter.Context = null;   // EmbeddedHost.Start in other tests leaves its own
                 CrashReporter.SetCrashDirectory(null);
+                Assert.False(Directory.Exists(fallback));
                 Assert.Equal("native filter ok (previous filter none)", NativeCrashFilter.Install(alone, 2, fallback));
+                Assert.True(Directory.Exists(fallback));
+                Assert.Empty(Directory.GetFiles(fallback));
                 NativeCrashFilter.Clock = () => CrashTime;
                 using (var e = new ExceptionPointers(NativeCrashFilter.ClrException, 1, 0x7FFE0000, 0x80131500))
                 {
@@ -276,13 +295,14 @@ namespace McvsOffline.Embed.Tests.Embedded
         public void TheReportIsFormattedWithoutAllocating()
         {
             var native = new FakeNative();
+            NativeCrashFilter.ResetForTests();
             CrashReporter.ResetForTests();
             CrashReporter.LastGameFatal = "14:06:38.389 Fatal [] MenuComponent.OnInvokeDelegate : An exception has occured. Ação";
             try
             {
+                NativeCrashFilter.Install(native, 3, null);   // compiles the crash path: the first Format below is the crash's
                 using (var av = new ExceptionPointers(0xC0000005, 0, 0x10004000, 0, 0x10))
                 {
-                    NativeCrashFilter.Format(av.Pointer, CrashTime, native);   // JIT and statics first
                     long before = GC.GetAllocatedBytesForCurrentThread();
                     NativeCrashFilter.Format(av.Pointer, CrashTime, native);
                     long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
@@ -297,10 +317,89 @@ namespace McvsOffline.Embed.Tests.Embedded
             }
             finally
             {
+                NativeCrashFilter.ResetForTests();
                 CrashReporter.ResetForTests();
             }
             Assert.Equal("unknown", NativeCrashFilter.CodeName(0x12345678));
             Assert.Equal("C++ exception", NativeCrashFilter.CodeName(0xE06D7363));
+        }
+
+        [Fact]
+        public void AFailedPreparationIsOnTheHooksLineAndTheFilterStillWorks()
+        {
+            var native = new FakeNative { PrepareThrows = new InvalidOperationException("no stub") };
+            NativeCrashFilter.ResetForTests();
+            CrashReporter.ResetForTests();
+            try
+            {
+                Assert.Equal("native filter ok (previous filter none); crash path not compiled ahead (imports: InvalidOperationException)",
+                             NativeCrashFilter.Install(native, 5, null));
+                Assert.Equal(NativeCrashFilter.FilterPointer, native.Installed);
+                using (var e = new ExceptionPointers(0xC0000005, 0, 0x10000010))
+                {
+                    Assert.Equal(NativeCrashFilter.ContinueSearch, NativeCrashFilter.Filter(e.Pointer));
+                }
+            }
+            finally
+            {
+                NativeCrashFilter.ResetForTests();
+                CrashReporter.ResetForTests();
+            }
+        }
+
+        private static IEnumerable<MethodReference> Calls(MethodDefinition method)
+        {
+            return method.Body.Instructions.Where(i => i.OpCode.Code == Code.Call || i.OpCode.Code == Code.Callvirt).Select(i => (MethodReference)i.Operand);
+        }
+
+        private static bool CallsMethod(MethodDefinition method, string type, string name)
+        {
+            return Calls(method).Any(m => m.DeclaringType.FullName == type && m.Name == name);
+        }
+
+        /// <summary>
+        /// The crash path is compiled at Install, not first in the filter of a crashing process (in the net8 test assembly and the
+        /// built PC DLL): Install prepares every method of the filter, the native layer's methods and imports, both delegates,
+        /// and dry-runs the formatting; the Prelink list is exactly the kernel32 imports the native layer calls; the re-entry
+        /// guard is no [ThreadStatic] (storage a thread allocates on first use).
+        /// </summary>
+        [Fact]
+        public void InstallCompilesTheCrashPathAhead()
+        {
+            var paths = new List<string> { typeof(NativeCrashFilter).Assembly.Location };
+            if (TestEnvironment.PcServerDll != null) paths.Add(TestEnvironment.PcServerDll);
+            const string Ns = "McvsOffline.Embedded.Windows.";
+            foreach (string path in paths)
+            {
+                using (ModuleDefinition module = ModuleDefinition.ReadModule(path, new ReaderParameters { InMemory = true }))
+                {
+                    TypeDefinition filter = module.GetType(Ns + "NativeCrashFilter");
+                    TypeDefinition win = module.GetType(Ns + "Win32CrashFilterNative");
+                    Func<TypeDefinition, string, MethodDefinition> method = (t, n) => t.Methods.Single(m => m.Name == n);
+
+                    Assert.True(CallsMethod(method(filter, "Install"), Ns + "NativeCrashFilter", "PrepareCrashPath"), path);
+                    Assert.True(CallsMethod(method(filter, "Install"), Ns + "NativeCrashFilter", "CreateFolder"), path);
+                    MethodDefinition prepare = method(filter, "PrepareCrashPath");
+                    Assert.True(CallsMethod(prepare, "System.Runtime.CompilerServices.RuntimeHelpers", "PrepareMethod"), path);
+                    Assert.Equal(2, Calls(prepare).Count(m => m.DeclaringType.FullName == "System.Runtime.CompilerServices.RuntimeHelpers" && m.Name == "PrepareDelegate"));
+                    Assert.True(CallsMethod(prepare, Ns + "ICrashFilterNative", "Prepare"), path);
+                    Assert.True(CallsMethod(prepare, Ns + "NativeCrashFilter", "DryRun"), path);
+                    Assert.True(CallsMethod(method(filter, "DryRun"), Ns + "NativeCrashFilter", "Format"), path);
+                    Assert.True(CallsMethod(method(filter, "DryRun"), Ns + "NativeCrashFilter", "BuildPath"), path);
+                    Assert.DoesNotContain(filter.Fields, f => f.CustomAttributes.Any(a => a.AttributeType.Name == "ThreadStaticAttribute"));
+
+                    MethodDefinition prelink = method(win, "Prepare");
+                    Assert.True(CallsMethod(prelink, "System.Runtime.InteropServices.Marshal", "Prelink"), path);
+                    Assert.True(CallsMethod(prelink, "System.Runtime.CompilerServices.RuntimeHelpers", "PrepareMethod"), path);
+                    var called = win.Methods.Where(m => m.HasBody && m.Name != "Prepare")
+                                    .SelectMany(Calls).Where(m => m.DeclaringType.FullName == Ns + "Win32").Select(m => m.Name)
+                                    .Distinct().OrderBy(n => n, StringComparer.Ordinal).ToArray();
+                    Assert.Equal(called, Win32CrashFilterNative.Imports.OrderBy(n => n, StringComparer.Ordinal).ToArray());
+                }
+            }
+            // The names resolve (Prelink would throw on a null method).
+            foreach (string name in Win32CrashFilterNative.Imports)
+                Assert.NotNull(typeof(NativeCrashFilter).Assembly.GetType(Ns + "Win32", true).GetMethod(name, BindingFlags.Static | BindingFlags.Public));
         }
 
         [Fact]

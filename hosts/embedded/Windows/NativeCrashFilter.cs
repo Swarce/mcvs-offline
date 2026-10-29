@@ -5,6 +5,8 @@
 using System;
 using System.Globalization;
 using System.IO;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -35,11 +37,36 @@ namespace McvsOffline.Embedded.Windows
         void Flush(IntPtr file);
 
         void Close(IntPtr file);
+
+        /// <summary>
+        /// Install, while the process is healthy: compiles these methods and binds their imports (resolves the entry points and
+        /// builds the marshalling stubs), so the crash path does not do it. Throws what the runtime throws.
+        /// </summary>
+        void Prepare();
     }
 
-    /// <summary>kernel32 (<see cref="Win32"/>): pinned buffers only, nothing on the managed heap.</summary>
+    /// <summary>kernel32 (<see cref="Win32"/>): pinned buffers only, nothing on the managed heap once prepared.</summary>
     internal sealed class Win32CrashFilterNative : ICrashFilterNative
     {
+        /// <summary>The <see cref="Win32"/> imports these methods call (a test compares the list with their IL).</summary>
+        internal static readonly string[] Imports =
+        {
+            "SetUnhandledExceptionFilter", "GetCurrentThreadId", "GetModuleHandleExW", "GetModuleFileNameW", "CreateFileW", "WriteFile",
+            "FlushFileBuffers", "CloseHandle",
+        };
+
+        public void Prepare()
+        {
+            foreach (MethodInfo method in typeof(Win32CrashFilterNative).GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly))
+            {
+                RuntimeHelpers.PrepareMethod(method.MethodHandle);
+            }
+            foreach (string name in Imports)
+            {
+                Marshal.Prelink(typeof(Win32).GetMethod(name, BindingFlags.Static | BindingFlags.Public));
+            }
+        }
+
         public IntPtr SetFilter(IntPtr filter)
         {
             return Win32.SetUnhandledExceptionFilter(filter);
@@ -93,11 +120,18 @@ namespace McvsOffline.Embedded.Windows
     /// the access-violation operation and target, the parameters, thread, pid, the game's last Fatal line), then calls the
     /// previous (the game's) filter and returns its result, so core.dmp and Windows Error Reporting behave as before.
     /// <para>
-    /// It may run on any thread, in a damaged process: the report is formatted into preallocated buffers and written with
-    /// CreateFileW/WriteFile through pinned arrays (nothing on the managed heap), flushed and only then extended with the
-    /// host's context (boot trace, watchdog; that part allocates) and followed by a flush of the log files. One report per
-    /// process (the first crashing thread); a filter further down that calls back into ours gets EXCEPTION_CONTINUE_SEARCH.
-    /// The delegate is a static root for the life of the process (plus a GCHandle), declared WINAPI (stdcall on x86).
+    /// It may run on any thread, in a damaged process (WR2's access violation came from an address-space-tight 32-bit process
+    /// whose own MiniDumpWriteDump had failed), and it runs once, so Install compiles its path ahead while the process is
+    /// healthy (<see cref="PrepareCrashPath"/>): the filter and its helpers, the kernel32 imports and their stubs, a dry run of
+    /// the formatting. The report is then formatted into preallocated buffers and written with CreateFileW/WriteFile through
+    /// pinned arrays (no managed allocation), flushed and only then extended with the host's context (boot trace, watchdog;
+    /// that part allocates) and followed by a flush of the log files. What managed code cannot compile ahead stays lazy: the
+    /// runtime's reverse-P/Invoke stub behind our function pointer (built on its first call), the forward stub of the game's
+    /// filter if <see cref="RuntimeHelpers.PrepareDelegate"/> leaves it to the first call, and the dispatch stubs of the
+    /// interface calls that only the crash makes (Create, Write, Flush, Close). One report per process (the first crashing
+    /// thread); a filter further down that calls back into ours on the same thread gets EXCEPTION_CONTINUE_SEARCH (tracked by
+    /// thread id, not a [ThreadStatic], whose storage a thread allocates on first use). The delegate is a static root for the
+    /// life of the process (plus a GCHandle), declared WINAPI (stdcall on x86).
     /// </para>
     /// </summary>
     internal static class NativeCrashFilter
@@ -121,7 +155,7 @@ namespace McvsOffline.Embedded.Windows
         private static int length;
         private static int installed;
         private static int reported;
-        [ThreadStatic] private static bool inFilter;
+        private static int filterThread;   // the thread id inside the filter (0: none), for re-entry
         private static ICrashFilterNative native;
         private static TopLevelFilter ours;
         private static GCHandle oursHandle;
@@ -143,6 +177,9 @@ namespace McvsOffline.Embedded.Windows
         /// <summary>The report written by this process, or null.</summary>
         internal static string LastReport { get; private set; }
 
+        /// <summary>The first step of <see cref="PrepareCrashPath"/> that failed ("Name: ExceptionType"), or null.</summary>
+        internal static string PrepareFailure { get; private set; }
+
         /// <summary>
         /// Installs the filter once; returns the description for the "[crash] hooks:" line ("native filter ok (previous filter
         /// 0x00406E10)", or "native filter no (...)"). Never throws.
@@ -157,6 +194,7 @@ namespace McvsOffline.Embedded.Windows
                     native = api;
                     processId = pid;
                     fallbackDirectory = fallbackDir;
+                    CreateFolder(fallbackDir);   // CreateFileW does not create the folder of the report
                     ours = Filter;
                     oursHandle = GCHandle.Alloc(ours);
                     oursPointer = Marshal.GetFunctionPointerForDelegate(ours);
@@ -165,7 +203,9 @@ namespace McvsOffline.Embedded.Windows
                     previousPointer = old;
                     previous = old == IntPtr.Zero ? null : (TopLevelFilter)Marshal.GetDelegateForFunctionPointer(old, typeof(TopLevelFilter));
                     installed = 1;
-                    return "native filter ok (previous filter " + (old == IntPtr.Zero ? "none" : "0x" + old.ToInt64().ToString("X8", CultureInfo.InvariantCulture)) + ")";
+                    string description = "native filter ok (previous filter " + (old == IntPtr.Zero ? "none" : "0x" + old.ToInt64().ToString("X8", CultureInfo.InvariantCulture)) + ")";
+                    PrepareCrashPath(api);
+                    return PrepareFailure == null ? description : description + "; crash path not compiled ahead (" + PrepareFailure + ")";
                 }
                 catch (Exception ex)
                 {
@@ -195,17 +235,112 @@ namespace McvsOffline.Embedded.Windows
                 oursPointer = IntPtr.Zero;
                 native = null;
                 LastReport = null;
+                PrepareFailure = null;
+                filterThread = 0;
                 Clock = () => DateTime.UtcNow;
             }
+        }
+
+        private static void CreateFolder(string directory)
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>
+        /// Install: compiles the crash path once, while the process is healthy, each step on its own (the first failure goes to
+        /// <see cref="PrepareFailure"/>). Every method of this class and of the native layer, the imports with their
+        /// marshalling stubs (<see cref="ICrashFilterNative.Prepare"/>), both delegates, and a dry run of the formatting and of
+        /// the path on an empty access violation (which also compiles what they call: the clock, CrashReporter's getters).
+        /// </summary>
+        private static void PrepareCrashPath(ICrashFilterNative api)
+        {
+            PrepareFailure = null;
+            foreach (MethodInfo method in typeof(NativeCrashFilter).GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+            {
+                try
+                {
+                    RuntimeHelpers.PrepareMethod(method.MethodHandle);
+                }
+                catch (Exception ex)
+                {
+                    PrepareFailed(method.Name, ex);
+                }
+            }
+            try
+            {
+                api.Prepare();
+            }
+            catch (Exception ex)
+            {
+                PrepareFailed("imports", ex);
+            }
+            try
+            {
+                RuntimeHelpers.PrepareDelegate(ours);
+                if (previous != null) RuntimeHelpers.PrepareDelegate(previous);
+            }
+            catch (Exception ex)
+            {
+                PrepareFailed("delegates", ex);
+            }
+            DryRun(api);
+        }
+
+        private static void DryRun(ICrashFilterNative api)
+        {
+            IntPtr pointers = IntPtr.Zero;
+            try
+            {
+                // EXCEPTION_POINTERS and an EXCEPTION_RECORD: an access violation reading 0 at address 0, 2 parameters.
+                int ptr = IntPtr.Size;
+                int information = ptr == 8 ? 32 : 20;
+                int size = 2 * ptr + information + 15 * ptr;
+                pointers = Marshal.AllocHGlobal(size);
+                for (int i = 0; i < size; i++) Marshal.WriteByte(pointers, i, 0);
+                IntPtr record = new IntPtr(pointers.ToInt64() + 2 * ptr);
+                Marshal.WriteIntPtr(pointers, 0, record);
+                Marshal.WriteInt32(record, 0, unchecked((int)0xC0000005));
+                Marshal.WriteInt32(record, 8 + 2 * ptr, 2);
+                DateTime now = Clock();
+                string unused = CrashReporter.CrashDirectory;
+                Format(pointers, now, api);
+                BuildPath(fallbackDirectory ?? unused ?? "dry-run", now);
+            }
+            catch (Exception ex)
+            {
+                PrepareFailed("dry run", ex);
+            }
+            finally
+            {
+                length = 0;
+                path[0] = '\0';
+                if (pointers != IntPtr.Zero) Marshal.FreeHGlobal(pointers);
+            }
+        }
+
+        private static void PrepareFailed(string step, Exception ex)
+        {
+            if (PrepareFailure == null) PrepareFailure = step + ": " + ex.GetType().Name;
         }
 
         /// <summary>The filter (any thread). Never throws.</summary>
         internal static int Filter(IntPtr exceptionPointers)
         {
-            if (inFilter) return ContinueSearch;   // a filter further down called back into ours
-            inFilter = true;
+            bool owner = false;
             try
             {
+                int thread = CurrentThread();
+                if (thread != 0)
+                {
+                    if (Volatile.Read(ref filterThread) == thread) return ContinueSearch;   // a filter further down called back into ours
+                    owner = Interlocked.CompareExchange(ref filterThread, thread, 0) == 0;
+                }
                 if (Interlocked.Exchange(ref reported, 1) == 0)
                 {
                     try
@@ -229,7 +364,20 @@ namespace McvsOffline.Embedded.Windows
             }
             finally
             {
-                inFilter = false;
+                if (owner) Volatile.Write(ref filterThread, 0);
+            }
+        }
+
+        private static int CurrentThread()
+        {
+            try
+            {
+                ICrashFilterNative api = native;
+                return api == null ? 0 : (int)api.CurrentThreadId();
+            }
+            catch (Exception)
+            {
+                return 0;
             }
         }
 
