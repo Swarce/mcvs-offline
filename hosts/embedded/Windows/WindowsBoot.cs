@@ -15,8 +15,9 @@ namespace McvsOffline.Embedded.Windows
     /// docs/design/pc-port.md §6.1): called by the patched <c>EngineBridge.Class1.Start</c> before <c>MainLoop.Start</c>, which
     /// reads args.txt after it returns. Same contract as on Android: idempotent, returns within milliseconds, never throws.
     /// <list type="number">
-    /// <item><c>InstallDiagnostics</c>: SelfLog writes through OutputDebugString, the crash reporter with the public
-    /// <c>TaskScheduler.UnobservedTaskException</c> event;</item>
+    /// <item><c>InstallDiagnostics</c>: the process id for the log lines (<see cref="HostProcess"/>), SelfLog writes through
+    /// OutputDebugString, the crash reporter with the public <c>TaskScheduler.UnobservedTaskException</c> event, and our
+    /// top-level exception filter over the exe's (<see cref="NativeCrashFilter"/>, docs/design/pc-port.md §6.4);</item>
     /// <item><c>InitCore</c>: the working directory becomes the exe folder (a shortcut elsewhere would make the engine's relative
     /// args.txt another file, [WH] §6.3), then <see cref="EmbeddedHost.Start"/> on a <see cref="WindowsPlatform"/>.</item>
     /// </list>
@@ -71,8 +72,22 @@ namespace McvsOffline.Embedded.Windows
 
         internal static void InstallDiagnostics()
         {
+            HostProcess.Id = CurrentProcessId();
             SelfLog.SetWriter(DebugOutput.Write);
             CrashReporter.Install(SubscribeUnobservedTasks);
+            WindowsPlatform.InstallNativeCrashFilter();
+        }
+
+        private static int CurrentProcessId()
+        {
+            try
+            {
+                using (System.Diagnostics.Process process = System.Diagnostics.Process.GetCurrentProcess()) return process.Id;
+            }
+            catch (Exception)
+            {
+                return 0;
+            }
         }
 
         /// <summary>The public event (present in the .NET Framework's mscorlib, unlike the game's trimmed Android one).</summary>

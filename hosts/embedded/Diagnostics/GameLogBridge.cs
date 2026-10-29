@@ -27,20 +27,32 @@ namespace McvsOffline.Embedded.Diagnostics
     /// ("profile:debug", "online:all"), which survive that constructor because they live in a separate table.
     /// Applied once from Bootstrap.Init (UI thread, before GameApplication exists and before any game thread logs), so the
     /// game's List/Dictionary inside Gameloft.Log are never mutated while it reads them.
+    /// <para>
+    /// PC only: with a <see cref="GameFatalLines"/> (WindowsPlatform.ApplyGameLog) every Fatal entry also goes there, which
+    /// writes the "PROBABLY FATAL" report of an exception the game rethrows into native code (docs/design/pc-port.md §6.4).
+    /// </para>
     /// </summary>
     internal sealed class GameLogBridge : ILogger
     {
         private readonly SafeLogFile file;
         private readonly int maxMessageChars;
+        private readonly GameFatalLines fatalLines;
 
-        private GameLogBridge(SafeLogFile file, int maxMessageChars)
+        private GameLogBridge(SafeLogFile file, int maxMessageChars, GameFatalLines fatalLines)
         {
             this.file = file;
             this.maxMessageChars = maxMessageChars;
+            this.fatalLines = fatalLines;
         }
 
         /// <summary>Returns a description of what was applied, e.g. "Fatal Error Warning, muted profile:Debug, copy to game.log".</summary>
         public static string Apply(string levels, string mute, SafeLogFile file, int maxMessageChars)
+        {
+            return Apply(levels, mute, file, maxMessageChars, null);
+        }
+
+        /// <summary><see cref="Apply(string,string,SafeLogFile,int)"/>, and every Fatal entry to <paramref name="fatalLines"/> (PC).</summary>
+        public static string Apply(string levels, string mute, SafeLogFile file, int maxMessageChars, GameFatalLines fatalLines)
         {
             var applied = new List<string> { "Fatal" };
             foreach (string word in Split(levels))
@@ -77,10 +89,11 @@ namespace McvsOffline.Embedded.Diagnostics
             }
             string text = string.Join(" ", applied.ToArray());
             if (muted.Count > 0) text += ", muted " + string.Join(" ", muted.ToArray());
-            if (file != null)
+            if (file != null || fatalLines != null)
             {
-                Gameloft.Log.Settings.AddLogger(new GameLogBridge(file, maxMessageChars < 256 ? 256 : maxMessageChars));
-                text += ", copy to " + file.Path;
+                Gameloft.Log.Settings.AddLogger(new GameLogBridge(file, maxMessageChars < 256 ? 256 : maxMessageChars, fatalLines));
+                if (file != null) text += ", copy to " + file.Path;
+                if (fatalLines != null) text += ", Fatal lines watched";
             }
             return text;
         }
@@ -101,7 +114,10 @@ namespace McvsOffline.Embedded.Diagnostics
                 sb.Append(entry.Time.ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture)).Append(' ')
                   .Append(entry.Level.ToString()).Append(" [").Append(entry.Category.ToString()).Append("] ").Append(message);
                 if (entry.Exception != null) sb.Append('\n').Append(entry.Exception.ToString());
-                file.AppendLine(LogRedaction.Redact(sb.ToString()));
+                string line = LogRedaction.Redact(sb.ToString());
+                if (file != null) file.AppendLine(line);
+                // After the copy: the report flushes the log files, game.log with this line included.
+                if (fatalLines != null && entry.Level == LogLevel.Fatal) fatalLines.Fatal(entry.Member, entry.Message, entry.Exception, line);
             }
             catch (Exception)
             {

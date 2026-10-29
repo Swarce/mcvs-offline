@@ -290,7 +290,7 @@ namespace McvsOffline.Embedded
             // WARN/ERROR lines of this logger for the settings page's "recent problems" (IAdminHost.RecentProblems).
             problemSink = new MemoryLogSink(LogLevel.Warn, 100);
             Logger.AddSink(problemSink);
-            Log.Info("MCVS Offline " + McvsVersion.Current + " embedded host starting (platform " + platform.Name + ")");
+            Log.Info("MCVS Offline " + McvsVersion.Current + " embedded host starting (platform " + platform.Name + HostProcess.Suffix(", ") + ")");
             platformName = platform.Name;
             argsReader = platform.ArgsReader;
             portInUseHint = platform.PortInUseHint;

@@ -29,7 +29,9 @@ namespace McvsOffline.Embedded.Diagnostics
     /// Guards: a per-thread re-entrancy flag; the same exception object is reported once (a fatal report of an object
     /// already reported as non-fatal still goes through); separate budgets of <see cref="NonFatalBudget"/> non-fatal and
     /// <see cref="FatalBudget"/> fatal reports per process, so routine unobserved task faults (MoreAsync.WithCancellation
-    /// abandons the task it waits on) can never use up the report of the crash itself. Never throws, never waits on
+    /// abandons the task it waits on) can never use up the report of the crash itself. On PC a third kind,
+    /// <see cref="ReportProbablyFatal"/> (<see cref="ProbablyFatalBudget"/> per process), records the game's own Fatal lines for
+    /// an exception it rethrows into native code, which no AppDomain handler sees there (docs/design/pc-port.md §6.4). Never throws, never waits on
     /// another thread without a budget. The report text goes through <c>LogRedaction.Redact</c> before it is written
     /// anywhere (an exception message may carry a page ticket; design §5.4).
     /// </summary>
@@ -41,13 +43,23 @@ namespace McvsOffline.Embedded.Diagnostics
         /// <summary>Fatal reports written per process (the first always is; more only for distinct exceptions).</summary>
         public const int FatalBudget = 3;
 
+        /// <summary>"Probably fatal" reports (PC: the game's Fatal lines before it rethrows into native code) per process.</summary>
+        public const int ProbablyFatalBudget = 3;
+
+        // Severity of a report: a later report of the same exception object is a duplicate unless it is more severe.
+        private const int NonFatalKind = 0;
+        private const int ProbablyFatalKind = 1;
+        private const int FatalKind = 2;
+
         private static int installed;
         private static int fatalReports;
         private static int nonFatalReports;
+        private static int probablyFatalReports;
         private static int sequence;
         private static object lastReported;
-        private static bool lastReportedFatal;
+        private static int lastReportedKind;
         private static volatile string crashDirectory;
+        private static volatile string lastGameFatal;
         [ThreadStatic] private static bool inReport;
 
         /// <summary>Recent context (boot trace, watchdog, log files); must be cheap and never block.</summary>
@@ -116,6 +128,22 @@ namespace McvsOffline.Embedded.Diagnostics
             crashDirectory = directory;
         }
 
+        /// <summary>Where crash files go (null until the host knows the game folder); the PC native filter reads it.</summary>
+        public static string CrashDirectory
+        {
+            get { return crashDirectory; }
+        }
+
+        /// <summary>
+        /// The game's last Fatal log line, redacted and short (PC: set by the game-log bridge, read by the native crash filter,
+        /// which cannot see the managed exception); null when there was none.
+        /// </summary>
+        public static string LastGameFatal
+        {
+            get { return lastGameFatal; }
+            set { lastGameFatal = value; }
+        }
+
         private static void OnUnhandled(object sender, UnhandledExceptionEventArgs e)
         {
             // UnhandledExceptionEventArgs.IsTerminating is trimmed from the game's mscorlib; on this runtime every unhandled
@@ -168,27 +196,61 @@ namespace McvsOffline.Embedded.Diagnostics
         {
             Interlocked.Exchange(ref fatalReports, 0);
             Interlocked.Exchange(ref nonFatalReports, 0);
+            Interlocked.Exchange(ref probablyFatalReports, 0);
             lastReported = null;
-            lastReportedFatal = false;
+            lastReportedKind = NonFatalKind;
+            lastGameFatal = null;
         }
 
         /// <summary>Writes one report (see the class remarks). Never throws.</summary>
         public static void Report(string source, object exception, bool fatal)
         {
+            Report(source, exception, fatal ? FatalKind : NonFatalKind, null);
+        }
+
+        /// <summary>
+        /// PC: the game logged an exception as Fatal and rethrows it into native code, where the process usually ends without
+        /// any managed handler running (docs/design/pc-port.md §6.4). An <c>exception-*.txt</c> headed "PROBABLY FATAL" with the
+        /// exception, <paramref name="detail"/> (the game's line and the managed stack of the logging thread) and the context.
+        /// Its own budget; a later FATAL report of the same object still goes through. Never throws.
+        /// </summary>
+        public static void ReportProbablyFatal(string source, object exception, string detail)
+        {
+            Report(source, exception, ProbablyFatalKind, detail);
+        }
+
+        private static void Report(string source, object exception, int kind, string detail)
+        {
             if (inReport) return;
             // The raiser, then AppDomain: the same object once. Only an equal or lesser report is a duplicate.
-            if (exception != null && ReferenceEquals(exception, lastReported) && (lastReportedFatal || !fatal)) return;
-            int used = fatal ? Interlocked.Increment(ref fatalReports) : Interlocked.Increment(ref nonFatalReports);
-            if (used > (fatal ? FatalBudget : NonFatalBudget)) return;
+            if (exception != null && ReferenceEquals(exception, lastReported) && lastReportedKind >= kind) return;
+            int used, budget;
+            switch (kind)
+            {
+                case FatalKind:
+                    used = Interlocked.Increment(ref fatalReports);
+                    budget = FatalBudget;
+                    break;
+                case ProbablyFatalKind:
+                    used = Interlocked.Increment(ref probablyFatalReports);
+                    budget = ProbablyFatalBudget;
+                    break;
+                default:
+                    used = Interlocked.Increment(ref nonFatalReports);
+                    budget = NonFatalBudget;
+                    break;
+            }
+            if (used > budget) return;
+            bool fatal = kind == FatalKind;
             inReport = true;
             try
             {
                 lastReported = exception;
-                lastReportedFatal = fatal;
+                lastReportedKind = kind;
                 int number = Interlocked.Increment(ref sequence);
                 // Crash files are mirrored to Download/ and zipped for sharing: no ticket, cookie or password in them (§5.4).
-                string text = Redact(Build(source, exception, fatal));
-                SelfLog.Write(fatal ? SelfLog.Fatal : SelfLog.Error, text);
+                string text = Redact(Build(source, exception, kind, detail));
+                SelfLog.Write(kind == NonFatalKind ? SelfLog.Error : SelfLog.Fatal, text);
                 string path = WriteCrashFile(text, fatal, number);
                 try
                 {
@@ -216,15 +278,19 @@ namespace McvsOffline.Embedded.Diagnostics
             }
         }
 
-        private static string Build(string source, object exception, bool fatal)
+        private static string Build(string source, object exception, int kind, string detail)
         {
             var sb = new StringBuilder(4096);
             Thread t = Thread.CurrentThread;
-            sb.Append(fatal ? "FATAL" : "NON-FATAL").Append(" unhandled exception via ").Append(source).Append('\n');
+            if (kind == ProbablyFatalKind)
+                sb.Append("PROBABLY FATAL exception via ").Append(source)
+                  .Append(" (the game logged it as Fatal and rethrows it into native code, where the process usually ends)\n");
+            else
+                sb.Append(kind == FatalKind ? "FATAL" : "NON-FATAL").Append(" unhandled exception via ").Append(source).Append('\n');
             sb.Append("time ").Append(DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture))
               .Append(" (").Append(BootClock.Stamp()).Append(" since start), thread '").Append(t.Name ?? "")
               .Append("' managed ").Append(t.ManagedThreadId.ToString(CultureInfo.InvariantCulture))
-              .Append(" tid ").Append(NativeThreads.CurrentTid().ToString(CultureInfo.InvariantCulture)).Append('\n');
+              .Append(" tid ").Append(NativeThreads.CurrentTid().ToString(CultureInfo.InvariantCulture)).Append(HostProcess.Suffix(", ")).Append('\n');
             sb.Append(exception == null ? "(no exception object)" : exception.ToString()).Append('\n');
             var aggregate = exception as AggregateException;
             if (aggregate != null)
@@ -236,6 +302,7 @@ namespace McvsOffline.Embedded.Diagnostics
                     i++;
                 }
             }
+            if (!string.IsNullOrEmpty(detail)) sb.Append(detail).Append('\n');
             try
             {
                 Func<string> context = Context;
