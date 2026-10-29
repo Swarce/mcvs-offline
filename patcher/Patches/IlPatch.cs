@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using McvsOffline.Patcher.Core;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
@@ -15,11 +16,21 @@ namespace McvsOffline.Patcher.Patches
     /// <summary>What every patch can use.</summary>
     public sealed class PatchContext
     {
-        public PatchContext(ModuleDefinition server, int port)
+        /// <summary>A context for the Android build (<see cref="BuildProfile.Android1_17_32"/>), as every caller before the PC port.</summary>
+        public PatchContext(ModuleDefinition server, int port) : this(server, port, BuildProfile.Android1_17_32)
         {
+        }
+
+        public PatchContext(ModuleDefinition server, int port, BuildProfile build)
+        {
+            if (build == null) throw new ArgumentNullException(nameof(build));
             Server = server;
             Port = port;
+            Build = build;
         }
+
+        /// <summary>The game build the patched assemblies come from; patches pick their site tables by it (<see cref="IlPatch.ForBuild"/>).</summary>
+        public BuildProfile Build { get; }
 
         /// <summary>McvsOffline.Server.dll (the embedded build) as read by Cecil.</summary>
         public ModuleDefinition Server { get; }
@@ -49,6 +60,19 @@ namespace McvsOffline.Patcher.Patches
         public abstract void Apply(ModuleDefinition module, PatchContext context);
 
         // ----------------------------------------------------------------- helpers for locators
+
+        /// <summary>
+        /// The value for <c>ctx.Build</c>: <paramref name="android"/> or <paramref name="pc"/> (a fingerprint, a site table, an
+        /// offset). A null value means this patch has no table for that build: <see cref="PatchException"/>
+        /// "&lt;id&gt; is not supported on build &lt;id&gt;", before anything changes.
+        /// </summary>
+        protected string ForBuild(PatchContext ctx, string android, string pc)
+        {
+            if (ctx == null) throw new ArgumentNullException(nameof(ctx));
+            string value = ctx.Build.IsPc ? pc : android;
+            if (value == null) throw new PatchException(Id + " is not supported on build " + ctx.Build.Id);
+            return value;
+        }
 
         protected static TypeDefinition RequireType(ModuleDefinition module, string fullName)
         {
@@ -163,6 +187,35 @@ namespace McvsOffline.Patcher.Patches
                 throw new PatchException("cannot resolve the game's mscorlib for " + reference.FullName + ": " + ex.Message);
             }
             if (resolved == null) throw new PatchException("the game's mscorlib has no " + reference.FullName + " (trimmed)");
+            return module.ImportReference(reference);
+        }
+
+        /// <summary>
+        /// Like <see cref="CorlibMethod"/>, for a member of the <c>System</c> assembly the module already references (PC:
+        /// <c>TcpListener</c>, <c>IPEndPoint</c>, resolved through the BCL directory). Resolve() proves it exists; a module
+        /// without a System reference, or a member that does not resolve, is a <see cref="PatchException"/>.
+        /// </summary>
+        protected static MethodReference SystemMethod(ModuleDefinition module, string typeFullName, string name, bool instance,
+                                                      TypeReference returnType, params TypeReference[] parameters)
+        {
+            AssemblyNameReference system = module.AssemblyReferences.FirstOrDefault(r => r.Name == "System");
+            if (system == null) throw new PatchException(module.Name + " has no reference to System (needed for " + typeFullName + "::" + name + ")");
+            int dot = typeFullName.LastIndexOf('.');
+            string ns = dot < 0 ? "" : typeFullName.Substring(0, dot);
+            string typeName = dot < 0 ? typeFullName : typeFullName.Substring(dot + 1);
+            var declaringType = new TypeReference(ns, typeName, module, system);
+            var reference = new MethodReference(name, returnType, declaringType) { HasThis = instance };
+            foreach (TypeReference p in parameters) reference.Parameters.Add(new ParameterDefinition(p));
+            MethodDefinition resolved;
+            try
+            {
+                resolved = reference.Resolve();
+            }
+            catch (AssemblyResolutionException ex)
+            {
+                throw new PatchException("cannot resolve System for " + reference.FullName + ": " + ex.Message);
+            }
+            if (resolved == null) throw new PatchException("System " + system.Version + " has no " + reference.FullName);
             return module.ImportReference(reference);
         }
 

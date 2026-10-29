@@ -7,6 +7,7 @@ using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Text;
 using McvsOffline.Patcher.Art;
+using McvsOffline.Patcher.Core;
 using McvsOffline.Patcher.Dex;
 using McvsOffline.Patcher.Manifest;
 using McvsOffline.Patcher.Patches;
@@ -192,44 +193,17 @@ namespace McvsOffline.Patcher
             return report;
         }
 
-        /// <summary>Applies the group's patches to one assembly and gives it a new (deterministic) MVID.</summary>
+        /// <summary>Applies the group's patches to one assembly and gives it a new (deterministic) MVID (<see cref="AssemblyPatcher.Patch"/>).</summary>
         internal static byte[] PatchAssembly(byte[] original, List<IlPatch> patches, PatchContext context, ReaderParameters reader,
                                              Guid serverMvid, Action<string> log)
         {
-            using (ModuleDefinition module = ModuleDefinition.ReadModule(new MemoryStream(original), reader))
-            {
-                foreach (IlPatch patch in patches)
-                {
-                    log("patch " + patch.Id + ": " + patch.Description);
-                    patch.Apply(module, context);
-                }
-                // A new MVID is essential: other assemblies' AOT images record this one's MVID, and a match would make
-                // Mono run AOT code compiled against the unpatched metadata (verify-C7 §3).
-                module.Mvid = DerivedMvid(module.Mvid, patches.Select(p => p.Id), serverMvid);
-                var stream = new MemoryStream();
-                module.Write(stream);
-                byte[] patched = stream.ToArray();
-                using (ModuleDefinition check = ModuleDefinition.ReadModule(new MemoryStream(patched), reader))
-                {
-                    if (check.Mvid != module.Mvid) throw new InvalidOperationException("re-reading " + module.Name + " failed");
-                }
-                return patched;
-            }
+            return AssemblyPatcher.Patch(original, patches, context, reader, serverMvid, log);
         }
 
+        /// <summary><see cref="AssemblyPatcher.DerivedMvid"/>.</summary>
         public static Guid DerivedMvid(Guid original, IEnumerable<string> patchIds, Guid serverMvid)
         {
-            using (SHA256 sha = SHA256.Create())
-            {
-                byte[] seed = original.ToByteArray().Concat(serverMvid.ToByteArray())
-                    .Concat(Encoding.UTF8.GetBytes("mcvs-offline:" + string.Join(",", patchIds))).ToArray();
-                byte[] hash = sha.ComputeHash(seed);
-                var bytes = new byte[16];
-                Array.Copy(hash, bytes, 16);
-                bytes[7] = (byte)((bytes[7] & 0x0F) | 0x40);   // RFC 4122 version 4 (in .NET's byte order)
-                bytes[8] = (byte)((bytes[8] & 0x3F) | 0x80);   // variant
-                return new Guid(bytes);
-            }
+            return AssemblyPatcher.DerivedMvid(original, patchIds, serverMvid);
         }
 
         public static List<IlPatch> SelectPatches(ICollection<string> optional, bool headless = true)
