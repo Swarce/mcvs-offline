@@ -280,12 +280,13 @@ namespace Game
     {
         public static GamePreferencesComponent instance;
         private int initPerformance = -1;
+        private float initRenderScale;
         public int Performance { get; set; }
         public float RenderScale { get; set; }
         public float FPS { get; set; }
         public bool Vsync { get; set; }
         public bool FullScreen { get; set; }
-        public void Loaded() { initPerformance = Performance; }
+        public void Loaded() { initPerformance = Performance; initRenderScale = RenderScale; }
     }
 }";
 
@@ -328,12 +329,20 @@ namespace Game
                     Assert.Equal("in-game graphics quality Performance not set (the game's own choice), RenderScale 0.8, FPS 60, Vsync true, FullScreen false",
                                  GraphicsHooks.DescribeInGame(GraphicsHooks.ReadInGamePreferences(prefs)));
                     storage.GetField("HasPerformance").SetValue(s, true);
+                    Assert.Equal("in-game graphics quality Performance 2 (High), RenderScale 0.8, FPS 60, Vsync true, FullScreen false",
+                                 GraphicsHooks.DescribeInGame(GraphicsHooks.ReadInGamePreferences(prefs)));
 
-                    const string expected = "in-game graphics quality Performance 2 (High), RenderScale 0.8, FPS 60, Vsync true, FullScreen false";
+                    // Settings › Graphics changed before the first capture (WR2 boot 1): the line keeps the start values this
+                    // run's profiles came from. The menu's write makes HasMember true; a start value other than 0 was stored.
+                    prefs.GetProperty("Performance").SetValue(component, 0);
+                    prefs.GetProperty("RenderScale").SetValue(component, 0.4f);
+                    storage.GetField("HasPerformance").SetValue(s, true);
+                    const string expected = "in-game graphics quality Performance 2 (High), changed in-game to 0 (Low) (applies at the next start), " +
+                                            "RenderScale 0.8, changed in-game to 0.4 (applied at once), FPS 60, Vsync true, FullScreen false";
                     Assert.Equal(expected, GraphicsHooks.CaptureInGame(prefs));
                     Assert.Equal(expected, GraphicsHooks.InGame);
-                    prefs.GetProperty("Performance").SetValue(component, 0);
-                    Assert.Equal(expected, GraphicsHooks.CaptureInGame(prefs));           // the start values: read once
+                    prefs.GetProperty("Performance").SetValue(component, 1);
+                    Assert.Equal(expected, GraphicsHooks.CaptureInGame(prefs));           // read once
                     Assert.EndsWith("; " + expected, GraphicsHooks.Describe());
                     Assert.Single(sink.Snapshot(), e => e.Message.Contains("graphics: " + expected));
                     Assert.DoesNotContain(sink.Snapshot(), e => e.Message.Contains("GameOptions_SelectedProfile"));
@@ -344,6 +353,22 @@ namespace Game
                     GraphicsHooks.ResetForTests();
                 }
             }
+        }
+
+        [Fact]
+        public void AStartPerformanceOf0ChangedInGameMayHaveBeenUnset()
+        {
+            // An absent member loads as 0; once the menu has written Performance, HasMember no longer tells the start.
+            var prefs = new Dictionary<string, string>
+            {
+                ["Performance"] = "2", ["Performance.start"] = "0", ["Performance.set"] = "unknown",
+                ["RenderScale"] = "0.4", ["RenderScale.start"] = "0.4", ["FPS"] = "60",
+            };
+            Assert.Equal("in-game graphics quality Performance 0 (Low) or not set (the game's own choice), changed in-game to 2 (High) (applies at the next start), " +
+                         "RenderScale 0.4, FPS 60", GraphicsHooks.DescribeInGame(prefs));
+            // Without start values (an older look-alike) the current ones are shown as before.
+            Assert.Equal("in-game graphics quality Performance 1 (Mid), RenderScale 0.6",
+                         GraphicsHooks.DescribeInGame(new Dictionary<string, string> { ["Performance"] = "1", ["RenderScale"] = "0.6", ["Performance.set"] = "true" }));
         }
 
         [Theory]

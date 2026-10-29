@@ -157,6 +157,8 @@ namespace McvsOffline.Embed.Tests.Embedded
                 p.Check(instance != null && instance.FieldType == preferences, "GamePreferencesComponent.instance");
                 p.Check(preferences?.GetField("initPerformance", BindingFlags.NonPublic | BindingFlags.Instance)?.FieldType == typeof(int),
                         "GamePreferencesComponent.initPerformance (int)");
+                p.Check(preferences?.GetField("initRenderScale", BindingFlags.NonPublic | BindingFlags.Instance)?.FieldType == typeof(float),
+                        "GamePreferencesComponent.initRenderScale (float)");
                 var expectedTypes = new Dictionary<string, Type>
                 {
                     ["Performance"] = typeof(int), ["RenderScale"] = typeof(float), ["FPS"] = typeof(float), ["Vsync"] = typeof(bool), ["FullScreen"] = typeof(bool),

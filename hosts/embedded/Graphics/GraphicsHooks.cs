@@ -146,9 +146,12 @@ namespace McvsOffline
         }
 
         /// <summary>
-        /// PC: "in-game graphics quality Performance 2 (High), RenderScale 0.8, FPS 60, Vsync true, FullScreen true" as the client
-        /// World's <c>GamePreferencesComponent</c> loaded them at start, or null until it has. Read once: the native GameOptions init
-        /// reads <c>Performance</c> once per process, so the start values are the ones this run's profiles came from.
+        /// PC: "in-game graphics quality Performance 2 (High), RenderScale 0.8, FPS 60, Vsync true, FullScreen true", or null until
+        /// the client World's <c>GamePreferencesComponent</c> has loaded them. Performance and RenderScale are the start values the
+        /// component keeps (<c>initPerformance</c>, <c>initRenderScale</c>): the native GameOptions init reads <c>Performance</c>
+        /// once per process, so those are the ones this run's profiles came from, even when the line is first read after the
+        /// player changed Settings › Graphics (then ", changed in-game to N (applies at the next start)" follows). FPS, Vsync and
+        /// FullScreen apply at once and are the values when the line was first read. Read once.
         /// </summary>
         public static string InGame { get { return inGame; } }
 
@@ -210,9 +213,12 @@ namespace McvsOffline
 
         /// <summary>
         /// The PC options-menu preferences (<see cref="InGameOptions"/>) of <c>GamePreferencesComponent.instance</c>
-        /// (<c>PC-EN/Game/GamePreferencesComponent.cs:101-145</c>) as name → text, plus "Performance.set" ("true"/"false": whether
-        /// the World's LocalStorage (<c>MyLocalStorage</c>) has the member at all; the native GameOptions init applies it only
-        /// then, docs/design/pc-port.md §6.7). Null while <paramref name="preferences"/> or the instance is null, before its
+        /// (<c>PC-EN/Game/GamePreferencesComponent.cs:101-145</c>) as name → text (the current values), plus the start values
+        /// "Performance.start" and "RenderScale.start" (<c>initPerformance</c>, <c>initRenderScale</c>, set at the end of
+        /// <c>LoadPreferencesWindows</c>) and "Performance.set": whether the World's LocalStorage (<c>MyLocalStorage</c>) had the
+        /// member at start (the native GameOptions init applies it only then, docs/design/pc-port.md §6.7). "true"/"false" from
+        /// <c>HasMember</c> while Performance is still the start value; once the menu has changed it (which writes the member)
+        /// "true" for a start value other than 0 (an absent member loads as 0) and "unknown" for 0. Null while <paramref name="preferences"/> or the instance is null, before its
         /// <c>LoadPreferencesWindows</c> has finished (<c>initPerformance</c> is still -1), and for a World without a LocalStorage
         /// (the server Worlds). Never throws.
         /// </summary>
@@ -236,9 +242,15 @@ namespace McvsOffline
                     object value = p == null || p.GetIndexParameters().Length != 0 ? null : p.GetValue(component, null);
                     if (value != null) result[name] = Show(value);
                 }
+                result["Performance.start"] = Show(started);
+                FieldInfo initScale = preferences.GetField("initRenderScale", BindingFlags.NonPublic | BindingFlags.Instance);
+                object startScale = initScale == null ? null : initScale.GetValue(component);
+                if (startScale != null) result["RenderScale.start"] = Show(startScale);
+                bool changed = !string.Equals(Get(result, "Performance"), result["Performance.start"], StringComparison.Ordinal);
                 MethodInfo has = storage.GetType().GetMethod("HasMember", BindingFlags.Public | BindingFlags.Instance, null, new[] { typeof(string) }, null);
                 object set = has == null ? null : has.Invoke(storage, new object[] { "Performance" });
-                if (set is bool) result["Performance.set"] = (bool)set ? "true" : "false";
+                if (changed) result["Performance.set"] = (int)started != 0 ? "true" : "unknown";
+                else if (set is bool) result["Performance.set"] = (bool)set ? "true" : "false";
                 return result;
             }
             catch (Exception)
@@ -258,22 +270,45 @@ namespace McvsOffline
         }
 
         /// <summary>
-        /// "in-game graphics quality Performance 2 (High), RenderScale 0.8, FPS 60, Vsync true, FullScreen true", with "Performance
-        /// not set (the game's own choice)" when the LocalStorage has no such member; null for null.
+        /// "in-game graphics quality Performance 2 (High), RenderScale 0.8, FPS 60, Vsync true, FullScreen true" with the start
+        /// Performance and RenderScale (the current ones when no start value is given), "Performance not set (the game's own
+        /// choice)" when the LocalStorage had no such member at start, "Performance 0 (Low) or not set (the game's own choice)"
+        /// when that cannot be told any more, and ", changed in-game to N (applies at the next start)" (RenderScale: "(applied at
+        /// once)") after a value the menu changed since; null for null.
         /// </summary>
         internal static string DescribeInGame(IDictionary<string, string> prefs)
         {
             if (prefs == null) return null;
             var sb = new StringBuilder("in-game graphics quality ");
-            string performance = Get(prefs, "Performance");
-            if (Get(prefs, "Performance.set") == "false") sb.Append("Performance not set (the game's own choice)");
-            else sb.Append("Performance ").Append(performance ?? "?").Append(QualityName(performance));
+            string now = Get(prefs, "Performance");
+            string performance = Get(prefs, "Performance.start") ?? now;
+            string set = Get(prefs, "Performance.set");
+            if (set == "false") sb.Append("Performance not set (the game's own choice)");
+            else
+            {
+                sb.Append("Performance ").Append(performance ?? "?").Append(QualityName(performance));
+                if (set == "unknown") sb.Append(" or not set (the game's own choice)");
+            }
+            if (now != null && performance != null && now != performance)
+                sb.Append(", changed in-game to ").Append(now).Append(QualityName(now)).Append(" (applies at the next start)");
             for (int i = 1; i < InGameOptions.Length; i++)
             {
                 string value = Get(prefs, InGameOptions[i]);
-                if (value != null) sb.Append(", ").Append(InGameOptions[i]).Append(' ').Append(value);
+                string start = Get(prefs, InGameOptions[i] + ".start");
+                if (start != null && value != null && !SameScale(start, value))
+                    sb.Append(", ").Append(InGameOptions[i]).Append(' ').Append(start).Append(", changed in-game to ").Append(value).Append(" (applied at once)");
+                else if (start != null || value != null) sb.Append(", ").Append(InGameOptions[i]).Append(' ').Append(start ?? value);
             }
             return sb.ToString();
+        }
+
+        /// <summary>Two RenderScale texts compared as the game does (<c>OnPreferencesSavedWindows</c>: <c>ToString("0.00")</c>).</summary>
+        private static bool SameScale(string a, string b)
+        {
+            float x, y;
+            if (float.TryParse(a, NumberStyles.Float, CultureInfo.InvariantCulture, out x) && float.TryParse(b, NumberStyles.Float, CultureInfo.InvariantCulture, out y))
+                return x.ToString("0.00", CultureInfo.InvariantCulture) == y.ToString("0.00", CultureInfo.InvariantCulture);
+            return a == b;
         }
 
         /// <summary>Settings › Graphics quality as the menu stores it: 0 Low, 1 Mid, 2 High (default render scales 0.4/0.6/0.8).</summary>

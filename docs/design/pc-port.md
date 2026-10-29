@@ -418,7 +418,7 @@ works): the listing records its size and time without hashing it, and `collect` 
 | `[McvsOffline] headless world: <Type>.<Event> threw …` | existing H3 hook | unchanged |
 | `[McvsOffline] server world: …`, `[McvsOffline] component <type> was not created: …` | `PcHooks` M1/M4 | §8.5 |
 | `[boot] graphics: …` (PC adds `MEM profile`, `MEM rule on, removed <n>` or `MEM rule off`, `excludedLoadingLayers`, `, overridden by the in-game graphics quality` when the loaded GPU profile is not the optimum and none was forced) | `GraphicsHooks` | §6.7, §8.6 |
-| `[boot] graphics: in-game graphics quality Performance <n> (<Low\|Mid\|High>)` (or `Performance not set (the game's own choice)`)`, RenderScale <f>, FPS <f>, Vsync <b>, FullScreen <b>` | `GraphicsHooks` (PC) | once, when the client World's `GamePreferencesComponent` has loaded; the `[status]` line's `graphics:` part repeats it |
+| `[boot] graphics: in-game graphics quality Performance <n> (<Low\|Mid\|High>)` (or `Performance not set (the game's own choice)`; start values, then `, changed in-game to <n> (applies at the next start)` after a menu change)`, RenderScale <f>, FPS <f>, Vsync <b>, FullScreen <b>` | `GraphicsHooks` (PC) | once, when the client World's `GamePreferencesComponent` has loaded; the `[status]` line's `graphics:` part repeats it |
 | `[status] …; memory: private <n> MB, virtual <n> MB (<p> % of 2048 MB), GC heap <n> MB` | `WindowsPlatform.StatusExtras` (PC) | every status line (WR2 F9) |
 | `admin: page opened (trigger …, via overlay\|system\|game\|jni\|post)`; PC adds `, overlay showed no page last time` | `PageOpener` | §6.5 |
 | `connectivity: type=<t> status=<0\|1> details="<text>"` | WP1 route | each tracker post, INFO, never the `device_id` |
@@ -851,7 +851,11 @@ New `hosts/embedded/Graphics/GameOptionsWindows.cs` (platform-neutral, tested on
   Android's AppPreferences `GameOptions_SelectedProfile`, which the PC line no longer reads. `GraphicsHooks` reads
   `Performance` (and whether the member exists), `RenderScale`, `FPS`, `Vsync` and `FullScreen` from
   `Game.GamePreferencesComponent.instance` once its `LoadPreferencesWindows` has finished (`initPerformance` ≠ -1) in a World
-  with a LocalStorage (the client's), logs them once and keeps them in the status line; the applied line adds `, overridden
+  with a LocalStorage (the client's), logs them once and keeps them in the status line. It is first read lazily (status
+  thread, settings page), so Performance and RenderScale are the start values the component keeps (`initPerformance`,
+  `initRenderScale`); a value the menu changed before that read follows as `, changed in-game to <n> (applies at the next
+  start)` (RenderScale: `(applied at once)`), and a start Performance of 0 changed since reads `0 (Low) or not set (the
+  game's own choice)` (an absent member loads as 0, and the menu's write makes it exist). The applied line adds `, overridden
   by the in-game graphics quality` when the loaded GPU profile differs from the optimum and nothing was forced
   (`PcHooksReflectionTests` checks every member against the real Game.dll). Whether a forced `graphics.profile` survives an
   in-game choice is Q18 (WR3).
