@@ -11,6 +11,7 @@ namespace McvsOffline.Server.Services.Admin
         public const string Forum = "forum";       // patch 'forum'
         public const string Resume = "resume";     // reopened after "Save the game now"
         public const string Console = "console";   // standalone host
+        public const string Browser = "browser";   // the page's "Open in the system browser" action (PC, docs/design/pc-port.md §6.5)
         public const string Test = "test";
     }
 
@@ -47,7 +48,7 @@ namespace McvsOffline.Server.Services.Admin
 
     public sealed class AdminHostInfo
     {
-        public string Platform { get; set; }          // "android", "directory"
+        public string Platform { get; set; }          // "android", "windows", "directory"
         public int SdkInt { get; set; }               // Build.VERSION.SDK_INT; 0 off Android
         public string DeviceId { get; set; }
         public string GameCredential { get; set; }    // "anonymous:<name>" as the game uses it, read on the game thread; null unknown
@@ -70,7 +71,8 @@ namespace McvsOffline.Server.Services.Admin
         public bool CanToast { get; set; }
         public bool CanSave { get; set; }             // RequestGameSave can work
         public bool CanExit { get; set; }
-        public bool RelaunchUnconfirmed { get; set; }     // Android 13+: the restart alarm may not bring the game back; not yet observed (target-sdk.md §4.6, STATUS device-test item 9)
+        public bool RelaunchUnconfirmed { get; set; }     // Android 13+: the restart alarm may not bring the game back; not yet observed (target-sdk.md §4.6, STATUS device-test item 9). Windows: until the relaunch helper is confirmed
+        public bool CanOpenInBrowser { get; set; }    // the page can be reopened in the system browser (Windows, actions/open-in-browser)
         public string Notifications { get; set; }     // the POST_NOTIFICATIONS state, one sentence; null off Android
         public string Graphics { get; set; }          // graphics.profile and the engine's GPU profile, one line; null unknown
         public string HdTextures { get; set; }        // the HD texture pack (hosts/embedded/Hd/HdInstaller), one line; null unknown
@@ -80,8 +82,8 @@ namespace McvsOffline.Server.Services.Admin
     public sealed class AdminShareResult
     {
         public bool Ok { get; set; }
-        public string Method { get; set; }            // "sheet", "downloads", "text", "none"
-        public string PublicPath { get; set; }        // "Download/MCVS-Offline/<name>" or null
+        public string Method { get; set; }            // "sheet", "downloads", "text", "none"; Windows: "explorer", "file"
+        public string PublicPath { get; set; }        // "Download/MCVS-Offline/<name>", Windows "McvsOffline\exports\<name>", or null
         public string Message { get; set; }           // one sentence for the player
 
         public static AdminShareResult None(string message)

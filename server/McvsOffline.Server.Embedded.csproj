@@ -23,7 +23,9 @@
 
     <TargetFramework>net48</TargetFramework>
     <OutputType>Library</OutputType>
-    <DefineConstants>$(DefineConstants);MCVS_EMBEDDED</DefineConstants>
+    <!-- MCVS_EMBEDDED: in-process host; MCVS_ANDROID: libc/Mono/JNI code; MCVS_GAMELOG: the Gameloft.Logs bridge
+         (docs/design/pc-port.md §3.1). -->
+    <DefineConstants>$(DefineConstants);MCVS_EMBEDDED;MCVS_ANDROID;MCVS_GAMELOG</DefineConstants>
 
     <NoStdLib>true</NoStdLib>
     <NoCompilerStandardLib>true</NoCompilerStandardLib>
@@ -52,10 +54,10 @@
     <Reference Include="mscorlib" HintPath="$(McvsRefsDir)mscorlib.dll" Private="false" />
     <Reference Include="System" HintPath="$(McvsRefsDir)System.dll" Private="false" />
     <Reference Include="System.Core" HintPath="$(McvsRefsDir)System.Core.dll" Private="false" />
-    <!-- Only for Android-only code under #if MCVS_EMBEDDED; the compiler emits no AssemblyRef while unused. -->
+    <!-- Only for Android-only code under #if MCVS_ANDROID; the compiler emits no AssemblyRef while unused. -->
     <Reference Include="Mono.Android" HintPath="$(McvsRefsDir)Mono.Android.dll" Private="false" />
     <Reference Include="Java.Interop" HintPath="$(McvsRefsDir)Java.Interop.dll" Private="false" />
-    <!-- The game's own logger (hosts/embedded/Android/GameLogBridge.cs): levels, mutes and the logs/game.log copy. -->
+    <!-- The game's own logger (GameLogBridge, under #if MCVS_GAMELOG): levels, mutes and the logs/game.log copy. -->
     <Reference Include="Gameloft.Logs" HintPath="$(McvsRefsDir)Gameloft.Logs.dll" Private="false" />
   </ItemGroup>
 

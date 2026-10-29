@@ -63,9 +63,10 @@ namespace McvsOffline.Server.Services.Assets
 
         public static string Sha256Hex(byte[] data)
         {
-#if MCVS_EMBEDDED
+#if MCVS_ANDROID
             // A direct constructor call: on Mono SHA256.Create() goes through a CryptoConfig name lookup, and the
-            // trimmed BCL only keeps what is referenced statically.
+            // trimmed BCL only keeps what is referenced statically. Not on PC: SHA256Managed throws under the FIPS
+            // policy on .NET Framework, SHA256.Create() picks the CNG/CSP implementation.
             using (var sha = new SHA256Managed())
 #else
             using (var sha = SHA256.Create())

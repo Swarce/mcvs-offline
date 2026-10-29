@@ -1,3 +1,7 @@
+using System;
+using System.Collections.ObjectModel;
+using McvsOffline.Server.Core.Http;
+
 namespace McvsOffline.Server.Core
 {
     /// <summary>Server version (also reported by GET / and the Server header).</summary>
@@ -13,8 +17,27 @@ namespace McvsOffline.Server.Core
     /// <summary>Fixed facts about the game build we serve (APK 1.17.32). Configurable values live in Settings.</summary>
     public static class McvsConstants
     {
-        /// <summary>Federation client id of the Google Play build (report 02 §0.6).</summary>
+        /// <summary>Federation client id of the Google Play build (report 02 §0.6). The default wherever no caller id is known.</summary>
         public const string ClientId = "2620:66102:1.17.32:android:googleplay";
+
+        /// <summary>Federation client id of the Steam (PC) build 6372049, game 1.17.30 (docs/design/pc-port.md §4.4).</summary>
+        public const string ClientIdSteam = "2620:70425:1.17.30:steam:steam";
+
+        /// <summary>The platforms (fourth client-id segment) of the game builds we serve.</summary>
+        public static readonly ReadOnlyCollection<string> KnownPlatforms = new ReadOnlyCollection<string>(new[] { "android", "steam" });
+
+        /// <summary>
+        /// True when <paramref name="clientId"/> has the game's form (<see cref="GameRequest.IsClientId"/>) and names one of
+        /// the <see cref="KnownPlatforms"/>: the Android or the Steam build, any version.
+        /// </summary>
+        public static bool IsGameClientId(string clientId)
+        {
+            if (!GameRequest.IsClientId(clientId)) return false;
+            string platform = clientId.Split(':')[3];
+            foreach (string known in KnownPlatforms)
+                if (string.Equals(platform, known, StringComparison.Ordinal)) return true;
+            return false;
+        }
 
         /// <summary>Default Federation port: any non-80/443 port, so FormatUri never rewrites our URLs (ARCHITECTURE §2.2).</summary>
         public const int DefaultPort = 51780;

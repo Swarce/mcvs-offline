@@ -82,7 +82,7 @@ namespace McvsOffline.Server.Core.Http
                 {
                     if (address.AddressFamily == AddressFamily.InterNetworkV6 && address.Equals(IPAddress.IPv6Any))
                         socket.DualMode = true;
-#if MCVS_EMBEDDED
+#if MCVS_ANDROID
                     // SO_REUSEADDR alone, through libc: a restarted game can bind again while its previous connections
                     // sit in TIME_WAIT (up to 60 s on Linux) instead of failing to start the server. Not
                     // SetSocketOption(ReuseAddress): Mono also sets SO_REUSEPORT then, and a second listener of the same
@@ -93,8 +93,8 @@ namespace McvsOffline.Server.Core.Http
                     // net8: deliberately not set. .NET on Unix already enables SO_REUSEADDR for TCP before bind, and its
                     // ReuseAddress option additionally sets SO_REUSEPORT, which lets a second host bind the same port
                     // and silently take half of the connections (MISC request). HttpServerTests pins the net8 behaviour,
-                    // SocketReuseTests the libc call the embedded build makes. On Windows the flag would allow two
-                    // servers on one port as well.
+                    // SocketReuseTests the libc call the Android build makes. On Windows (the PC build) the flag would
+                    // allow two servers on one port as well, so it is not set there either.
                     socket.Bind(new IPEndPoint(address, requestedPort));
                     socket.Listen(128);
                 }

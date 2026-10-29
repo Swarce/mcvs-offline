@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    McvsOffline.PcKit: the player's installer and diagnostics kit for the Steam (PC) build (docs/design/pc-port.md §9).
+    install / uninstall / status / verify / probe / watch / collect. It patches the player's own game files on the
+    player's PC (McvsOffline\bin + ModernCombatVersus.exe.config, option A) and never ships a Gameloft binary.
+
+    Windows build for the player (self-contained, one file, no .NET install needed), from any OS:
+      dotnet publish tools/pc-kit/McvsOffline.PcKit.csproj -c Release -r win-x64 -p:McvsPcKitPublish=true -o artifacts/pc-kit
+
+    Day-0 skeleton: Main only says "not implemented" (WP3 fills it in).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>McvsOffline.PcKit</AssemblyName>
+    <RootNamespace>McvsOffline.PcKit</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- The patcher is an exe referenced as a library; the single-file bundle carries its DLL. -->
+    <ValidateExecutableReferencesMatchSelfContained>false</ValidateExecutableReferencesMatchSelfContained>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(McvsPcKitPublish)' == 'true'">
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <DebugType>none</DebugType>
+    <PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../patcher/McvsOffline.Patcher.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="McvsOffline.PcKit.Tests" />
+  </ItemGroup>
+</Project>

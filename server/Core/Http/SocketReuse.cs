@@ -18,6 +18,8 @@ namespace McvsOffline.Server.Core.Http
     /// </para>
     /// The values are Linux's (asm-generic), the same on every Android ABI: SOL_SOCKET 1, SO_REUSEADDR 2,
     /// SO_REUSEPORT 15. On a Mono Unix socket <see cref="Socket.Handle"/> is the file descriptor.
+    /// The libc code is compiled into the Android DLL and the net8 build only; the PC DLL keeps the API without a libc
+    /// import (docs/design/pc-port.md §3.1) and never calls it (HttpServer sets the option under MCVS_ANDROID).
     /// </summary>
     public static class SocketReuse
     {
@@ -40,6 +42,7 @@ namespace McvsOffline.Server.Core.Http
         public static string TrySetReuseAddressOnly(Socket socket)
         {
             if (socket == null) throw new ArgumentNullException("socket");
+#if MCVS_ANDROID || !MCVS_EMBEDDED
             if (!IsSupported) return "not Unix";
             try
             {
@@ -53,11 +56,15 @@ namespace McvsOffline.Server.Core.Http
                 // DllNotFoundException / EntryPointNotFoundException: no usable libc.
                 return ex.GetType().Name + ": " + ex.Message;
             }
+#else
+            return "not supported on this build";
+#endif
         }
 
         /// <summary>The value of a SOL_SOCKET option (tests and diagnostics), or -1 when it cannot be read.</summary>
         public static int GetSocketOption(Socket socket, int option)
         {
+#if MCVS_ANDROID || !MCVS_EMBEDDED
             if (!IsSupported) return -1;
             try
             {
@@ -69,8 +76,12 @@ namespace McvsOffline.Server.Core.Http
             {
                 return -1;
             }
+#else
+            return -1;
+#endif
         }
 
+#if MCVS_ANDROID || !MCVS_EMBEDDED
         private static int Descriptor(Socket socket)
         {
             return socket.Handle.ToInt32();
@@ -84,5 +95,6 @@ namespace McvsOffline.Server.Core.Http
             [DllImport("libc", SetLastError = true)]
             public static extern int getsockopt(int sockfd, int level, int optname, ref int optval, ref int optlen);
         }
+#endif
     }
 }

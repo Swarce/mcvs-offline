@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    McvsOffline.Server.dll for the Steam (PC) game process: .NET Framework 4 CLR, 32-bit, loaded from
+    <install>\McvsOffline\bin by the patched Game.dll / Gameloft.Engine.dll / EngineBridge.dll (docs/design/pc-port.md).
+    Same sources as the Android embedded build minus Android/, Install/, Hd/ and the Mono thread dump, plus Windows/.
+    Compiled against the .NET Framework 4.5.2 reference assemblies (NuGet); no game file is needed, except
+    Gameloft.Logs.dll from MCVS_PC_REFS for the game-log bridge.
+      dotnet build server/McvsOffline.Server.Pc.csproj -c Release [-p:MCVS_PC_REFS=/path/to/steam/install]
+  -->
+  <Import Project="build/McvsOffline.Server.Shared.props" />
+  <PropertyGroup>
+    <TargetFramework>net452</TargetFramework>
+    <OutputType>Library</OutputType>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <DefineConstants>$(DefineConstants);MCVS_EMBEDDED;MCVS_WINDOWS</DefineConstants>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <!-- Version 0.0.0.0, as Android: the patched assemblies reference McvsOffline.Server, Version=0.0.0.0. -->
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+    <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
+    <DebugType>embedded</DebugType>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <MCVS_PC_REFS Condition="'$(MCVS_PC_REFS)' == ''">/home/user/mcvs-work/pc/install</MCVS_PC_REFS>
+    <McvsPcRefsDir>$([MSBuild]::EnsureTrailingSlash('$(MCVS_PC_REFS)'))</McvsPcRefsDir>
+    <McvsPcGameLog Condition="Exists('$(McvsPcRefsDir)Gameloft.Logs.dll')">true</McvsPcGameLog>
+    <DefineConstants Condition="'$(McvsPcGameLog)' == 'true'">$(DefineConstants);MCVS_GAMELOG</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../hosts/embedded/**/*.cs"
+             Exclude="../hosts/embedded/Android/**/*.cs;../hosts/embedded/Install/**/*.cs;../hosts/embedded/Hd/**/*.cs;../hosts/embedded/Diagnostics/ThreadDump.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(McvsPcGameLog)' == 'true'">
+    <Reference Include="Gameloft.Logs" HintPath="$(McvsPcRefsDir)Gameloft.Logs.dll" Private="false" />
+  </ItemGroup>
+</Project>
