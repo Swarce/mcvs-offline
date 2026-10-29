@@ -6,6 +6,7 @@ using McvsOffline.Embed.Tests.Support;
 using McvsOffline.Patcher;
 using McvsOffline.Patcher.Core;
 using McvsOffline.Patcher.Patches;
+using McvsOffline.Patcher.Pc;
 using Mono.Cecil;
 using Xunit;
 using Xunit.Abstractions;
@@ -57,6 +58,26 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             Assert.Equal(new[] { "kernel32", "steam_api", "user32" }, pc.ServerAllowedModuleRefs.OrderBy(k => k, StringComparer.Ordinal));
             Assert.Equal("GameOptions_windows.json", pc.GameOptionsFile);
             Assert.Equal(0x0102, pc.ExeCharacteristics);
+        }
+
+        [Fact]
+        public void TheDepotTopLevelIsTheRealInstalls()
+        {
+            string folder = TestEnvironment.PcRefs;
+            if (folder == null)
+            {
+                Assert.False(TestEnvironment.RequirePc, "MCVS_REQUIRE_PC=1 but MCVS_PC_REFS has no Steam install");
+                output.WriteLine("the Steam install is not available (MCVS_PC_REFS): skipped");
+                return;
+            }
+            string[] actual = Directory.EnumerateFileSystemEntries(folder).Select(Path.GetFileName).OrderBy(n => n, StringComparer.Ordinal).ToArray();
+            Assert.Equal(actual, GameFolder.DepotTopLevel.OrderBy(n => n, StringComparer.Ordinal).ToArray());
+            Assert.All(GameFolder.DepotTopLevel, n => Assert.Equal(GameFolderOwner.Depot, GameFolder.Classify(n)));
+            Assert.All(GameFolder.GameWrittenNames, n => Assert.Equal(GameFolderOwner.Game, GameFolder.Classify(n)));
+            Assert.Equal(GameFolderOwner.Ours, GameFolder.Classify("mcvsoffline"));
+            Assert.Equal(GameFolderOwner.Other, GameFolder.Classify("GameVersion"));
+            // Every file the build identity hashes is in the depot.
+            Assert.All(BuildProfile.PcSteam6372049.OriginalSha256.Keys, f => Assert.Contains(f, GameFolder.DepotTopLevel));
         }
 
         [Fact]
