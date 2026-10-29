@@ -190,7 +190,9 @@ index, `McvsOffline/install/pack.info`, that lists every file as it is in this p
 What the offline build does with it at start-up (`hosts/embedded/Install/InstallerData.cs`):
 
 * the pack is recognised by Gameloft's sizes in `replaced.tsv` (a listed file counts with Gameloft's size only while it
-  has the listed size): the log says `ASTC with 2215 replaced files`, `DATA_TYPE` becomes `ASTC`;
+  has the listed size): the log says `ASTC with 2215 replaced files` (the first parts, built on 2026-10-28, said 2214:
+  one 3D-menu emblem, `Data/d/1a57284.f`, stayed Gameloft's file; the parts rebuilt on 2026-10-29 replace it too,
+  design/hd-textures.md §6), `DATA_TYPE` becomes `ASTC`;
 * on a fresh install (no installer index), the index is given to the installer as any saved index: `installer data:
   index restored from the saved index (ASTC with 2215 replaced files, 15747 files, ... entries)`;
 * when the installer still has the index of the data that was there before (the ETC pack), which would make it delete
@@ -203,29 +205,40 @@ What the offline build does with it at start-up (`hosts/embedded/Install/Install
 
 This needs an APK built from the commit that added `replaced.tsv` or later (after build 11). **Build 11 and older do not
 know it**: they keep the installer's old ETC index, and the installer would delete the ASTC files of other sizes and try
-to download them. With such a build, clear the app's storage first (Android Settings › Apps › the game › Storage › Clear
-storage, after backing up `files/McvsOffline/`), so the pushed index is restored as on a fresh install.
+to download them. With such a build, clear the app's storage (Android Settings › Apps › the game › Storage › Clear
+storage), so the pushed index is restored as on a fresh install, and put the profile back afterwards (steps below).
+Clear storage deletes everything in `files/`, the profile in `McvsOffline/` included, and the installer's own index.
 
 ### Installing it (from the ETC data, a manual ETC HD install and `SKIP_VALIDATION`)
 
 The parts (`mcvs-astc-hd-NN-of-MM.zip`, below 380 MiB each, with `SHA256SUMS.txt`) unpack into one `files/` folder; the
-last part has `README.txt` with the numbers of the pack and these steps. With the phone connected (`adb`):
+last part has `README.txt` with the numbers of the pack and these steps (`tools/hd-textures` writes it; `AstcPackTests`
+runs its commands on a stand-in for the phone, for both kinds of APK). With the phone connected (`adb`):
 
 ```sh
 P=/sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files
-sha256sum -c SHA256SUMS.txt                                   # the parts are intact
-for z in mcvs-astc-hd-*.zip; do unzip -o "$z" -d astc-hd; done   # -> astc-hd/files/ and astc-hd/README.txt
-adb pull $P/McvsOffline mcvs-profile-backup                   # your profile, settings and logs
-adb shell am force-stop com.gameloft.android.ANMP.GloftMVHM
+adb pull $P/McvsOffline mcvs-profile-backup                   # 1. your profile, settings and logs
+#   to go back to ETC later, keep the ETC files/ on the computer (a mirror, or: adb pull $P mcvs-etc-files, 2 GB or
+#   more), not on the phone: Clear storage and uninstalling delete everything in Android/data/<package>/
+sha256sum -c SHA256SUMS.txt                                   # 2. the parts are intact
+for z in mcvs-astc-hd-*.zip; do unzip -o "$z" -d astc-hd; done   #    -> astc-hd/files/ and astc-hd/README.txt
+# 3. BUILD 11 AND OLDER ONLY: Android Settings > Apps > the game > Storage > Clear storage
+adb shell am force-stop com.gameloft.android.ANMP.GloftMVHM   # 4. (after step 3 there is nothing left to remove)
 adb shell rm -f $P/qaTestingConfigs.txt                       # SKIP_VALIDATION is not needed and must go
 adb shell rm -rf $P/Data                                      # the ETC data with the manual HD files
-#   (to keep it for going back: adb shell mv $P/Data $P/../Data-ETC   needs 2 GB more on the phone)
 adb shell rm -f $P/d_o_w_n_l_o_a_d_e_d.txt $P/pack.info \
                 $P/McvsOffline/install/pack.info $P/McvsOffline/install/pack.info.txt \
                 $P/McvsOffline/install/verify-pending $P/McvsOffline/install/damaged.txt
 adb shell rm -rf $P/McvsOffline/hd $P/McvsOffline/hd-install  # an ETC HD pack and its installer state, if any
-adb push astc-hd/files/. $P/
+adb push astc-hd/files/. $P/                                  # 5.
+# 6. BUILD 11 AND OLDER ONLY, before the first start: the profile back, without the ETC index (install/) and the ETC HD
+#    state (hd/, hd-install/), which would replace the pushed ASTC index
+for f in mcvs-profile-backup/*; do case "${f##*/}" in install|hd|hd-install) ;; *) adb push "$f" $P/McvsOffline/ ;; esac; done
 ```
+
+If the game was started after Clear storage before step 6, it made a new, empty profile: force-stop it, run step 6 and
+start it again. With build 11 and older the start-up log says `installer data: index restored from the saved index
+(15747 files, ... entries)` (without `ASTC with ...`, which that build does not know) and the rest goes as below.
 
 Then start the game. The start-up log (`Files > Downloads > MCVS-Offline > ...-bootstrap.log.txt`, logcat tag
 `McvsOffline`) shows `[install] installer data: index switched to the saved index (ASTC with 2215 replaced files, 15747
@@ -245,8 +258,10 @@ a reinstall accept the data offline (`verify.py` checks such a backup against th
 Force-stop the game, delete `Data/`, `d_o_w_n_l_o_a_d_e_d.txt` and in `McvsOffline/install/` the files `pack.info`,
 `pack.info.txt`, `replaced.tsv`, `astc-hd.json`, `verify-pending` and `damaged.txt`, then push the ETC `files/` tree with
 its index (a mirror made with `tools/cdn-mirror/mirror.py --tex ETC --extract`, or your backup of the ETC phone's
-`files/`, or move `Data-ETC` back and push only its `McvsOffline/install/pack.info`). The next start logs `installer
-data: index switched to the saved index (ETC, 15747 files, 16218 entries)` and `DATA_TYPE` is `ETC` again. HD textures
+`files/`). The next start logs `installer data: index switched to the saved index (ETC, 15747 files, 16218 entries)` and
+`DATA_TYPE` is `ETC` again. With build 11 and older: pull `McvsOffline/` to a new folder, clear the app's storage, push the
+ETC `files/` tree, then the pulled profile without its `install/`, `hd/` and `hd-install/` folders as in step 6; the
+start then logs `installer data: index restored from the saved index (...)`. HD textures
 for ETC then come as an ETC HD pack (`McvsOffline/hd/mcvs-hd-*.zip`, above), which needs no `SKIP_VALIDATION` either.
 
 ## Last resort: the installer's own test switches

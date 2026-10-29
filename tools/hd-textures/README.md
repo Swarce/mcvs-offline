@@ -97,6 +97,12 @@ every texture is done (a few minutes), each part first as `.partial`.
 * alpha: the original's alpha is decoded; where it is opaque everywhere the replacement is made opaque too (alpha 255,
   so astcenc spends no bits on it), otherwise the PC alpha is kept (DXT5 alpha, DXT1 punch-through);
 * GCBF around it as the original (eight LZ4 blocks of equal size, as every texture of the pack);
+* five originals are not a power of two (85x85, 73x66, 105x120, 200x200, 1024x778: the ASTC pack keeps the artist's size
+  where the ETC pack and the PC stretched the picture to a power of two): the PC texture is taken when it is larger in
+  both directions and the same picture (both reduced to at most 64 a side, PSNR of RGB at least 24 dB; otherwise
+  `failed ... is not the original ... stretched` and Gameloft's file stays), with a full chain at the PC size
+  (design/hd-textures.md §6, "Stretched originals"). A power-of-two original whose PC texture is not a power-of-two
+  multiple of it is refused as before;
 * a self-check: the top level decoded again (`astcenc -dl`) and compared with the PC texture (PSNR of RGB and alpha), next
   to Gameloft's own 6x6 at the phone's size enlarged bilinearly to the PC size (what the phone shows today there).
 

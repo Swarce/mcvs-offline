@@ -65,7 +65,11 @@ namespace McvsOffline.Tools.HdTextures
         public long GpuBytes { get; set; }
         public long OriginalGpuBytes { get; set; }
 
-        /// <summary>The original's size is not the PC's divided by a power of two; the PC texture is the same picture stretched.</summary>
+        /// <summary>
+        /// The original's size is not a power of two (the ASTC pack's own size for a few textures) and the PC texture is the same
+        /// picture stretched to a power of two (<see cref="AstcConverter.StretchedPsnr"/>); the replacement is a full-size chain
+        /// at the PC size like any other.
+        /// </summary>
         public bool Stretched { get; set; }
 
         /// <summary>The original's alpha is opaque everywhere, so the replacement's alpha is set to 255 too.</summary>
@@ -119,15 +123,23 @@ namespace McvsOffline.Tools.HdTextures
             Dds dds = Dds.Parse(pcRaw);
             int k = 0;
             while (k < 15 && (original.Width << k) < dds.Width) k++;
-            // A few originals of the ASTC pack keep the artist's size that is not a power of two (85x85, 1024x778) where the
-            // ETC pack and the PC have it stretched to one (128x128 and 256x256): texture coordinates are normalised, so the
-            // PC texture fits once it is shown to be the same picture stretched (below).
-            bool stretched = k == 0 || (original.Width << k) != dds.Width || (original.Height << k) != dds.Height;
+            bool multiple = k > 0 && (original.Width << k) == dds.Width && (original.Height << k) == dds.Height;
+            // A few originals of the ASTC pack keep the artist's size that is not a power of two (85x85, 200x200, 1024x778)
+            // where the ETC pack and the PC have it stretched to one (128x128, 256x256 and 512x512, 1024x1024 and 2048x2048):
+            // texture coordinates are normalised, so the PC texture fits once it is shown to be the same picture stretched
+            // (below). Only such an original: a power-of-two original keeps the power-of-two rule unchanged, a PC texture that is
+            // not a power-of-two multiple of it is refused as before.
+            bool stretched = !multiple && (!IsPowerOfTwo(original.Width) || !IsPowerOfTwo(original.Height));
+            if (!multiple && !stretched)
+                throw new InvalidDataException("the PC texture is " + dds.Width + "x" + dds.Height + ", not a larger power-of-two multiple of the original " + original.Width + "x" + original.Height);
             if (stretched && (dds.Width <= original.Width || dds.Height <= original.Height))
                 throw new InvalidDataException("the PC texture is " + dds.Width + "x" + dds.Height + ", not larger than the original " + original.Width + "x" + original.Height);
-            // The chain ends at the same smallest size as the original's (one level more per doubling); 1 level stays 1.
-            int levels = original.MipLevels == 1 ? 1 : original.MipLevels + FullChain(dds.Width, dds.Height) - FullChain(original.Width, original.Height);
-            if (levels < 1 || levels > FullChain(dds.Width, dds.Height))
+            // The chain ends at the same smallest size as the original's (one level more per doubling); 1 level stays 1. For a
+            // stretched original the same rule in levels: as many levels fewer than a full chain at the PC size as the
+            // original has fewer than a full chain at its own size.
+            int levels = !stretched ? TextureConverter.LevelCount(original.MipLevels, k)
+                       : original.MipLevels == 1 ? 1 : original.MipLevels + FullChain(dds.Width, dds.Height) - FullChain(original.Width, original.Height);
+            if (stretched && (levels < 1 || levels > FullChain(dds.Width, dds.Height)))
                 throw new InvalidDataException("the original's " + original.MipLevels + " levels give no chain at " + dds.Width + "x" + dds.Height);
 
             // The original's top level, decoded: does it use alpha, and how close is it to the PC texture today?
@@ -135,13 +147,11 @@ namespace McvsOffline.Tools.HdTextures
             bool opaque = MinAlpha(originalTop) >= 250;
             if (stretched)
             {
-                int i = 0;
-                while (i + 1 < dds.Levels.Count && Ktx.MipSize(dds.Width, i + 1) >= original.Width && Ktx.MipSize(dds.Height, i + 1) >= original.Height) i++;
-                RgbaImage same = dds.Decode(i).Bilinear(original.Width, original.Height);
-                double psnr = RgbaImage.Psnr(originalTop, same, 0, 3);
-                if (psnr < MinStretchedPsnr)
+                double same = StretchedPsnr(originalTop, dds);
+                if (same < MinStretchedPsnr)
                     throw new InvalidDataException("the PC texture " + dds.Width + "x" + dds.Height + " is not the original " + original.Width + "x" + original.Height +
-                                                   " stretched (PSNR " + psnr.ToString("0.0", CultureInfo.InvariantCulture) + " dB): Gameloft's file stays");
+                                                   " stretched (PSNR " + same.ToString("0.0", CultureInfo.InvariantCulture) + " dB at " + CompareSize(original.Width, original.Height) +
+                                                   ", " + MinStretchedPsnr.ToString("0", CultureInfo.InvariantCulture) + " needed): Gameloft's file stays");
             }
 
             var result = new AstcResult
@@ -188,8 +198,50 @@ namespace McvsOffline.Tools.HdTextures
             return result;
         }
 
-        /// <summary>Below this PSNR (dB, RGB) between the original and the PC texture at the original's size, a PC texture of another shape is not taken.</summary>
-        public const double MinStretchedPsnr = 30.0;
+        /// <summary>
+        /// Below this PSNR (dB, RGB) between a stretched original and the PC texture, both reduced to at most
+        /// <see cref="CompareMax"/> texels a side (<see cref="StretchedPsnr"/>), the PC texture is not taken. Measured on the
+        /// real pack (docs/design/hd-textures.md §6): the five stretched originals score 28.5-51.7 dB against their PC
+        /// texture, 1.9-11.4 dB against another one's, 6-21 dB against their own moved by a tenth of its size (one almost
+        /// flat texture aside).
+        /// </summary>
+        public const double MinStretchedPsnr = 24.0;
+
+        /// <summary>The largest side at which <see cref="StretchedPsnr"/> compares.</summary>
+        public const int CompareMax = 64;
+
+        /// <summary>
+        /// How alike a stretched original and the PC texture are: the PC level nearest above the original's size, stretched
+        /// bilinearly to it, and both halved alike until no side is above <see cref="CompareMax"/>; PSNR of RGB. At full size
+        /// a hard edge (a white emblem on black) costs tens of dB when one side is resampled by a factor that is not a power
+        /// of two, the same picture or not (the 200x200 menu emblem: 23.2 dB at 200x200, 28.5 dB at 50x50); the reduced size
+        /// keeps the picture and its placement and drops that.
+        /// </summary>
+        internal static double StretchedPsnr(RgbaImage originalTop, Dds dds)
+        {
+            int w = originalTop.Width, h = originalTop.Height;
+            int i = 0;
+            while (i + 1 < dds.Levels.Count && Ktx.MipSize(dds.Width, i + 1) >= w && Ktx.MipSize(dds.Height, i + 1) >= h) i++;
+            RgbaImage a = originalTop, b = dds.Decode(i).Bilinear(w, h);
+            while (Math.Max(a.Width, a.Height) > CompareMax)
+            {
+                a = a.HalfSize();
+                b = b.HalfSize();
+            }
+            return RgbaImage.Psnr(a, b, 0, 3);
+        }
+
+        private static string CompareSize(int width, int height)
+        {
+            while (Math.Max(width, height) > CompareMax)
+            {
+                width = Math.Max(1, width / 2);
+                height = Math.Max(1, height / 2);
+            }
+            return width.ToString(CultureInfo.InvariantCulture) + "x" + height.ToString(CultureInfo.InvariantCulture);
+        }
+
+        private static bool IsPowerOfTwo(int v) => v > 0 && (v & (v - 1)) == 0;
 
         /// <summary>Levels of a full chain down to 1x1.</summary>
         internal static int FullChain(int width, int height)
