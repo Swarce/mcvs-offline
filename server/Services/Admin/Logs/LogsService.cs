@@ -224,11 +224,22 @@ namespace McvsOffline.Server.Services.Admin.Logs
             int dir = dirText == "1" ? 1 : 0;
             List<string> dirs = Directories(api.DescribeHost());
             if (dir >= dirs.Count) return SavesApi.NotFound("There is no such log file.");
-            LogFile file = null;
+            // The exact name, else the only one that differs just in case (one file on Windows, pc-port.md §4.6).
+            LogFile file = null, folded = null;
+            int foldedCount = 0;
             foreach (LogFile f in Files(dirs))
             {
-                if (f.Dir == dir && string.Equals(f.Name, name, StringComparison.Ordinal)) file = f;
+                if (f.Dir != dir) continue;
+                if (string.Equals(f.Name, name, StringComparison.Ordinal))
+                {
+                    file = f;
+                    break;
+                }
+                if (!string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase)) continue;
+                folded = f;
+                foldedCount++;
             }
+            if (file == null && foldedCount == 1) file = folded;
             string path = file == null ? null : AdminFiles.FileIn(dirs[dir], file.Name);
             if (path == null) return SavesApi.NotFound("There is no such log file.");
 
@@ -363,7 +374,7 @@ namespace McvsOffline.Server.Services.Admin.Logs
                 return SavesApi.NotSupported("This phone cannot save to Downloads from the game.");
             if (!api.Allow(ShareBucket, SharesPerMinute)) return api.RateLimited(ShareBucket, SharesPerMinute);
             string note;
-            lock (notes) notes.TryGetValue(file, out note);
+            lock (notes) notes.TryGetValue(Path.GetFileName(path), out note); // the zip's own name (FileIn may fold case)
             AdminShareResult share;
             try
             {

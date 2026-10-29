@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.IO;
+using McvsOffline.Server.Core.Http;
 using McvsOffline.Server.Core.Storage;
 using McvsOffline.Server.Services.Admin.Saves;
 using McvsOffline.Server.Services.Auth;
@@ -12,7 +13,8 @@ namespace McvsOffline.Tests.Admin
     /// differ only in case are one name on every platform, so Android and PC behave alike; Windows' reserved names are
     /// refused everywhere. The sites keyed by our own ids (exports: alias digits or a lower-case account id; uploads
     /// "u-" + lower hex; import sets lower hex; DocumentStore keys: account ids, our clan ids, the game's own leaderboard
-    /// names) cannot collide and are only checked for that shape here.
+    /// names) cannot collide and are only checked for that shape here. The request sites are checked through HTTP: logs
+    /// tail and logs share here, saves import validate by file in SavesApiTests (the "RAW.JSON" request).
     /// </summary>
     public class CaseCollisionTests
     {
@@ -26,6 +28,46 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal(file, AdminFiles.FileIn(dir.Path, "MCVS-LOGS-20261029-1200.ZIP"));
             Assert.Equal(file, AdminFiles.FileIn(dir.Path, "Mcvs-Logs-20261029-1200.zip"));
             Assert.Null(AdminFiles.FileIn(dir.Path, "mcvs-logs-20261029-1201.zip"));
+        }
+
+        [Fact]
+        public void TheLogsTailFindsALogWhateverTheCaseOfTheRequest()
+        {
+            using var s = new SavesServer();
+            string logs = s.Dir.Combine("phone-logs");
+            Directory.CreateDirectory(logs);
+            File.WriteAllText(Path.Combine(logs, "bootstrap.log"), "2026-10-26T10:14:00.000Z INFO  [boot] started\n");
+            s.Host.Info.LogsDir = logs;
+            s.Session();
+
+            Assert.Equal(200, s.Client.Get("logs/bootstrap.log").StatusCode);
+            HttpResponse folded = s.Client.Get("logs/BOOTSTRAP.LOG");
+            Assert.True(folded.StatusCode == 200, folded.StatusCode + " " + folded.BodyText);
+            Assert.Equal("bootstrap.log", AdminTestClient.At(folded, "name"));
+            Assert.Equal(200, s.Client.Get("logs/Bootstrap.Log?raw=1").StatusCode);
+
+            // Two logs that differ only in case (a case-sensitive disk): each by its own name, a third spelling is neither.
+            File.WriteAllText(Path.Combine(logs, "Bootstrap.log"), "2026-10-26T10:14:00.000Z INFO  [boot] other\n");
+            if (File.ReadAllText(Path.Combine(logs, "bootstrap.log")).Contains("other")) return; // a case-insensitive disk
+            Assert.Equal("Bootstrap.log", AdminTestClient.At(s.Client.Get("logs/Bootstrap.log"), "name"));
+            Assert.Equal("bootstrap.log", AdminTestClient.At(s.Client.Get("logs/bootstrap.log"), "name"));
+            Assert.Equal(404, s.Client.Get("logs/BOOTSTRAP.LOG").StatusCode);
+        }
+
+        [Fact]
+        public void TheLogsShareFindsTheZipAndItsNote()
+        {
+            using var s = new SavesServer();
+            s.Session();
+            HttpResponse zip = s.Client.Post("logs/zip", new Dictionary<string, object> { ["scope"] = "recent", ["note"] = "it froze" });
+            Assert.Equal(200, zip.StatusCode);
+            string file = (string)AdminTestClient.At(zip, "file");
+            // Only names of the zips' own lower-case shape are accepted, so another spelling is not found (no folded match).
+            Assert.Equal(404, s.Client.Post("logs/share", new Dictionary<string, object> { ["file"] = file.ToUpperInvariant() }).StatusCode);
+            Assert.Equal(200, s.Client.Post("logs/share", new Dictionary<string, object> { ["file"] = file }).StatusCode);
+            string[] call = Assert.Single(s.Host.SharedFiles);
+            Assert.Equal(file, Path.GetFileName(call[0]));
+            Assert.Contains("it froze", call[4]);
         }
 
         [Fact]
