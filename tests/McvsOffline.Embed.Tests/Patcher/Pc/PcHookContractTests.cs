@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using McvsOffline.Embed.Tests.Support;
 using McvsOffline.Patcher.Core;
 using McvsOffline.Patcher.Patches;
@@ -114,9 +113,13 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             Assert.Equal("McvsStoreSafety", StorePatch.SafetyType);
             Assert.Equal("Game." + StorePatch.SafetyType, McvsOffline.Embedded.GamePatchProbe.StoreSafetyType);
 
-            // The copies, compared by value through reflection (a copy spelled differently still compares). GamePatchProbe's
-            // constants come with WP2 and PcInstaller.Witnesses with WP3: on a branch that has neither yet, the comparison is
-            // reported and skipped; as soon as one of them is there, every copy must be there and equal.
+            // The copies: GamePatchProbe's constants (WP2) and PcInstaller.Witnesses (WP3), compared by value.
+            Assert.Equal(EngineBridgeHookPatch.TypeName, McvsOffline.Embedded.GamePatchProbe.HookPcType);
+            Assert.Equal(EngineBridgeHookPatch.HelperName, McvsOffline.Embedded.GamePatchProbe.HookPcMethod);
+            Assert.Equal(QuickLaunchPatch.HelperNamespace + "." + QuickLaunchPatch.HelperType, McvsOffline.Embedded.GamePatchProbe.QuickLaunchType);
+            Assert.Equal(HeadlessDiagnosticsPatch.HelperNamespace + "." + HeadlessDiagnosticsPatch.HelperType, McvsOffline.Embedded.GamePatchProbe.WorldDiagnosticsType);
+            Assert.Equal("Gameloft.Engine." + GraphicsPatch.HelperType, McvsOffline.Embedded.GamePatchProbe.GraphicsType);
+
             var expected = new Dictionary<string, (string File, string Type, string Member)>(StringComparer.Ordinal)
             {
                 ["hook-pc"] = (new EngineBridgeHookPatch().AssemblyFile, EngineBridgeHookPatch.TypeName, EngineBridgeHookPatch.HelperName),
@@ -125,45 +128,9 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 ["graphics"] = (new GraphicsPatch().AssemblyFile, "Gameloft.Engine." + GraphicsPatch.HelperType, null),
                 ["store"] = (new StorePatch().AssemblyFile, "Game." + StorePatch.SafetyType, null),
             };
-            var probeCopy = new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["HookPcType"] = expected["hook-pc"].Type,
-                ["HookPcMethod"] = expected["hook-pc"].Member,
-                ["QuickLaunchType"] = expected["quicklaunch"].Type,
-                ["WorldDiagnosticsType"] = expected["headless-diag"].Type,
-                ["GraphicsType"] = expected["graphics"].Type,
-            };
-            Type probe = typeof(McvsOffline.Embedded.GamePatchProbe);
-            Type installer = typeof(McvsOffline.Patcher.Pc.PcInstaller);
-            Dictionary<string, string> probeValues = probeCopy.Keys.ToDictionary(k => k, k => ConstantOrNull(probe, k), StringComparer.Ordinal);
-            MemberInfo witnessTable = (MemberInfo)installer.GetField("Witnesses", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static) ??
-                                      installer.GetProperty("Witnesses", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-            if (witnessTable == null && probeValues.Values.All(v => v == null))
-            {
-                output.WriteLine("neither GamePatchProbe's PC constants (WP2) nor PcInstaller.Witnesses (WP3) are on this branch: the copies are not compared");
-                return;
-            }
-
-            foreach (var kv in probeCopy) Assert.True(kv.Value == probeValues[kv.Key], "GamePatchProbe." + kv.Key + " is " + (probeValues[kv.Key] ?? "missing") + ", expected " + kv.Value);
-            Assert.True(witnessTable != null, "PcInstaller.Witnesses is missing");
-            object table = witnessTable is FieldInfo f ? f.GetValue(null) : ((PropertyInfo)witnessTable).GetValue(null);
-            var actual = new Dictionary<string, (string File, string Type, string Member)>(StringComparer.Ordinal);
-            foreach (object entry in (System.Collections.IEnumerable)table)
-            {
-                string key = (string)entry.GetType().GetProperty("Key").GetValue(entry);
-                object witness = entry.GetType().GetProperty("Value").GetValue(entry);
-                Type w = witness.GetType();
-                actual[key] = ((string)w.GetProperty("AssemblyFile").GetValue(witness), (string)w.GetProperty("TypeName").GetValue(witness),
-                               (string)w.GetProperty("MemberName").GetValue(witness));
-            }
+            var actual = McvsOffline.Patcher.Pc.PcInstaller.Witnesses.ToDictionary(
+                kv => kv.Key, kv => (kv.Value.AssemblyFile, kv.Value.TypeName, kv.Value.MemberName), StringComparer.Ordinal);
             Assert.Equal(expected.OrderBy(kv => kv.Key, StringComparer.Ordinal), actual.OrderBy(kv => kv.Key, StringComparer.Ordinal));
-        }
-
-        /// <summary>The value of the public const string <paramref name="name"/> of <paramref name="type"/>, or null when it has none.</summary>
-        private static string ConstantOrNull(Type type, string name)
-        {
-            FieldInfo field = type.GetField(name, BindingFlags.Public | BindingFlags.Static);
-            return field != null && field.IsLiteral && field.FieldType == typeof(string) ? (string)field.GetRawConstantValue() : null;
         }
     }
 }
