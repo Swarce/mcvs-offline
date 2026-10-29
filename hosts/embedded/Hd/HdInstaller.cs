@@ -529,7 +529,10 @@ namespace McvsOffline.Embedded.Hd
                     if (contents[r.Path] == Content.Hd) originals[r.Path] = r.OriginalSize;
                 }
                 PackIndex index = session.Installer.Index;
-                return InstallerData.VariantOf(index.LogicalFiles, InstallerData.PackBytes(index, originals));
+                // A data pack with replaced files (the ASTC HD pack) is recognised by Gameloft's sizes in its replaced.tsv.
+                int replaced;
+                return InstallerData.VariantOf(index.LogicalFiles,
+                                               InstallerData.PackBytes(index, originals, ReplacedFiles.Load(loc.ReplacedList, log), out replaced));
             }
 
             /// <summary>

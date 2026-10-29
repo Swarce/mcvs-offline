@@ -35,11 +35,70 @@ namespace McvsOffline.Tools.HdTextures
                 output.WriteLine(Usage);
                 return args.Length == 0 ? 2 : 0;
             }
-            Dictionary<string, string> o = Options(args, args[0] == "build"
-                ? new[] { "--pc", "--android-data", "--scope", "--maps", "--out", "--min-psnr", "--threads", "--only", "--dry-run" }
-                : args[0] == "index" ? new[] { "--decoded", "--android-data", "--pc", "--out" } : null, args[0]);
+            string[] known;
+            switch (args[0])
+            {
+                case "build":
+                    known = new[] { "--pc", "--android-data", "--scope", "--maps", "--out", "--min-psnr", "--threads", "--only", "--dry-run" };
+                    break;
+                case "index":
+                    known = new[] { "--decoded", "--android-data", "--pc", "--out" };
+                    break;
+                case "astc-pack":
+                    known = new[] { "--astc-files", "--pc", "--out", "--work", "--scope", "--blocks", "--quality", "--astcenc", "--threads", "--only",
+                                    "--part-size", "--keep-work", "--encode-only", "--dry-run" };
+                    break;
+                case "astc-measure":
+                    known = new[] { "--astc-files", "--pc", "--scope", "--blocks", "--quality", "--astcenc", "--threads", "--only", "--samples" };
+                    break;
+                default:
+                    known = null;
+                    break;
+            }
+            Dictionary<string, string> o = Options(args, known, args[0]);
             if (args[0] == "build") return Build(o, output);
+            if (args[0] == "astc-pack" || args[0] == "astc-measure") return Astc(args[0], o, output);
             return Index(o, output);
+        }
+
+        private static int Astc(string command, Dictionary<string, string> o, TextWriter output)
+        {
+            var options = new AstcOptions
+            {
+                Categories = HdIndex.ParseScope(Get(o, "--scope") ?? "all"),
+                Output = Get(o, "--out"),
+                Work = Get(o, "--work"),
+                DryRun = o.ContainsKey("--dry-run"),
+                KeepWork = o.ContainsKey("--keep-work"),
+                EncodeOnly = o.ContainsKey("--encode-only"),
+            };
+            string quality = Get(o, "--quality");
+            if (quality != null) quality = quality.Trim().TrimStart('-').ToLowerInvariant();
+            if (o.ContainsKey("--threads")) options.Threads = Math.Max(1, int.Parse(o["--threads"], CultureInfo.InvariantCulture));
+            if (o.ContainsKey("--only"))
+                options.OnlyHashes = new HashSet<string>(o["--only"].Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(NormalizeHash));
+            if (o.ContainsKey("--part-size")) options.PartLimit = long.Parse(o["--part-size"], CultureInfo.InvariantCulture) * 1024 * 1024;
+            if (command == "astc-measure")
+            {
+                options.MeasureSettings = (Get(o, "--blocks") ?? "4x4,5x5,6x6").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
+                                                                              .Select(b => AstcSetting.Parse(b, quality ?? "thorough")).ToList();
+                if (o.ContainsKey("--samples")) options.Samples = Math.Max(1, int.Parse(o["--samples"], CultureInfo.InvariantCulture));
+            }
+            else
+            {
+                options.Settings = AstcPackBuilder.ParseSettings(Get(o, "--blocks"), quality, AstcPackBuilder.DefaultSettings());
+                if (!options.DryRun && string.IsNullOrEmpty(options.Output)) throw new ArgumentException("give --out <folder for the upload parts>");
+            }
+            if (!options.DryRun)
+            {
+                options.AstcFiles = Get(o, "--astc-files") ?? Environment.GetEnvironmentVariable("MCVS_ASTC_MIRROR");
+                options.PcData = ResolvePcData(Get(o, "--pc") ?? Environment.GetEnvironmentVariable("MCVS_PC_INSTALL"), output);
+                options.Encoder = Astcenc.Locate(Get(o, "--astcenc"), out string how);
+                output.WriteLine("astcenc  found by " + how);
+            }
+            if (command == "astc-measure") AstcPackBuilder.Measure(options, output);
+            else AstcPackBuilder.Build(options, output);
+            return 0;
         }
 
         private static int Build(Dictionary<string, string> o, TextWriter output)
@@ -139,13 +198,13 @@ namespace McvsOffline.Tools.HdTextures
 
         private static Dictionary<string, string> Options(string[] args, string[] known, string command)
         {
-            if (known == null) throw new ArgumentException("unknown command '" + command + "' (known: build, index)");
+            if (known == null) throw new ArgumentException("unknown command '" + command + "' (known: build, astc-pack, astc-measure, index)");
             var o = new Dictionary<string, string>(StringComparer.Ordinal);
             for (int i = 1; i < args.Length; i++)
             {
                 string a = args[i];
                 if (!known.Contains(a)) throw new ArgumentException("unknown option '" + a + "' for " + command);
-                if (a == "--dry-run")
+                if (a == "--dry-run" || a == "--keep-work" || a == "--encode-only")
                 {
                     o[a] = "1";
                     continue;
@@ -177,6 +236,18 @@ namespace McvsOffline.Tools.HdTextures
             "                  Stadium2 (Map09), Bootcamp; default all\n" +
             "  --min-psnr      flag textures whose self-check is below this many dB (default 24)\n" +
             "  --dry-run       only list what the scope holds\n" +
+            "\n" +
+            "mcvs-hd-textures astc-pack --astc-files <ASTC files folder> --out <folder> [--pc <Steam game folder>] [--astcenc <path>]\n" +
+            "                       [--blocks surfaces=5x5,lightmaps=6x6:medium,...] [--quality thorough] [--work <folder>]\n" +
+            "                       [--threads N] [--part-size 380] [--keep-work] [--encode-only] [--dry-run]\n" +
+            "\n" +
+            "  The whole ASTC data pack for an ASTC phone: Gameloft's ASTC pack (a tools/cdn-mirror --tex ASTC --extract folder)\n" +
+            "  with every texture the PC has larger re-encoded to ASTC at the PC size by ARM's astcenc, written as upload parts\n" +
+            "  (stored zips below 380 MiB, entries files/...) with the installer index for exactly these files. Resumable: run\n" +
+            "  it again after an interruption. --astcenc or MCVS_ASTCENC: the astcenc binary (README.md, \"astcenc\").\n" +
+            "\n" +
+            "mcvs-hd-textures astc-measure --astc-files <ASTC files folder> [--pc ...] [--blocks 4x4,5x5,6x6] [--quality thorough] [--samples 6]\n" +
+            "  Encodes a few textures per category at each block size and prints PSNR, memory and time.\n" +
             "\n" +
             "mcvs-hd-textures index --decoded <decoded pack> --android-data <ETC Data> --pc <PC game> [--out hd-index.tsv]\n" +
             "  Maintainers: regenerates the texture table built into the tool.\n" +

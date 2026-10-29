@@ -53,6 +53,13 @@ namespace McvsOffline.Embedded.Install
         /// </summary>
         public IDictionary<string, long> HdOriginalSizes { get; set; }
 
+        /// <summary>
+        /// The files of a data pack that are not Gameloft's (<c>McvsOffline/install/replaced.tsv</c>, written by tools/hd-textures
+        /// astc-pack) with Gameloft's size of each: like <see cref="HdOriginalSizes"/>, they let the pack be recognised. Null: read
+        /// from <see cref="InstallerDataLocations.ReplacedList"/> at <see cref="InstallerData.Prepare"/>.
+        /// </summary>
+        public ReplacedFiles Replaced { get; set; }
+
         /// <summary>Tests: the complete packs a Data folder is compared with before an index is rebuilt (default <see cref="InstallerData.KnownPacks"/>).</summary>
         internal InstallerData.KnownPack[] KnownPacks { get; set; }
     }
@@ -102,6 +109,9 @@ namespace McvsOffline.Embedded.Install
         /// background CRC check has read every file: "index &lt;hash&gt;" and "next &lt;entry&gt;", where it resumes at a later start.
         /// </summary>
         public string VerifyPending { get { return Path.Combine(Path.GetDirectoryName(SavedIndex), "verify-pending"); } }
+
+        /// <summary>The files of the data pack that are not Gameloft's, with Gameloft's sizes (<see cref="ReplacedFiles"/>).</summary>
+        public string ReplacedList { get { return Path.Combine(Path.GetDirectoryName(SavedIndex), ReplacedFiles.FileName); } }
 
         /// <summary>An index the player copied next to Data/ (for example from a mirror made with tools/cdn-mirror).</summary>
         public string PlayerIndex { get { return Path.Combine(GameRoot, "pack.info"); } }
@@ -223,26 +233,55 @@ namespace McvsOffline.Embedded.Install
         /// </summary>
         public static long PackBytes(PackIndex index, IDictionary<string, long> originalSizes)
         {
+            int replaced;
+            return PackBytes(index, originalSizes, null, out replaced);
+        }
+
+        /// <summary>
+        /// As <see cref="PackBytes(PackIndex, IDictionary{string, long})"/>, and a file that <paramref name="replaced"/> lists with
+        /// the size it has (after an HD pack's original, if any) counts with Gameloft's size; <paramref name="replacedFiles"/> is
+        /// how many did.
+        /// </summary>
+        public static long PackBytes(PackIndex index, IDictionary<string, long> originalSizes, ReplacedFiles replaced, out int replacedFiles)
+        {
             long bytes = index.LogicalBytes;
-            if (originalSizes == null || originalSizes.Count == 0) return bytes;
+            replacedFiles = 0;
+            if ((originalSizes == null || originalSizes.Count == 0) && (replaced == null || replaced.Count == 0)) return bytes;
             foreach (PackEntry e in index.Entries)
             {
-                long original;
-                if (e.Piece <= 1 && originalSizes.TryGetValue(e.RelativePath, out original)) bytes += original - (e.Piece == 0 ? e.Size : e.TotalSize);
+                if (e.Piece > 1) continue;
+                long size = e.Piece == 0 ? e.Size : e.TotalSize;
+                bytes += Original(e.RelativePath, size, originalSizes, replaced, ref replacedFiles) - size;
             }
             return bytes;
         }
 
-        private static long HdAdjustment(List<PackIndex.FileInfoEntry> files, IDictionary<string, long> originalSizes)
+        /// <summary>Gameloft's size of a file that has <paramref name="size"/> bytes now (an HD pack's original first, then the replaced list).</summary>
+        private static long Original(string path, long size, IDictionary<string, long> originalSizes, ReplacedFiles replaced, ref int replacedFiles)
+        {
+            long effective = size, original;
+            if (originalSizes != null && originalSizes.TryGetValue(path, out original)) effective = original;
+            if (replaced != null && replaced.TryGetOriginalSize(path, effective, out original))
+            {
+                effective = original;
+                replacedFiles++;
+            }
+            return effective;
+        }
+
+        private static long HdAdjustment(List<PackIndex.FileInfoEntry> files, InstallerDataOptions options)
         {
             long delta = 0;
-            if (originalSizes == null || originalSizes.Count == 0) return 0;
-            foreach (PackIndex.FileInfoEntry f in files)
-            {
-                long original;
-                if (originalSizes.TryGetValue(f.RelativePath, out original)) delta += original - f.Size;
-            }
+            int replaced = 0;
+            if ((options.HdOriginalSizes == null || options.HdOriginalSizes.Count == 0) && (options.Replaced == null || options.Replaced.Count == 0)) return 0;
+            foreach (PackIndex.FileInfoEntry f in files) delta += Original(f.RelativePath, f.Size, options.HdOriginalSizes, options.Replaced, ref replaced) - f.Size;
             return delta;
+        }
+
+        /// <summary>The 1.17.32 pack <paramref name="index"/> describes (by Gameloft's sizes), or null; how many of its files are replaced ones.</summary>
+        private static string VariantOf(PackIndex index, InstallerDataOptions options, out int replacedFiles)
+        {
+            return VariantOf(index.LogicalFiles, PackBytes(index, options.HdOriginalSizes, options.Replaced, out replacedFiles), options.KnownPacks);
         }
 
         /// <summary>"ASTC", "ETC", or null when the counts are not those of a complete 1.17.32 pack.</summary>
@@ -265,6 +304,7 @@ namespace McvsOffline.Embedded.Install
         {
             options = options ?? new InstallerDataOptions();
             var restored = new Restored();
+            if (options.Replaced == null) options.Replaced = ReplacedFiles.Load(loc.ReplacedList, log);
             try
             {
                 string summary = PrepareCore(loc, prefs, options, log, nowUnixSeconds, restored);
@@ -298,6 +338,12 @@ namespace McvsOffline.Embedded.Install
             string parseError = null;
             PackIndex internalIndex = internalRaw == null ? null : PackIndex.TryParse(internalRaw, out parseError);
             bool hasData = Directory.Exists(loc.DataDir);
+            if (internalIndex != null && glVer == ApkVersionCode && !internalIndex.IsRebuilt)
+            {
+                // First, as the damaged list of the old data must not be checked against the old index.
+                string switched = SwitchToSavedIndex(loc, prefs, options, log, now, internalIndex, restored);
+                if (switched != null) return switched;
+            }
             RemoveDamaged(loc, internalIndex != null && !internalIndex.IsRebuilt ? internalIndex : null, log);
 
             if (internalIndex != null && glVer == ApkVersionCode)
@@ -357,6 +403,43 @@ namespace McvsOffline.Embedded.Install
             string result = Restore(loc, prefs, options, log, now, restored);
             if (result != null) return result;
             return "installer data: left to the game's installer (no usable index)";
+        }
+
+        /// <summary>
+        /// The player replaced the data pack (for example the ETC pack by the ASTC HD pack, docs/INSTALL-OFFLINE.md) and copied its
+        /// index to McvsOffline/install/pack.info, while the installer still has the index of the old data, by which it would delete
+        /// and download every file of another size. When the saved index differs from the installer's, is Gameloft's kind (not
+        /// rebuilt), and the data matches it completely but not the installer's, the saved index replaces the installer's (journal,
+        /// preferences and the background CRC check as for a restored index). Null when nothing changed.
+        /// </summary>
+        private static string SwitchToSavedIndex(InstallerDataLocations loc, IInstallerPrefs prefs, InstallerDataOptions options, Log log, long now,
+                                                 PackIndex internalIndex, Restored restored)
+        {
+            byte[] raw = ReadBytes(loc.SavedIndex);
+            if (raw == null || Same(raw, internalIndex.Raw)) return null;
+            string error;
+            PackIndex saved = PackIndex.TryParse(raw, out error);
+            if (saved == null || saved.IsRebuilt) return null;
+            DataCheck current = Check(internalIndex, loc.GameRoot);
+            if (current.Complete) return null;   // the saved copy is the stale one; SaveCopy replaces it
+            DataCheck check = Check(saved, loc.GameRoot);
+            if (!check.Complete)
+            {
+                log.Info("installer data: the data matches neither the installer's index (" + current.Describe() + ") nor the saved index (" +
+                         check.Describe() + "); the installer's is kept");
+                return null;
+            }
+            if (File.Exists(loc.DamagedList))
+            {
+                // Found by the background check of the data that was there before: it says nothing about this data.
+                log.Info("installer data: " + loc.DamagedList + " lists files of the data that was there before; removed");
+                TryDelete(loc.DamagedList, log);
+            }
+            Install(loc, prefs, options, log, now, saved, check, "saved index", restored);
+            log.Info("installer data: the data on the device is the pack of the saved index " + loc.SavedIndex + " (" + Describe(saved, options) +
+                     "), not the one in the installer's index (" + current.Describe() + "): gave the installer the saved index; every file is in place, " +
+                     "the game starts without internet");
+            return "installer data: index switched to the saved index (" + Describe(saved, options) + ")";
         }
 
         /// <summary>Gives the installer an index that matches the data; null when there is none.</summary>
@@ -423,7 +506,7 @@ namespace McvsOffline.Embedded.Install
             }
             long bytes;
             List<PackIndex.FileInfoEntry> files = ScanData(loc.GameRoot, out bytes);
-            string variant = VariantOf(files.Count, bytes + HdAdjustment(files, options.HdOriginalSizes), options.KnownPacks);
+            string variant = VariantOf(files.Count, bytes + HdAdjustment(files, options), options.KnownPacks);
             if (variant == null)
             {
                 var sb = new StringBuilder();
@@ -458,7 +541,8 @@ namespace McvsOffline.Embedded.Install
             AtomicFile.WriteAllBytes(loc.PackInfo, index.Raw);
             AtomicFile.WriteAllBytes(loc.GlVer, Encoding.ASCII.GetBytes(ApkVersionCode));
             MergeJournal(loc, check.GoodPieces, log);
-            string variant = VariantOf(index.LogicalFiles, PackBytes(index, options.HdOriginalSizes), options.KnownPacks);
+            int replacedFiles;
+            string variant = VariantOf(index, options, out replacedFiles);
             if (prefs != null)
             {
                 // The texture variant the data is, so a later CDN request asks for the same archive (the installer otherwise probes the GPU).
@@ -969,9 +1053,11 @@ namespace McvsOffline.Embedded.Install
                 byte[] saved = ReadBytes(loc.SavedIndex);
                 if (saved != null && Same(saved, index.Raw)) return;
                 AtomicFile.WriteAllBytes(loc.SavedIndex, index.Raw);
-                string variant = VariantOf(index.LogicalFiles, PackBytes(index, options.HdOriginalSizes));
+                int replacedFiles;
+                string variant = VariantOf(index, options, out replacedFiles);
                 AtomicFile.WriteAllText(loc.SavedIndexNote,
                     "Copy of the game installer's index of the data pack (Modern Combat Versus 1.17.32" + (variant == null ? "" : ", " + variant + " textures") +
+                    (replacedFiles > 0 ? ", " + replacedFiles + " files replaced (McvsOffline/install/replaced.tsv)" : "") +
                     ", " + index.LogicalFiles + " files, " + index.LogicalBytes.ToString(CultureInfo.InvariantCulture) + " bytes), saved by MCVS Offline on " +
                     DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture) + ".\n" +
                     "Keep it in your backup of the files folder. After a reinstall MCVS Offline gives it back to the installer, which then accepts\n" +
@@ -986,8 +1072,10 @@ namespace McvsOffline.Embedded.Install
 
         private static string Describe(PackIndex index, InstallerDataOptions options)
         {
-            string variant = VariantOf(index.LogicalFiles, PackBytes(index, options.HdOriginalSizes));
-            return (variant == null ? "" : variant + ", ") + index.LogicalFiles + " files, " + index.Entries.Count + " entries";
+            int replacedFiles;
+            string variant = VariantOf(index, options, out replacedFiles);
+            string pack = variant == null ? "" : replacedFiles > 0 ? variant + " with " + replacedFiles + " replaced files, " : variant + ", ";
+            return pack + index.LogicalFiles + " files, " + index.Entries.Count + " entries";
         }
 
         private static bool Same(byte[] a, byte[] b)
@@ -1041,6 +1129,87 @@ namespace McvsOffline.Embedded.Install
             catch (Exception ex)
             {
                 log.Warn("installer data: cannot delete " + path, ex);
+            }
+        }
+    }
+
+    /// <summary>
+    /// <c>McvsOffline/install/replaced.tsv</c>: the files of a data pack that are not Gameloft's, written by tools/hd-textures
+    /// astc-pack next to the pack's index. Text, '#' comments, a header <c>mcvs-replaced 1 &lt;variant&gt; &lt;game version&gt;</c>, then
+    /// one tab-separated row per file: <c>&lt;path under files/&gt; &lt;size&gt; &lt;crc32 hex&gt; &lt;Gameloft's size&gt; &lt;Gameloft's crc32 hex&gt;</c>.
+    /// A file counts with Gameloft's size only while it has the listed size, so the list never makes other data look complete.
+    /// </summary>
+    public sealed class ReplacedFiles
+    {
+        public const string FileName = "replaced.tsv";
+        private const string Header = "mcvs-replaced";
+
+        private readonly Dictionary<string, long[]> rows = new Dictionary<string, long[]>(StringComparer.Ordinal);
+
+        /// <summary>The variant the list says the pack is ("ASTC"); informational, the sizes decide.</summary>
+        public string Variant { get; private set; }
+
+        public int Count { get { return rows.Count; } }
+
+        /// <summary>Gameloft's size of <paramref name="path"/> when the list has it with <paramref name="size"/> bytes.</summary>
+        public bool TryGetOriginalSize(string path, long size, out long original)
+        {
+            long[] row;
+            if (path != null && rows.TryGetValue(path, out row) && row[0] == size)
+            {
+                original = row[2];
+                return true;
+            }
+            original = 0;
+            return false;
+        }
+
+        /// <summary>Parses the list; throws <see cref="FormatException"/> when it is not one.</summary>
+        public static ReplacedFiles Parse(string text)
+        {
+            var list = new ReplacedFiles();
+            bool header = false;
+            int number = 0;
+            foreach (string raw in (text ?? "").Split('\n'))
+            {
+                number++;
+                string line = raw.TrimEnd('\r');
+                if (line.Length == 0 || line[0] == '#') continue;
+                string[] f = line.Split('\t');
+                if (!header)
+                {
+                    if (f.Length < 3 || f[0] != Header || f[1] != "1") throw new FormatException("line " + number + ": not a list of replaced files (format 1)");
+                    list.Variant = f[2];
+                    header = true;
+                    continue;
+                }
+                long size, original;
+                uint crc, originalCrc;
+                if (f.Length != 5 || !f[0].StartsWith("Data/", StringComparison.Ordinal) || f[0].Contains("..") || f[0].Contains("\\") ||
+                    !long.TryParse(f[1], NumberStyles.None, CultureInfo.InvariantCulture, out size) ||
+                    !uint.TryParse(f[2], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out crc) ||
+                    !long.TryParse(f[3], NumberStyles.None, CultureInfo.InvariantCulture, out original) ||
+                    !uint.TryParse(f[4], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out originalCrc))
+                    throw new FormatException("line " + number + ": bad row");
+                if (list.rows.ContainsKey(f[0])) throw new FormatException("line " + number + ": " + f[0] + " listed twice");
+                list.rows[f[0]] = new[] { size, crc, original, originalCrc };
+            }
+            if (!header) throw new FormatException("empty list");
+            return list;
+        }
+
+        /// <summary>The list at <paramref name="path"/>, or null when there is none or it cannot be used (logged).</summary>
+        public static ReplacedFiles Load(string path, Log log)
+        {
+            try
+            {
+                if (!File.Exists(path)) return null;
+                return Parse(Encoding.UTF8.GetString(File.ReadAllBytes(path)));
+            }
+            catch (Exception ex)
+            {
+                if (log != null) log.Warn("installer data: " + path + " is not a usable list of replaced files (" + ex.Message + "); ignored");
+                return null;
             }
         }
     }
