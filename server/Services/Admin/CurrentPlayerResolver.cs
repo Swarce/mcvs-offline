@@ -13,8 +13,8 @@ namespace McvsOffline.Server.Services.Admin
     /// request) → <c>Accounts.Find</c>;</item>
     /// <item><c>session</c>: the player's last own login (<see cref="TokenService.LastDirectAnonymous"/>: auth/authorize
     /// remembers only a POST with the game's User-Agent, a device id and no browser header, so no web page's request
-    /// counts), only from the game's client id form (":android:"), with a device id, and the host's device id when the
-    /// host knows it; authorize takes any anonymous name without a password, so nothing else is trusted;</item>
+    /// counts), only from a game client id (Android or Steam, <see cref="McvsConstants.IsGameClientId"/>), with a device
+    /// id, and the host's device id when the host knows it; authorize takes any anonymous name without a password, so nothing else is trusted;</item>
     /// <item><c>device</c>: exactly one account recorded for the host's device id;</item>
     /// <item><c>single</c>: exactly one stored profile holds a game profile;</item>
     /// <item>none (<c>Source</c> null).</item>
@@ -54,11 +54,11 @@ namespace McvsOffline.Server.Services.Admin
                 if (account != null) return new CurrentPlayer { AccountId = account.Id, Credential = gameCredential, Source = "game" };
             }
 
-            // 2. The player's own last login, from the game's client and this device. The game's login always sends its
-            //    device id (OP/Session.cs GetAuthorizeRequest).
+            // 2. The player's own last login, from the game's client (Android or Steam) and this device. The game's login
+            //    always sends its device id (OP/Session.cs GetAuthorizeRequest).
             TokenInfo last = context.Tokens.LastDirectAnonymous;
             if (last != null && last.Credential != null && last.Credential.StartsWith("anonymous:", StringComparison.Ordinal)
-                && last.ClientId != null && last.ClientId.IndexOf(":android:", StringComparison.Ordinal) >= 0
+                && McvsConstants.IsGameClientId(last.ClientId)
                 && !string.IsNullOrEmpty(last.DeviceId) && !string.Equals(last.DeviceId, "Unknown", StringComparison.Ordinal)
                 && (string.IsNullOrEmpty(hostDevice) || string.Equals(hostDevice, last.DeviceId, StringComparison.Ordinal)))
             {

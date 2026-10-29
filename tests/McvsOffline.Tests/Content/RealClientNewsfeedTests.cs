@@ -57,7 +57,8 @@ namespace McvsOffline.Tests.Content
             Assert.Equal("", (string)item.AssetName);
             Assert.Equal("", (string)item.YouTubeLink);
             Assert.Equal(Monday, (DateTime)item.CreationDate); // Convert.ToInt64 + DateTimeUtil.FromEpoch
-            Assert.Equal(default(DateTime), (DateTime)item.EndDate); // no end_date: the inbox's 30 days apply
+            // end_date = week start + 37 days (pc-port.md §4.3): the expiry of the inbox message instead of now + 30 days.
+            Assert.Equal(Monday.AddDays(CrmNewsfeed.EndDateDays), ((DateTime)item.EndDate).ToUniversalTime());
 
             // The link 'adminlink' recognises (and the only kind Flash Inbox.gotoLink passes on: it starts with "http").
             var portal = new AdminTestClient(server).Portal;

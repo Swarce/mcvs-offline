@@ -74,6 +74,8 @@ namespace McvsOffline.Server.Services.Misc
                 return HttpResponse.EmptyObject();
             }, Router.CatchAllOrder);
 
+            ConnectivityTracker.Register(router, log);
+
             InstallArrayAwareFallback(router, log);
         }
 

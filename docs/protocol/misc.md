@@ -165,9 +165,36 @@ Message line = `{"type":"message\|game","id","msg","sender":{ChatUser},"sent","m
 | any | `redir/{*rest}` | `misc.marketing` | 200 HTML "Not available offline" | `EN/TrackingHitsComponent.cs`, `EN/BrowserComponent.cs` |
 | any | `ios/{*rest}` | `misc.gameportal` | `{}` | report 04 §12 (no caller) |
 | POST | `api/index.php` | `misc.chat.report` | `{}` | `OP/ChatApi.cs:80` (cmt.gameloft.com) |
+| any | `online_connectivity/connectionstatus` | `misc.connectivity` | **always** `{}` 200; one INFO line `connectivity: type=<t> status=<s> details="<≤100 chars>"` | native `ConnectivityTrackingManager` (`NativeEngine.dll`, `libnativeengine.so`); see "Connectivity tracker" below |
 | * | anything else | `unknown` | core fallback (logged in full + `logs/unknown-endpoints.jsonl`), answered `{}`, or `[]` for list-shaped GETs | report 02 §6 |
 
 All catch-all routes use `Router.CatchAllOrder`, so any module's specific route wins.
+
+### Connectivity tracker (`server/Services/Misc/ConnectivityTracker.cs`)
+
+The native `ConnectivityTrackingManager` (in `NativeEngine.dll` on PC and in every Android `libnativeengine.so`)
+locates `online_connectivity` through pandora (`ServiceUrls.NativeServices`, so the locate answers
+`<base>/online_connectivity/` without the "unknown service" warning) and posts one form per tracked event to
+`/online_connectivity/connectionstatus`, User-Agent `connectivity_tracker/ GlWebTools/2.0 / ()`:
+
+```
+type=<auth|sp|gs|chat|shop|matchmaking|lobby|data|mpmatch>&status=<0|1>&timestamp=<YYYY-MM-DD HH:MM:SS, UTC>
+&connectionstatus=<details, at most 100 chars>&domain=<datacenter>&client_id=<client id>[&port=<n, only when > 0>]
+&device_id=<on PC: the machine's MAC address>
+```
+
+* The body may start with `&`; `port` is left out when 0; only `type=auth` ↔ the login tracker is proven (the PC spike
+  saw `type=auth status=1 connectionstatus=` after each failed reconnect), so any `type` is accepted.
+* **Why always 200.** The tracker never reads the answer: 200 ends the event, a 5xx or a 3 s timeout makes it retry,
+  any other status drops it. The handler catches everything and answers `200 {}` even when it fails itself (a 500
+  from the router would only produce retries). It logs one INFO line
+  `connectivity: type=<t> status=<s> details="<≤100 chars>"` and never the `device_id`.
+* **Privacy.** On PC `device_id` is a MAC address. `LogRedaction` replaces MAC-shaped `device_id`/`global_device_id`
+  values with `<redacted-mac>` in every request log line and `unknown-endpoints.jsonl` entry, and SteamID64s (the PC
+  anonymous user name) keep only their first and last 4 digits (docs/design/pc-port.md §4.2).
+* **When it stops.** The tracker is part of the native online SDK; with the `nativeonline` patch and
+  `embedded.nativeOnlineSdk: false` (the defaults) the SDK is not initialised and these posts should not appear at
+  all (to be confirmed on PC in WR2, design Q8). The route stays either way: it is shared code and costs nothing.
 
 ## Decisions
 

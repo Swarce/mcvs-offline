@@ -10,6 +10,7 @@ using McvsOffline.Server.Core.Http;
 using McvsOffline.Server.Core.Json;
 using McvsOffline.Server.Services;
 using McvsOffline.Server.Services.Admin;
+using McvsOffline.Server.Services.Crm;
 using McvsOffline.Server.Services.Social.LiveOps;
 using McvsOffline.Tests.Content;
 
@@ -347,8 +348,26 @@ namespace McvsOffline.Tests.Golden
                 Dump = dump,
                 EventId = eventId,
                 Status = response.StatusCode,
-                Text = response.BodyText,
+                Text = WithoutNewsfeedEndDate(response.BodyText),
             };
+        }
+
+        /// <summary>
+        /// <paramref name="text"/> without the <c>end_date</c> member of our newsfeed item (added after the capture, by the
+        /// PC port, docs/design/pc-port.md §4.3: <c>CrmNewsfeedTests</c> checks it). Every other byte is compared as
+        /// captured on ac64bfd.
+        /// </summary>
+        public static string WithoutNewsfeedEndDate(string text)
+        {
+            if (text == null) return null;
+            int item = text.IndexOf("\"news_id\":\"" + CrmNewsfeed.NewsId + "\"", StringComparison.Ordinal);
+            if (item < 0) return text;
+            const string member = ",\"end_date\":\"";
+            int start = text.IndexOf(member, item, StringComparison.Ordinal);
+            int close = text.IndexOf('}', item);
+            if (start < 0 || (close >= 0 && start > close)) return text;
+            int end = text.IndexOf('"', start + member.Length);
+            return end < 0 ? text : text.Remove(start, end + 1 - start);
         }
 
         private static string Join(string first, string rest)

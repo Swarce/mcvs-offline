@@ -36,7 +36,8 @@ namespace McvsOffline.Tests.Content
         internal const string ItemJson =
             "{\"news_id\":\"mcvsoffline_FromMCVS\",\"title\":\"MCVS Offline\","
             + "\"body\":\"Settings, saves and logs of your offline game. Tap the button to open them.\","
-            + "\"redirect\":\"http://127.0.0.1:51780/_mcvs/ui/#news\",\"asset\":\"\",\"youtube\":\"\",\"timestamp\":1792972800}";
+            + "\"redirect\":\"http://127.0.0.1:51780/_mcvs/ui/#news\",\"asset\":\"\",\"youtube\":\"\",\"timestamp\":1792972800,"
+            + "\"end_date\":\"2026-12-02T00:00:00Z\"}";
 
         private static List<object> Newsfeeds(Dictionary<string, object> doc) => (List<object>)doc["newsfeeds"];
 
@@ -74,8 +75,8 @@ namespace McvsOffline.Tests.Content
         {
             List<object> list = CrmNewsfeed.Build(new CrmOptions(), new FakeAdminPortal(), Wednesday);
             var item = (Dictionary<string, object>)Assert.Single(list);
-            Assert.Equal(new[] { "news_id", "title", "body", "redirect", "asset", "youtube", "timestamp" }, item.Keys.ToArray());
-            foreach (string key in new[] { "news_id", "title", "body", "redirect", "asset", "youtube" }) Assert.IsType<string>(item[key]);
+            Assert.Equal(new[] { "news_id", "title", "body", "redirect", "asset", "youtube", "timestamp", "end_date" }, item.Keys.ToArray());
+            foreach (string key in new[] { "news_id", "title", "body", "redirect", "asset", "youtube", "end_date" }) Assert.IsType<string>(item[key]);
             Assert.IsType<long>(item["timestamp"]);
             Assert.Equal(ItemJson, MiniJson.Serialize(item));
 
@@ -103,6 +104,13 @@ namespace McvsOffline.Tests.Content
             Assert.Equal(TimeFormat.ToUnixSeconds(expected), item["timestamp"]);
             // Always younger than the client's 30-day cut-off (InboxComponent.UpdateNewsFeedItem).
             Assert.False(TimeFormat.FromUnixSeconds((long)item["timestamp"]).AddDays(30) < utc);
+            // end_date: week start + 37 days, ISO 8601 UTC, at least 30 days after the timestamp (pc-port.md §4.3: the PC
+            // inbox takes the item's EndDate as the message's expiry whenever the timestamp moved).
+            Assert.Equal(expected.AddDays(37).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture), item["end_date"]);
+            DateTime end;
+            Assert.True(TimeFormat.TryParse((string)item["end_date"], out end));
+            Assert.True(end.ToUniversalTime() >= TimeFormat.FromUnixSeconds((long)item["timestamp"]).AddDays(30));
+            Assert.True(end.ToUniversalTime() > utc.AddDays(30)); // never expires before the client's own 30 days would
         }
 
         [Fact]

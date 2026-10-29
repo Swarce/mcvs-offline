@@ -70,8 +70,12 @@ namespace McvsOffline.Server.Services.Eve
 
         private static void NoteClientId(Log log, string clientId)
         {
-            if (!string.Equals(clientId, McvsConstants.ClientId, StringComparison.Ordinal))
-                log.Info("eve request for client id '" + clientId + "' (expected " + McvsConstants.ClientId + "); answering anyway");
+            // The two builds we serve: Android (Google Play) and Steam (docs/design/pc-port.md §4.4).
+            if (string.Equals(clientId, McvsConstants.ClientId, StringComparison.Ordinal)
+                || string.Equals(clientId, McvsConstants.ClientIdSteam, StringComparison.Ordinal))
+                return;
+            log.Info("eve request for client id '" + clientId + "' (expected " + McvsConstants.ClientId + " or "
+                     + McvsConstants.ClientIdSteam + "); answering anyway");
         }
     }
 }
