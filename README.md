@@ -86,7 +86,7 @@ the shop, the MCVS Offline page and the HD textures. A few newer features are bu
 | MCVS Offline page: settings, saves, logs | Works (tested on a phone) |
 | Cosmetic crate | Built, waiting for a phone test (the crate starts with a later season) |
 | Target Android 15 | Works (builds 10 to 12 installed and played on a phone) |
-| Graphics profiles | Built, waiting for a phone test |
+| Graphics profiles | Works (tested on a phone) |
 | HD textures (ASTC and ETC packs) | Works: the ASTC pack on a Galaxy S22, at the same frame rate as the stock textures |
 | PC (Steam) port | In progress: a Windows test kit ([docs/PC-SPIKE.md](docs/PC-SPIKE.md)); the design is on the `wip/pc-port` branch |
 | LAN multiplayer | Experimental: guests use the host's server for everything |
@@ -238,7 +238,7 @@ docs/                architecture, status, guides, protocol notes, designs, rese
 
 ## Roadmap
 
-- **Next:** the PC (Steam) port, phone tests of the Cosmetic crate and the graphics profiles, and Android's game
+- **Next:** the PC (Steam) port, a phone test of the Cosmetic crate, and Android's game
   category for the patched APK (so Game Mode and Samsung's Game Booster treat it as a game).
 - **Later:** the project's own icon art, LAN multiplayer, internet multiplayer, and preservation extras (a full CDN
   mirror, maps from older builds).
