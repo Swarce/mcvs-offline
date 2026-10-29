@@ -1823,38 +1823,65 @@ manifest half: rename → debloat → targetsdk 35 **without** `game`, on the re
 
 ---------------------------------------------------------------------------------------------------
 
-## 13. WR2: the second Windows round (gate for WP5b)
+## 13. WR3: the third Windows round (gate for WP5b)
 
-The owner runs the kit WP5a published on the WP0 PC. Before starting: quit capture and overlay tools (OBS, Discord
-overlay, Medal, GeForce Experience and the like, [QL] §5), do not start the game under a debugger (the
-`PEB.BeingDebugged` gate gives a silent dead window, [WH-V] C10), and close the game.
+### 13.0 What WR2 settled and what WR3 repeats
 
-| # | step | record | settles |
-|---|---|---|---|
-| 1 | `status --listing` | leftovers of the WP0 spike (config, `McvsOffline\spike\`, args.txt block); the listing **before** install (`McvsOffline\kit\listing-<stamp>.txt`, or `%TEMP%\McvsOffline\kit\listing-<stamp>.txt` while `McvsOffline\` does not exist, as in WR2: every top-level entry with size, time and SHA-256, `not-hashed` for `core.dmp`, and per folder the file count and total size) | — |
-| 2 | `probe` from a normal (non-admin) prompt | http.sys result for `http://localhost:51750/`, urlacl lines, port 51780, excluded ranges, folder writable, .NET Release; GPU adapters, displays and refresh rates, physical memory, firewall rules for the game (F7, F9) | **Q2** (D4), Q5 |
-| 3 | `install`, then `verify` | notes; `status` says "installed, current"; the `written` SHA-256 values `verify` prints **equal** the expected values WP5a recorded from the Linux run (§12.6). Any difference blocks WP5b until explained (the tested bytes must be the shipped bytes) | R9 |
-| 4 | `watch` in a second window, then start the game from Steam | `[boot] runtime:` with the expected values: `process x86, LAA no`, `Release` ≥ 379893 (4.5.2; Windows 10/11 normally report 4.8.x, ≥ 528040); `[boot] assemblies:` (every assembly from `McvsOffline\bin`), `[boot] patches:` (every witness `yes`) | **Q1**, Q7 |
-| 5 | reach the main menu | `[pc] quicklaunch:` lines (LocalAnubis started, room, thread id equals the game thread), no `headless world:`/`server world:`/`component … not created` lines, `[boot] graphics:` (GPU and MEM profile, `MEM rule on, removed <n>` with the expected count, `excludedLoadingLayers` without `Physics`) | **Q4** (TS), Q6, **Q13** |
-| 6 | open the settings page: Settings › Account "MCVS Offline" (`auto`); then the inbox item; then the page's "Open in the system browser"; then set `admin.openVia` to `system`, then `game`, restart each time. Then with `auto`: once in fullscreen and once in windowed mode; once with Steam › Settings › In Game › "Enable the Steam Overlay while in-game" turned off (restart the game) | for each: the route in the `admin: page opened … via` line and whether the page appeared with its session (Status loads). Expected: overlay shows the page in both modes; with the overlay off, `via system` and the browser opens; `game` works after login. If `via overlay` is ever logged with nothing visible, the next click must log `via system … overlay showed no page last time`; if that happens in a normal setup, Q3's bad branch applies | **Q3**, **Q10**, R17 |
-| 7 | on the page: Save the game now; export a save (Explorer opens `McvsOffline\exports`); share logs; copy a text. Then once more with `admin.openVia=system` and the game **minimised** behind the browser: Save the game now | each works; whether Save now completes while minimised (the game thread keeps running, [CR] F3 [I]) | F3 |
-| 8 | one bot match to the end | match ran with bots and physics (no falling through floors), rewards saved, `headless world:` lines (none expected), the watchdog, `[pc] quicklaunch: automatch through the local Finder` | **Q4** (GS), **Q12** |
-| 9 | during the match: minimise and restore; open the in-game menu; open the Steam overlay (Shift+Tab) | one pause, cursor visible in the menu and on the end screen | H11, M2, H8 |
-| 10 | in options: toggle fullscreen twice | no crash, the setting is kept | H8, [HL-V] §5 |
-| 11 | firewall prompts at boot or at the match; `watch`'s endpoint lists | prompts (when, which), listeners: VDB `0.0.0.0:25001+` (one per physics World), GS UDP `[::]`, Finder 51750 | **Q5** |
-| 12 | `watch` telemetry in menu and match; the `memory:` part of every `[status]` line (F9) | private bytes and virtual size, % of 2048 MB | **Q6** |
-| 13 | with the defaults (`nativeonline` applied, `embedded.nativeOnlineSdk: false`): open the in-game store, buy one item with soft currency, and open every xpromo/news screen the menu offers; then `server.log`; then once with `embedded.nativeOnlineSdk: true` | store and xpromo screens: any hang, error popup or crash; `server.log`: no `GlWebTools` request, no `connectionstatus`; with the SDK on: the tracker posts get 200 and one INFO line each, no MAC anywhere in the logs | **Q8**, R11 |
-| 14 | Steam achievements: open one crate (or note the first-login-of-the-day progress) and compare the stat on the Steam overlay's achievements page before and after | the progress moved by exactly one step | D3 (H9 + M3) |
-| 15 | Settings page › Restart; then once more with `admin.restartVia=host` | each time the game closes and comes back through Steam within ~10 s; `game.log` present; the log names the exit path (`ExitAppAndroid`, or the host's kill) | **Q9**, **Q14** |
-| 16 | `collect`, then `uninstall`, then `status --listing` | the zip; the listing **after**, diffed against step 1's by the kit (`listing-diff.txt`): expected differences only `McvsOffline\` (with the data) and the game's own files (`dr0.bin`..`dr3.bin`, `OF_PP.bin`, `GameVersion`, `core.dmp` "the game's own crash dump" with its size and UTC time, or any other entry whose time is a game-run time, each named); no `args.txt`, no config, no `*.mcvs-tmp`. Anything else is a leftover of ours; `summary.txt` and the `pc-kit.log` headers name the kit's SHA-256 | F9, P1 |
-| 17 | optional: `uninstall --remove-data --yes` on a copy of the game folder (or after the save export) | no `McvsOffline\` left; the kit log continued in `%TEMP%\McvsOffline\kit\`; no `%TEMP%\mcvs-pckit-*` folder left | §7.6 |
-| 18 | optional: Steam "Verify integrity of game files" while installed, then `status` | still "installed, current" | [PP] §5.3 [I] |
-| 19 | owner question: had this Steam account played MCVS on PC before (the `SACHI1` marker)? | yes/no | **Q11** |
+WR2 ran on 2026-10-29 with the build-13 preview kit on the owner's PC (Windows build 26200, pt-BR, .NET 4.8.1 Release
+533509, UTC-4): 15 starts, two matches, the settings page twice. The analysis is in the WR2 notes of this round (the
+synthesis and its verification pass); the rows below carry each step's WR2 result.
 
-The owner sends back the `collect` zip, the `watch` folder and the two listings; WP5b records the results in §14 and
-STATUS. Expected values (WP5a fills them in from §12.6 before the kit is handed over): the `written` SHA-256 of the
-five DLLs and the config; the `MEM rule on, removed <n>` count. When WP6 runs (Q2 failed), WR3 repeats steps 2, 3, 4, 5, 8 and 16 with the republished kit (§11.4) before WP5b
-closes.
+* **Settled by WR2:** the install writes exactly the tested bytes (every `written` SHA-256 of build 13's §13.1); `probe`
+  (Q2: http.sys `localhost:51750` works for a standard user, so WP6 is not needed); the runtime line; quicklaunch with
+  its continuations on the game thread (Q13); the MEM rule (`removed 1`, no Physics); the overlay route of the page from
+  the inbox item (Q3's good branch, window mode unknown); the `GameLogBridge` attach (Q14's attach half); no tracker
+  traffic with the defaults (Q8's traffic half); the lazy probe mechanism (Q7).
+* **Not settled, because `Game.dll` was never ours (F1, Q1):** every step that needs a patch in `Game.dll`: the headless
+  sites (Q4), the bot-match tile and the GS World (Q12), the Account menu entry (Q10), the inbox crash fix (`store`),
+  the stall fix (`signatures`). Build 14 loads `Game` by its full name (`gameload`, §8.9, plus `<qualifyAssembly>`,
+  §7.4) and reports a start that ran the stock files as `installed, NOT ACTIVE` (§7.6, §6.2).
+* **Build 14's other WR2 fixes** WR3 must see working: the native crash filter and the PROBABLY FATAL reports (F3,
+  §6.4), the pid in the start and STALL lines, the kit's stall dumps (F4, §9.2), `game.log` at Fatal plus
+  `gameLog.levels` with UTC times and redacted tokens (F5, F6), the PC graphics line from the in-game options (F7,
+  §6.7), the kit capture fixes (F9), no admin 401 as a boot milestone and the stale-tab message (F8).
+
+**WR3 must repeat steps 3 (with `verify`) to 6, 8, 11 to 13 and 15 with `Game.dll` active, and do 7, 8b, 9, 10, 14
+and 16 to 18 for the first time** (19 is a question). Steps 4 to 18 only count when step 4 shows `Game` from
+`McvsOffline\bin` and every witness `yes`.
+
+Before starting: quit capture and overlay tools (OBS, Discord overlay, Medal, GeForce Experience and the like, [QL] §5),
+do not start the game under a debugger (the `PEB.BeingDebugged` gate gives a silent dead window, [WH-V] C10), close the
+game, and turn on WER LocalDumps for `ModernCombatVersus.exe` once as administrator (`DumpType` 2, `DumpCount` 3;
+[PLAYER-SETUP-PC.md](../PLAYER-SETUP-PC.md) §6), so a native crash leaves a full dump (Q17). Unlock codes and the
+unlock-all grant come only after the bot match (step 8b), so a stall cannot hide the match.
+
+| # | step | record | settles | WR2 result |
+|---|---|---|---|---|
+| 1 | `status --listing` | leftovers of the WP0 spike (config, `McvsOffline\spike\`, args.txt block); the listing **before** install (`McvsOffline\kit\listing-<stamp>.txt`, or `%TEMP%\McvsOffline\kit\listing-<stamp>.txt` while `McvsOffline\` does not exist, as in WR2: every top-level entry with size, time and SHA-256, `not-hashed` for `core.dmp`, and per folder the file count and total size) | — | pass (the listing went to `%TEMP%\McvsOffline\kit\`; no WP0 leftovers) |
+| 2 | `probe` from a normal (non-admin) prompt | http.sys result for `http://localhost:51750/`, urlacl lines, port 51780, excluded ranges, folder writable, .NET Release; GPU adapters, displays and refresh rates, physical memory, firewall rules for the game (F7, F9) | **Q2** (D4), Q5 | pass (http.sys ok as a normal user, not elevated; Release 533509) |
+| 3 | `install`, then **`verify`** (mandatory: WR2 skipped it), then `status` | notes; `status` says "installed, current"; the `written` SHA-256 values `verify` prints **equal** the expected values of §13.1 (build 14, recorded from the Linux run of §12.6). Any difference blocks WP5b until explained (the tested bytes must be the shipped bytes) | R9 | partial: install byte-exact against §13.1 of build 13; `verify` **not run**; "installed, current" was shown although Game was not active (F2) |
+| 4 | `watch` in a second window, then start the game from Steam; after the first start `status` | `[boot] runtime:` with the expected values: `process x86, LAA no`, `Release` ≥ 379893 (4.5.2; Windows 10/11 normally report 4.8.x, ≥ 528040); `[boot] assemblies:` every assembly from `McvsOffline\bin`, **`Game` included** (`Game …\McvsOffline\bin\Game.dll`); `[boot] patches:` every witness `yes` (`gameload yes`, `store yes`); no `NOT ACTIVE` in the `[status]` line, on the page or in the kit; `status`: `installed, current` and `activation: active at the last start`. If `Game` still comes from the game folder: stop, `collect`, and send it (Q1, Q15) | **Q1**, Q7, **Q15**, F2 | runtime pass; **assemblies fail** (`Game` from the GAME FOLDER in 15/15 starts, F1); **patches fail** (`store NO`, a consequence) |
+| 5 | reach the main menu | `[pc] quicklaunch:` lines (LocalAnubis started, room, thread id equals the game thread), no `headless world:`/`server world:`/`component … not created` lines, `[boot] graphics:` (GPU and MEM profile, `MEM rule on, removed <n>` with the expected count, `excludedLoadingLayers` without `Physics`) | **Q4** (TS), Q6, **Q13** | quicklaunch and Q13 pass (15/15); 35 headless reports, all at the stock Game sites H1/H10 (blocked by F1); graphics pass (`removed 1`, no Physics) |
+| 6 | open the settings page: Settings › Account "MCVS Offline" (`auto`); then the inbox item; then the page's "Open in the system browser"; then set `admin.openVia` to `system`, then `game`, restart each time. Then with `auto`: once in fullscreen and once in windowed mode; once with Steam › Settings › In Game › "Enable the Steam Overlay while in-game" turned off (restart the game) | for each: the route in the `admin: page opened … via` line and whether the page appeared with its session (Status loads). Expected: overlay shows the page in both modes; with the overlay off, `via system` and the browser opens; `game` works after login. If `via overlay` is ever logged with nothing visible, the next click must log `via system … overlay showed no page last time`; if that happens in a normal setup, Q3's bad branch applies | **Q3**, **Q10**, R17 | inbox item pass (overlay, twice, also via the code `MCVSOFFLINE`); Account › MCVS Offline blocked (F1); the rest not tested |
+| 7 | on the page: Save the game now; export a save (Explorer opens `McvsOffline\exports`); share logs; copy a text. Then once more with `admin.openVia=system` and the game **minimised** behind the browser: Save the game now | each works; whether Save now completes while minimised (the game thread keeps running, [CR] F3 [I]) | F3 | not tested |
+| 8 | one bot match to the end **through the bot-match tile**, `watch` running, before any unlock code | match ran with bots and physics (no falling through floors), rewards saved, `headless world:` lines (none expected), the watchdog, `[pc] quicklaunch: automatch through the local Finder` (1 or more), the GS World and P3 lines | **Q4** (GS), **Q12** | not run (blocked by F1): two stock client-World matches ran, rewards saved; `automatch through the local Finder 0` |
+| 8b | after step 8: redeem one big unlock code (time it), then open the inbox; then the unlock-all grant once | the time until the game answers again, any `[watchdog] STALL` line (and the dump `watch` takes at 60 s), whether the inbox opens without a crash (the `store` fix, WR2 crashes 1-2) | **Q16**, F4 | (WR2: 70 STALL reports and two inbox crashes, all with the stock Game.dll) |
+| 9 | during the match: minimise and restore; open the in-game menu; open the Steam overlay (Shift+Tab) | one pause, cursor visible in the menu and on the end screen | H11, M2, H8 | not tested |
+| 10 | in options: toggle fullscreen twice | no crash, the setting is kept | H8, [HL-V] §5 | not tested |
+| 11 | firewall prompts at boot or at the match; `watch`'s endpoint lists | prompts (when, which), listeners: VDB `0.0.0.0:25001+` (one per physics World), GS UDP `[::]`, Finder 51750 | **Q5** | partial: listeners seen (VDB `0.0.0.0:25001+`, Finder 51750); no GS socket (no GS match); no prompt data |
+| 12 | `watch` telemetry in the menu and through a whole match, once at the in-game Graphics quality Low and once at High; the `memory:` part of every `[status]` line (F9). Then `graphics.profile` = `high` on the page, restart, once without and once after an in-game quality choice | private bytes and virtual size, % of 2048 MB, peak per match; the `[boot] graphics:` profile and the `in-game options` line each time | **Q6**, **Q18** | partial: menu LowEnd peak virtual 1239 MB; 1727 MB (84 %) during a 180 s stall with 3 Worlds; no match or HighEnd sample |
+| 13 | with the defaults (`nativeonline` applied, `embedded.nativeOnlineSdk: false`): open the in-game store, buy one item with soft currency, and open every xpromo/news screen the menu offers; then `server.log`; then once with `embedded.nativeOnlineSdk: true` | store and xpromo screens: any hang, error popup or crash; `server.log`: no `GlWebTools` request, no `connectionstatus`; with the SDK on: the tracker posts get 200 and one INFO line each, no MAC anywhere in the logs | **Q8**, R11 | partial: no `GlWebTools`/`connectionstatus` with the defaults; store, xpromo and SDK-on not tested |
+| 14 | Steam achievements: open one crate (or note the first-login-of-the-day progress) and compare the stat on the Steam overlay's achievements page before and after | the progress moved by exactly one step | D3 (H9 + M3) | not tested |
+| 15 | Settings page › Restart; then once more with `admin.restartVia=host` | each time the game closes and comes back through Steam within ~10 s; `game.log` present; the log names the exit path (`ExitAppAndroid`, or the host's kill) | **Q9**, **Q14** | partial: `game.log` present (bridge attaches); Restart never used |
+| 16 | `collect`, then `uninstall`, then `status --listing` | the zip; the listing **after**, diffed against step 1's by the kit (`listing-diff.txt`): expected differences only `McvsOffline\` (with the data) and the game's own files (`dr0.bin`..`dr3.bin`, `OF_PP.bin`, `GameVersion`, `core.dmp` "the game's own crash dump" with its size and UTC time, or any other entry whose time is a game-run time, each named); no `args.txt`, no config, no `*.mcvs-tmp`. Anything else is a leftover of ours; `summary.txt` and the `pc-kit.log` headers name the kit's SHA-256 | F9, P1 | partial: `collect` only; no `uninstall`, no listing after |
+| 17 | optional: `uninstall --remove-data --yes` on a copy of the game folder (or after the save export) | no `McvsOffline\` left; the kit log continued in `%TEMP%\McvsOffline\kit\`; no `%TEMP%\mcvs-pckit-*` folder left | §7.6 | not tested |
+| 18 | optional: Steam "Verify integrity of game files" while installed, then `status` | still "installed, current" | [PP] §5.3 [I] | not tested |
+| 19 | owner question: had this Steam account played MCVS on PC before (the `SACHI1` marker)? | yes/no | **Q11** | not answered |
+
+The owner sends back the `collect` zip, the `watch` folder, the two listings, the dumps `collect` lists in `dumps.txt`
+and the `AppCrash_ModernCombatVers_*` report folders; WP5b records the results in §14 and STATUS. Expected values (filled
+in from §12.6 before the kit is handed over): the `written` SHA-256 of the five DLLs and the config (§13.1); the
+`MEM rule on, removed <n>` count.
 
 ### 13.1 Expected WR2 values (WP5a, build 13)
 
@@ -1901,22 +1928,26 @@ The owner's copy is [PLAYER-SETUP-PC.md](../PLAYER-SETUP-PC.md) §7.
 
 ## 14. Open questions and how they are settled
 
-| # | question | settled by | if the answer is bad |
-|---|---|---|---|
-| Q1 | Do `Game`, `Gameloft.Engine`, `Gameloft.Util`, `McvsOffline.Server` bind through their `<codeBase>` (chained Load-context binds)? Expected yes ([PP-V] §8) | WR2 4: **no for `Game`** (bare-name load, 15/15 starts from the game folder), yes for the others. Fixed by `gameload` (§8.9) and `<qualifyAssembly>` (§7.4); WR3 step 4 re-checks (`assemblies: Game …\McvsOffline\bin\Game.dll`, `gameload yes`, `store yes`) | option B (in place with backups) as a new installer mode; R3 |
-| Q2 | Does http.sys accept `http://localhost:51750/` for a standard user? [I] yes ([CR] §1 row 7) | WR2 2, and step 5's log | D4: WP6 (§15) |
-| Q3 | Overlay: `IsOverlayEnabled`, loopback, fragment and `HttpOnly; SameSite=Strict` cookie in the overlay's CEF, in fullscreen and windowed mode | WR2 6 | `auto` already falls back (overlay disabled, or no page last time, §6.5); make `system` the default |
-| Q4 | First headless failure on the Windows engine (R1), with every §8.4/§8.5 site | WR2 5, 8 | new sites in WP4's table; if the engine refuses a second World at all, R1's fallback is a new design |
-| Q5 | Firewall prompt for the GS socket on `[::]` and the VDB listeners | WR2 11 | docs only (loopback play works if declined) |
-| Q6 | Memory with three Worlds in 2 GB; selected GPU/MEM profiles | WR2 5, 12 | layer exclusions for headless Worlds only (never `Physics`) |
-| Q7 | The lazy probe sees `Game.McvsStoreSafety` | WR2 4 | — |
-| Q8 | Tracker and native Gaia traffic gone with `nativeonline` ([CN-V] §4); and does anything PC-specific (Steam IAP, the store, xpromo/news screens) break without native online init ([CR] §3.2 Q8) | WR2 13 | traffic: keep the route (it is shared code anyway); store or xpromo broken: `nativeonline` off by default on PC (`PatchPlan` default set) |
-| Q9 | Relaunch: helper survives the exit (job objects), `steam://rungameid/723780` 2 s after `Wait-Process` starts the game, for both `admin.restartVia` values | WR2 15 | `CREATE_BREAKAWAY_FROM_JOB` helper; another delay; `RelaunchUnconfirmed` stays true |
-| Q10 | The PC Flash Account menu shows and routes `mcvs_offline` (PC list differs, [PP] §8.6) | WR2 6 | drop `adminpage` from the PC defaults; the inbox item and the forum button still reach the page |
-| Q11 | Prior `SACHI1` on the owner's account (first boot runs `ResetStats(true)`, [CR] F8) | WR2 19 | docs |
-| Q12 | The TS automatch reaches the in-process Finder (P3 + the default host) | WR2 8 | a data-free alternative: set `MatchmakingComponent.Host/Port` from a hook at TS-World start ([QL-V] §8) |
-| Q13 | `ContinueWith` on the game's `SynchronizationContext` keeps LocalAnubis's continuations on the game thread ([CR] F6 [I]) | WR2 5 (thread ids in the log) | run the `Start` call through `GameApplication.Instance.Context.Post` |
-| Q14 | `GameLogBridge` attaches on PC (the `ENABLE_LOGGER`/Fatal-only story is the same code, [CR] F4) | WR2 15 (`logs/game.log`) | `gameLog` off on PC |
+| # | question | settled by | if the answer is bad | status after WR2 (2026-10-29) |
+|---|---|---|---|---|
+| Q1 | Do `Game`, `Gameloft.Engine`, `Gameloft.Util`, `McvsOffline.Server` bind through their `<codeBase>` (chained Load-context binds)? Expected yes ([PP-V] §8) | WR2 4: **no for `Game`** (bare-name load, 15/15 starts from the game folder), yes for the others. Fixed by `gameload` (§8.9) and `<qualifyAssembly>` (§7.4); WR3 step 4 re-checks (`assemblies: Game …\McvsOffline\bin\Game.dll`, `gameload yes`, `store yes`) | option B (in place with backups) as a new installer mode; R3 | **Answered: no for `Game`** (15/15 starts from the game folder: a bare-name `Assembly.Load` gets no config policy), yes for `Gameloft.Engine`, `Gameloft.Util`, `McvsOffline.Server` and `EngineBridge`. Fixed in build 14 (`gameload`, `<qualifyAssembly>`), not option B. **Open** until WR3 step 4 shows `Game …\McvsOffline\bin\Game.dll` |
+| Q2 | Does http.sys accept `http://localhost:51750/` for a standard user? [I] yes ([CR] §1 row 7) | WR2/WR3 2, and step 5's log | D4: WP6 (§15) | **Settled: yes** (probe as a normal user; the Finder on 51750 in every start). WP6 not needed |
+| Q3 | Overlay: `IsOverlayEnabled`, loopback, fragment and `HttpOnly; SameSite=Strict` cookie in the overlay's CEF, in fullscreen and windowed mode | WR2/WR3 6 | `auto` already falls back (overlay disabled, or no page last time, §6.5); make `system` the default | **Partly settled, good branch**: page and session via the overlay twice (window mode unknown). Open: fullscreen vs windowed, overlay off (`via system`), the no-page fallback. New: overlay tabs survive a restart (F8, stale-tab message) |
+| Q4 | First headless failure on the Windows engine (R1), with every §8.4/§8.5 site | WR2/WR3 5, 8 | new sites in WP4's table; if the engine refuses a second World at all, R1's fallback is a new design | **TS: no new Engine-side site** (35 reports, all at the stock Game sites H1/H10, blocked by Q1); **GS: open**. WR3 steps 5 and 8 (expect 0 reports) |
+| Q5 | Firewall prompt for the GS socket on `[::]` and the VDB listeners | WR2/WR3 11 | docs only (loopback play works if declined) | **Open**: VDB `0.0.0.0:25001+` seen, no GS socket, no prompt data. WR3 step 11 (probe lists the firewall rules) |
+| Q6 | Memory with three Worlds in 2 GB; selected GPU/MEM profiles | WR2/WR3 5, 12 | layer exclusions for headless Worlds only (never `Physics`) | **Partly settled**: auto = LowGPU/LowEnd on the owner's PC; the in-game High gives HighGPU/HighEnd; LowEnd with 3 Worlds peaked at 1727 MB virtual (84 %) during a busy stall. HighEnd and in-match unmeasured. WR3 step 12; §17 R2 |
+| Q7 | The lazy probe sees `Game.McvsStoreSafety` | WR2/WR3 4 | — | **Mechanism works** (`store NO` reported correctly at Game load); the positive close waits for Q1 (WR3 step 4) |
+| Q8 | Tracker and native Gaia traffic gone with `nativeonline` ([CN-V] §4); and does anything PC-specific (Steam IAP, the store, xpromo/news screens) break without native online init ([CR] §3.2 Q8) | WR2/WR3 13 | traffic: keep the route (it is shared code anyway); store or xpromo broken: `nativeonline` off by default on PC (`PatchPlan` default set) | **Traffic half settled** (0 `GlWebTools`, 0 `connectionstatus`). Store purchase, xpromo screens and SDK-on open: WR3 step 13 |
+| Q9 | Relaunch: helper survives the exit (job objects), `steam://rungameid/723780` 2 s after `Wait-Process` starts the game, for both `admin.restartVia` values | WR2/WR3 15 | `CREATE_BREAKAWAY_FROM_JOB` helper; another delay; `RelaunchUnconfirmed` stays true | **Open** (Restart never used). WR3 step 15 |
+| Q10 | The PC Flash Account menu shows and routes `mcvs_offline` (PC list differs, [PP] §8.6) | WR2/WR3 6 | drop `adminpage` from the PC defaults; the inbox item and the forum button still reach the page | **Open, blocked by Q1** (`adminpage` is in Game.dll). Do not drop `adminpage` on WR2's evidence. WR3 step 6 |
+| Q11 | Prior `SACHI1` on the owner's account (first boot runs `ResetStats(true)`, [CR] F8) | WR2/WR3 19 | docs | **Open** (owner question). WR3 step 19 |
+| Q12 | The TS automatch reaches the in-process Finder (P3 + the default host) | WR2/WR3 8 | a data-free alternative: set `MatchmakingComponent.Host/Port` from a hook at TS-World start ([QL-V] §8) | **Open, blocked by Q1** (`bottile` is in Game.dll; `automatch through the local Finder 0`). WR3 step 8 |
+| Q13 | `ContinueWith` on the game's `SynchronizationContext` keeps LocalAnubis's continuations on the game thread ([CR] F6 [I]) | WR2/WR3 5 (thread ids in the log) | run the `Start` call through `GameApplication.Instance.Context.Post` | **Settled: yes** (`[pc]` thread id = the watchdog's game thread in 15/15 starts) |
+| Q14 | `GameLogBridge` attaches on PC (the `ENABLE_LOGGER`/Fatal-only story is the same code, [CR] F4) | WR2/WR3 15 (`logs/game.log`) | `gameLog` off on PC | **Attach settled** (`game.log` written in every start); the exit path untested (WR3 step 15). New: `gameLog.levels` had no effect on PC (F5, fixed in build 14) |
+| Q15 | Does `<qualifyAssembly>` apply to an `AssemblyName` with only `Name` set (the engine's load)? The `gameload` IL patch does not depend on it | WR3 4 | `gameload` alone carries the fix; the config entry stays as belt and braces | new after WR2 |
+| Q16 | Do the busy game-thread stalls of 60-180 s after big unlock codes and the unlock-all grant persist with `signatures` loaded? | WR3 8b (timed; the kit's dump at 60 s) | analyse the dump; coalesce the unlock-all `set_profile` alerts (`UnlockGranter`) | new after WR2 |
+| Q17 | The native cause of the WR2 access violation in `ASValue.SetAsDictionary` (at HighGPU/HighEnd, during the unlock-all grant; `core.dmp` was 0 bytes) | a WER LocalDumps or kit dump of the next one (WR3 setup) | depends on the dump | new after WR2 |
+| Q18 | Does `graphics.profile` survive an in-game Graphics quality choice (`LocalStorage` `Performance`)? | WR3 12 | document the in-game menu as the only graphics control on PC | new after WR2 |
 
 Settled already and not reopened: unknowns 4, 5, 6, 10, 11 ([CR] §1); the owner decisions D1-D5.
 
@@ -1978,7 +2009,7 @@ user. Sketch, so WR2 can start it at once ([CR] Q2, [QL] §7.2 variant 2b):
 | id | risk | likelihood / impact | mitigation |
 |---|---|---|---|
 | R1 | The Windows native engine cannot run headless TS/GS Worlds in the client process (never exercised) | medium / **blocking** | M1/M4 diagnostics make the first failure visible (WR2 Q4); fallback: a second game process as a local server, a new design |
-| R2 | 2 GB address space (no LAA): client + TS + GS + our server; peak virtual 939 MB at boot without the menu ([CR] §1 row 3) | medium / high | WR2 Q6; never exclude `Physics`; the LAA bit is not an option (it changes a Steam file, P1) |
+| R2 | 2 GB address space (no LAA): client + TS + GS + our server; peak virtual 939 MB at boot without the menu ([CR] §1 row 3); WR2: 1727 MB (84 %) with three Worlds during a busy stall at LowEnd | medium / high | WR2/WR3 Q6; never exclude `Physics`; the LAA bit on the Steam exe is not an option (P1). After WR2: an opt-in LAA **copy** in `McvsOffline\bin\` is the recommended next step if WR3 confirms the pressure (note below) |
 | R3 | The chained `<codeBase>` binds do not apply | low / high | WR2 Q1; option B mode |
 | R4 | More PC-only headless sites than §8.4 | medium / high | WR2 Q4; H3/M1/M4 keep failures non-fatal and named |
 | R5 | Steam stats from offline play (D3): double counting fixed by H9 + M3; the economy and unlock tools also reach the real account; first-run `ResetStats` | medium / medium | D3 accepted; documented; WR2 14 |
@@ -1996,6 +2027,19 @@ user. Sketch, so WR2 can start it at once ([CR] Q2, [QL] §7.2 variant 2b):
 | R17 | Overlay not available (disabled, not hooked in this graphics mode) or shows no page | medium / low | `auto` falls back to the system browser when the overlay is disabled and on the next click after an overlay open that showed no page (§6.5); the page's "Open in the system browser"; WR2 step 6 runs fullscreen, windowed and overlay-off |
 | R18 | Continuations of the quicklaunch hook leave the game thread (no synchronization context) | low / medium | WARN line, WR2 Q13, `Context.Post` alternative |
 | R19 | Popuplib's Internet Explorer helper blocks its caller while IE runs (stock popups only) | low / low | not on our path; noted for support ([WH-V] "other" 2) |
+
+**Memory after WR2 (R2, recommendation, not implemented in build 14).** WR2's peak of 1727 MB virtual (84 % of the
+2048 MB a 32-bit process without LAA gets) came with three Worlds during a 180 s stall at LowEnd; a match and the
+in-game High were never measured, and nothing in that peak is attributed yet. Trimming our Worlds (headless layer
+exclusions, mip caps, fewer thread stacks, coalesced unlock alerts) is worth tens to perhaps a few hundred MB and must be
+measured first. The lever that changes the ceiling is an **LAA-flagged copy of the exe** in `McvsOffline\bin\`,
+started by the Steam launch option `"<game>\McvsOffline\bin\ModernCombatVersus.exe" %command%`: 4096 MB, so the WR2
+peak would be 42 %. P1 holds (the Steam exe is untouched; the copy is ours and uninstall removes it), but the copy needs
+the stock managed and native DLLs next to it, a `rootpath` IL patch (`GameApplication.FindRootPath` would otherwise
+return `bin\`), the working directory set to the game root, and a stale-copy check. Its main risk is that Gameloft's
+native engine is not LAA-safe (pointer sign bugs above 2 GB, late in a match), so it would ship opt-in and be tested
+with top-down allocation (`AllocationPreference`) through a High match before any default. Decide after WR3's step 12
+numbers; until then R2 stays as above.
 
 Corrections to `docs/research/pc-port.md` that this design carries ([CR] §6): 17 patches (with `graphics`, broken on PC
 as is); the PC crasher is `GameClientComponent.OnCreate` (H10), and H8, H9 + M3, H11, M2 are added; the native
