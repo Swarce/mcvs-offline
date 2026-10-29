@@ -12,6 +12,7 @@ No download: you turn your own copy of the game into the offline version on your
 ![Platform: Android](https://img.shields.io/badge/platform-Android-3DDC84?logo=android&logoColor=white)
 ![Game: 1.17.32](https://img.shields.io/badge/game-1.17.32-555555)
 ![Status: in development](https://img.shields.io/badge/status-in%20development-orange)
+[![License: MPL 2.0](https://img.shields.io/badge/license-MPL--2.0-brightgreen)](LICENSE)
 
 [Quick start](#getting-started) · [How to play offline](docs/PLAYER-SETUP.md) · [Status](#status) · [Architecture](docs/ARCHITECTURE.md) · [Roadmap](docs/ROADMAP.md)
 
@@ -270,7 +271,8 @@ decompiled sources and signing keys.
 Modern Combat Versus and all related names are trademarks of Gameloft. This is an unofficial, non-commercial
 preservation project with no affiliation to Gameloft.
 
-License: none chosen yet. Until a LICENSE file is added, all rights are reserved by the contributors.
+The project's own code and documentation are licensed under the [Mozilla Public License 2.0](LICENSE). The license
+covers only this repository: it grants no rights to Modern Combat Versus or any Gameloft file, name or asset.
 
 ## Acknowledgements
 
