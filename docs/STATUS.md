@@ -1443,8 +1443,12 @@ the first part of the boot on a real phone (see above).
   guest's own server are unknown to the host (401, the log names the issuer); storage, mailboxes and alerts are not
   forwarded between devices (`IProfileStoreLocator` is the seam).
 - **Live ops** use our own tuning: the original season length and rival strength are not in the client
-  ([LIVEOPS.md](LIVEOPS.md)); permanent achievements are switched off in 1.17.32 itself; Arena-mode events and shard
-  "mega events" are not generated. Changing the live-ops content while an event runs resets that event's progress.
+  ([LIVEOPS.md](LIVEOPS.md)); permanent achievements are switched off in 1.17.32 itself; shard "mega events" are not
+  generated (Arena-mode events are, as the rotating Special Events of build 15, [LIVEOPS.md](LIVEOPS.md) §8a). Changing
+  the live-ops content while an event runs resets that event's progress.
+- **Special Events** (build 15) are checked through the real client's code (event parsing, the Battle popup's box, the
+  TS's choice for a room, the TS to GS hand-over) but not yet on a device: a Special Event match with bots, its rewards
+  and the box's timers are on the device checklist ([LIVEOPS.md](LIVEOPS.md) §8a).
 - The CRM `iap` catalogue is empty on purpose (it would start real Google Play purchases nothing can fulfil).
 - A brand-new account's root GET is `{}` without the server-maintained fields (`credential`, `datacenter`,
   `created`) until its first save; every game reader defaults them (checked in the conformance harness).

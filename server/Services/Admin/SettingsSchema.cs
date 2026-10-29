@@ -775,7 +775,7 @@ namespace McvsOffline.Server.Services.Admin
                        + "Special Event (after a restart once one was shown).",
                        ArenaRotationChoices),
                 Integer("liveops", "liveops.arenaHours", "Special Event length (hours)", 24, 1, 168, 1, Menu,
-                        "Windows start at the daily reset hour: 24 gives one mode a day."),
+                        "Windows run back to back from the daily reset hour: 24 gives one mode a day, and a divisor of 24 keeps them aligned to the reset."),
                 Choice("liveops", "liveops.arenaMap", "Special Event map", "Random", Menu,
                        "Random: a random map each match. A map: every Special Event match there.",
                        "Random", "Snow", "Desert", "Favelas", "Rooftop", "DogDays", "Port", "Stadium", "Stadium2"),

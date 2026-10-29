@@ -261,7 +261,8 @@ served one, so the box was always locked. Research and code references: the matc
 ### 8a.1 What runs
 
 Live ops list a **contiguous chain** of Special Events: the window in progress and the next one, always both (ids in
-`groupware.events.participation`, the CRM `expiry` at the latest at the window's end). A window is
+`groupware.events.participation`, the CRM `expiry` at the latest at the window's end; in the last 2 s of a window, the
+one after the next too and the next window's end, §8a.3). A window is
 `liveops.arenaHours` long (default 24) on a grid of whole windows from 2024-01-01 `dailyResetHour`:00 UTC, so 24 h
 windows change with the daily missions. Ids carry window and mode: `mcvs_arena_2026102100x24h_havoc`.
 
@@ -320,7 +321,16 @@ tables, multipliers, booleans, loc ids), also the hand-written ones of `content/
 when they fail; content-gen and the catalogue parser check the same rules on every mode (a broken mode is left out, a
 broken `arena` block costs only the Special Events); the CRM lists an Arena event only when the current and the next
 one pass and form a chain (`TleTemplateValidator.ArenaChainProblem`); the next window is always listed, so at a window
-change the TS starts it on its own timer (`OnEventsStarted`) even before the CRM refresh.
+change the TS starts it on its own timer (`OnEventsStarted`) even before the CRM refresh. The chain is checked at the
+real time and at the document's expiry: a document served in the last 2 s of a window (its expiry is pushed to the next
+window's end so that the TS reads it before it expires) lists three events, the one in progress, the next and the one
+after, because the TS replaces its list on every fetch and must still have the event the client holds.
+
+**Hand-written Arena events** (`content/social/events.json`, listed with `crm.eventIds`) get the per-event checks
+only (img, agents and the rest above), not the chain check: nothing lists a successor for them. When the last one ends
+while the game runs (and no generated Special Event is in progress), trap 3 applies until the game restarts. So such
+events must cover the whole session or be followed, without a gap, by another one; when `social/events.json` is read
+the log says where their chain ends, and warns about a gap or an overlap between them.
 
 **Switching off.** Because of trap 3, Special Events cannot stop while the game runs once the TS has been handed one:
 `liveops.arenaEvents: false`, `arenaRotation: "off"` or `liveops.enabled: false` then keep the chain going, pinned to the

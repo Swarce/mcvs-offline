@@ -325,7 +325,7 @@ save before saving the change, §4.4).
 | Live ops | `liveops.seasonRewardMultiplier` | Season rewards | number 0.1–20, step 0.1 | 1.0 | menu | |
 | Live ops | `liveops.arenaEvents` | Special Events | bool | true | menu | Battle › Special Event ([LIVEOPS.md](../LIVEOPS.md) §8a). Off applies after a restart once the game has shown one (§8a.3). |
 | Live ops | `liveops.arenaRotation` | Special Event mode | enum `rotate`, `off` and the 23 mode ids of `liveops.json` `arena.modes` (`SettingsSchema.ArenaRotationChoices`, kept equal by a test) | `rotate` | menu | A mode id pins it. |
-| Live ops | `liveops.arenaHours` | Special Event length (hours) | int 1–168 | 24 | menu | Windows start at the daily reset hour. |
+| Live ops | `liveops.arenaHours` | Special Event length (hours) | int 1–168 | 24 | menu | Windows run back to back from the daily reset hour; a divisor of 24 keeps them aligned to the reset. |
 | Live ops | `liveops.arenaMap` | Special Event map | enum `Random`, `Snow`, `Desert`, `Favelas`, `Rooftop`, `DogDays`, `Port`, `Stadium`, `Stadium2` | `Random` | menu | |
 | Live ops | `crm.newsfeedLink` | Inbox message for this page | bool | true | menu | The "MCVS Offline" inbox message (§9.1). Off removes it at the next CRM fetch. |
 | Diagnostics | `storage.backups.keep` | Automatic backups kept | int 0–200 | 20 | live | Per account. Counts only the automatic backups taken every N minutes; backups before imports, restores, risky settings and events, and your own backups are kept separately (§6.3). 0: no new automatic backups (existing ones stay). `confirmWhen: decrease`: "Older automatic backups beyond the new number are deleted at the next automatic backup." |
