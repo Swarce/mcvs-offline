@@ -41,12 +41,12 @@ namespace McvsOffline.Patcher.Core
         {
             "hook-pc",
             "headless", "bottile", "store", "signatures", "adminpage", "forum",
-            "headless-engine", "physics", "quicklaunch", "headless-diag", "nativeonline", "waits", "adminlink", "graphics",
+            "headless-engine", "physics", "quicklaunch", "headless-diag", "nativeonline", "waits", "adminlink", "graphics", "gameload",
             "geo",
         };
 
         private static readonly PatchIds PcIds = new PatchIds(
-            new[] { "hook-pc", "headless", "headless-engine", "physics", "quicklaunch", "headless-diag", "graphics" },
+            new[] { "hook-pc", "headless", "headless-engine", "physics", "quicklaunch", "headless-diag", "graphics", "gameload" },
             new[] { "nativeonline", "waits", "adminlink", "geo", "bottile", "store", "signatures", "adminpage" },
             new[] { "forum" },
             new[] { "hook", "finder", "lan", "debloat", "targetsdk", "game" });
@@ -55,7 +55,7 @@ namespace McvsOffline.Patcher.Core
             PatcherOptions.MandatoryPatches,
             PatcherOptions.DefaultPatches,
             PatcherOptions.OptionalPatches.Where(id => !PatcherOptions.DefaultPatches.Contains(id)),
-            new[] { "hook-pc", "quicklaunch", "headless-diag" });
+            new[] { "hook-pc", "quicklaunch", "headless-diag", "gameload" });
 
         public static PatchIds Ids(BuildProfile build)
         {
@@ -101,6 +101,7 @@ namespace McvsOffline.Patcher.Core
                 case "waits": return new WaitsPatch();
                 case "adminlink": return new AdminLinkPatch();
                 case "graphics": return new GraphicsPatch();
+                case "gameload": return new GameAssemblyLoadPatch();
                 case "geo": return new GeoPatch();
                 default: throw new ArgumentException("unknown PC patch '" + id + "'");
             }

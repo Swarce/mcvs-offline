@@ -268,6 +268,21 @@ namespace McvsOffline.Patcher.Pc
             }
         }
 
+        /// <summary>
+        /// The assembly's full display name from the metadata ("Game, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null"), as
+        /// the CLR binds it: the config's qualifyAssembly fullName must be exactly this (WR2 F1).
+        /// </summary>
+        public static string ReadAssemblyFullName(byte[] assembly)
+        {
+            using (var pe = new PEReader(new MemoryStream(assembly)))
+            {
+                MetadataReader md = pe.GetMetadataReader();
+                System.Reflection.AssemblyName name = md.GetAssemblyDefinition().GetAssemblyName();
+                // A non-strong-named assembly has no key: its FullName still says PublicKeyToken=null.
+                return name.FullName;
+            }
+        }
+
         /// <summary>The assembly's simple name, from the metadata.</summary>
         public static string ReadAssemblyName(byte[] assembly)
         {

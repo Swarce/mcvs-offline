@@ -121,6 +121,12 @@ namespace McvsOffline.Patcher.Pc
         Stale,
         Damaged,
         Partial,
+
+        /// <summary>
+        /// The files are current, but the last start after the install did not run them: an assembly loaded from the game
+        /// folder (the .exe.config redirect did not apply) or a patch witness missing (WR2 F2).
+        /// </summary>
+        NotActive,
     }
 
     /// <summary>The result of an install, uninstall or verify run.</summary>
@@ -229,6 +235,15 @@ namespace McvsOffline.Patcher.Pc
         public int? InstalledPort { get; set; }
 
         public string LastBootstrapLine { get; set; }
+
+        /// <summary>The last start's "[boot] assemblies:" / "patches:" lines (bootstrap.log), or null when the log has none.</summary>
+        public PcBootActivation LastBoot { get; set; }
+
+        /// <summary>
+        /// One line on whether the install ran at the last start: "active at …", "NOT ACTIVE at …: Game loaded from the game folder",
+        /// "unknown: …", or "not started since the install"; null when nothing is installed or there is no bootstrap.log.
+        /// </summary>
+        public string Activation { get; set; }
     }
 
     /// <summary>
@@ -254,6 +269,7 @@ namespace McvsOffline.Patcher.Pc
             ["quicklaunch"] = new PcWitness("Gameloft.Engine.dll", "Gameloft.Engine.McvsQuickLaunch", null),
             ["headless-diag"] = new PcWitness("Gameloft.Engine.dll", "Gameloft.Engine.McvsWorldDiagnostics", null),
             ["graphics"] = new PcWitness("Gameloft.Engine.dll", "Gameloft.Engine.McvsGraphics", null),
+            ["gameload"] = new PcWitness("Gameloft.Engine.dll", "Gameloft.Engine.McvsGameLoad", null),
             ["store"] = new PcWitness("Game.dll", "Game.McvsStoreSafety", null),
         };
 
@@ -435,6 +451,25 @@ namespace McvsOffline.Patcher.Pc
 
             // The config (versions read from the written bytes) and install.json, which records the config's hash.
             var codeBases = outputs.Select(o => new PcCodeBase(GameFolder.ReadAssemblyName(o.Bytes), GameFolder.ReadAssemblyVersion(o.Bytes), o.Path)).ToList();
+            // The qualifyAssembly fullName (culture neutral, no key) and the gameload patch's table must name each copy exactly
+            // as the CLR will bind it, or a bare-name load would fail instead of landing on the copy (WR2 F1).
+            for (int i = 0; i < outputs.Count; i++)
+            {
+                string fullName = GameFolder.ReadAssemblyFullName(outputs[i].Bytes);
+                if (fullName != codeBases[i].FullName)
+                    return Fail(report, PcExitCodes.Refused, outputs[i].Path + " is \"" + fullName + "\", not the culture-neutral, unsigned \"" + codeBases[i].FullName +
+                                                             "\" the config would name; nothing was written");
+            }
+            if (plan.Any(p => p.Id == "gameload"))
+            {
+                foreach (KeyValuePair<string, string> name in GameAssemblyLoadPatch.QualifiedNames)
+                {
+                    PcCodeBase copy = codeBases.FirstOrDefault(c => c.AssemblyName == name.Key);
+                    if (copy == null || copy.FullName != name.Value)
+                        return Fail(report, PcExitCodes.Refused, "the gameload patch loads " + name.Key + " as \"" + name.Value + "\", but the copy is " +
+                                                                 (copy == null ? "not redirected" : "\"" + copy.FullName + "\"") + "; nothing was written");
+                }
+            }
             byte[] config = PcExeConfig.Encode(PcExeConfig.Build(codeBases));
             InstallManifest manifest = BuildManifest(options, port, identity, outputs, config, report.Applied, notes);
             byte[] manifestBytes = manifest.ToBytes();
@@ -940,9 +975,36 @@ namespace McvsOffline.Patcher.Pc
                     r.DataFolderBytes += f.Length;
                 }
                 r.SettingsPort = SettingsPort(Path.Combine(data, "settings.json"));
-                r.LastBootstrapLine = LastLine(Path.Combine(data, "logs", "bootstrap.log"));
+                string bootstrap = ReadShared(Path.Combine(data, "logs", "bootstrap.log"));
+                r.LastBootstrapLine = LastLine(bootstrap);
+                if (r.State != PcInstallState.NotInstalled) Activation(r, bootstrap);
             }
             return r;
+        }
+
+        /// <summary>
+        /// WR2 F2: the last start after the install must have loaded every redirected assembly from McvsOffline\bin with every
+        /// witness present; else a Current install is <see cref="PcInstallState.NotActive"/> ("installed, NOT ACTIVE (Game loaded
+        /// from the game folder)") and the reason is an error. A start older than install.json's writtenUtc ran another install.
+        /// </summary>
+        private static void Activation(PcStatusReport r, string bootstrap)
+        {
+            PcBootActivation boot = PcBootActivation.Read(bootstrap);
+            if (boot == null) return;
+            if (r.Manifest != null && boot.StartedBefore(r.Manifest.WrittenUtc))
+            {
+                r.Activation = "not started since the install (the last start, " + boot.Started + ", was before it)";
+                return;
+            }
+            r.LastBoot = boot;
+            r.Activation = boot.Describe();
+            if (!boot.NotActive) return;
+            r.Errors.Add("the last start did not run MCVS Offline's files (" + boot.Reason + "): see the [boot] assemblies: and patches: lines in " +
+                         GameFolder.DataDirName + "\\logs\\bootstrap.log, and send 'collect'");
+            if (r.State != PcInstallState.Current) return;
+            r.State = PcInstallState.NotActive;
+            r.StateDetail = "installed, NOT ACTIVE (" + boot.Reason + ")";
+            foreach (string line in boot.Lines()) r.Problems.Add("last start: " + line);
         }
 
         /// <summary>The paths install.json must list: the five bin files and the config.</summary>
@@ -978,7 +1040,8 @@ namespace McvsOffline.Patcher.Pc
         /// <summary>
         /// The re-read of install step 6 and verify: every written file has the recorded SHA-256 and (assemblies) the recorded
         /// MVID read with Cecil, the witness of every applied patch that has one is present, and the config parses back to the
-        /// five codeBases whose hrefs exist.
+        /// five codeBases whose hrefs exist, each with one qualifyAssembly whose fullName is the identity of the file it points to
+        /// (WR2 F1).
         /// </summary>
         public static List<string> CheckWritten(string game, InstallManifest manifest, string bclDirectory)
         {
@@ -1023,7 +1086,9 @@ namespace McvsOffline.Patcher.Pc
                 {
                     try
                     {
-                        List<PcCodeBase> codeBases = PcExeConfig.Parse(File.ReadAllText(config));
+                        string configText = File.ReadAllText(config);
+                        List<PcCodeBase> codeBases = PcExeConfig.Parse(configText);
+                        List<PcQualifiedName> qualified = PcExeConfig.ParseQualified(configText);
                         var expected = GameFolder.PatchedFiles.Concat(new[] { GameFolder.ServerFile }).Select(f => Path.GetFileNameWithoutExtension(f)).ToList();
                         if (codeBases.Count != expected.Count || !expected.All(e => codeBases.Any(c => c.AssemblyName == e)))
                             problems.Add(PcExeConfig.FileName + ": expected the five codeBases " + string.Join(", ", expected) + ", found " +
@@ -1033,13 +1098,29 @@ namespace McvsOffline.Patcher.Pc
                             try
                             {
                                 PcExeConfig.CheckHref(c.Href);
-                                if (!File.Exists(GameFolder.Resolve(game, c.Href))) problems.Add(PcExeConfig.FileName + ": " + c.Href + " does not exist");
+                                string target = GameFolder.Resolve(game, c.Href);
+                                if (!File.Exists(target))
+                                {
+                                    problems.Add(PcExeConfig.FileName + ": " + c.Href + " does not exist");
+                                    continue;
+                                }
+                                string identity = GameFolder.ReadAssemblyFullName(File.ReadAllBytes(target));
+                                List<PcQualifiedName> named = qualified.Where(q => q.PartialName == c.AssemblyName).ToList();
+                                if (named.Count != 1 || named[0].FullName != identity)
+                                    problems.Add(PcExeConfig.FileName + ": expected one qualifyAssembly " + c.AssemblyName + " -> \"" + identity + "\" (the file's identity), found " +
+                                                 (named.Count == 0 ? "none" : string.Join(", ", named.Select(q => "\"" + q.FullName + "\""))));
                             }
                             catch (ArgumentException ex)
                             {
                                 problems.Add(PcExeConfig.FileName + ": " + ex.Message);
                             }
+                            catch (Exception ex) when (ex is BadImageFormatException || ex is InvalidOperationException || ex is IOException)
+                            {
+                                problems.Add(PcExeConfig.FileName + ": " + c.Href + " cannot be read as an assembly: " + ex.Message);
+                            }
                         }
+                        foreach (PcQualifiedName q in qualified.Where(q => !codeBases.Any(c => c.AssemblyName == q.PartialName)))
+                            problems.Add(PcExeConfig.FileName + ": qualifyAssembly " + q.PartialName + " has no codeBase");
                     }
                     catch (FormatException ex)
                     {
@@ -1139,9 +1220,8 @@ namespace McvsOffline.Patcher.Pc
             return null;
         }
 
-        private static string LastLine(string file)
+        private static string LastLine(string text)
         {
-            string text = ReadShared(file);
             if (text == null) return null;
             string[] lines = text.Split('\n');
             for (int i = lines.Length - 1; i >= 0; i--)

@@ -54,6 +54,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             ("headless", "Game.dll", "Game.GameplayComponent", "OnUpdate", 0, HeadlessGamePatch.PcGameplayUpdateFingerprint),
             ("headless", "Game.dll", "Game.TutorialComponent", "OnStart", 0, HeadlessGamePatch.PcTutorialStartFingerprint),
             ("graphics", "Gameloft.Engine.dll", "Gameloft.Engine.GameOptionPerformanceProfileComponent", "OnCreate", 0, GraphicsPatch.OnCreateFingerprint),
+            ("gameload", "Gameloft.Engine.dll", "Gameloft.Engine.ComponentAssemblies", "GetAssembly", 2, GameAssemblyLoadPatch.PcGetAssemblyFingerprint),
             ("nativeonline", "Gameloft.Engine.dll", "Gameloft.Engine.OnlinePlatformComponent", "Init_private", 3, NativeOnlinePatch.PcInitFingerprint),
             ("waits", "Gameloft.Engine.dll", "Gameloft.Engine.TaskExtension", "WaitAndWork(System.Threading.Tasks.Task", 2, WaitsPatch.PcTaskFingerprint),
             ("waits", "Gameloft.Engine.dll", "Gameloft.Engine.TaskExtension", "WaitAndWork(System.Threading.ManualResetEventSlim", 2, WaitsPatch.PcSignalFingerprint),
@@ -402,6 +403,31 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                     Assert.Contains(forward.Body.Instructions, i => i.Operand is MethodReference r && r.DeclaringType.FullName == "McvsOffline.PcHooks" && r.Name == name);
                 }
 
+                // gameload: the stock body plus one call between the name and new AssemblyName(...), inside the try
+                MethodDefinition getAssembly = RealPc.Method(engine, "Gameloft.Engine.ComponentAssemblies", "GetAssembly", 2);
+                Assert.Equal(45 + 1, getAssembly.Body.Instructions.Count);
+                Assert.Equal(new[]
+                {
+                    "IL_0027: ldarg.1",
+                    "IL_0028: call System.String Gameloft.Engine.McvsGameLoad::Qualify(System.String)",
+                    "IL_002d: newobj System.Void System.Reflection.AssemblyName::.ctor(System.String)",
+                    "IL_0032: call System.Reflection.Assembly System.Reflection.Assembly::Load(System.Reflection.AssemblyName)",
+                }, getAssembly.Body.Instructions.Skip(16).Take(4).Select(i => i.ToString()));
+                ExceptionHandler loadCatch = Assert.Single(getAssembly.Body.ExceptionHandlers);
+                Assert.Equal(0x27, loadCatch.TryStart.Offset);
+                Assert.Equal("System.Object", loadCatch.CatchType.FullName);
+                TypeDefinition gameLoad = engine.GetType(GameAssemblyLoadPatch.HelperNamespace + "." + GameAssemblyLoadPatch.HelperType);
+                Assert.True(gameLoad.IsNotPublic && gameLoad.IsAbstract && gameLoad.IsSealed);
+                MethodDefinition qualify = Assert.Single(gameLoad.Methods);
+                Assert.True(qualify.IsAssembly && qualify.IsStatic);
+                Assert.Equal(new[]
+                {
+                    "ldarg.0", "ldstr Game", "call System.Boolean System.String::op_Equality(System.String,System.String)", "brfalse -> #6",
+                    "ldstr Game, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null", "ret", "ldarg.0", "ret",
+                }, Shape(qualify));
+                Assert.Equal("mscorlib", ((MethodReference)qualify.Body.Instructions[2].Operand).DeclaringType.Scope.Name);
+                Assert.DoesNotContain(gameLoad.Methods.SelectMany(m => m.Body.Instructions), i => i.Operand is MemberReference r && r.DeclaringType != null &&
+                                                                                                 r.DeclaringType.Scope.Name == "McvsOffline.Server");
                 // nativeonline: the guard branches to the last instruction (the ret)
                 MethodDefinition initPrivate = RealPc.Method(engine, "Gameloft.Engine.OnlinePlatformComponent", "Init_private", 3);
                 Instruction brfalse = initPrivate.Body.Instructions.First(i => i.OpCode == OpCodes.Brfalse || i.OpCode == OpCodes.Brfalse_S);

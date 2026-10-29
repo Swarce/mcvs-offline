@@ -17,7 +17,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         public void ThePcIdsAreTheDesignsTable()
         {
             PatchIds ids = PatchPlan.Ids(Pc);
-            Assert.Equal(new[] { "graphics", "headless", "headless-diag", "headless-engine", "hook-pc", "physics", "quicklaunch" }, Sorted(ids.Mandatory));
+            Assert.Equal(new[] { "gameload", "graphics", "headless", "headless-diag", "headless-engine", "hook-pc", "physics", "quicklaunch" }, Sorted(ids.Mandatory));
             Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "geo", "nativeonline", "signatures", "store", "waits" }, Sorted(ids.Default));
             Assert.Equal(new[] { "forum" }, Sorted(ids.Optional));
             Assert.Equal(new[] { "debloat", "finder", "game", "hook", "lan", "targetsdk" }, Sorted(ids.Excluded));
@@ -26,15 +26,16 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         [Fact]
         public void ThePcPlanKeepsTheFixedOrder()
         {
-            Assert.Equal(new[] { "hook-pc", "headless", "headless-engine", "physics", "quicklaunch", "headless-diag", "graphics" },
+            Assert.Equal(new[] { "hook-pc", "headless", "headless-engine", "physics", "quicklaunch", "headless-diag", "graphics", "gameload" },
                          PatchPlan.For(Pc, new string[0]).Select(p => p.Id));
-            Assert.Equal(new[] { "hook-pc", "headless", "forum", "headless-engine", "physics", "quicklaunch", "headless-diag", "graphics" },
+            Assert.Equal(new[] { "hook-pc", "headless", "forum", "headless-engine", "physics", "quicklaunch", "headless-diag", "graphics", "gameload" },
                          PatchPlan.For(Pc, new[] { "forum" }).Select(p => p.Id));
             IReadOnlyList<IlPatch> full = PatchPlan.For(Pc, PatchPlan.Ids(Pc).Default.Concat(PatchPlan.Ids(Pc).Optional));
             Assert.Equal(new[]
             {
                 "hook-pc", "headless", "bottile", "store", "signatures", "adminpage", "forum",
-                "headless-engine", "physics", "quicklaunch", "headless-diag", "nativeonline", "waits", "adminlink", "graphics", "geo",
+                "headless-engine", "physics", "quicklaunch", "headless-diag", "nativeonline", "waits", "adminlink", "graphics", "gameload",
+                "geo",
             }, full.Select(p => p.Id));
             Assert.Equal(new[] { "EngineBridge.dll", "Game.dll", "Gameloft.Engine.dll", "Gameloft.Util.dll" },
                          full.Select(p => p.AssemblyFile).Distinct());
@@ -58,6 +59,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         [InlineData("hook-pc")]
         [InlineData("quicklaunch")]
         [InlineData("headless-diag")]
+        [InlineData("gameload")]
         public void APcOnlyIdIsRefusedOnAndroid(string id)
         {
             Assert.Throws<ArgumentException>(() => PatchPlan.For(BuildProfile.Android1_17_32, new[] { id }));
@@ -87,7 +89,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         public void EachPatchRefusesABuildItHasNoTableFor()
         {
             // §8.8: before the module is even looked at (the PC-only patches on Android, the Android-only ones on PC).
-            foreach (IlPatch patch in new IlPatch[] { new EngineBridgeHookPatch(), new QuickLaunchPatch(), new HeadlessDiagnosticsPatch() })
+            foreach (IlPatch patch in new IlPatch[] { new EngineBridgeHookPatch(), new QuickLaunchPatch(), new HeadlessDiagnosticsPatch(), new GameAssemblyLoadPatch() })
             {
                 PatchException refused = Assert.Throws<PatchException>(() => patch.Apply(null, new PatchContext(null, 51780, BuildProfile.Android1_17_32)));
                 Assert.Equal(patch.Id + " is not supported on build android-1.17.32", refused.Message);
