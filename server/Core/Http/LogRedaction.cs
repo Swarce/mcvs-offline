@@ -19,7 +19,11 @@ namespace McvsOffline.Server.Core.Http
     /// (the PC client's connectivity tracker sends the machine's MAC address there; our own <c>mcvs…</c> ids and every
     /// other value stay, docs/design/pc-port.md §4.2);</item>
     /// <item>a SteamID64 (exactly 17 digits starting with <c>7656119</c>, no letter or digit around it) → its first and
-    /// last 4 digits, <c>7656…8514</c> (the PC client's anonymous user name).</item>
+    /// last 4 digits, <c>7656…8514</c> (the PC client's anonymous user name);</item>
+    /// <item>an access token of this server anywhere in a line (<c>mcvs</c> + 8 hex + <c>.</c> + 32 hex, the shape
+    /// <c>TokenService</c> issues; the game's <c>Session.GetAccessToken</c> prints it in game.log as
+    /// <c>Get access token for scopes [...] succeeded: mcvs59915ef0.e681…</c>) → <c>mcvs…&lt;redacted&gt;</c>, as the
+    /// <c>access_token=</c> rule writes it.</item>
     /// </list>
     /// The JSON rules also match one level deeper, where a JSON text sits inside a JSON string and its quotes arrive as
     /// <c>\"</c> (unknown-endpoints.jsonl stores a request body that way).
@@ -44,6 +48,13 @@ namespace McvsOffline.Server.Core.Http
 
         private const int SteamIdDigits = 17;
 
+        /// <summary>Access tokens: "mcvs" + 8 hex (the issuer, ServerContext's instance id) + '.' + 32 hex.</summary>
+        private const string TokenPrefix = "mcvs";
+
+        private const int TokenIssuerHex = 8;
+
+        private const int TokenSecretHex = 32;
+
         /// <summary>Parameter and JSON member names whose values are secrets (compared ignoring ASCII case).</summary>
         private static readonly string[] SecretNames = { "password", "access_token", "refresh_token", "token", "superPassword" };
 
@@ -55,7 +66,7 @@ namespace McvsOffline.Server.Core.Http
 
         public static string Redact(string text)
         {
-            if (string.IsNullOrEmpty(text) || !MayContainSecret(text)) return text;
+            if (string.IsNullOrEmpty(text) || (!MayContainSecret(text) && !ContainsAccessToken(text))) return text;
             try
             {
                 return Scan(text);
@@ -74,6 +85,36 @@ namespace McvsOffline.Server.Core.Http
                 if (text.IndexOf(trigger, StringComparison.OrdinalIgnoreCase) >= 0) return true;
             }
             return false;
+        }
+
+        /// <summary>
+        /// An access token anywhere (ordinal: "mcvs" is in every path of McvsOffline, so it cannot be a trigger of the
+        /// case-insensitive fast path; the token's prefix is always lower case).
+        /// </summary>
+        private static bool ContainsAccessToken(string text)
+        {
+            int at = text.IndexOf(TokenPrefix, StringComparison.Ordinal);
+            while (at >= 0)
+            {
+                if (AccessTokenLength(text, at) > 0) return true;
+                at = text.IndexOf(TokenPrefix, at + 1, StringComparison.Ordinal);
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The length of an access token at <paramref name="i"/>: "mcvs", exactly 8 hex digits (the issuing server's id),
+        /// '.', at least 32 hex digits (the whole hex run is taken), else 0.
+        /// </summary>
+        private static int AccessTokenLength(string text, int i)
+        {
+            if (!At(text, i, TokenPrefix)) return 0;
+            int p = i + TokenPrefix.Length;
+            if (HexRun(text, p) != TokenIssuerHex) return 0;
+            p += TokenIssuerHex;
+            if (p >= text.Length || text[p] != '.') return 0;
+            int secret = HexRun(text, p + 1);
+            return secret >= TokenSecretHex ? p + 1 + secret - i : 0;
         }
 
         private static string Scan(string text)
@@ -133,6 +174,17 @@ namespace McvsOffline.Server.Core.Http
             if (c == '"' || c == '\\')
                 return QuoteAt(text, i) > 0 && (TryJsonMember(text, i, out replacement, out end) || TryJsonDeviceId(text, i, out replacement, out end));
             if (c == '7') return TrySteamId(text, i, out replacement, out end);
+            if (c == 'm')
+            {
+                // An access token anywhere, also inside a word ("token:mcvs…", "Bearer_mcvs…").
+                int token = AccessTokenLength(text, i);
+                if (token > 0)
+                {
+                    replacement = TokenPrefix + PartialMarker;
+                    end = i + token;
+                    return true;
+                }
+            }
             if (!IsBoundary(text, i)) return false;
             if ((c == 'd' || c == 'D' || c == 'g' || c == 'G') && TryDeviceIdParameter(text, i, out replacement, out end)) return true;
             if (c == 'm' || c == 'M')
