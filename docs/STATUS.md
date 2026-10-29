@@ -1,7 +1,10 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-Last updated for build 14 (October 2026, on `wip/pc-port`): the PC port's fixes after the second Windows round (WR2:
+Last updated for build 15 (October 2026, on `wip/pc-port`): rotating Special Events (the Battle menu's Arena box,
+filled with bots, a new mode every day, or one pinned mode), an optional Practice tile (off by default) and the
+corrected match-mode docs (the full-reward bot match is Battle › Classic multiplayer); server only, not yet tested on
+a phone; see "Build 15". Build 14: the PC port's fixes after the second Windows round (WR2:
 the game ran its own `Game.dll`; build 14 loads ours and says when it does not, and captures crashes and freezes),
 ready for the third Windows round, plus small shared log and page changes on Android; see "Build 14". Build 13 (not
 yet tested on the phone): the Android 'game' manifest flags, a Settings › Account menu with only Redeem code and MCVS
@@ -11,7 +14,7 @@ play; see "Build 12 and device test 9". Before that: the build 11 device test (t
 12). The build 11 plan put HD textures into `Data/` ("Build 11 (plan)"). On build 10 the HD texture probe showed that
 route B fails and route A works. Build 10 targets Android 15 and adds graphics profiles and the PC test kit ("Build
 10"). Device test 8 tested the MCVS Offline page ("Device test 8", "Build 9"). The Cosmetic crate starts on 2026-11-09
-and is not yet tested on the phone. Not yet merged into `main-dev`: builds 13 and 14 (the PC port and the Android
+and is not yet tested on the phone. Not yet merged into `main-dev`: builds 13 to 15 (the PC port and the Android
 'game' manifest flags are on `wip/pc-port`). Earlier: device tests 6 and 7 on the same S22 ("Build 8", "Build 7", "Device test 6").
 
 **Summary:** the Federation server is complete for the offline single-player goals and passes its full test suite, including a
@@ -36,6 +39,107 @@ HD texture probe and a Windows test kit for the Steam version. Build 11 installs
 version into the game's own data. Build 12 accepts a full ASTC data pack with 2,215 PC textures in it: **device test 9:
 the HD textures and the graphics profiles work, at the same frame rate as before**, and builds 10 to 12 (target Android
 15) installed and played fine.
+
+## Build 15 (October 2026): rotating Special Events, an optional Practice tile, the match-mode doc corrections
+
+### What build 15 contains
+
+`1a70a5b` on `wip/pc-port` (`McvsVersion.Build` is `15`). APK: `mcvs-offline-1a70a5b.apk` (SHA-256 `424f7351…04d4`; default patch set, the same key as every
+build: certificate SHA-256 `fc0db84e…7d16`, targetSdk 35, both ABIs, `isGame` and `appCategory`, zipalign OK); it
+installs over build 14 as usual. Compared entry by entry with build 14 (`mcvs-offline-0b90763.apk`) it changes only
+the server DLL, the signature files and the 16 MVID bytes of `Game.dll`, `Gameloft.Engine.dll`,
+`Gameloft.Util.dll` and `NicePlaySDK.dll` ([design/pc-port.md](design/pc-port.md) §13.1). All of build 15 is in the server: no patch's code changed (only the `bottile` description text), and
+the PC kit changes by its embedded server DLL (and that text).
+
+**Special Events: the Battle menu's second box, generated offline** ([LIVEOPS.md](LIVEOPS.md) §8a). The Battle popup's
+**Special Event** box is the game's Arena mode; it unlocks only while an `ArenaModeEvent` is in progress, and before
+build 15 the server never served one, so the box was always locked. Live ops now generates them from the clock:
+
+* **Rotation**: a new mode every window (`liveops.arenaHours`, default 24 h, on a grid from the daily reset hour, so
+  by default a new mode every day with the daily missions). 22 rotating modes built from the data pack's Arena
+  variants: Havoc, Override, Ambush, Grand Bounty, Bountiful, Blitz and Scorecharge in the four modes, Competitive
+  (best of 3, no duplicate agents) in the four modes and with a random mode per map, and the four plain modes. Each
+  mode once per cycle, never the same twice in a row; the rotation is a function of the window alone (nothing is
+  stored). `tripleElixir` runs only when pinned.
+* **Rewards**: a Special Event match is a public PvP match like Classic (trophies, division, Credits, VersusCoins, MVP,
+  agent XP, daily and weekly objectives), and wins pay ×1.25 Credits and VersusCoins (×1.5 in the Competitive modes),
+  within the daily caps ([ECONOMY.md](ECONOMY.md) §4). The bots fill it exactly as in Classic (`instantBots`); every
+  event allows all 21 agents and plays on a random PvP map.
+* **Pin**: `liveops.arenaRotation` set to a mode id (for example `competitiveWarzone`, or `tdm` with
+  `liveops.arenaMap`) always runs that mode: a "pick your mode" bot match with full rewards. `off` shows no Special
+  Event.
+* **Settings** (page: Live ops): `Special Events` (`liveops.arenaEvents`, on), `Special Event mode`
+  (`liveops.arenaRotation`, `rotate`), `Special Event length (hours)` (`liveops.arenaHours`, 24, 1–168), `Special
+  Event map` (`liveops.arenaMap`, `Random`); applied at the next CRM fetch. Once the game has been handed a Special
+  Event, switching them off keeps the current mode until the game restarts (the game never clears its Arena event, and
+  a gap would leave the match without its parameters; the log says `Special Events are switched off, but the game
+  already has one`).
+* **Safety**: every Arena event passes `TleTemplateValidator` (the client's three traps: `img` mandatory, a non-empty
+  agent list without "Any", no gap between windows); the CRM always lists the window in progress and the next one as a
+  contiguous chain (three in a window's last 2 s), so the box switches to the next mode on its own timer. Hand-written
+  Arena events in `content/social/events.json` get the same per-event checks and a log line where their chain ends.
+  `GET /_mcvs/liveops` shows the current, next and upcoming modes.
+* Checked through the real client's code (`LiveOpsArenaConformanceTests`: 14 days of events through `ArenaModeEvent`
+  parsing, `GetArenaUIInfo` for the Battle popup's box, the TS's choice of the event for a room and the TS to GS
+  hand-over), **not yet on a device**.
+
+**The Practice tile (optional, off by default)**. The game has its own bot-match tile, "PRACTICE" (MCVS_Meta
+`MainMenuElements` row 13), hidden in Gameloft's shipped data. The new setting **Practice tile in the main menu**
+(`crm.practiceTile`, page: Settings › Gameplay, default off) adds two CRM cells that show it as the sixth and last
+tile of the main menu; with the default `bottile` patch it starts the same bot-filled, full-reward match as Battle ›
+Classic multiplayer, without the mode and group screens (without `bottile`: the game's free bot match, 5 Credits per
+win). It applies at the next CRM fetch (after a match, or at the next start). The served documents go through the
+real `StandardCrm.Data` in `PracticeTileConformanceTests`; where the tile sits and how it looks are **untested**. To
+try it: turn it on on the page, play one match (or restart), look at the main menu; turn it off again if the menu
+looks wrong.
+
+**Doc corrections**. The docs said Battle had a visible "bot-match tile" and that the `bottile` patch drove it. In fact
+the game shows no bot-match tile: the full-reward bot match is **Battle › Classic multiplayer** (7 bots at once with
+`instantBots`), `bottile` only affects the hidden PRACTICE tile (so it changes nothing unless `crm.practiceTile` is
+on), and "BOTMATCH" is only a `MenuMatchInfos` row with the confirm popup's text. Corrected in README, PLAYER-SETUP
+(a new "Match modes" list), PLAYER-SETUP-PC (WR3 step 8 starts the bot match from Battle › Classic), ARCHITECTURE,
+ECONOMY ("What each match mode pays": Classic, Special Event, tournaments, the Practice tile with its payout before and
+after PvP activation), LIVEOPS (`ArenaModeEvent` needs no LocalAnubis change: it already copies the room kwargs),
+PROTOCOL, the PC-port design and research notes, research 07 and verify-C4, and the `bottile` patch's description.
+Tournaments are stated as they are: private matches, never filled with bots and without trophies or currency by the
+game's design; they need other players (LAN is experimental). Not built, by decision: bots in tournaments.
+
+**PC**: no PC-specific change. The kit `McvsOffline.PcKit.exe` (win-x64, one file, SHA-256 `34131809abd25515bd0ff791f3ebc82f337d906e7598ca0c3d4176b3ae1baabb`) was republished
+because its embedded server DLL changed; the expected `verify` values of WR3 ([design/pc-port.md](design/pc-port.md)
+§13.1, [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7) were re-recorded: the server DLL and, with it, the four patched
+DLLs' hashes and MVIDs changed; the config is build 14's, and `install.json` says `serverBuild` 15. WR3 runs with
+this kit.
+
+**Checked**: `McvsOffline.sln` (Release), the Android embedded DLL against the APK's assemblies and the PC DLL with
+`Gameloft.Logs`; all four test projects with `MCVS_REFS`, `MCVS_PC_REFS`, `MCVS_APK`, `MCVS_DATAPACK`,
+`MCVS_BUILD_TOOLS`, `MCVS_REQUIRE_REAL_CLIENT=1`, `MCVS_REQUIRE_PC=1`, `MCVS_REQUIRE_PC_E2E=1`, `MCVS_REQUIRE_EMBEDDED=1`,
+`MCVS_REQUIRE_BUILD_TOOLS=1` and `MCVS_REQUIRE_NODE=1`: **McvsOffline.Tests 1551/1551, McvsOffline.Embed.Tests 878/878,
+McvsOffline.PcKit.Tests 59/59, McvsOffline.PcSpike.Tests 62/62, 0 skipped** (2,550). The content-gen tests (`python3 -I tools/content-gen/test_content_gen.py`): 32/32.
+The PC end to end on Linux (§12.6): `pc install` on a temp copy of the Steam files, `verify`, `status`, a second install with the same bytes, `uninstall` restoring every original SHA-256. Not checked: anything on a phone or on Windows.
+
+### What to check on the phone (build 15)
+
+Install build 15 over build 14 (no uninstall); the save and settings stay. Build 14's checks still apply.
+
+1. **Special Event unlocked.** Battle › "Select game mode": the second box, **Special Event**, is unlocked and shows the
+   mode's title and match type (e.g. "TEAM DEATHMATCH: HAVOC") and a countdown to its end. In `server.log` the TS's
+   `GET events?event_ids=…` lists two `mcvs_arena_…` ids. The page's Live ops shows the four Special Event settings.
+2. **A Special Event match.** Open the box: the lobby shows the rules text and the 21 agent icons; Start fills the
+   room with 7 bots at once, as in Classic, and the match is the event's mode on a valid map. No GS exception about
+   `_arenaParams` in the logs, no `[watchdog] STALL`, no `AndroidRuntime: FATAL EXCEPTION`.
+3. **Its rewards.** The end screen pays trophies, Credits and VersusCoins; a win pays more than the same win in
+   Classic (×1.25, ×1.5 in a Competitive mode, up to the daily cap); the daily and weekly objectives advance.
+4. **The next window.** Set `Special Event length (hours)` to 1 on the page (or play across the daily reset): when the
+   countdown ends the box switches to the next mode without a restart, and a match started after the change still
+   plays. Put it back to 24.
+5. **Pin.** Set `Special Event mode` to `competitiveWarzone`: after the next match (or a restart) the box shows it;
+   the match has three rounds and no duplicate agents in a team. Put it back to `rotate`.
+6. **Off.** Turn `Special Events` off while the game runs: the box stays usable (the log says `Special Events are
+   switched off, but the game already has one`); after a restart it is locked. Turn it on again.
+7. **Practice tile (optional).** Turn on **Practice tile in the main menu** (Settings › Gameplay), play one match or
+   restart: does a PRACTICE tile appear in the main menu, where, and does it look right? Tap it, confirm: a bot match
+   that pays like Classic. Turn the setting off: the tile is gone after the next match or start.
+8. As always: boot to the menu, one Classic bot match, the shop, the page (Status, Settings, Saves › Save now).
 
 ## Build 14 (October 2026): the PC port's WR2 fixes, ready for the third Windows round
 
