@@ -458,9 +458,9 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Contains(report.Notes, n => n.StartsWith("debloat: dropped 9 Crashlytics/Fabric files", StringComparison.Ordinal));
 
             // The manifest is the permission rename plus the debloat, one note per removed element, then the targetsdk edits
-            // of the default target 35 (ManifestTargetSdkTests).
+            // of the default target 35 (ManifestTargetSdkTests) and the "game" flags (ManifestGameTests).
             byte[] original = input.Find(ManifestPatch.EntryName).GetData();
-            Assert.Equal(ManifestTargetSdk.Edit(ManifestDebloat.Apply(ManifestPatch.Apply(original, null), null), ManifestTargetSdk.DefaultTarget, null),
+            Assert.Equal(ManifestGame.Edit(ManifestTargetSdk.Edit(ManifestDebloat.Apply(ManifestPatch.Apply(original, null), null), ManifestTargetSdk.DefaultTarget, null), null),
                          result.Find(ManifestPatch.EntryName).GetData());
             Assert.Equal(ManifestDebloat.Targets.Count, report.Notes.Count(n => n.StartsWith("manifest: removed <", StringComparison.Ordinal)));
 
@@ -481,8 +481,10 @@ namespace McvsOffline.Embed.Tests.Patcher
         public void WithoutDebloatTheManifestIsTheRenameAloneAndTheFilesStay()
         {
             if (!Inputs(out string apk, out string server)) return;
-            // Without debloat the target stays 29 (targetsdk refuses 31+ without it; ManifestTargetSdkTests).
-            var patches = new SortedSet<string>(PatcherOptions.DefaultPatches.Where(p => p != ManifestDebloat.PatchId && p != ManifestTargetSdk.PatchId), StringComparer.Ordinal);
+            // Without debloat the target stays 29 (targetsdk refuses 31+ without it; ManifestTargetSdkTests); "game" is left out
+            // too, so the manifest is the rename alone.
+            var patches = new SortedSet<string>(PatcherOptions.DefaultPatches.Where(p => p != ManifestDebloat.PatchId && p != ManifestTargetSdk.PatchId && p != ManifestGame.PatchId),
+                                                StringComparer.Ordinal);
             PatchReport report = Run(apk, server, patches, out string outApk);
 
             ZipArchiveReader.Archive input = ZipArchiveReader.Read(apk);

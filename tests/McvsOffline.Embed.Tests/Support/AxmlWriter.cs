@@ -22,7 +22,8 @@ namespace McvsOffline.Embed.Tests.Support
             ["authorities"] = 0x01010018, ["value"] = 0x01010024, ["minSdkVersion"] = 0x0101020c, ["targetSdkVersion"] = 0x01010270,
             ["maxSdkVersion"] = 0x01010271, ["scheme"] = 0x01010027, ["fitsSystemWindows"] = 0x010100dd,
             ["allowNativeHeapPointerTagging"] = 0x01010612, ["layout_width"] = 0x010100f4, ["layout_height"] = 0x010100f5, ["id"] = 0x010100d0,
-            ["appCategory"] = 0x01010545, ["enableOnBackInvokedCallback"] = 0x0101066c,
+            ["appCategory"] = 0x01010545, ["enableOnBackInvokedCallback"] = 0x0101066c, ["isGame"] = 0x010103f4,
+            ["restrictedAccountType"] = 0x010103d5, ["networkSecurityConfig"] = 0x01010527, ["largeHeap"] = 0x0101035a,
         };
 
         public sealed class Element

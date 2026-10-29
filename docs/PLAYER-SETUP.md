@@ -78,8 +78,8 @@ The patcher prints every change it makes and finishes with a signature check. Us
 
 | Option | Meaning |
 |---|---|
-| `--patch nativeonline,waits,geo,bottile,finder,store,signatures,debloat,adminpage,adminlink,graphics,targetsdk` | The optional patches (this is the default set; `debloat` removes dead ad/analytics/social/push pieces, see ARCHITECTURE.md §2; `adminpage` and `adminlink` open the MCVS Offline page, section 7; `graphics` is needed for the graphics profile, section 7; `targetsdk` raises the app's target Android version, see `--target-sdk`). `none` keeps only the mandatory patches (the server hook, the headless-server fixes and the server physics), `all` adds `lan` and `forum`, `default,forum` adds only `forum`. |
-| `--target-sdk 29` | The Android version the app declares it was built for (`targetsdk` patch). The default, 35, avoids Play Protect's "built for an older version of Android" warning up to Android 17; 36 also covers Android 18. For both the patcher also fixes the game's own Java code (`classes.dex`) where a newer target would make Android refuse it. `--target-sdk 29` keeps the game's own value and files, exactly as builds 9 and earlier: the fallback if something misbehaves on 35. By Android's rules a 29 build installs over a 35 build signed with the same key, but this has not been tried on a phone yet. 35 and 36 need `debloat` (so `--patch` without `debloat` also needs `--target-sdk 29`). |
+| `--patch nativeonline,waits,geo,bottile,finder,store,signatures,debloat,adminpage,adminlink,graphics,targetsdk,game` | The optional patches (this is the default set; `debloat` removes dead ad/analytics/social/push pieces, see ARCHITECTURE.md §2; `adminpage` and `adminlink` open the MCVS Offline page, section 7; `graphics` is needed for the graphics profile, section 7; `targetsdk` raises the app's target Android version, see `--target-sdk`; `game` marks the app as a game for Android's Game Mode, section 6). `none` keeps only the mandatory patches (the server hook, the headless-server fixes and the server physics), `all` adds `lan` and `forum`, `default,forum` adds only `forum`. |
+| `--target-sdk 29` | The Android version the app declares it was built for (`targetsdk` patch). The default, 35, avoids Play Protect's "built for an older version of Android" warning up to Android 17; 36 also covers Android 18. For both the patcher also fixes the game's own Java code (`classes.dex`) where a newer target would make Android refuse it. `--target-sdk 29` keeps the game's own value and files, exactly as builds 9 and earlier: the fallback if something misbehaves on 35. By Android's rules a 29 build installs over a 35 build signed with the same key, but this has not been tried on a phone yet. 35 and 36 need `debloat` (so `--patch` without `debloat` also needs `--target-sdk 29`), and 36 also needs `game`. |
 | `--game-log all` | The game's own log at every level in logcat (`mono-stdout`), for bug reports; this is the default while the offline build is being tested. `--game-log fatal` keeps the game's original setting (fatal errors only). |
 | `--keystore <file.p12>` | Your signing key. Without it a key is created once in `~/.config/McvsOffline/` (Windows: `%APPDATA%\McvsOffline\`) and reused. |
 | `--build-tools <dir>` | Folder with `apksigner` and `zipalign`; otherwise they are looked up on `PATH` and in `$ANDROID_HOME/build-tools`. |
@@ -141,6 +141,13 @@ What the patches do:
   usual (same key, no uninstall). Since Android 12 tapping a reminder only dismisses it (open the game from the
   launcher), and a reminder the previous build scheduled can arrive once more after the update. `--target-sdk 29` turns
   all of this off.
+- **game**: the manifest says the app is a game (`android:appCategory="game"` and the older `android:isGame="true"`),
+  at every `--target-sdk`. Android's Game Mode then treats it as a game (Android 12 and later), and so can the phone
+  maker's game tools (Samsung's Gaming Hub and Game Booster also go by their own list; section 6 shows how to check and
+  how to add the game by hand). Side effects, all from Android itself: while the game is in front, Android may tell
+  the chip it runs a game (more performance, device dependent), and a phone may cap the screen at 60 Hz for it, which
+  the game's 30 fps does not notice. Nothing in the game reads these flags. Without it the manifest is exactly as in
+  build 12 and earlier; `--target-sdk 36` needs it.
 - **forum** (not in the default set): the Forum button in Settings opens the page too.
 - **lan** (experimental): groundwork for LAN play (see the end of this guide). It changes nothing for single-device
   play.
@@ -253,6 +260,34 @@ record of a previous crash or freeze. If a log
 file cannot be written, logcat says so (`[logfile] cannot write ... at stage ...`) and the file continues in the game's
 internal storage. Copying the folder over USB with a file manager on the PC can show stale sizes while the game runs;
 the copies in Downloads do not have that problem.
+
+### Game Mode and Samsung Gaming Hub (patch `game`)
+
+With the `game` patch (in the default set) the app tells Android it is a game, so Android's Game Mode and the phone
+maker's game tools can treat it as one. Samsung decides mostly by the package name, from its own list, so check on the
+phone:
+
+1. **Gaming Hub** (Game Launcher) › **My games**: if MCVS is listed, Game Booster works for it. If it is missing, add
+   it once with **My games › Add game › MCVS**; this works whatever the APK says, and stays after updates. Then start
+   the game and look for the Game Booster icon in the navigation bar or its swipe panel.
+2. **With a PC** (adb), Android's own view:
+
+   ```sh
+   adb shell cmd game list-modes com.gameloft.android.ANMP.GloftMVHM
+   adb shell dumpsys game
+   ```
+
+   With the patch the first command prints `current mode: standard, available game modes: [standard,custom]`. Without
+   it, Android 16 prints `Package com.gameloft.android.ANMP.GloftMVHM is not of game type, to use the game mode
+   commands, it must specify game category in the manifest as android:appCategory="game"` (Android 12 to 15 print
+   `current mode: unsupported, available game modes: []` instead). `dumpsys game` lists every installed game; with the
+   patch MCVS is among them.
+3. On phones whose Settings follow Android's own (not every One UI version), Settings › Storage counts the app under
+   **Games** instead of **Apps**.
+
+Before installing, you can check the APK on the PC with the Android build-tools: `aapt2 dump badging mcvs-offline.apk |
+grep application-isGame` prints `application-isGame`, and `aapt2 dump xmltree --file AndroidManifest.xml
+mcvs-offline.apk | grep -E 'isGame|appCategory'` shows `isGame(0x010103f4)=true` and `appCategory(0x01010545)=0`.
 
 ## 7. The MCVS Offline page
 
@@ -495,7 +530,9 @@ For reviewers (details and evidence: `docs/research/verify-C7-integrity-patching
   local-reminder receiver), the notification permission, a declaration that lets the in-game browser find your browser,
   and heap-pointer tagging off; the two `res/layout-*/activity_in_game_browser.xml` files (the browser that shows the
   MCVS Offline page) keep the page clear of the navigation bar. The patcher checks the shipped manifest and layouts
-  byte for byte first.
+  byte for byte first. With `game` (at any target) `<application>` gets `android:isGame="true"` and
+  `android:appCategory="game"`, encoded as Android's own build tools write them; the patcher refuses a manifest that
+  already sets either of them.
 - `classes.dex` (the game's Java code), also with `targetsdk` at 35 or 36: 14 places in 13 methods are changed in
   place, each method checked against its verified fingerprint first (docs/research/target-sdk.md, P1-P14): the restart
   alarm, the local reminders and the download notification create their `PendingIntent`s with `FLAG_IMMUTABLE`
