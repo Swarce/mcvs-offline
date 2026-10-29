@@ -6,7 +6,7 @@ using McvsOffline.Server.Core.Json;
 namespace McvsOffline.Server.Services.Social.LiveOps
 {
     /// <summary>
-    /// One Special Event (Arena) mode of liveops.json <c>arena.modes</c> (docs/LIVEOPS.md §9): what an
+    /// One Special Event (Arena) mode of liveops.json <c>arena.modes</c> (docs/LIVEOPS.md §8a): what an
     /// <c>ArenaModeEvent</c> of this mode carries (GM/ArenaModeEvent.cs Initialize). content-gen expands every field
     /// (agents, multipliers, the match-type text and image) and checks it against the player's data pack.
     /// </summary>

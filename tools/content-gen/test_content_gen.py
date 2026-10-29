@@ -1020,7 +1020,7 @@ class RealDataTests(unittest.TestCase):
         self.assertEqual(self.out["liveops.json"]["revision"], 1)
 
     def test_arena_modes_from_the_data_pack(self):
-        """The Special Event modes (docs/LIVEOPS.md §9): every Arena rule table and titled variant of 1.17.32 is used,
+        """The Special Event modes (docs/LIVEOPS.md §8a): every Arena rule table and titled variant of 1.17.32 is used,
         the playable maps leave out the three MapsList rows without a level, every mode allows the 21 agents."""
         arena = self.out["liveops.json"]["arena"]
         self.assertEqual(arena["maps"], ["Snow", "Desert", "Favelas", "Rooftop", "DogDays", "Port", "Stadium", "Stadium2"])

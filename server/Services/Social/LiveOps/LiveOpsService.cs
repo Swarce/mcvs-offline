@@ -102,7 +102,7 @@ namespace McvsOffline.Server.Services.Social.LiveOps
         /// The mode of the last Special Event handed to the TS in this process (the one in progress when it was served),
         /// or null: none yet. Once the TS has one, the client holds it until the game restarts (it never clears its current
         /// Arena event), so from then on the chain must not break: switching Special Events off keeps them running,
-        /// pinned to this mode, until the next start (docs/LIVEOPS.md §9.3). In memory on purpose: the client's state ends
+        /// pinned to this mode, until the next start (docs/LIVEOPS.md §8a.3). In memory on purpose: the client's state ends
         /// with the process, and so does this.
         /// </summary>
         private LiveOpsArenaMode servedArenaMode;

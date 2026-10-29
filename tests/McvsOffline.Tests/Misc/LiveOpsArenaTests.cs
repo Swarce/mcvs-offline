@@ -11,7 +11,7 @@ using Xunit;
 namespace McvsOffline.Tests.Misc
 {
     /// <summary>
-    /// The Special Events (docs/LIVEOPS.md §9) on the server: the window grid and ids, the rotation, the pinned mode,
+    /// The Special Events (docs/LIVEOPS.md §8a) on the server: the window grid and ids, the rotation, the pinned mode,
     /// the settings, the chain that keeps running once the TS has seen it, the catalogue's <c>arena</c> block, the
     /// validator's Arena rules, the CRM document (with the instant bot fill Classic uses) and the diagnostics page.
     /// The real client runs the same events in LiveOpsArenaConformanceTests.

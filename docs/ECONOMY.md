@@ -171,6 +171,14 @@ that the store sells only as mystery packs). Weekly modifiers (Coin rush ×1.5 V
 bounty ×3 MVP, Rival surge ×1.25 both, Trophy fever ×1.5 division trophies) multiply into the same `_OverrideTables`
 cells as the `economy.*` multipliers (one MUL cell holding the product), so both settings compose.
 
+**Special Events** (Battle › Special Event, [LIVEOPS.md](LIVEOPS.md) §8a) are public PvP matches with the normal rewards
+and the event's own multipliers (`ArenaModeEvent` `EndMatchRewardMultipliers`, applied by the GS in
+`RewardComponent.GenerateCurrency` and the MVP reward): wins pay ×1.25 Credits and VersusCoins (×1.5 in the five
+Competitive modes, which are best of three), defeats and the MVP bonus ×1. They multiply the division's table amount
+after the `economy.*` and weekly-modifier cells (so the three compose), and the daily caps still apply: a Special Event
+reaches the cap sooner, it does not raise it. Tuning: `liveops_tuning.json` `arena.multipliers` and per-mode
+`multipliers` (0.1–10).
+
 ## 5. The Cosmetic crate
 
 Build 9 (design and numbers: [design/economy-collector.md](design/economy-collector.md)). In the game it is called

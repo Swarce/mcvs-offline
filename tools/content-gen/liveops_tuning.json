@@ -101,7 +101,7 @@
   },
   "seasonRewards": {"table": "PVPDivisionRewards", "index": "Rank", "fieldPrefix": "Division"},
   "arena": {
-    "_comment": ["Special Events (the Battle popup's Arena box, docs/LIVEOPS.md §9): one ArenaModeEvent per liveops.arenaHours window,",
+    "_comment": ["Special Events (the Battle popup's Arena box, docs/LIVEOPS.md §8a): one ArenaModeEvent per liveops.arenaHours window,",
                  "the mode picked by the rotation (or pinned with liveops.arenaRotation). name/rule are Arena loc ids, matchType a",
                  "Game.MatchType (None: the GS picks one per map), parameterSets MCVS_Gameplay rule tables. Every agent is allowed",
                  "(an explicit Merc_<id> list: the client throws on an empty, Any or MercClass_ list). Multipliers scale the match's",

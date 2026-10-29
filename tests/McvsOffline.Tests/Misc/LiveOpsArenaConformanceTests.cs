@@ -17,7 +17,7 @@ using Xunit.Abstractions;
 namespace McvsOffline.Tests.Misc
 {
     /// <summary>
-    /// The Special Events (docs/LIVEOPS.md §9) through the REAL client code: the CRM document through
+    /// The Special Events (docs/LIVEOPS.md §8a) through the REAL client code: the CRM document through
     /// <c>StandardCrm.Data</c>, the events through <c>Json.Load</c>, <c>new SocialEvent(item)</c>, <c>ParseTemplate</c>,
     /// <c>TypeUtil.GetType</c> and <c>ArenaModeEvent.Initialize</c>, as RetrieveEventsAsync runs them; the TS's choice
     /// for a room (<c>TimeLimitedEventsComponent.GetInProgressEvents&lt;ArenaModeEvent&gt;().FirstOrDefault()</c>); the

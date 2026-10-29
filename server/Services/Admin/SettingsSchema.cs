@@ -764,7 +764,7 @@ namespace McvsOffline.Server.Services.Admin
                        "rotate", "off", "standard", "coinRush", "trophyFever", "creditRush", "mvpBounty", "rivalSurge"),
                 Number("liveops", "liveops.difficulty", "Event difficulty", 0.1, 10, 0.1, Menu, ""),
                 Number("liveops", "liveops.seasonRewardMultiplier", "Season rewards", 0.1, 20, 0.1, Menu, ""),
-                // Special Events (docs/LIVEOPS.md §9). Once the game has shown one, switching them off (here or with Live
+                // Special Events (docs/LIVEOPS.md §8a). Once the game has shown one, switching them off (here or with Live
                 // events) only applies after a restart: the game keeps the Special Event it has seen.
                 Bool("liveops", "liveops.arenaEvents", "Special Events", true, Menu,
                      "Battle > Special Event: a new Arena mode every few hours, filled with bots like Classic, with a Credits "

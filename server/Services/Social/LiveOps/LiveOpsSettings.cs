@@ -52,7 +52,7 @@ namespace McvsOffline.Server.Services.Social.LiveOps
 
         public double SeasonRewardMultiplier { get; private set; }
 
-        /// <summary>The Special Event (Arena) chain (docs/LIVEOPS.md §9).</summary>
+        /// <summary>The Special Event (Arena) chain (docs/LIVEOPS.md §8a).</summary>
         public bool ArenaEvents { get; private set; }
 
         /// <summary>"rotate", "off" or an arena mode id.</summary>

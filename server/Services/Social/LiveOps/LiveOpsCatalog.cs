@@ -131,7 +131,7 @@ namespace McvsOffline.Server.Services.Social.LiveOps
         /// <summary>Why <see cref="Collector"/> is null ("no collector block", or the refusal); null when it is set.</summary>
         public string CollectorProblem = "no collector block";
 
-        /// <summary>The Special Event modes (docs/LIVEOPS.md §9); null without a usable <c>arena</c> block.</summary>
+        /// <summary>The Special Event modes (docs/LIVEOPS.md §8a); null without a usable <c>arena</c> block.</summary>
         public LiveOpsArena Arena;
 
         /// <summary>Why <see cref="Arena"/> is null, or which modes were left out; null when every mode was read.</summary>

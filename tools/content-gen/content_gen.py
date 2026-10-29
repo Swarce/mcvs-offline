@@ -1011,7 +1011,7 @@ def arena_maps(cat, maps_list):
 
 
 def build_liveops_arena(cat, block, loc_tables, maps_list):
-    """liveops.json ``arena`` (docs/LIVEOPS.md §9): the Special Event modes with every field the server needs expanded
+    """liveops.json ``arena`` (docs/LIVEOPS.md §8a): the Special Event modes with every field the server needs expanded
     (agents, the six multipliers, the match-type text and image) and checked against the player's data: loc ids, the
     MCVS_Gameplay rule tables (an Index column of map ids, GameMatch.ApplySettingTableForMap), the image, the map, the
     agents. Every Arena* rule table and every Arena title with a description is used by a mode or named in

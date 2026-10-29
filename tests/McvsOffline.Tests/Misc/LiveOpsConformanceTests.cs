@@ -140,7 +140,7 @@ namespace McvsOffline.Tests.Misc
                         }
                         else if (eventType == LiveOpsEvents.ArenaType)
                         {
-                            LiveOpsArenaConformanceTests.CheckArenaParams(tle);   // the Special Events (docs/LIVEOPS.md §9)
+                            LiveOpsArenaConformanceTests.CheckArenaParams(tle);   // the Special Events (docs/LIVEOPS.md §8a)
                         }
                         else
                         {
