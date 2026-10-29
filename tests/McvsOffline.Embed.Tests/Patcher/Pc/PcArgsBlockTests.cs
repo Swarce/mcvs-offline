@@ -40,6 +40,26 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         }
 
         [Fact]
+        public void ABlockWithoutItsEndMarkerIsRemovedWithEveryManagedLine()
+        {
+            // WR2 F10: the host writes -DataCenter; with the end marker deleted by hand, uninstall left it as a player line.
+            var settings = new McvsOffline.Server.Core.Settings();
+            settings.Set("lanMode", true);
+            string written = Encoding.ASCII.GetString(ArgsFile.Merge(null, ManagedArgs.Build(settings, "mcvs0123456789abcdef", 51780, null)).Content);
+            Assert.Contains("-DataCenter mcvs\n", written);
+            Assert.Contains("-LocalAnubisHost 0.0.0.0\n", written);
+            string withoutEnd = "-Foo bar\n" + written.Replace(PcArgsBlock.EndMarker + "\n", "") + "-Baz 1\n";
+            Assert.DoesNotContain(PcArgsBlock.EndMarker, withoutEnd);
+
+            bool onlyBlock;
+            byte[] removed = PcArgsBlock.Remove(Encoding.ASCII.GetBytes(withoutEnd), out onlyBlock);
+            Assert.Equal("-Foo bar\n-Baz 1\n", Encoding.ASCII.GetString(removed));
+            Assert.False(onlyBlock);
+            Assert.Equal("", Encoding.ASCII.GetString(PcArgsBlock.Remove(Encoding.ASCII.GetBytes(written.Replace(PcArgsBlock.EndMarker + "\n", "")), out onlyBlock)));
+            Assert.True(onlyBlock);
+        }
+
+        [Fact]
         public void AFileWrittenFromNothingLeavesOnlyTheBlock()
         {
             bool onlyBlock;

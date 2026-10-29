@@ -163,6 +163,7 @@ Message line = `{"type":"message\|game","id","msg","sender":{ChatUser},"sent","m
 | GET | `dump/dump.edgelist` | `geo.edgelist` | empty text | `UT/Geolocalization.cs` (read locally by the game) |
 | POST | `` (root), `ets`, `etsv2`, `tracking` (+ `/{*rest}`) | `misc.tracking[.root]` | `{}` 200 (or 993 with `tracking.disable`) | `EN/EtsRequestMessage.cs`, `EN/TrackingComponent.cs` |
 | any | `redir/{*rest}` | `misc.marketing` | 200 HTML "Not available offline" | `EN/TrackingHitsComponent.cs`, `EN/BrowserComponent.cs` |
+| GET/HEAD | `favicon.ico` | `misc.favicon` | 204, request log at DEBUG | the Steam client and the overlay browser on the offline page (WR2 F11) |
 | any | `ios/{*rest}` | `misc.gameportal` | `{}` | report 04 §12 (no caller) |
 | POST | `api/index.php` | `misc.chat.report` | `{}` | `OP/ChatApi.cs:80` (cmt.gameloft.com) |
 | any | `online_connectivity/connectionstatus` | `misc.connectivity` | **always** `{}` 200; one INFO line `connectivity: type=<t> status=<s> details="<≤100 chars>"` | native `ConnectivityTrackingManager` (`NativeEngine.dll`, `libnativeengine.so`); see "Connectivity tracker" below |

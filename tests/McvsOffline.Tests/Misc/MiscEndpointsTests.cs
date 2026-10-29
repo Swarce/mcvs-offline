@@ -117,6 +117,27 @@ namespace McvsOffline.Tests.Misc
         }
 
         [Fact]
+        public void FaviconAnswers204AtDebugAndOurPagesDoNotAskForIt()
+        {
+            using var s = new MiscServer();
+            foreach (string method in new[] { "GET", "HEAD" })
+            {
+                HttpResponse icon = s.Server.Handle(HttpRequest.Create(method, "/favicon.ico"));
+                Assert.Equal(204, icon.StatusCode);
+                Assert.Empty(icon.Body);
+                Assert.True(icon.LogAtDebug);
+            }
+            // Not an unknown endpoint any more (WR2 F11: four lines in unknown-endpoints.jsonl), and no INFO request line.
+            string unknown = Path.Combine(s.Context.DataDir, "logs", "unknown-endpoints.jsonl");
+            Assert.False(File.Exists(unknown) && File.ReadAllText(unknown).Contains("favicon"));
+            Assert.DoesNotContain(s.Logs.Snapshot(), e => e.Message.Contains("/favicon.ico") && e.Level >= McvsOffline.Server.Core.LogLevel.Info);
+            Assert.Contains(s.Logs.Snapshot(), e => e.Message.Contains("/favicon.ico -> 204 [misc.favicon]") && e.Level == McvsOffline.Server.Core.LogLevel.Debug);
+
+            Assert.Contains(MiscService.EmptyIcon + "</head>", MiscService.OfflinePage);
+            Assert.Contains(MiscService.EmptyIcon, s.Get("/redir/?from=MCVS").BodyText);
+        }
+
+        [Fact]
         public void UnknownListShapedGetsAnswerAnArrayAndAreStillLoggedAsUnknown()
         {
             using var s = new MiscServer();

@@ -92,7 +92,7 @@ namespace McvsOffline.Embedded
         public static readonly string[] KnownManagedKeys =
         {
             "ServerLocation", "AnubisCommand", "EnvironmentSwitcherUrl", "SuperCredential", "SuperPassword", "DeviceId",
-            "LocalAnubisHost",
+            "DataCenter", "LocalAnubisHost",
         };
 
         /// <summary>

@@ -22,7 +22,7 @@ namespace McvsOffline.Patcher.Pc
         public static readonly string[] KnownManagedKeys =
         {
             "ServerLocation", "AnubisCommand", "EnvironmentSwitcherUrl", "SuperCredential", "SuperPassword", "DeviceId",
-            "LocalAnubisHost",
+            "DataCenter", "LocalAnubisHost",
         };
 
         /// <summary>True when a line of <paramref name="existing"/> starts with <see cref="BeginMarker"/>.</summary>

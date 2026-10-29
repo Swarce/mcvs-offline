@@ -10,7 +10,7 @@ namespace McvsOffline.Server.Services.Admin.Logs
     /// <summary>One log entry: time, level, category, message (continuation lines included).</summary>
     internal sealed class LogTailEntry
     {
-        /// <summary>The time as written ("2026-10-26T10:15:00.123Z", or "10:15:00.123" in game.log), or null.</summary>
+        /// <summary>The time as written ("2026-10-26T10:15:00.123Z", or "10:15:00.123" in game.log of builds up to 13), or null.</summary>
         public string Time { get; set; }
 
         /// <summary>TRACE, DEBUG, INFO, WARN, ERROR, or "?" for text before the first entry.</summary>
@@ -48,7 +48,8 @@ namespace McvsOffline.Server.Services.Admin.Logs
     /// <summary>
     /// Reads the last megabyte of a log file and splits it into entries (design §7.1). An entry starts at a line of
     /// server.log/bootstrap.log (<c>LogEntry.Format</c>: <c>2026-10-26T10:15:00.123Z INFO  [cat] message</c>) or game.log
-    /// (<c>GameLogBridge</c>: <c>10:15:00.123 Warning [cat] message</c>) and continues over the following lines that start
+    /// (<c>GameLogFormat</c>: <c>2026-10-26T10:15:00.123Z Warning [cat] message</c>, up to build 13 <c>10:15:00.123 Warning
+    /// [cat] message</c>) and continues over the following lines that start
     /// no entry (exceptions, multi-line messages); lines before the first entry form one entry of level "?". Hand-written
     /// character checks, no Regex. Every message goes through <see cref="LogRedaction.Redact"/> (files of older builds).
     /// </summary>
@@ -169,10 +170,7 @@ namespace McvsOffline.Server.Services.Admin.Logs
         private static LogTailEntry ServerLine(string line)
         {
             if (line.Length < 33 || line[24] != ' ' || line[30] != ' ' || line[31] != '[') return null;
-            if (!IsDigits(line, 0, 4) || line[4] != '-' || !IsDigits(line, 5, 2) || line[7] != '-' || !IsDigits(line, 8, 2) || line[10] != 'T'
-                || !IsDigits(line, 11, 2) || line[13] != ':' || !IsDigits(line, 14, 2) || line[16] != ':' || !IsDigits(line, 17, 2)
-                || line[19] != '.' || !IsDigits(line, 20, 3) || line[23] != 'Z')
-                return null;
+            if (!IsoTime(line)) return null;
             string level = line.Substring(25, 5).TrimEnd();
             if (level.Length == 0) level = "?";
             else if (level != "TRACE" && level != "DEBUG" && level != "INFO" && level != "WARN" && level != "ERROR") return null;
@@ -187,21 +185,24 @@ namespace McvsOffline.Server.Services.Admin.Logs
             };
         }
 
-        /// <summary>"10:15:00.123 Warning [cat] message" (GameLogBridge).</summary>
+        /// <summary>
+        /// "2026-10-26T10:15:00.123Z Warning [cat] message" (GameLogFormat, UTC) or "10:15:00.123 Warning [cat] message"
+        /// (GameLogBridge up to build 13, local time).
+        /// </summary>
         private static LogTailEntry GameLine(string line)
         {
-            if (line.Length < 16 || !IsDigits(line, 0, 2) || line[2] != ':' || !IsDigits(line, 3, 2) || line[5] != ':' || !IsDigits(line, 6, 2)
-                || line[8] != '.' || !IsDigits(line, 9, 3) || line[12] != ' ')
-                return null;
-            int p = 13;
+            int time = IsoTime(line) ? 24 : ClockTime(line) ? 12 : 0;
+            if (time == 0 || line.Length < time + 4 || line[time] != ' ') return null;
+            int start = time + 1;
+            int p = start;
             while (p < line.Length && (char.IsLetterOrDigit(line[p]) || line[p] == '_')) p++;
-            if (p == 13 || p + 1 >= line.Length || line[p] != ' ' || line[p + 1] != '[') return null;
-            string word = line.Substring(13, p - 13);
+            if (p == start || p + 1 >= line.Length || line[p] != ' ' || line[p + 1] != '[') return null;
+            string word = line.Substring(start, p - start);
             int close = line.IndexOf(']', p + 2);
             if (close < 0 || (close + 1 < line.Length && line[close + 1] != ' ')) return null;
             return new LogTailEntry
             {
-                Time = line.Substring(0, 12),
+                Time = line.Substring(0, time),
                 Level = GameLevel(word),
                 Category = line.Substring(p + 2, close - p - 2),
                 Message = close + 2 <= line.Length ? line.Substring(close + 2) : "",
@@ -230,6 +231,21 @@ namespace McvsOffline.Server.Services.Admin.Logs
             if (message == null) return "";
             if (message.Length > MaxMessageChars) message = message.Substring(0, MaxMessageChars) + "…";
             return LogRedaction.Redact(message);
+        }
+
+        /// <summary>The line starts with "2026-10-26T10:15:00.123Z".</summary>
+        private static bool IsoTime(string line)
+        {
+            return line.Length >= 24 && IsDigits(line, 0, 4) && line[4] == '-' && IsDigits(line, 5, 2) && line[7] == '-' && IsDigits(line, 8, 2)
+                   && line[10] == 'T' && IsDigits(line, 11, 2) && line[13] == ':' && IsDigits(line, 14, 2) && line[16] == ':'
+                   && IsDigits(line, 17, 2) && line[19] == '.' && IsDigits(line, 20, 3) && line[23] == 'Z';
+        }
+
+        /// <summary>The line starts with "10:15:00.123".</summary>
+        private static bool ClockTime(string line)
+        {
+            return line.Length >= 12 && IsDigits(line, 0, 2) && line[2] == ':' && IsDigits(line, 3, 2) && line[5] == ':' && IsDigits(line, 6, 2)
+                   && line[8] == '.' && IsDigits(line, 9, 3);
         }
 
         private static bool IsDigits(string s, int start, int count)

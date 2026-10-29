@@ -170,10 +170,54 @@ namespace McvsOffline.Tests.Core
             Assert.Same(plain, LogRedaction.Redact(plain));
         }
 
+        /// <summary>The real game.log line of WR2 (Session.GetAccessToken, Debug, 808 times in one start).</summary>
+        private const string RealTokenLine =
+            "13:53:25.781 Debug [Online] {Session.cs}.GetAccessToken:384 | [anonymous:76561198366698514] Get access token for scopes "
+            + "[auth, lobby, config] succeeded: mcvs59915ef0.e681f53f4c247197a50af715d8337ccd";
+
+        [Fact]
+        public void RedactsTheAccessTokenOfTheGamesSessionLog()
+        {
+            string once = LogRedaction.Redact(RealTokenLine);
+            Assert.Equal("13:53:25.781 Debug [Online] {Session.cs}.GetAccessToken:384 | [anonymous:7656…8514] Get access token for scopes "
+                         + "[auth, lobby, config] succeeded: mcvs…<redacted>", once);
+            Assert.Equal(once, LogRedaction.Redact(once));
+        }
+
+        [Theory]
+        // Anywhere in a line: after a word, glued to punctuation, inside a word, several per line.
+        [InlineData("token mcvs59915ef0.98e76e5e47ce4d8e75abfc0b1d6c00d3 is valid", "token mcvs…<redacted> is valid")]
+        [InlineData("[mcvs59915ef0.98e76e5e47ce4d8e75abfc0b1d6c00d3]", "[mcvs…<redacted>]")]
+        [InlineData("Bearer_mcvs59915ef0.98e76e5e47ce4d8e75abfc0b1d6c00d3,x", "Bearer_mcvs…<redacted>,x")]
+        [InlineData("a mcvs00000000.0123456789abcdef0123456789abcdef b mcvsffffffff.fedcba9876543210fedcba9876543210",
+                    "a mcvs…<redacted> b mcvs…<redacted>")]
+        // The parameter and JSON rules still answer first where a name stands before the token.
+        [InlineData("access_token=mcvs59915ef0.98e76e5e47ce4d8e75abfc0b1d6c00d3&x=1", "access_token=mcvs…<redacted>&x=1")]
+        [InlineData("{\"access_token\":\"mcvs59915ef0.98e76e5e47ce4d8e75abfc0b1d6c00d3\"}", "{\"access_token\":\"mcvs…<redacted>\"}")]
+        // Not the token shape: unchanged.
+        [InlineData("mcvs59915ef0", "mcvs59915ef0")]                                                                     // the issuer alone
+        [InlineData("mcvs59915ef0.98e76e5e47ce4d8e75abfc0b1d6c00d", "mcvs59915ef0.98e76e5e47ce4d8e75abfc0b1d6c00d")]     // 31 hex
+        [InlineData("mcvs59915ef.98e76e5e47ce4d8e75abfc0b1d6c00d3", "mcvs59915ef.98e76e5e47ce4d8e75abfc0b1d6c00d3")]     // 7 hex issuer
+        [InlineData("mcvs59915ef01.98e76e5e47ce4d8e75abfc0b1d6c00d3", "mcvs59915ef01.98e76e5e47ce4d8e75abfc0b1d6c00d3")] // 9 hex issuer
+        [InlineData("McvsOffline/logs/mcvs0123456789abcdef.json", "McvsOffline/logs/mcvs0123456789abcdef.json")]
+        [InlineData("device mcvs0123456789abcdef0123456789abcdef", "device mcvs0123456789abcdef0123456789abcdef")]
+        public void RedactsAccessTokensAnywhere(string input, string expected)
+        {
+            Assert.Equal(expected, LogRedaction.Redact(input));
+            Assert.Equal(expected, LogRedaction.Redact(expected));
+        }
+
+        [Fact]
+        public void PathsWithMcvsKeepTheFastPath()
+        {
+            string text = "#3 GET /McvsOffline/mcvs59915ef0/state -> 200 [x] 2 B";
+            Assert.Same(text, LogRedaction.Redact(text));
+        }
+
         [Fact]
         public void BrokenInputNeverThrows()
         {
-            foreach (string text in new[] { "\"ticket\":\"", "\"password\" :", "password=", "#t=", "%23t%3", "{\"ticket\":\"abc\\", "mcvs_s=",
+            foreach (string text in new[] { "\"ticket\":\"", "mcvs", "mcvs59915ef0.", "mcvs59915ef0.98e7", "\"password\" :", "password=", "#t=", "%23t%3", "{\"ticket\":\"abc\\", "mcvs_s=",
                                              "device_id=", "device_id", "\"device_id\":\"04:BF", "7656119", "%3A7656119836669851" })
                 Assert.NotNull(LogRedaction.Redact(text));
             Assert.Equal("{\"ticket\":\"<redacted>", LogRedaction.Redact("{\"ticket\":\"abc"));

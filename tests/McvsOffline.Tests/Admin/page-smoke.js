@@ -1096,6 +1096,8 @@ async function edgeRuns(fx) {
   p.close();
   const p2 = await new Page('run 6 (used ticket)', fx.origin, new CookieJar()).load(fx.origin + '/_mcvs/ui/#t=' + ticket);
   check(p2.isShown('banner-nosession'), 'run 6: a used ticket without a cookie did not show #banner-nosession');
+  check(/^This tab is from an earlier start of the game: close it and open the page from the game again/.test(p2.text('banner-nosession-text')),
+        'run 6: a refused fragment ticket did not say the tab is from an earlier start: "' + p2.text('banner-nosession-text') + '"');
   check(p2.disabled(p2.el('nav-saves')), 'run 6: navigation not locked without a session');
   p2.close();
   fx.state.down = true;
@@ -1110,6 +1112,7 @@ async function edgeRuns(fx) {
   const p8 = await new Page('run 8 (post mode, no session)', fx.origin, new CookieJar()).load(fx.origin + '/_mcvs/ui/#s=status');
   check(p8.isShown('banner-nosession'), 'run 8: the failed post-mode exchange did not show #banner-nosession');
   check(!p8.isShown('banner-viewmode'), 'run 8: the failed post-mode exchange showed #banner-viewmode');
+  check(/^Open this page from the game/.test(p8.text('banner-nosession-text')), 'run 8: without a ticket the banner lost its "Open this page from the game" text');
   p8.close();
 
   // The probation banner shows the server's sentences as written (§6.5): no repeated prefix, no "..".

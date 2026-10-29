@@ -403,7 +403,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                 List<string> gameLog = Calls(Method(module, "McvsOffline.Embedded.Windows.WindowsPlatform", "ApplyGameLog"))
                                            .Select(c => c.DeclaringType.Name + "::" + c.Name + "/" + c.Parameters.Count).ToList();
                 Assert.Contains("GameFatalLines::.ctor/2", gameLog);
-                Assert.Contains("GameLogBridge::Apply/5", gameLog);
+                Assert.Contains("GameLogBridge::Apply/6", gameLog);
                 // The bridge reads LogEntry.Member and hands Fatal entries to the watcher.
                 List<string> entry = Method(module, "McvsOffline.Embedded.Diagnostics.GameLogBridge", "EntryAdded").Body.Instructions
                                          .Select(i => i.Operand as MemberReference).Where(r => r != null).Select(r => r.Name).ToList();

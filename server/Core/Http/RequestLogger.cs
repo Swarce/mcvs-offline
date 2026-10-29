@@ -69,7 +69,8 @@ namespace McvsOffline.Server.Core.Http
         {
             int status = response == null ? 0 : response.StatusCode;
             bool admin = LocalAccessGate.IsAdminPath(request);
-            LogLevel level = status >= 500 ? LogLevel.Warn : (!admin || status >= 400) ? LogLevel.Info : LogLevel.Debug;
+            bool quiet = admin || (response != null && response.LogAtDebug);
+            LogLevel level = status >= 500 ? LogLevel.Warn : (!quiet || status >= 400) ? LogLevel.Info : LogLevel.Debug;
             if (!log.IsEnabled(level)) return;
             string size = response == null ? "-" : response.StreamBody != null ? "stream" : response.Body.Length.ToString(CultureInfo.InvariantCulture) + " B";
             string target = admin ? request.RawPath : request.RawTarget;

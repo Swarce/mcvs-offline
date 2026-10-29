@@ -109,6 +109,20 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal(android.Label, pc.Label);
         }
 
+        /// <summary>WR2 F5: the PC game enables every level itself, so the setting filters game.log instead.</summary>
+        [Fact]
+        public void WindowsHasThePcWordingOfGameLogLevels()
+        {
+            SettingDefinition pc = SettingsSchema.GroupsFor("windows").SelectMany(v => v.Keys).Single(k => k.Key == "gameLog.levels");
+            SettingDefinition android = SettingsSchema.Find("gameLog.levels");
+            Assert.Contains("game.log keeps Fatal plus the levels chosen here", pc.Help);
+            Assert.DoesNotContain("--game-log", pc.Help);
+            Assert.Contains("--game-log all", android.Help);
+            Assert.Equal(android.Help, SettingsSchema.GroupsFor("android").SelectMany(v => v.Keys).Single(k => k.Key == "gameLog.levels").Help);
+            Assert.Equal(android.Default, pc.Default);
+            Assert.Equal(android.Label, pc.Label);
+        }
+
         [Fact]
         public void WindowsShowsKeepPhysicsLayerWithItsLabelAndDescription()
         {

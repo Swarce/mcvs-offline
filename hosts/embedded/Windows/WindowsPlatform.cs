@@ -153,7 +153,7 @@ namespace McvsOffline.Embedded.Windows
 #if MCVS_GAMELOG
             // The game's Fatal lines before a rethrow into native code are the only managed trace of such a crash on PC (§6.4).
             return GameLogBridge.Apply(settings.GetString("gameLog.levels", "error warning"), settings.GetString("gameLog.mute", "profile:debug"), gameLog,
-                                       (int)settings.GetLong("gameLog.maxMessageChars", 8192), new GameFatalLines(CrashReporter.ReportProbablyFatal));
+                                       (int)settings.GetLong("gameLog.maxMessageChars", 8192), true, new GameFatalLines(CrashReporter.ReportProbablyFatal));
 #else
             return "game log: bridge not compiled in";
 #endif

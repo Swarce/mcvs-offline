@@ -352,5 +352,34 @@ namespace McvsOffline.Tests
             Assert.Contains("0 in flight", trace.Describe());
             Assert.True(memory.Contains("[boot]") || memory.Snapshot().All(e => e.Category == "boot"));
         }
+
+        [Fact]
+        public void TheSettingsPageIsNoBootMilestone()
+        {
+            // WR2 F8: the page's first status probe is a 401 by design; it was status.txt's "last milestone".
+            var trace = new BootTrace(Log.Null);
+            int id = 0;
+            void Request(string method, string target, string route, int status)
+            {
+                var r = HttpRequest.Create(method, target);
+                r.Id = ++id;
+                if (route != null) r.SetRoute(route, McvsOffline.Server.Core.Routing.RouteValues.Empty);
+                trace.RequestStarted(r);
+                trace.RequestFinished(r, HttpResponse.RawJson("{}", status));
+            }
+            Request("GET", "/config/c/datacenters/mcvs/urls", "eve.urls", 200);
+            Request("GET", "/_mcvs/api/v1/status", "admin.status", 401);
+            Request("POST", "/_mcvs/api/v1/session", "admin.session.open", 401);
+            Request("GET", "/_mcvs/api/v1/nothing", "admin.api.unknown", 404);
+            Request("GET", "/_mcvs/ui/", null, 404);                    // refused by the gate before routing
+            Request("GET", "/_mcvs/api/v1/status", "admin.status", 200);
+
+            Assert.Equal(new[] { "client Federation: eve config (#1)" }, trace.Milestones().Select(m => m.Substring(m.IndexOf(" s ", StringComparison.Ordinal) + 3)));
+            Assert.Contains("last milestone 'client Federation: eve config (#1)'", trace.Describe());
+
+            // Failures elsewhere still count.
+            Request("GET", "/profiles/me/myprofile", "storage.profile.get", 404);
+            Assert.Contains("request failed: GET /profiles/me/myprofile -> 404 (#7)", trace.Milestones().Last());
+        }
     }
 }
