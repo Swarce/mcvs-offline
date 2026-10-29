@@ -122,8 +122,8 @@ What the patches do:
 - **debloat**: removes the parts of Gameloft's SDKs that are dead offline (ad screens, push, install-referrer and boot
   receivers, Crashlytics and Facebook start-up, location and legacy permissions) from the manifest and drops the
   Crashlytics/Fabric files; see ARCHITECTURE.md §2.
-- **adminpage**: Settings › Account gets an **MCVS Offline** button (after "Recover progress") that opens the MCVS
-  Offline page (section 7).
+- **adminpage**: Settings › Account gets an **MCVS Offline** button that opens the MCVS Offline page (section 7), and
+  shows only the buttons that work offline (section 7, "Settings › Account").
 - **adminlink**: the button of the "MCVS Offline" inbox message opens the page with full access. Without this patch
   the message opens a view-only page.
 - **graphics**: the game reads its GPU profiles (`GameOptions_android.json`) through MCVS Offline, so the page's
@@ -302,6 +302,16 @@ and nothing on it leaves the phone unless you share it.
   that is expected, nothing is claimed. `admin.redeemCode` in `settings.json` changes the code (empty turns it off).
   The code does nothing while `lanMode` is on.
 - The Forum button, if you patched with `--patch default,forum`.
+
+**Settings › Account** shows only **Redeem code** and **MCVS Offline**, side by side in the middle of the screen.
+Facebook, Google Play Games and Restore are hidden: their login can never succeed offline, and Restore is the restore of
+in-app purchases, which do not exist offline (your progress moves through Saves › Export and Import instead). The page's
+setting **Only Redeem code and MCVS Offline in Settings › Account** (`admin.accountMenu.hideDeadButtons`, Settings ›
+Unlocks & codes, on by default) brings the game's own buttons back when turned off; it applies the next time you open
+Settings › Account. Without Redeem code (setting `crm.redeemCoupons` off) MCVS Offline is alone in the middle; with the
+page turned off (`admin.enabled`) Redeem code is. If the menu cannot be rearranged, the buttons stay where the game puts
+them (stacked on the left) and `server.log` says why in an `[admin] account menu:` line. On a PC the game's own
+GameCenter and link-code buttons stay.
 
 **Chrome is not supported.** Open the page only from the game. In Chrome (or any other browser)
 `http://127.0.0.1:51780/_mcvs/ui/` shows a view-only page at most: Android freezes the game about a minute after it leaves the screen, and the page's

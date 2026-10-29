@@ -305,6 +305,7 @@ save before saving the change, §4.4).
 | Unlocks & codes | `unlockAll` | Unlock everything | bool | false | live | Grants what UNLOCKALL grants, through the inventory, at the game's next save (~11,400 rewards; the level jumps to ~46 and the game lags while it levels up). `confirmWhen: enable`, `backupBefore: enable`: "This cannot be undone: turning it off later removes nothing. A backup of your save is made now." |
 | Unlocks & codes | `assets.couponsEnabled` | Unlock codes | bool | true | live | Settings › Account › Redeem code accepts the codes listed below. |
 | Unlocks & codes | `crm.redeemCoupons` | Redeem-code button | bool | true | menu | Shows the Redeem code button in Settings › Account. |
+| Unlocks & codes | `admin.accountMenu.hideDeadButtons` | Only Redeem code and MCVS Offline in Settings > Account | bool | true | live | Hides the Facebook, Google Play Games and Restore buttons, which cannot work offline, and centres the buttons that are left. Applies the next time Settings > Account opens. Read by the embedded host (`AdminHost.HideDeadAccountButtons`) in `AdminHooks.AccountMenuButtons`, §9.2. |
 | Unlocks & codes | `unlocks.batchSize` | Rewards per batch | int 50–400, step 50 | 400 | live | Unlock-all rewards per batch; keep at most 400 (reward popups). |
 | Unlocks & codes | `admin.redeemCode` | Code that opens this page | string `^([A-Z0-9]{4,20})?$` | `MCVSOFFLINE` | live | Typing it in Redeem code opens this page (the game then says the code does not exist). Empty: off. |
 | Live ops | `liveops.enabled` | Live events | bool | true | menu | Division seasons, daily missions and weekly events. |
@@ -1538,7 +1539,9 @@ namespace McvsOffline
 otherwise return the same `List<object>` (or a new list with every item) with one more entry, a
 `Dictionary<string, object>` `{"customAction": "mcvs_offline", "isClickable": true, "label": ButtonLabel, "icon":
 ButtonIcon}` (`ASValue.SetObject` turns an `IDictionary` into a real AS object; the game's own entries are anonymous
-types and become managed objects with the same property names). The entry goes last (after "Recover progress").
+types and become managed objects with the same property names). The entry goes last. Build 13: with
+`admin.accountMenu.hideDeadButtons` (default on) the dead entries are dropped first, also when the page is off, and the
+buttons left are centred (§9.2).
 
 `OpenIfPageMarker`: `url == null` or not `IsPageMarker(url)` → false (an ordinal compare, no allocation: this runs for
 every URL the game opens). Marker: `world = browserComponent.World` (reflection, cached); a server World (`IsServer !=
@@ -1926,6 +1929,38 @@ No IL exception handler: both hooks catch everything themselves (as `GameHooks.S
 notes. A second run on a patched assembly fails the fingerprint check ("is not the verified 1.17.32 code").
 Registration (WP6): `new AdminPagePatch()` in `ApkPatcher.AllPatches` (after `SignaturesPatch`), `"adminpage"` in
 `PatcherOptions.DefaultPatches` and `OptionalPatches`; `--help` and PLAYER-SETUP list it (WP8 docs).
+
+**Build 13: only Redeem code and MCVS Offline, centred** (`hosts/embedded/Admin/AccountMenuLayout.cs`; setting
+`admin.accountMenu.hideDeadButtons`, bool, default true, `live`). No new IL: both steps run in the A1 hook.
+
+* *Filter.* With the server up and the setting on, `AccountMenuButtons` drops the entries with `snsId` 0 (Facebook) or
+  2 (Google Play Games), whose login the `debloat` patch fails one frame later, and `customAction "restore_purchase"`
+  (`IapStoreComponent.RestoreTransactions`: in-app purchases, not cloud progress; no store exists offline). The members
+  are read by reflection from the game's anonymous objects; an entry that cannot be read, and anything else (Redeem,
+  the PC's GameCenter `snsId 1` and link-code entries, unknown entries), stays. The filter runs before the
+  `PortalEnabled` check (the MCVS entry is still appended only with the page on), and a list it would empty is returned
+  as it was. Flash side effects: none beyond gameswf null-call lines the stock menu already logs
+  (`removeButtonListeners` and `resultSNSConnect` look children up by `btnSocial_<k>` / `btnSocial_<sns>`).
+* *Centring.* `MenuAccountSettings.onPush` places list key k at `x = 77 + floor(k/2)·(w+50)`,
+  `y = 320 + (k%2)·(h+45)` (no centring, column-major, 2 rows), so [Redeem, MCVS Offline] would be stacked at the left
+  edge. When the final list is 1 or 2 entries without `snsId` (Flash names them `btnSocial_customAction0/1`), the hook
+  posts one work item to `GameApplication.Context`; `GameSynchronizationContext.Post` only enqueues, so it runs after
+  `onPush`. It takes `UISceneExtentions.GetUI(World)`, `FindClass("gluic.components.menus", "MenusStack")
+  .InvokeMethod("getMenuOnTopOfStack")` (named `menu_accounts`: `ASCharacter.Name`, else the AS `name`; not
+  `MenusManager.getMenuByName`, which skips disposable menus), the two buttons through `getChildByName`, their `width`
+  and the first one's `y`, and `FindClass("managers", "VPManager")` `getViewportBoundX/Width`. Then
+  `x0 = vpX + (vpW − (w0 + 50 + w1))/2`, `x1 = x0 + w0 + 50`, the second button's `y` = the first's (one button:
+  `x0 = vpX + (vpW − w0)/2`), set as `float` (an AS Number; `ASValue.SetObject` would wrap a `double` as a managed
+  object). Both symbols are 841 wide with their registration point at the left edge, so on the S22 (viewport 2048 stage
+  units at screen x 84-1916) the pair lands at x 158 and 1049, screen 225-1775, centred on 1000. One INFO line:
+  `account menu: 2 buttons centred (vpX=0, vpW=2048, x0=158, x1=1049)`; any failure (no UI, another menu on top, a
+  missing button or member, a row wider than the viewport, an exception) logs one `account menu: not centred (...)`
+  line and moves nothing. Every `ASClass`/`ASCharacter`/`ASValue` wrapper is disposed. The members (`GetUI`,
+  `MenuComponent.FindClass`, the non-generic `InvokeMethod(string, object[])`, `GetMember`, `SetMember`, `Name`,
+  `ASValue.GetObject(Type)`) are in `GameReflection.Verify` (RealGameReflectionTests: Android and PC assemblies).
+* *Open on a phone:* `vpW` in that log line should read 2048 on the S22 (layout research §2: if gameswf's stage width
+  were the full screen in stage units, the pair would sit 84 px right of centre, and so would the game's own centred
+  settings menus).
 
 ### 9.3 The inbox marker link (WP6: patch `adminlink`, default)
 

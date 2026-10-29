@@ -13,8 +13,9 @@ namespace McvsOffline.Patcher.Patches
     /// change is needed.
     /// <list type="bullet">
     /// <item>A1 <c>GetAccountMenuButtonList()</c> returns <c>McvsOffline.AdminHooks.AccountMenuButtons(list)</c>: the hook appends
-    /// <c>{customAction: "mcvs_offline", isClickable, label, icon}</c> after "Recover progress" (unchanged list when the page is
-    /// disabled).</item>
+    /// <c>{customAction: "mcvs_offline", isClickable, label, icon}</c> last (unchanged list when the page is disabled); with
+    /// <c>admin.accountMenu.hideDeadButtons</c> (default on) it first drops Facebook, Google Play Games and "restore_purchase"
+    /// and centres the buttons left (hosts/embedded/Admin/AccountMenuLayout.cs).</item>
     /// <item>A2 <c>ProcessAccountMenuButtonAction(action)</c> starts with
     /// <code>
     /// if (action == "mcvs_offline") { McvsOffline.AdminHooks.OpenPage("account", base.World); return; }

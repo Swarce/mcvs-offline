@@ -83,5 +83,5 @@ keys, with defaults and meaning in each protocol note:
 | assets | `assets.couponsEnabled`, `assets.coupons` |
 | misc | `alerts.streamSeconds`, `alerts.keepAliveSeconds`, `alerts.replaySeconds`, `chat.streamSeconds`, `chat.keepAliveSeconds`, `chat.historySize`, `messaging.maxMessagesPerMailbox`, `leaderboards.groupSize`, `leaderboards.virtualPlayers`, `leaderboards.virtualTopScore`, `wall.maxPostsPerWall`, `geo.country`, `tracking.disable` |
 | unlocks | `unlocks.batchSize`, `unlocks.batchDelaySeconds`, `unlocks.startDelaySeconds`, `unlocks.streamWaitSeconds` |
-| admin (settings page) | `admin.enabled`, `admin.redeemCode`, `admin.openVia`, `admin.restartVia`, `crm.newsfeedLink`, `security.hostCheck` ([design/settings-page.md](design/settings-page.md) §3) |
+| admin (settings page) | `admin.enabled`, `admin.redeemCode`, `admin.openVia`, `admin.restartVia`, `admin.accountMenu.hideDeadButtons`, `crm.newsfeedLink`, `security.hostCheck` ([design/settings-page.md](design/settings-page.md) §3) |
 | embedded host | `embedded.manageArgs`, `embedded.lanAdvertiseHost` ([PLAYER-SETUP.md](PLAYER-SETUP.md)) |
