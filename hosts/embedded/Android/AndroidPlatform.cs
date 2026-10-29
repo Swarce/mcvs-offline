@@ -214,6 +214,9 @@ namespace McvsOffline.Embedded.Android
             Log log = host.Logger.For("diag");
             adminLog = host.Logger.For("android");
             if (host.Paths != null) ledger = new MediaStoreLedger(host.Paths.DataDir);
+            // The kept starts (settings logging.keepStarts): the Downloads copies and the exit traces follow the logs/ rule.
+            LogRetention retention = host.Retention;
+            DateTime? cutoff = retention == null ? null : retention.CutoffUtc;
             if (host.Settings.GetBool("diagnostics.publicLogCopy", true))
             {
                 try
@@ -223,7 +226,9 @@ namespace McvsOffline.Embedded.Android
                         SdkInt = AndroidDiagnostics.SdkInt,
                         DownloadsDir = AndroidDiagnostics.DownloadsDir,
                         Scan = ScanFiles,
+                        DiagnosticsBeforeUtc = cutoff,
                     };
+                    if (retention != null) mirror.KeepSessions = retention.KeepStarts + 1;
                     host.MirrorStatus = mirror.Describe;
                     mirror.Start();
                     CrashReporter.Mirror = mirror.CopyCrashFile;
@@ -242,7 +247,7 @@ namespace McvsOffline.Embedded.Android
                 try
                 {
                     Thread.Sleep(3000);   // out of the start-up path
-                    string text = ExitReasons.Describe(5, host.Paths.LogsDir);
+                    string text = ExitReasons.Describe(5, host.Paths.LogsDir, cutoff);
                     if (!string.IsNullOrEmpty(text)) log.Info(text);
                 }
                 catch (Exception ex)

@@ -73,6 +73,13 @@ namespace McvsOffline.Server.Core
 
         /// <summary>Waits between attempts after a failed batch (the last one repeats). Default 1, 5, 30, 60 s.</summary>
         public int[] RetryDelaysMs { get; set; }
+
+        /// <summary>
+        /// Each process starts in a new file: a non-empty file from an earlier start is rotated (name -> name.1 ...) before the first
+        /// line (by the writer thread first thing; a synchronous file in its constructor). A failed rotation is reported once and the
+        /// lines go on into the existing file (it is not a write failure: no fallback switch). So name.1 is the previous start.
+        /// </summary>
+        public bool NewFileAtStart { get; set; }
     }
 
     /// <summary>
@@ -105,6 +112,7 @@ namespace McvsOffline.Server.Core
         private readonly Queue<string> queue = new Queue<string>();
         private readonly SafeLogFileOptions options;
         private readonly string fileName;
+        private readonly string primaryPath;
         private readonly long maxBytes;
         private readonly int maxFiles;
         private readonly Thread writer;
@@ -131,9 +139,14 @@ namespace McvsOffline.Server.Core
             this.options = options ?? new SafeLogFileOptions();
             this.path = System.IO.Path.GetFullPath(path);
             fileName = System.IO.Path.GetFileName(this.path);
+            primaryPath = this.path;
             maxBytes = Num.Max(4096L, this.options.MaxBytes);
             maxFiles = Num.Max(1, this.options.MaxFiles);
             if (this.options.ReportInitialSize) ReportInitialSize();
+            if (this.options.NewFileAtStart && this.options.Synchronous)
+            {
+                lock (ioGate) StartNewFileLocked();
+            }
             if (!this.options.Synchronous)
             {
                 writer = new Thread(Run);
@@ -157,6 +170,92 @@ namespace McvsOffline.Server.Core
         public string LastError { get { return lastError; } }
 
         public bool UsingFallback { get { return usingFallback; } }
+
+        /// <summary>The directory used after repeated failures, or null (<see cref="SafeLogFileOptions.FallbackDirectory"/>).</summary>
+        public string FallbackDirectory { get { return options.FallbackDirectory; } }
+
+        /// <summary>
+        /// Deletes this log's older files: name.N in its directory and name / name.N in the fallback directory whose last write is
+        /// before <paramref name="beforeUtc"/>; never the file being written. Under the I/O lock (no race with rotation). Never
+        /// throws. <paramref name="delete"/> returns true when the file is gone; each path goes to <paramref name="deleted"/> or
+        /// <paramref name="failed"/> (either may be null). Returns the number deleted.
+        /// </summary>
+        public int DeleteFilesBefore(DateTime beforeUtc, Func<string, bool> delete, List<string> deleted, List<string> failed)
+        {
+            if (delete == null) return 0;
+            int count = 0;
+            try
+            {
+                lock (ioGate)
+                {
+                    var candidates = new List<string>();
+                    string primaryDir = System.IO.Path.GetDirectoryName(primaryPath);
+                    AddOlderFiles(primaryDir, false, beforeUtc, candidates);
+                    if (!string.IsNullOrEmpty(options.FallbackDirectory))
+                    {
+                        string fallback = System.IO.Path.GetFullPath(options.FallbackDirectory);
+                        if (!string.Equals(fallback, primaryDir, StringComparison.Ordinal)) AddOlderFiles(fallback, true, beforeUtc, candidates);
+                    }
+                    foreach (string file in candidates)
+                    {
+                        if (string.Equals(file, path, StringComparison.OrdinalIgnoreCase)) continue;   // being written
+                        bool ok;
+                        try
+                        {
+                            ok = delete(file);
+                        }
+                        catch (Exception)
+                        {
+                            ok = false;
+                        }
+                        if (ok)
+                        {
+                            count++;
+                            if (deleted != null) deleted.Add(file);
+                        }
+                        else if (failed != null)
+                        {
+                            failed.Add(file);
+                        }
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
+            return count;
+        }
+
+        /// <summary>name.&lt;digits&gt; (and name itself when <paramref name="withCurrent"/>) in a directory, last write before the cutoff.</summary>
+        private void AddOlderFiles(string directory, bool withCurrent, DateTime beforeUtc, List<string> into)
+        {
+            if (string.IsNullOrEmpty(directory) || !Directory.Exists(directory)) return;
+            string[] files = Directory.GetFiles(directory);
+            Array.Sort(files, StringComparer.Ordinal);
+            foreach (string file in files)
+            {
+                if (!IsOwnName(System.IO.Path.GetFileName(file), withCurrent)) continue;
+                try
+                {
+                    if (new FileInfo(file).LastWriteTimeUtc < beforeUtc) into.Add(file);
+                }
+                catch (Exception)
+                {
+                }
+            }
+        }
+
+        /// <summary>This log's name, or "name.&lt;digits&gt;" (its rotated files).</summary>
+        private bool IsOwnName(string name, bool withCurrent)
+        {
+            if (string.Equals(name, fileName, StringComparison.Ordinal)) return withCurrent;
+            if (name.Length <= fileName.Length + 1 || !name.StartsWith(fileName, StringComparison.Ordinal) || name[fileName.Length] != '.') return false;
+            for (int i = fileName.Length + 1; i < name.Length; i++)
+            {
+                if (name[i] < '0' || name[i] > '9') return false;
+            }
+            return true;
+        }
 
         /// <summary>Queues one line (a newline is added). Never blocks on I/O, never throws.</summary>
         public void AppendLine(string line)
@@ -311,6 +410,10 @@ namespace McvsOffline.Server.Core
         {
             try
             {
+                if (options.NewFileAtStart)
+                {
+                    lock (ioGate) StartNewFileLocked();
+                }
                 RunLoop();
             }
             finally
@@ -464,6 +567,27 @@ namespace McvsOffline.Server.Core
                     SelfLog.Write(SelfLog.Warn, "[logfile] " + current + " keeps failing; continuing in " + path);
                 }
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// <see cref="SafeLogFileOptions.NewFileAtStart"/>: rotates a non-empty file of an earlier start. Caller holds ioGate. A
+        /// failure is one SelfLog warning and the lines go on into the existing file: it does not count as a write failure.
+        /// </summary>
+        private void StartNewFileLocked()
+        {
+            try
+            {
+                var info = new FileInfo(path);
+                if (!info.Exists || info.Length <= 0) return;
+                Rotate(path);
+                size = 0;
+            }
+            catch (Exception ex)
+            {
+                size = -1;
+                SelfLog.Write(SelfLog.Warn, "[logfile] could not start a new file for " + path + " (" + ex.GetType().FullName + ": " +
+                                            ex.Message + "); continuing in the existing one");
             }
         }
 

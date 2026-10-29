@@ -428,7 +428,8 @@ namespace McvsOffline.Server.Services.Admin.Logs
 
         /// <summary>
         /// The plain-text report (design §4.7): status summary, the last 300 WARN+ entries of server.log, bootstrap.log and
-        /// game.log, the newest crash file's first 200 lines; at most 100,000 characters, redacted.
+        /// game.log and of their .1 files (the previous start), the newest crash file's first 200 lines; at most 100,000
+        /// characters, redacted.
         /// </summary>
         private string Report(HttpRequest request, string note)
         {
@@ -439,11 +440,14 @@ namespace McvsOffline.Server.Services.Admin.Logs
 
             List<string> dirs = Directories(api.DescribeHost());
             List<LogFile> files = Files(dirs);
-            foreach (string name in new[] { "server.log", "bootstrap.log", "game.log" })
+            // The embedded host starts new files at every start: ".1" is the previous start (the one that broke, when the player
+            // restarted the game before opening the page).
+            foreach (string name in new[] { "server.log", "bootstrap.log", "game.log", "server.log.1", "bootstrap.log.1", "game.log.1" })
             {
                 LogFile file = files.Find(f => f.Name == name);
                 if (file == null) continue;
-                sb.Append("== ").Append(file.EntryName).Append(" (last warnings and errors) ==\n");
+                sb.Append("== ").Append(file.EntryName)
+                  .Append(name.EndsWith(".1", StringComparison.Ordinal) ? " (previous start, last warnings and errors) ==\n" : " (last warnings and errors) ==\n");
                 try
                 {
                     foreach (LogTailEntry e in LogTail.Read(file.Path, ReportProblemEntries, LogLevel.Warn, null).Entries)

@@ -710,6 +710,11 @@ namespace McvsOffline.Server.Services.Admin
                      "An unreadable save file is replaced by its newest readable backup (the broken file is kept)."),
                 Choice("diagnostics", "logging.fileLevel", "server.log detail", "debug", Restart, "",
                        "trace", "debug", "info", "warn", "error"),
+                Integer("diagnostics", "logging.keepStarts", "Starts whose logs are kept", 1, 0, 10, 1, Restart,
+                        "At every start the game deletes the logs of older starts: in logs/ (server, bootstrap and game logs with their "
+                        + "numbered files, crash, exception, thread dump and exit files) and their copies in Downloads/MCVS-Offline. "
+                        + "1 keeps the previous start next to the current one; 0 keeps only the current start. The numbered log files "
+                        + "also stay within their own file count. Saves, settings and the zips you saved are never deleted."),
                 TokenList("diagnostics", "gameLog.levels", "Game log levels", "error warning", Restart,
                           "A build patched with --game-log all logs every level anyway.", "error", "warning", "info", "debug"),
                 Text("diagnostics", "gameLog.mute", "Muted game log categories", "profile:debug", Restart,

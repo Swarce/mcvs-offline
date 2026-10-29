@@ -97,6 +97,7 @@ namespace McvsOffline.Embedded
         private bool isWindows;
         private IHostExtensions extensions;
         private volatile string argsWarning;
+        private DateTime startedUtc;
 
         private EmbeddedHost(Logger logger, Log log)
         {
@@ -128,6 +129,16 @@ namespace McvsOffline.Embedded
 
         /// <summary>The game-thread watchdog, or null when it is off.</summary>
         public GameThreadWatchdog Watchdog { get; private set; }
+
+        /// <summary>The log retention of this start (settings logging.keepStarts, logs/starts.txt), or null before the settings are read.</summary>
+        internal LogRetention Retention { get; private set; }
+
+        /// <summary>Waits until the log retention thread has finished (tests); true when there is none.</summary>
+        public bool WaitLogRetention(int timeoutMs)
+        {
+            LogRetention retention = Retention;
+            return retention == null || retention.Wait(timeoutMs);
+        }
 
         /// <summary>The copy of the game's own log entries (logs/game.log), or null.</summary>
         public SafeLogFile GameLogFile { get { return gameLogFile; } }
@@ -229,6 +240,8 @@ namespace McvsOffline.Embedded
         public static EmbeddedHost Start(IEmbeddedPlatform platform, EmbeddedHostOptions options)
         {
             BootClock.Touch();
+            // Before anything of this process can write in logs/: every file it writes is at or after this time (LogRetention).
+            DateTime startedUtc = DateTime.UtcNow;
             options = options ?? new EmbeddedHostOptions();
             EmbeddedHost host;
             try
@@ -249,6 +262,7 @@ namespace McvsOffline.Embedded
                 host = new EmbeddedHost(logger, logger.For("embedded"));
                 host.systemSink = system;
                 host.earlySink = early;
+                host.startedUtc = startedUtc;
             }
             catch (Exception)
             {
@@ -332,6 +346,10 @@ namespace McvsOffline.Embedded
                 Settings.Override("lanMode", false);
                 MirrorStatus = () => "not needed on Windows: the logs are plain files in " + Paths.LogsDir;
             }
+            // starts.txt and the cutoff (milliseconds); the deleting runs on its own thread once every log file of this start is
+            // open (RunServer). Before game.log is opened: its earlier start's file is rotated by its own writer.
+            int keepStarts = (int)Num.Clamp(Settings.GetLong("logging.keepStarts", LogRetention.DefaultKeepStarts), 0, LogRetention.MaxKeepStarts);
+            Retention = LogRetention.Begin(Paths.LogsDir, startedUtc, keepStarts, platformName + " " + McvsVersion.Current, Logger.For("logs"));
             GameHooks.Configure(Settings.GetBool("embedded.nativeOnlineSdk", false), Logger.For("game"), Boot);
             ConfigurePhysics();
             ConfigureGraphics();
@@ -665,7 +683,8 @@ namespace McvsOffline.Embedded
 
         private SafeLogFileOptions LogFileOptions()
         {
-            return new SafeLogFileOptions { FallbackDirectory = fallbackLogDir, ReportInitialSize = true };
+            // A new file at every start: name.1 is the previous start, and the log retention deletes whole starts.
+            return new SafeLogFileOptions { FallbackDirectory = fallbackLogDir, ReportInitialSize = true, NewFileAtStart = true };
         }
 
         /// <summary>settings.json "gameLog" (see GameLogBridge): the game's own log levels and the logs/game.log copy.</summary>
@@ -827,6 +846,7 @@ namespace McvsOffline.Embedded
             }
             // Keys added after the first device builds: added one by one, so an existing settings.json gets them too.
             if (android) changed |= AddDefault("diagnostics.threadDump", true);
+            changed |= AddDefault("logging.keepStarts", (long)LogRetention.DefaultKeepStarts);
             changed |= AddDefault("embedded.physics.serverMultithreaded", false);
             changed |= AddDefault("embedded.physics.clientMultithreaded", true);
             changed |= AddDefault("embedded.physics.stepGate", true);
@@ -927,6 +947,7 @@ namespace McvsOffline.Embedded
                 if (options.RegisterServices != null) serverOptions.RegisterServices = options.RegisterServices;
 
                 McvsServer created = McvsServer.Create(serverOptions);
+                StartLogCleanup(created);
                 AdminHost admin = CreateAdminHost(created);
                 int attempts = options.StartAttempts < 1 ? 1 : options.StartAttempts;
                 for (int attempt = 1; ; attempt++)
@@ -966,10 +987,33 @@ namespace McvsOffline.Embedded
                 catch (Exception)
                 {
                 }
+                StartLogCleanup(null);   // without the server's files (once: a second call does nothing)
             }
             finally
             {
                 serverReady.Set();
+            }
+        }
+
+        /// <summary>
+        /// The log retention's thread, once every log file of this start has its SafeLogFile (bootstrap.log, game.log, and the
+        /// server's server.log and unknown-endpoints.jsonl): a family without one is not written by this process. Never throws.
+        /// </summary>
+        private void StartLogCleanup(McvsServer created)
+        {
+            try
+            {
+                LogRetention retention = Retention;
+                if (retention == null) return;
+                var owners = new List<SafeLogFile>();
+                if (bootstrapSink != null) owners.Add(bootstrapSink.File);
+                if (gameLogFile != null) owners.Add(gameLogFile);
+                if (created != null) owners.AddRange(created.OpenLogFiles());
+                retention.StartCleanup(owners, fallbackLogDir, Logger.For("logs"));
+            }
+            catch (Exception ex)
+            {
+                try { Log.Warn("the log cleanup could not start", ex); } catch (Exception) { }
             }
         }
 
