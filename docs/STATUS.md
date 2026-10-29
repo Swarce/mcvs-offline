@@ -1,16 +1,18 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-Last updated for build 13 (October 2026, on `wip/pc-port`, not yet tested on the phone): the Android 'game' manifest
-flags, a Settings › Account menu with only Redeem code and MCVS Offline, log cleanup at every start, and the PC port
-ready for the second Windows test; see "Build 13". Before that, build 12 and device test 9 (the owner's Galaxy S22,
+Last updated for build 14 (October 2026, on `wip/pc-port`): the PC port's fixes after the second Windows round (WR2:
+the game ran its own `Game.dll`; build 14 loads ours and says when it does not, and captures crashes and freezes),
+ready for the third Windows round, plus small shared log and page changes on Android; see "Build 14". Build 13 (not
+yet tested on the phone): the Android 'game' manifest flags, a Settings › Account menu with only Redeem code and MCVS
+Offline, log cleanup at every start; see "Build 13". Before that, build 12 and device test 9 (the owner's Galaxy S22,
 Android 16): the ASTC HD data pack and the graphics profiles work, and builds 10 to 12 (target Android 15) install and
 play; see "Build 12 and device test 9". Before that: the build 11 device test (the HD installer could not write in `McvsOffline/hd/`; fixed in build
 12). The build 11 plan put HD textures into `Data/` ("Build 11 (plan)"). On build 10 the HD texture probe showed that
 route B fails and route A works. Build 10 targets Android 15 and adds graphics profiles and the PC test kit ("Build
 10"). Device test 8 tested the MCVS Offline page ("Device test 8", "Build 9"). The Cosmetic crate starts on 2026-11-09
-and is not yet tested on the phone. Not yet merged into `main-dev`: build 13 (the PC port and the Android 'game'
-manifest flags are on `wip/pc-port`). Earlier: device tests 6 and 7 on the same S22 ("Build 8", "Build 7", "Device test 6").
+and is not yet tested on the phone. Not yet merged into `main-dev`: builds 13 and 14 (the PC port and the Android
+'game' manifest flags are on `wip/pc-port`). Earlier: device tests 6 and 7 on the same S22 ("Build 8", "Build 7", "Device test 6").
 
 **Summary:** the Federation server is complete for the offline single-player goals and passes its full test suite, including a
 conformance harness that runs the game's own client libraries against it (the count of the last full run is under
@@ -34,6 +36,106 @@ HD texture probe and a Windows test kit for the Steam version. Build 11 installs
 version into the game's own data. Build 12 accepts a full ASTC data pack with 2,215 PC textures in it: **device test 9:
 the HD textures and the graphics profiles work, at the same frame rate as before**, and builds 10 to 12 (target Android
 15) installed and played fine.
+
+## Build 14 (October 2026): the PC port's WR2 fixes, ready for the third Windows round
+
+### What build 14 contains
+
+`0b90763` on `wip/pc-port` (`McvsVersion.Build` is `14`). APK: `mcvs-offline-0b90763.apk` (default patch set, the same key as every
+build: certificate SHA-256 `fc0db84e…7d16`, targetSdk 35, both ABIs, `isGame` and `appCategory`, zipalign OK); it
+installs over build 13 as usual. Compared entry by entry with build 13 (`mcvs-offline-f158cb9.apk`) it changes only
+the server DLL, the signature files and the 16 MVID bytes of `Game.dll`, `Gameloft.Engine.dll`, `Gameloft.Util.dll`
+and `NicePlaySDK.dll` ([design/pc-port.md](design/pc-port.md) §13.1).
+
+**PC (Steam): what WR2 showed.** The owner's second Windows round (2026-10-29, the build-13 preview kit, Windows build
+26200, .NET 4.8.1) installed exactly the tested bytes, started the game 15 times to the main menu with our server,
+played two matches with their rewards saved, and opened the settings page in the Steam overlay twice. But **the game
+loaded its own `Game.dll` from the game folder in every start**: the engine loads `Game` by its bare name, and such a
+load ignores the `<codeBase>` redirect in `ModernCombatVersus.exe.config`. The other four redirected assemblies were
+ours. So every fix that lives in `Game.dll` was missing: the inbox crashed twice after unlock codes (a stock-game bug
+our `store` patch fixes), the bot match ran the game's old offline mode instead of our in-process server, Settings ›
+Account had no "MCVS Offline" button, and long game-thread freezes of 60-180 s followed the big unlock codes (most likely
+the stock code without our `signatures` fix). A third crash was a native access violation in the engine during the
+unlock-all grant at the in-game High graphics; its cause is unknown, because no crash dump was kept. The kit still said
+"installed, current", and our crash reporter wrote nothing for the three crashes. Settled by WR2: http.sys works for a
+normal user (no extra server mode needed), the quicklaunch continuations run on the game thread, the memory rule keeps
+Physics, the game log bridge attaches, and there is no tracker traffic with the defaults
+([design/pc-port.md](design/pc-port.md) §13.0 and §14 have the step-by-step results and the open questions).
+
+**PC: the fixes in build 14** ([design/pc-port.md](design/pc-port.md)):
+
+* **`Game.dll` is ours** (WR2 F1): the new mandatory PC patch `gameload` (Gameloft.Engine.dll, fingerprint-guarded,
+  §8.9) makes the engine load `Game` by its full name, which does follow the redirect; the config also gets one
+  `<qualifyAssembly>` per redirected assembly (§7.4). `[boot] patches:` reports `gameload`.
+* **"installed, NOT ACTIVE"** (F2): a start that loaded a redirected assembly from outside `McvsOffline\bin`, or ran
+  without the witness of an applied patch, is an error: a `[boot] ERROR` line, `install: installed, NOT ACTIVE (…)` in
+  the `[status]` line, a red banner on the settings page, and the kit's `status` and `verify` read the last start's
+  boot lines (`activation:`), §7.6.
+* **Crash capture on the game thread** (F3): the game's exe replaces the crash handler without chaining, so the host
+  now installs a native top-level filter over it (compiled ahead while the process is healthy, no allocation in the
+  report): `logs\crash-<time>-native.txt` with the code, the address and module, the thread and the game's last Fatal
+  line, then the game's own filter runs as before. The game's Fatal lines before a rethrow into native code become one
+  `exception-*.txt` headed `PROBABLY FATAL`. The pid is in the start and STALL lines (§6.4).
+* **Freeze and crash dumps** (F4): the kit's `watch` follows `bootstrap.log` and takes one full dump of the game per
+  STALL of 60 s or more (at most 3 per run, 6 in `%LOCALAPPDATA%\McvsOffline\dumps`, only with 5 GB free); `collect`
+  lists these and Windows' LocalDumps with path and size and never zips them. The player guide has the one-time WER
+  LocalDumps setup ([PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §6).
+* **game.log** (F5, F6): on PC the game enables every log level itself, so `game.log` was 4 MB of online chatter; it now
+  keeps Fatal plus `gameLog.levels`. Lines carry UTC ISO times, and the game's own access tokens are redacted.
+* **Graphics** (F7): the `[boot] graphics:` and `[status]` lines read the in-game Graphics options (`Performance`,
+  render scale, FPS, Vsync, full screen) from the game's `GamePreferencesComponent`, not the Android key; the PC help
+  texts of `graphics.profile` and `graphics.fullProfile` say what they do there; the player guide points to the in-game
+  menu and says High costs memory.
+* **The kit's capture** (F9): Windows events with UTC times and in the ANSI code page (no more `Informaþ§es`), each
+  event parsed on its own; the debug-output capture in the ANSI code page; `MyLocalStorage` files listed; `probe` lists
+  the GPU adapters, displays, physical memory and the firewall rules for the game; the kit's own SHA-256 in
+  `summary.txt` and every log header; `GameVersion` and `core.dmp` counted as the game's own files (`core.dmp` with size
+  and time, never zipped); process memory in every `[status]` line.
+* **Smaller** (F8, F10, F11): the settings page's first 401 is no longer a boot milestone, an overlay tab from an
+  earlier start says so, `/favicon.ico` answers 204, and `DataCenter` is a managed `args.txt` key.
+* **Memory** (not changed in build 14): WR2 peaked at 84 % of the 2 GB address space with three Worlds during a stall.
+  The recommendation, if WR3 confirms the pressure, is an opt-in LAA-flagged copy of the exe in `McvsOffline\bin`
+  started by a Steam launch option ([design/pc-port.md](design/pc-port.md) §17).
+
+The kit `McvsOffline.PcKit.exe` (win-x64, one file, SHA-256 `0aa37f249bb57661e49d50af50596e2765052a2f37390e23073156a9d7f6a7be`) and the
+owner's guide for **WR3**: [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) (design §13). The expected `verify` values were
+re-recorded for build 14 (the config and all five DLLs changed). WR3 repeats the steps WR2 could not reach with
+`Game.dll` active, and does the untested ones (the page's actions, the bot-match tile, minimise and fullscreen, Steam
+achievements, Restart, uninstall).
+
+**Android: the shared changes.** Android's behaviour changes only where the code is shared, all small:
+
+* Access tokens (`mcvs` + 8 hex + `.` + 32 hex) are redacted anywhere in a log line, in every log (server.log,
+  game.log, the share text). The 401 diagnosis line shows the token redacted too.
+* `game.log` lines carry UTC ISO times (`2026-10-28T17:53:25.781Z`) instead of the local `HH:mm:ss.fff`; the page's log
+  view reads both forms and shows local time. Android's `game.log` still keeps every entry the game logs.
+* The settings page: a tab whose ticket was refused (a used ticket without its cookie) shows "This tab is from an earlier
+  start of the game: close it and open the page from the game again"; the pages carry an empty icon, and
+  `/favicon.ico` answers 204 (logged at DEBUG) instead of an unknown endpoint.
+* The boot trace no longer records the page's routes (its first 401 by design) as the last milestone.
+* `DataCenter` is a managed `args.txt` key: with the end marker deleted by hand, the line no longer survives as a player
+  line.
+* The admin status payload is unchanged on Android (the new `client` object appears only while the PC host reports NOT
+  ACTIVE).
+
+**Checked**: `McvsOffline.sln` (Release), the Android embedded DLL against the APK's assemblies and the PC DLL with
+`Gameloft.Logs`; all four test projects with `MCVS_REFS`, `MCVS_PC_REFS`, `MCVS_APK`, `MCVS_DATAPACK`,
+`MCVS_BUILD_TOOLS`, `MCVS_REQUIRE_REAL_CLIENT=1`, `MCVS_REQUIRE_PC=1`, `MCVS_REQUIRE_PC_E2E=1`, `MCVS_REQUIRE_EMBEDDED=1`,
+`MCVS_REQUIRE_BUILD_TOOLS=1` and `MCVS_REQUIRE_NODE=1`: **McvsOffline.Tests 1521/1521, McvsOffline.Embed.Tests 878/878,
+McvsOffline.PcKit.Tests 59/59, McvsOffline.PcSpike.Tests 62/62, 0 skipped** (2,520). The PC end to end on Linux (§12.6): `pc install` on a
+temp copy of the Steam files, `verify`, `status`, a second install with the same bytes, `uninstall` restoring the exact
+listing, ILVerify as the stock files (§13.1). Not checked: anything that runs only on Windows (the native crash filter
+through a real crash, the kit's dumps, the Windows event capture end to end) or only on a phone.
+
+### What to check
+
+* **PC: WR3**, the checklist in [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7. First of all step 4: `[boot] assemblies:`
+  with `Game …\McvsOffline\bin\Game.dll`, `gameload yes`, `store yes`, and `status` saying `activation: active at the
+  last start`.
+* **Phone**: build 13's checks still apply (Game Mode flags, the Account menu, log cleanup; "What to check on the phone
+  (build 13)" below). For build 14 also: in `McvsOffline/logs/game.log` the lines start with UTC ISO times; no
+  `mcvs<8 hex>.<32 hex>` token appears unredacted in any log; the page's Logs view still shows `game.log` lines with
+  their times.
 
 ## Build 13 (October 2026): Game Mode flags, a two-button Account menu, log cleanup; the PC port ready for WR2
 
