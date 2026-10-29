@@ -17,6 +17,9 @@ smaller 64-bit-only APK (every phone from about 2017 on, such as the Galaxy S22,
 |---|---|
 | `Data/MCVS.game`, `Data/Config/EngineConfig.json`, `Data/1/` ... `Data/f/` | the data pack (15,747 files) |
 | `McvsOffline/install/pack.info` | optional but recommended: the index of the data pack (see below) |
+| `McvsOffline/hd/` | optional: an HD texture pack (a drop folder: only read, any tool may make it; see "HD textures" below) |
+| `McvsOffline/hd-install/` | made by the game while an HD pack is installed: the list of replaced files and their originals |
+| `McvsOffline/install/replaced.tsv` | only with the ASTC HD data pack: its replaced files and Gameloft's size of each (see "The ASTC HD data pack") |
 | `McvsOffline/` (the rest) | your offline profile, settings and logs (only in a backup of an offline install) |
 
 There are two variants of the data pack, by texture format: **ASTC** and **ETC**. The installer picks ASTC when the
@@ -137,12 +140,121 @@ Send that file with a bug report.
 | `suppressUpdateCheck` | keep the installer's weekly version check from running |
 | `monitorInstaller` | the `[installer]` progress lines in the log |
 
+## HD textures in `Data/`
+
+An HD texture pack (`McvsOffline/hd/mcvs-hd-*.zip`, PLAYER-SETUP.md section 7, format in
+[design/hd-textures.md](design/hd-textures.md), the installer in [design/hd-install.md](design/hd-install.md)) replaces files in `Data/` with larger ones. The installer deletes any
+listed file whose size is not the one in its index, so the offline build changes the index together with the files, at
+start-up, before the installer runs (`hosts/embedded/Hd/HdInstaller.cs`):
+
+1. Each original is checked against the size and CRC32 the pack was made from, and copied to
+   `McvsOffline/hd-install/backup/Data/<h>/<name>.f`. `McvsOffline/hd-install/installed.json` lists the files before any of
+   them changes. The drop folder `McvsOffline/hd/` is only read (on Android 11+ a folder made with adb or a file manager
+   belongs to that tool); when `hd-install/` cannot be written either, the game's internal storage is used, and when
+   nothing can be written `Data/` is left alone and Status says why ([design/hd-install.md](design/hd-install.md)).
+2. The HD file is written next to the original under a temporary name starting with `.` and renamed over it once its size
+   and CRC32 are checked, so `Data/` never holds half a file.
+3. The installer's index (`files/pack.info` in internal storage), its copy `McvsOffline/install/pack.info` and the journal
+   `d_o_w_n_l_o_a_d_e_d.txt` are rewritten for those files: the new size, the CRC32 of the file or of each 2 MiB piece, a
+   file over 2 MiB split into pieces as Gameloft's packer does (a whole file that grows past 2 MiB becomes split, every new
+   piece is in the journal). Every other entry, and the rest of the file, stays byte for byte as it was; the archive
+   offsets of the original are kept, as they only matter for a download from Gameloft's CDN.
+
+So the installer's size check passes at every start without `SKIP_VALIDATION`, and the background CRC32 check (above)
+reads the HD files' own CRCs. A start does at most about 8 seconds of copying, installing or removing; the rest follows
+at the next start, and a level's lightmaps always go together. Removing (Actions › Remove HD textures, or `hd.enabled`
+false) copies the originals back and gives the index, its copy and the journal their original entries again.
+
+When something resets the index, the next start first makes the index match the files again: a reinstall gives back the
+saved copy, which already lists the HD files; with no index at all, a `Data/` folder holding the complete pack plus HD
+files is still recognised by the original sizes and gets a rebuilt index with the HD sizes; an index from Gameloft's CDN
+over installed HD files gets their entries again before the installer looks. Only when the installer is left with no index
+it can use (it then checks the data online) are the originals copied back, so it finds Gameloft's files; the pack is
+installed again at the first start with an index. `install.manageInstaller` `false` leaves the HD files and the index
+alone, as everything else on this page.
+
+Keep `McvsOffline/hd/` (the pack) and `McvsOffline/hd-install/` (the backups) in a backup of `files/`. To check such a backup on a PC with `verify.py`, check it
+against the index it carries (`McvsOffline/install/pack.info` lists the HD files), not against a mirror's.
+
+## The ASTC HD data pack (ASTC phones such as the Galaxy S22)
+
+The HD packs above are made for the ETC data pack. A phone with ASTC (the S22 has it) can instead run Gameloft's **ASTC**
+pack with the PC textures in it: `tools/hd-textures astc-pack` ([README](../tools/hd-textures/README.md), "astc-pack")
+writes the whole `files/` tree, in which the 2,215 textures the PC has sharper (map surfaces, lightmaps, characters,
+equipment, props, VFX, 3D menus, minimaps) are the PC textures re-encoded to ASTC at the PC resolution, and every other
+file is Gameloft's own ASTC file. It replaces the data pack as a whole (the ASTC pack's shaders read one RGBA texture,
+the ETC pack's a split alpha, so ASTC textures need the ASTC pack around them), and it comes with its own installer
+index, `McvsOffline/install/pack.info`, that lists every file as it is in this pack (sizes, CRC32s, 2 MiB pieces), and
+`McvsOffline/install/replaced.tsv`, the replaced files with Gameloft's size and CRC32 of each.
+
+What the offline build does with it at start-up (`hosts/embedded/Install/InstallerData.cs`):
+
+* the pack is recognised by Gameloft's sizes in `replaced.tsv` (a listed file counts with Gameloft's size only while it
+  has the listed size): the log says `ASTC with 2215 replaced files`, `DATA_TYPE` becomes `ASTC`;
+* on a fresh install (no installer index), the index is given to the installer as any saved index: `installer data:
+  index restored from the saved index (ASTC with 2215 replaced files, 15747 files, ... entries)`;
+* when the installer still has the index of the data that was there before (the ETC pack), which would make it delete
+  and download every file of another size: the saved index differs from the installer's, the data matches it completely
+  and does not match the installer's, so the saved index replaces the installer's: `installer data: index switched to
+  the saved index (ASTC with 2215 replaced files, 15747 files, ... entries)`;
+* the installer then checks every file's size (and the journal of split pieces) as always, accepts the data and starts
+  the game with no network and **without** `SKIP_VALIDATION`; a minute after the game has loaded the background check
+  reads every CRC32 of the new index: `installer data: background check done, every file matches the CRC32 ...`.
+
+This needs an APK built from the commit that added `replaced.tsv` or later (after build 11). **Build 11 and older do not
+know it**: they keep the installer's old ETC index, and the installer would delete the ASTC files of other sizes and try
+to download them. With such a build, clear the app's storage first (Android Settings › Apps › the game › Storage › Clear
+storage, after backing up `files/McvsOffline/`), so the pushed index is restored as on a fresh install.
+
+### Installing it (from the ETC data, a manual ETC HD install and `SKIP_VALIDATION`)
+
+The parts (`mcvs-astc-hd-NN-of-MM.zip`, below 380 MiB each, with `SHA256SUMS.txt`) unpack into one `files/` folder; the
+last part has `README.txt` with the numbers of the pack and these steps. With the phone connected (`adb`):
+
+```sh
+P=/sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files
+sha256sum -c SHA256SUMS.txt                                   # the parts are intact
+for z in mcvs-astc-hd-*.zip; do unzip -o "$z" -d astc-hd; done   # -> astc-hd/files/ and astc-hd/README.txt
+adb pull $P/McvsOffline mcvs-profile-backup                   # your profile, settings and logs
+adb shell am force-stop com.gameloft.android.ANMP.GloftMVHM
+adb shell rm -f $P/qaTestingConfigs.txt                       # SKIP_VALIDATION is not needed and must go
+adb shell rm -rf $P/Data                                      # the ETC data with the manual HD files
+#   (to keep it for going back: adb shell mv $P/Data $P/../Data-ETC   needs 2 GB more on the phone)
+adb shell rm -f $P/d_o_w_n_l_o_a_d_e_d.txt $P/pack.info \
+                $P/McvsOffline/install/pack.info $P/McvsOffline/install/pack.info.txt \
+                $P/McvsOffline/install/verify-pending $P/McvsOffline/install/damaged.txt
+adb shell rm -rf $P/McvsOffline/hd $P/McvsOffline/hd-install  # an ETC HD pack and its installer state, if any
+adb push astc-hd/files/. $P/
+```
+
+Then start the game. The start-up log (`Files > Downloads > MCVS-Offline > ...-bootstrap.log.txt`, logcat tag
+`McvsOffline`) shows `[install] installer data: index switched to the saved index (ASTC with 2215 replaced files, 15747
+files, ... entries)` (also as a `[boot]` milestone), then `installer data: wrote .../pack.info (... from the saved index),
+.../gl_ver = 1173200, N split pieces in the journal, DATA_TYPE ASTC`, the installer screen shows briefly and the game
+starts. A minute after the game has loaded: `installer data: checking the CRC32 of every file in the background (15747
+files)`, and once it has read everything (low priority, a few minutes), `installer data: background check done, every
+file matches the CRC32 ...`. Later starts say `installer data: Gameloft index in place (ASTC with 2215 replaced files,
+...)`. The HD textures that depend on the GPU profile (normal maps, the lightmaps' direction maps) only show with
+`graphics.profile` `high` or `ultra` (PLAYER-SETUP.md section 7).
+
+Keep the whole `files/` folder in backups as before: its `McvsOffline/install/pack.info` and `replaced.tsv` are what lets
+a reinstall accept the data offline (`verify.py` checks such a backup against the index it carries).
+
+### Going back to ETC
+
+Force-stop the game, delete `Data/`, `d_o_w_n_l_o_a_d_e_d.txt` and in `McvsOffline/install/` the files `pack.info`,
+`pack.info.txt`, `replaced.tsv`, `astc-hd.json`, `verify-pending` and `damaged.txt`, then push the ETC `files/` tree with
+its index (a mirror made with `tools/cdn-mirror/mirror.py --tex ETC --extract`, or your backup of the ETC phone's
+`files/`, or move `Data-ETC` back and push only its `McvsOffline/install/pack.info`). The next start logs `installer
+data: index switched to the saved index (ETC, 15747 files, 16218 entries)` and `DATA_TYPE` is `ETC` again. HD textures
+for ETC then come as an ETC HD pack (`McvsOffline/hd/mcvs-hd-*.zip`, above), which needs no `SKIP_VALIDATION` either.
+
 ## Last resort: the installer's own test switches
 
 A text file `files/qaTestingConfigs.txt` with one of these lines is read by the installer itself:
 
 - `SKIP_VALIDATION=1`: the installer skips every check and starts the game (if `Data/` is incomplete the game then
-  fails later). Remove the line again once the data is complete.
+  fails later). Remove the line again once the data is complete. HD textures do not need it (see above).
 - `DATA_LINK=<url>`: download from that `.amz` URL instead of Gameloft's CDN. The URL's file name must contain `.amz`,
   the server must answer HTTP Range requests, and plain `http://` only works for `*.gameloft.com` and `127.0.0.1` (the
   game's network security config).

@@ -1,8 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!--
-    McvsOffline.HdTextures (owner: EMBED): the desktop side of the HD texture work (docs/research/pc-textures.md).
-    Today: "probe", which builds the WP1 device-probe zip from the player's own data pack (one recoloured texture under
-    each naming the engine might use). Runs on the player's computer; never ships or downloads game data.
+    McvsOffline.HdTextures (owner: HD textures): the desktop side of the HD texture work (docs/design/hd-textures.md).
+    "build" converts the textures of the player's own Steam install into ETC1 replacements for the player's own ETC
+    data pack and writes the pack the phone installs; "index" (maintainers) regenerates hd-index.tsv, our own table of
+    hashes, sizes, categories and levels. Runs on the player's computer; never ships or downloads game data.
+
+    Windows build for players (self-contained, one file), from any OS:
+      dotnet publish tools/hd-textures/McvsOffline.HdTextures.csproj -c Release -r win-x64 -p:McvsHdPublish=true -o artifacts/hd-textures
   -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -10,11 +14,33 @@
     <AssemblyName>McvsOffline.HdTextures</AssemblyName>
     <RootNamespace>McvsOffline.Tools.HdTextures</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(McvsHdPublish)' == 'true'">
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>none</DebugType>
+    <PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- DataPack (hashed names, GCBF decoding) and Crc32 of the server library. -->
+    <!-- DataPack (GCBF decoding), Crc32, Lz4Block and MiniJson of the server library. -->
     <ProjectReference Include="../../server/McvsOffline.Server.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The Steam search of the PC kit (registry, libraryfolders.vdf, appmanifest), one source. -->
+    <Compile Include="../pc-spike/SteamLocator.cs" Link="PcSpike/SteamLocator.cs" />
+    <Compile Include="../pc-spike/Vdf.cs" Link="PcSpike/Vdf.cs" />
+    <!-- The installer index (pack.info) of the embedded host, one source: astc-pack writes the index of the files it ships. -->
+    <Compile Include="../../hosts/embedded/Install/PackIndex.cs" Link="Install/PackIndex.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="hd-index.tsv" LogicalName="hd-index.tsv" />
   </ItemGroup>
 
   <ItemGroup>

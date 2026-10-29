@@ -42,6 +42,27 @@ namespace McvsOffline.Tools.HdTextures
             }
         }
 
+        public bool IsAstcSrgb
+        {
+            get { return GlInternalFormat >= GlAstcSrgbFirst && GlInternalFormat <= GlAstcSrgbLast; }
+        }
+
+        private static readonly int[][] AstcFootprints =
+        {
+            new[] { 4, 4 }, new[] { 5, 4 }, new[] { 5, 5 }, new[] { 6, 5 }, new[] { 6, 6 }, new[] { 8, 5 }, new[] { 8, 6 },
+            new[] { 8, 8 }, new[] { 10, 5 }, new[] { 10, 6 }, new[] { 10, 8 }, new[] { 10, 10 }, new[] { 12, 10 }, new[] { 12, 12 },
+        };
+
+        /// <summary>The GL format of a 2D ASTC block size (<c>GL_COMPRESSED_RGBA_ASTC_6x6_KHR</c> = 0x93B4, or its sRGB form 0x93D4); 0 when there is none.</summary>
+        public static uint AstcFormat(int blockX, int blockY, bool srgb)
+        {
+            for (int i = 0; i < AstcFootprints.Length; i++)
+            {
+                if (AstcFootprints[i][0] == blockX && AstcFootprints[i][1] == blockY) return (uint)i + (srgb ? GlAstcSrgbFirst : GlAstcFirst);
+            }
+            return 0;
+        }
+
         public bool IsEtc1Compatible
         {
             get { return GlInternalFormat == GlEtc1 || GlInternalFormat == GlEtc2Rgb8; }
@@ -53,12 +74,7 @@ namespace McvsOffline.Tools.HdTextures
             if (IsEtc1Compatible) return new[] { 4, 4, 8 };
             if (!IsAstc) return null;
             int index = (int)(GlInternalFormat >= GlAstcSrgbFirst ? GlInternalFormat - GlAstcSrgbFirst : GlInternalFormat - GlAstcFirst);
-            int[][] footprints =
-            {
-                new[] { 4, 4 }, new[] { 5, 4 }, new[] { 5, 5 }, new[] { 6, 5 }, new[] { 6, 6 }, new[] { 8, 5 }, new[] { 8, 6 },
-                new[] { 8, 8 }, new[] { 10, 5 }, new[] { 10, 6 }, new[] { 10, 8 }, new[] { 10, 10 }, new[] { 12, 10 }, new[] { 12, 12 },
-            };
-            return new[] { footprints[index][0], footprints[index][1], 16 };
+            return new[] { AstcFootprints[index][0], AstcFootprints[index][1], 16 };
         }
 
         public string FormatName

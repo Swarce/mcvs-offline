@@ -39,7 +39,8 @@ patcher/       McvsOffline.Patcher (net8 + Mono.Cecil): turns the player's own A
 tests/         unit tests, protocol tests, and a conformance harness that drives the REAL
                Gameloft.OnlinePlatform.dll (taken from the player's APK, never committed) against the server
 tools/         content-gen (tables -> Content/), cdn-mirror (archive and verify the CDN data, offline install), pc-spike (WP0 Windows
-               test kit for the Steam build, docs/PC-SPIKE.md), hd-textures (HD texture probe zip), art (icon exporter);
+               test kit for the Steam build, docs/PC-SPIKE.md), hd-textures (PC textures to an HD pack for the phone,
+               docs/design/hd-textures.md), art (icon exporter);
                planned: datapack (decode GCBF/LZ4 + names)
 art/android/   the project's own launcher icon and launch-screen art, embedded in the patcher (empty until drawn)
 docs/          this file, protocol spec, setup guides, research/
@@ -164,9 +165,8 @@ request; `--art` is a separate option):
   `mid`/`high`/`ultra` = Gameloft's MidGPU/HighGPU/High_Ultra block as the only selection rule, no priority step;
   `hosts/embedded/Graphics/GameOptionsProfile.cs`); the process-wide world options `excludedLoadingLayers` and
   `reducedAiUpdateFrequency` stay at the MidGPU values unless `graphics.fullProfile`, because the in-process TS/GS Worlds
-  share them. The same first call mounts `McvsOffline/hd/hd-textures.zip` through the engine's zip search path when it exists
-  (`hosts/embedded/Hd`, `hd.enabled`, `hd.mount`; the WP1 probe of docs/research/pc-textures.md, built by `tools/hd-textures`).
-  STATUS.md, "Build 10".
+  share them. STATUS.md, "Build 10". (Build 10 also mounted an HD texture zip from here; the device test showed the
+  renderer never reads a mounted zip, so HD textures are installed into `Data/` instead, below.)
 - `lan`: P1 Finder prefix `"*"`, P2 cache a real `PublicHost` at `LocalAnubisManager.Start`, P3
   `ClientSettings.LocalAnubisFinderHost = Args.RemoteIp ?? PublicHost` (verify-C6).
 - `targetsdk` (default, build 10; [research/target-sdk.md](research/target-sdk.md)): no IL. `targetSdkVersion` 29 ->
@@ -256,7 +256,9 @@ testing reveals what is missing.
 
 **Settings** (`settings.json`, next to the data): port, `unlockAll`, `devMenu`, economy multipliers,
 instant-bots, LAN mode, live ops (`liveops.*`, [LIVEOPS.md](LIVEOPS.md)), installer-data restore (`install.*`, embedded only,
-[INSTALL-OFFLINE.md](INSTALL-OFFLINE.md)). Data dir: embedded `<GlfRootPath>/McvsOffline/` (user-visible, easy to back
+[INSTALL-OFFLINE.md](INSTALL-OFFLINE.md)), HD textures (`hd.enabled`, embedded only: `hosts/embedded/Hd/HdInstaller.cs`
+installs `McvsOffline/hd/mcvs-hd-*.zip` into `Data/` around the installer-data step, before the Java installer runs, and
+keeps its index in line; [design/hd-install.md](design/hd-install.md), the pack: [design/hd-textures.md](design/hd-textures.md)). Data dir: embedded `<GlfRootPath>/McvsOffline/` (user-visible, easy to back
 up; removed on uninstall), standalone `./data/`. The in-game **settings page** (`/_mcvs/ui/`, build 9,
 [design/settings-page.md](design/settings-page.md)) edits an allowlist of these keys in the server's copy, and manages
 backups, save export/import (staged and applied at the next start, before the port opens) and logs.

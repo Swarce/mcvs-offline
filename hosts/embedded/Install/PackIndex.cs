@@ -80,6 +80,18 @@ namespace McvsOffline.Embedded.Install
         private const string VersionPrefix = "version: ";
         private const string SplitMarker = ".split_";
 
+        /// <summary>One section as stored: its header (null without "version: "), split size, folder and number of entries.</summary>
+        private sealed class Section
+        {
+            public string Header;
+            public int Version;
+            public int SplitKb;
+            public string Folder;
+            public int Count;
+        }
+
+        private List<Section> sections;
+
         private PackIndex(byte[] raw, List<PackEntry> entries)
         {
             Raw = raw;
@@ -125,6 +137,7 @@ namespace McvsOffline.Embedded.Install
             if (raw.Length == 0) throw new FormatException("empty index");
             var reader = new BigEndianReader(raw);
             var entries = new List<PackEntry>();
+            var sections = new List<Section>();
             long total = 0;   // the installer keeps the last split total across entries and sections
             string currentSplit = null;
             int nextPiece = 0;
@@ -133,12 +146,14 @@ namespace McvsOffline.Embedded.Install
                 string s = reader.ReadUtf();
                 int version;
                 string folder;
+                var section = new Section();
                 if (s.StartsWith(VersionPrefix, StringComparison.Ordinal))
                 {
                     if (!int.TryParse(s.Substring(VersionPrefix.Length), System.Globalization.NumberStyles.Integer,
                                       System.Globalization.CultureInfo.InvariantCulture, out version))
                         throw new FormatException("bad section header '" + s + "'");
-                    reader.ReadInt32();   // split size in KiB (2048); the installer ignores it
+                    section.Header = s;
+                    section.SplitKb = reader.ReadInt32();   // split size in KiB (2048); the installer ignores it
                     folder = reader.ReadUtf();
                 }
                 else
@@ -149,6 +164,10 @@ namespace McvsOffline.Embedded.Install
                 string directory = MapFolder(folder);
                 int count = reader.ReadInt32();
                 if (count < 0 || count > 1000000) throw new FormatException("bad entry count " + count + " in section '" + folder + "'");
+                section.Version = version;
+                section.Folder = folder;
+                section.Count = count;
+                sections.Add(section);
                 for (int i = 0; i < count; i++)
                 {
                     var e = new PackEntry { Folder = folder, RelativeDirectory = directory };
@@ -174,7 +193,57 @@ namespace McvsOffline.Embedded.Install
             while (!reader.AtEnd);
             if (currentSplit != null) CheckSplitComplete(entries[entries.Count - 1]);
             if (entries.Count == 0) throw new FormatException("index lists no files");
-            return new PackIndex(raw, entries);
+            return new PackIndex(raw, entries) { sections = sections };
+        }
+
+        /// <summary>
+        /// This index with the entries of some files replaced (relative path -&gt; the file's new entries, in the same folder, e.g. from
+        /// <see cref="EntriesFor"/>). Every other byte stays as it was: section headers (empty sections included), the order, and
+        /// every other entry; a file's new entries take the place of its old ones.
+        /// </summary>
+        public PackIndex Replace(IDictionary<string, List<PackEntry>> replacements)
+        {
+            var w = new BigEndianWriter();
+            int next = 0;
+            var emitted = new HashSet<string>(StringComparer.Ordinal);
+            foreach (Section section in sections)
+            {
+                var list = new List<PackEntry>(section.Count);
+                for (int i = 0; i < section.Count; i++)
+                {
+                    PackEntry e = Entries[next++];
+                    List<PackEntry> with;
+                    if (replacements == null || !replacements.TryGetValue(e.RelativePath, out with))
+                    {
+                        list.Add(e);
+                        continue;
+                    }
+                    if (!emitted.Add(e.RelativePath)) continue;
+                    foreach (PackEntry n in with)
+                    {
+                        if (n.Folder != section.Folder) throw new ArgumentException("entry '" + n.Name + "' is not in folder '" + section.Folder + "'");
+                        list.Add(n);
+                    }
+                }
+                if (section.Header != null)
+                {
+                    w.WriteUtf(section.Header);
+                    w.WriteInt32(section.SplitKb);
+                }
+                w.WriteUtf(section.Folder);
+                w.WriteInt32(list.Count);
+                foreach (PackEntry e in list)
+                {
+                    w.WriteInt64(e.Offset);
+                    w.WriteInt32(e.Size);
+                    w.WriteInt64(e.Crc);
+                    w.WriteUtf(e.Name);
+                    if (section.Version >= FormatVersion && e.Name.EndsWith(SplitMarker + "0001", StringComparison.Ordinal)) w.WriteInt64(e.TotalSize);
+                    w.WriteInt32(e.ZipSize);
+                    w.WriteUtf(e.ZipName ?? "");
+                }
+            }
+            return Parse(w.ToArray());
         }
 
         /// <summary>Parses, or returns null with the reason.</summary>
@@ -285,6 +354,119 @@ namespace McvsOffline.Embedded.Install
             }
             return Parse(w.ToArray());
         }
+
+        /// <summary>
+        /// How a file of <paramref name="size"/> bytes is listed (Gameloft's packer, as in <see cref="Rebuild"/>): the sizes of its
+        /// 2 MiB pieces, or one size for a whole file. A size that is an exact multiple of 2 MiB stays whole.
+        /// </summary>
+        public static int[] PieceSizes(long size)
+        {
+            if (size < 0 || size > 0x7FFFFFFFL) throw new ArgumentException("size out of range: " + size);
+            if (size <= SplitSize || size % SplitSize == 0) return new[] { (int)size };
+            int pieces = (int)((size + SplitSize - 1) / SplitSize);
+            var sizes = new int[pieces];
+            for (int p = 1; p <= pieces; p++) sizes[p - 1] = p < pieces ? SplitSize : (int)(size - (long)SplitSize * (pieces - 1));
+            return sizes;
+        }
+
+        /// <summary>
+        /// The entries that list the file <paramref name="relativePath"/> (<c>Data/&lt;dir&gt;/&lt;name&gt;</c>) with <paramref name="size"/>
+        /// bytes, laid out by <see cref="PieceSizes"/>. <paramref name="pieceCrcs"/> holds one CRC32 per piece (null or
+        /// <paramref name="rebuiltStyle"/>: 0, as in a rebuilt index). A rebuilt-style entry has offset and ZIP size 0 and the ZIP name
+        /// of <see cref="Rebuild"/>; otherwise piece N borrows offset and ZIP size of piece N of <paramref name="like"/> (or its last
+        /// one): they only tell the installer where to download that piece from the CDN, which it never does for a file of the
+        /// right size.
+        /// </summary>
+        public static List<PackEntry> EntriesFor(string relativePath, long size, IList<uint> pieceCrcs, bool rebuiltStyle, IList<PackEntry> like)
+        {
+            int slash = (relativePath ?? "").LastIndexOf('/');
+            if (slash <= 0) throw new ArgumentException("not under Data/: " + relativePath);
+            string dir = relativePath.Substring(0, slash);
+            string fileName = relativePath.Substring(slash + 1);
+            MapFolder(FolderFor(dir));
+            CheckName(fileName);
+            int[] sizes = PieceSizes(size);
+            if (!rebuiltStyle && (pieceCrcs == null || pieceCrcs.Count != sizes.Length))
+                throw new ArgumentException("one CRC per piece needed for " + relativePath);
+            var list = new List<PackEntry>(sizes.Length);
+            for (int i = 0; i < sizes.Length; i++)
+            {
+                bool split = sizes.Length > 1;
+                string name = split ? fileName + SplitMarker + (i + 1).ToString("D4", System.Globalization.CultureInfo.InvariantCulture) : fileName;
+                PackEntry model = rebuiltStyle || like == null || like.Count == 0 ? null : like[Math.Min(i, like.Count - 1)];
+                list.Add(new PackEntry
+                {
+                    Folder = FolderFor(dir),
+                    RelativeDirectory = dir,
+                    Name = name,
+                    FileName = fileName,
+                    Piece = split ? i + 1 : 0,
+                    Size = sizes[i],
+                    TotalSize = split ? size : sizes[i],
+                    Crc = rebuiltStyle ? 0 : pieceCrcs[i],
+                    Offset = model == null ? 0 : model.Offset,
+                    ZipSize = model == null ? 0 : model.ZipSize,
+                    ZipName = name + ".zip",
+                });
+            }
+            return list;
+        }
+
+        /// <summary>
+        /// Writes <paramref name="entries"/> as an index (one "version: 101" section per run of entries with the same folder, the
+        /// total size after each <c>.split_0001</c>) and parses it back, so the result passes every check of <see cref="Parse"/>.
+        /// (To change a parsed index, <see cref="Replace"/> keeps its exact layout.)
+        /// </summary>
+        public static PackIndex Write(IList<PackEntry> entries)
+        {
+            if (entries == null || entries.Count == 0) throw new ArgumentException("no entries");
+            var w = new BigEndianWriter();
+            int i = 0;
+            while (i < entries.Count)
+            {
+                string folder = entries[i].Folder;
+                int end = i;
+                while (end < entries.Count && entries[end].Folder == folder) end++;
+                w.WriteUtf(VersionPrefix + FormatVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                w.WriteInt32(SplitSize / 1024);
+                w.WriteUtf(folder);
+                w.WriteInt32(end - i);
+                for (; i < end; i++)
+                {
+                    PackEntry e = entries[i];
+                    w.WriteInt64(e.Offset);
+                    w.WriteInt32(e.Size);
+                    w.WriteInt64(e.Crc);
+                    w.WriteUtf(e.Name);
+                    if (e.Name.EndsWith(SplitMarker + "0001", StringComparison.Ordinal)) w.WriteInt64(e.TotalSize);
+                    w.WriteInt32(e.ZipSize);
+                    w.WriteUtf(e.ZipName ?? "");
+                }
+            }
+            return Parse(w.ToArray());
+        }
+
+        /// <summary>The entries of <paramref name="relativePath"/> (every piece of a split file), in index order; empty when not listed.</summary>
+        public List<PackEntry> EntriesOf(string relativePath)
+        {
+            Dictionary<string, List<PackEntry>> map = byPath;
+            if (map == null)
+            {
+                map = new Dictionary<string, List<PackEntry>>(StringComparer.Ordinal);
+                foreach (PackEntry e in Entries)
+                {
+                    List<PackEntry> list;
+                    string key = e.RelativePath;
+                    if (!map.TryGetValue(key, out list)) map[key] = list = new List<PackEntry>();
+                    list.Add(e);
+                }
+                byPath = map;
+            }
+            List<PackEntry> found;
+            return relativePath != null && map.TryGetValue(relativePath, out found) ? new List<PackEntry>(found) : new List<PackEntry>();
+        }
+
+        private Dictionary<string, List<PackEntry>> byPath;
 
         /// <summary>The installer's folder mapping: remove <c>.\\</c>, then <c>.\</c>, then turn '\' into '/'.</summary>
         public static string MapFolder(string folder)

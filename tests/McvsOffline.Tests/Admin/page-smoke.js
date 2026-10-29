@@ -726,7 +726,7 @@ async function fullRun(url, jar, mode, fx) {
   if (mode === 'fixtures') {
     check(/Notifications\s*not allowed yet; the game asks once at the main menu/.test(p.text('status-body')), 'fixtures: no notification row');
     check(/Graphics\s*graphics\.profile high, forced HighGPU/.test(p.text('status-body')), 'fixtures: no graphics row');
-    check(/HD textures\s*none/.test(p.text('status-body')), 'fixtures: no HD textures row');
+    check(/HD textures\s*PC textures \(tiers 1-2\), 1750 files installed/.test(p.text('status-body')), 'fixtures: no HD textures row');
     check(/Restart via\s*game \(Android 13\+: may only close the game; then start it again yourself\)/.test(p.text('status-body')),
           'fixtures: the Restart via row does not say the game may only close (Android 13+)');
   }
@@ -994,6 +994,18 @@ async function fixtureExtras(p, fx) {
   await p.tap('nav-actions');
   await p.tap('action-crm-reload');
   check(/takes effect/.test(p.text('toast-text')), 'fixtures: CRM rebuild not confirmed');
+  // Remove HD textures (host.hdInstalled): asks first, turns hd.enabled off, offers the restart that puts the originals back.
+  check(p.isShown('action-hd-row'), 'fixtures: no "Remove HD textures" action while HD textures are installed');
+  await p.tap('action-hd-remove');
+  check(p.isShown('dialog') && /Remove HD textures/.test(p.text('dialog-title')) && /original textures back/.test(p.text('dialog-body')),
+        'fixtures: Remove HD textures did not ask first');
+  await p.tap('dialog-ok', 'settings');
+  check(fx.state.values['hd.enabled'] === false, 'fixtures: Remove HD textures did not turn hd.enabled off');
+  check(p.isShown('dialog') && /Restart/.test(p.text('dialog-title')) && /HD textures are turned off/.test(p.text('dialog-body')),
+        'fixtures: Remove HD textures did not offer the restart');
+  await p.tap('dialog-cancel');
+  check(!p.isShown('action-hd-row'), 'fixtures: "Remove HD textures" still offered after turning them off');
+  fx.state.values['hd.enabled'] = true;
   // Android 13+ (host.relaunchUnconfirmed): the relaunch is not observed yet (STATUS device-test item 9), so the texts say
   // the game MAY only close; none claims that it will not come back (target-sdk.md §4.6).
   const firmNoRelaunch = /do not let it reopen|and closes\. Start it again|saves and closes|closes the game, start it again/;
@@ -1165,6 +1177,9 @@ function schema() {
       k('leaderboards.virtualPlayers', 'Leaderboard opponents', 'bool', true, 'live'),
       k('geo.country', 'Country', 'string', 'US', 'restart', { pattern: '^[A-Z]{2}$', maxLength: 2 }),
     ] },
+    { id: 'graphics', label: 'Graphics', keys: [
+      k('hd.enabled', 'HD textures', 'bool', true, 'restart'),
+    ] },
     { id: 'economy', label: 'Economy', keys: [
       k('economy.versusCoinsMultiplier', 'VersusCoins per match', 'number', 1.0, 'menu', num(0.1, 20, 0.1)),
       k('economy.creditsMultiplier', 'Credits per match', 'number', 1.0, 'menu', num(0.1, 20, 0.1)),
@@ -1252,7 +1267,7 @@ function startFixtures(html) {
     host: { platform: 'android', sdkInt: 36, deviceId: 'dev', logsDir: '/storage/emulated/0/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/logs', fallbackLogsDir: null, publicLogsDir: '/storage/emulated/0/Download/MCVS-Offline', mirror: 'active, 3 files, last copy 12 s ago', watchdog: 'game thread tid 1234, paused for the page', browser: 'initialized', browserOpen: true, freeBytes: 12345678901, gameCredential: 'anonymous:a1b2…f9e8', restartVia: 'game', missingJni: [], capabilities: caps,
             relaunchUnconfirmed: true, notifications: 'not allowed yet; the game asks once at the main menu',
             graphics: 'graphics: graphics.profile high, forced HighGPU; GPU profile HighGPU (device optimum MidGPU)',
-            hdTextures: 'hd textures: none (no McvsOffline/hd/hd-textures.zip)' },
+            hdTextures: 'hd textures: PC textures (tiers 1-2), 1750 files installed (612.0 MiB)', hdInstalled: true },
     settings: { file: '/data/McvsOffline/settings.json', fallback: state.fallback, error: null, restartPending: restartPending().length },
     player: { account: ACCOUNT, fedId: 'fed_id:' + ACCOUNT, alias: 'Player0815', source: 'game', level: 37, revision: 512, modified: ISO(Date.now() - 420000), lastGameSave: ISO(Date.now() - 420000), hasGameProfile: true },
     staged: { pending: state.staged, probation: null, last: state.last },

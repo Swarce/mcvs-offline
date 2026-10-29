@@ -654,3 +654,41 @@ screen, targetSdk, PC support). Treat it as background.
 
    Both stay as WP1/WP2 gates. Verified here: the MidGPU/HighGPU override blocks and the catch-all
    `{"MidGPU": [[["CORES>1"]]]}` rule match §4. `renderTargetSizeScale` is 0.6 in MidGPU against a default of 0.7.
+
+## Owner's phone: ETC pack, not ASTC (2026-10-28)
+
+The owner's S22 sent its `Data/8/dbd2f1.f` (`ENV_GenericConcrete05_bc.tga`) for the HD probe. It is byte-identical to the
+**ETC** pack's copy (SHA-256 `636c5aea…56b0`, 43,301 bytes; ETC1 256x256, 9 mips). The phone runs on the ETC pack that the
+offline install copied, not on the ASTC pack this report assumed for the S22. For the texture port this means one of:
+
+* convert the PC textures to ETC1 (split alpha, as the ETC shaders expect): works with today's data, lower quality than ASTC;
+* or move the phone to the ASTC pack first (Gameloft's download server still served ASTC files during the research), then
+  convert to ASTC as planned. This needs the whole ASTC pack, not only the HD textures, because the shaders differ
+  (no `SPLIT_ALPHA`).
+
+The probe zip for the device test was built from this file (ETC1, the probe tool's ETC path).
+
+## ASTC re-encode measured (U5 answered, 2026-10-28)
+
+Owner request after build 11: replace the phone's ETC data by a full ASTC pack in which every sharper texture is the PC
+texture re-encoded to ASTC at the PC size (design/hd-textures.md §6, `tools/hd-textures astc-pack`). Measured with ARM
+astcenc 5.7.0 (built from the official tag, avx2), `-thorough`, `astc-measure` on 6 textures per category, PSNR of RGB
+in dB against the PC texture at the PC size (median); "Gameloft" is Gameloft's ASTC 6x6 file at the phone's size,
+enlarged bilinearly to the PC size, i.e. what the phone shows today: **[V]**
+
+| category | 4x4 | 5x5 | 6x6 | Gameloft | throughput at 5x5 (Mtexel/s per thread) |
+|---|---|---|---|---|---|
+| surfaces | 60.6 | 40.6 | 37.7 | 24.4 | 0.13 |
+| lightmaps (4096) | 60.9 | 46.5 | 42.6 | 28.6 | 0.18 |
+| characters | 59.1 | 40.1 | 37.2 | 27.2 | 0.16 |
+| equipment | 65.4 | 45.9 | 42.3 | 27.1 | 0.34 |
+| vfx | 52.6 | 46.6 | 43.9 | 33.7 | 0.13 |
+
+* The double lossy encoding (§5.1) costs little: ASTC 4x4 reproduces the PC's BC1/BC3 almost exactly (about 60 dB), 5x5
+  keeps 40-52 dB. The phone's file is 10-20 dB further from the PC texture than any of them, because the detail is
+  missing, as §3.3 found.
+* `-exhaustive` gains 0.2-0.4 dB over `-thorough` at 5x5 for three times the encode time.
+* The whole pack (2,215 textures, 2.2 Gtexel with mips) encodes in about an hour on 4 vCPUs at `-thorough` with the
+  chosen sizes (5x5 for the large categories, 4x4 for equipment, props and minimaps).
+* The owner's phone ran the ETC pack (section above), so the full ASTC pack replaces the whole `Data/`; the host
+  switches the installer to the pack's own index (INSTALL-OFFLINE.md, "The ASTC HD data pack").

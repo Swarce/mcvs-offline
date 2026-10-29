@@ -1,8 +1,9 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-Last updated for build 10 (October 2026, not yet on a device: target Android 15, graphics profiles, the HD texture
-probe, the PC test kit; see "Build 10"), after device test 8 (the MCVS Offline page; see "Device test 8" and "Build 9"
+Last updated for the build 11 plan (HD textures installed into `Data/`; see "Build 11 (plan)"), after the HD texture
+probe of build 10 on the owner's S22 (route B failed, route A works). Build 10 (October 2026: target Android 15, graphics
+profiles, the HD texture probe, the PC test kit; see "Build 10") came after device test 8 (the MCVS Offline page; see "Device test 8" and "Build 9"
 below); the Cosmetic crate starts on 2026-11-09 and is not yet tested on the phone. Earlier: device tests 6 and 7 on a
 Samsung Galaxy S22, Android 16 ("Build 8", "Build 7", "Device test 6").
 
@@ -24,7 +25,138 @@ the return to the menu was fast**, and a thread dump finally caught the kill-sig
 in-game MCVS Offline page: settings, saves (also from one phone to another) and logs, without a PC (**device test 8:
 it works**), and the Cosmetic crate, a play path for the ~600 items that never had a source (from 2026-11-09). Build 10
 targets Android 15 (no Play Protect "older version" warning; the game's Java code adapted), adds graphics profiles, an
-HD texture probe and a Windows test kit for the Steam version.
+HD texture probe and a Windows test kit for the Steam version. Build 11 installs HD textures converted from the Steam
+version into the game's own data.
+
+## Build 11 device test: the HD installer could not write in `McvsOffline/hd/` (fixed on `wip/hd-writable`)
+
+Owner's Galaxy S22 (Android 16, build 11, targetSdk 35), first start with a pack in `McvsOffline/hd/`:
+
+```
+W McvsOffline: [hd] hd: cannot back up Data/9/705cf.f to .../files/McvsOffline/hd/backup/Data/9/705cf.f
+  System.UnauthorizedAccessException: Access to the path '.../files/McvsOffline/hd/backup/Data/9' is denied. ---> System.IO.IOException: Permission denied
+I McvsOffline: [boot] +0.204 s hd: none installed; 906 files at the next start; 1 failed (see the log)
+```
+
+**Cause**: the owner made `McvsOffline/hd/` with adb (Shizuku). On Android 11+ a folder under `Android/data/<package>/`
+made by another tool belongs to that uid (`shell`, `media`): the app reads the pack in it but cannot create anything
+inside. `McvsOffline/` and `Data/` were made by the app and are writable. Nothing in `Data/` had changed (the backup is
+the first step), so the phone was left as it was.
+
+**Fix** ([design/hd-install.md](design/hd-install.md), "Where the installer writes"; `hosts/embedded/Hd/HdPlaces.cs`):
+
+* `McvsOffline/hd/` is a read-only drop folder: the installer never creates, writes, renames or deletes anything in it.
+* `installed.json`, the backups and `imported.txt` go to `McvsOffline/hd-install/`, made by the app; when it does not take
+  a probe file, `getFilesDir()/McvsOffline/hd-install/` (logged as a warning; Status adds "backups in the app's internal
+  storage"). The folder with the current `installed.json` is used first; when both hold one, `imported.txt` tells the
+  newer state from the stale copy `McvsOffline/hd-install` keeps while it cannot be written.
+* Before anything is removed or installed, our folder, `Data/` and every `Data/<h>/` to be touched take a probe file; when
+  one does not, nothing in `Data/` changes and Status and `[boot] hd:` give one reason, e.g. `none installed; cannot write
+  McvsOffline/hd-install: permission denied (nor the app's internal storage: permission denied); nothing changed`. The
+  installer's index, our saved copy and the journal are still made to match `Data/` (also after `InstallerData` replaced
+  the index at that start).
+* Build 11's `McvsOffline/hd/installed.json` (on phones where the app made `hd/` itself) is taken over once (checked,
+  copied byte for byte, noted in `imported.txt`); its backups are used where they are for removal and are never
+  deleted; once nothing is installed Status says they may be deleted. A state of another place beside ours is taken
+  over when it is newer (it took ours over), else merged into ours (no record is dropped); the other `hd-install`
+  folder's taken-over state and backups are deleted once nothing is installed.
+* Every guarantee stays: originals checked, atomic writes, index/journal consistent with `Data/` after every start, a
+  start cut short completed by the next, removal byte-identical (from our backups or the old ones).
+
+**Checked**: `HdInstallerTests`: every start of every test now runs with `McvsOffline/hd/` read only through a fake
+(`HdInstallerOptions.WriteDenied`, called before every create/write/rename/delete; the tests run as root, where chmod
+denies nothing) and fails on any write attempt there (with the old folder layout two tests fail); new: the device case
+(install, removal, drop folder byte-identical), the folder mode 0555 on disk without the fake, `hd-install` not
+writable (internal storage used, kept while it holds the state, removal byte-identical, the next install back in
+`hd-install`), nothing writable (the exact Status line; `Data/`, index and journal unchanged, no folder created),
+`Data/8` not writable (nothing installed; with HD files installed, removal changes nothing and the files stay
+consistent), build 11's state taken over with `hd-install` writable and not (no new writes, removal byte-identical from
+the old backups, index and journal pristine, not taken again, reinstall backs up into our folder), an unreadable old
+state not taken over and nothing changed until it can be read; review fixes: `hd-install` denied for one start and
+writable again (the newer state in internal storage stays in use, removal puts all 5 originals back, no "may be deleted"
+for our own folders, the stale copy and its backups cleaned up), two unrelated states merged (removal puts every
+original back), `Data/8` denied right after `InstallerData` restored Gameloft's index from `files/pack.info` (the index
+still matches the HD file; the installer accepts it). The `scripts/build.sh` steps with the same environment as
+below: **McvsOffline.Tests 1345/1345, McvsOffline.Embed.Tests 506/506, McvsOffline.PcSpike.Tests 62/62, 0 skipped**.
+
+**On the phone**: no new step: with the pack in `McvsOffline/hd/` (made with adb as before) the next start installs
+(`[boot] hd: <name>, N files installed ...`); `McvsOffline/hd-install/` appears next to it.
+
+## Build 11 (plan): HD textures from the Steam version
+
+Branches: `feat/hd-install` (the phone side, this section) and `wf/hd-converter` (`tools/hd-textures`: the PC side that
+converts the Steam textures into an HD pack). Their contract is the converter's
+[design/hd-textures.md](design/hd-textures.md) (the pack, its manifest, the rules), identical on both branches; the
+installer's side is [design/hd-install.md](design/hd-install.md). Owner's decisions after the build-10 probe: route A (replace the files in
+`Data/`); ETC1 for the ETC pack the S22 runs (not ASTC); scope = map surfaces, lightmaps (all of a level at once),
+third-person characters, grenades and equipment (research/pc-textures.md §7 tiers 1 and 2, about 1,750 files); the zip
+mount of route B removed entirely.
+
+### What is new (phone side)
+
+* **The zip mount is gone**: `hosts/embedded/Hd/HdTextures.cs` and `EngineFiles.cs`, the `[boot] hd textures:` probe
+  lines, `hd.mount`, GraphicsHooks' first-engine hook and their tests. Patch `graphics` is unchanged.
+* **HD pack installer** (`hosts/embedded/Hd/HdInstaller.cs`, [design/hd-install.md](design/hd-install.md); the pack as
+  the converter writes it, [design/hd-textures.md](design/hd-textures.md)): `McvsOffline/hd/mcvs-hd-*.zip` (stored
+  entries `Data/<h>/<rest>.f` plus `mcvs-hd.json`, format 1, with each file's original and replacement size and CRC32) is installed at start-up, before the Java
+  installer runs: originals checked and backed up to `McvsOffline/hd-install/backup/` (`McvsOffline/hd/` is only read;
+  see the device test above), `installed.json` written before any file
+  changes, each new file written beside the original and renamed over it, then the installer's `pack.info`, the saved
+  copy and the journal of split pieces rewritten for those files, so the installer's size check passes at every start
+  **without `SKIP_VALIDATION`**. At most 8 s per start, installing or removing (a level's lightmaps always together); the
+  rest at the next start.
+  An index reset (reinstall, `gl_ver`, CDN re-sync, no index at all) is repaired at the next start; with no usable index
+  the originals go back until there is one (INSTALL-OFFLINE.md, "HD textures in `Data/`").
+* **Settings and status**: `hd.enabled` (default true) now means "install the pack" and false removes it at the next
+  start; Actions › **Remove HD textures** turns it off and offers the restart; Status › Game host › HD textures shows the
+  pack, files and size; the start-up log has one `[boot] hd: ...` line.
+
+### Checked (feat/hd-install)
+
+`HdInstallerTests` (synthetic data pack and index in Gameloft's form, the host's order Prepare → InstallerData → Apply):
+install with the installer's checks (sizes, journal, every CRC) passing; second start writes nothing; removal gives
+byte-identical originals, index, saved copy and journal; a crash at five points of an install and one of a removal,
+each completed by the next start; the 8 s budget over four starts, consistent after each, for installing, removing
+(a level's lightmaps never mixed), a new pack (removals first) and putting originals back without an index; reinstall, `gl_ver` mismatch,
+no index anywhere (rebuilt with the HD sizes, the pack recognised by the original sizes), Gameloft's index over an
+installed pack, no usable index (originals back, pack back with the index); originals that do not match, a lightmap
+group with one bad file, broken manifests (also the installer's first-draft schema), unsafe paths; packs in the
+converter's exact shape (aligned entries, every manifest field of design/hd-textures.md §3). With the converter in the
+tree (`MCVS_HD_CONVERTER`, defined when `tools/hd-textures/PackBuilder.cs` exists) a pack written by its `PackBuilder` is
+installed and removed; checked on a scratch merge with `wf/hd-converter` (87/87 HD tests), and a real
+`mcvs-hd-equipment.zip` (33 files) the converter built from the PC install and the ETC pack installed on the real ETC
+`pack.info` (`Gameloft index in place (ETC, 15747 files, 16218 entries)`, every index CRC that of the HD bytes) and
+removed to the original bytes and index. On the real ETC `pack.info` (`MCVS_DATAPACK`): written back
+byte for byte (it has an empty `.\` section), two real files (the probe texture and a split file) swapped and restored to
+Gameloft's exact bytes, a pack labelled ASTC refused. page-smoke: the Remove action. The `scripts/build.sh` steps with `MCVS_REFS`, `MCVS_REQUIRE_EMBEDDED=1`,
+`MCVS_REQUIRE_REAL_CLIENT=1`, `MCVS_REQUIRE_NODE=1`, `MCVS_REQUIRE_PC=1` and `MCVS_DATAPACK` (ETC): **McvsOffline.Tests
+1345/1345, McvsOffline.Embed.Tests 442/442, McvsOffline.PcSpike.Tests 62/62, 0 skipped**.
+
+### What to check on the phone (build 11)
+
+Needs an HD pack from `tools/hd-textures` (the converter branch) for the ETC pack. Keep
+`adb logcat -s McvsOffline mono mono-stdout AndroidRuntime > b11.txt` running.
+
+1. **Undo the build-10 probe first.** The 13 recoloured probe files are still in `Data/` and `qaTestingConfigs.txt` still
+   says `SKIP_VALIDATION=1`. With `SKIP_VALIDATION` gone the installer would delete those 13 files (their size is not the
+   index's) and try Gameloft's CDN. Game closed: push the 13 originals back (the same `Data/<h>/<rest>.f` paths from
+   the PC copy of the ETC pack, which is byte-identical to the phone's), then
+   `adb shell rm /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/qaTestingConfigs.txt`. Start once: the
+   game must start without downloading anything (`[boot] installer data: Gameloft index in place ...`).
+2. **Install**: game closed, `adb push mcvs-hd-<name>.zip .../files/McvsOffline/hd/`. Start: `[boot] hd: <name>, N files
+   installed (...); N written now` and, for a large pack, "M files at the next start"; restart until that part is gone.
+   Note how long each of these starts takes to reach the menu.
+3. **In a match**: Port (the probe's map) and two others: surfaces, characters, grenades sharper; lightmaps of a level
+   all HD or all not; no black or magenta surfaces, no missing textures. Screenshots next to build 10's.
+4. **No validation trouble**: close and start again twice: `[boot] hd: ... installed (...)` without "written now", no
+   download screen, no `[installer]` line about downloading, with Wi-Fi and mobile data off.
+5. **Memory and heat** (research §6, WP4): a 10-minute bot match at `graphics.profile` auto and at high; frame rate,
+   heat, `adb shell dumpsys meminfo com.gameloft.android.ANMP.GloftMVHM` during the match.
+6. **Remove**: Actions › Remove HD textures, restart: `[boot] hd: off (settings hd.enabled false); N originals put back`,
+   textures as before, no download. Turn HD textures on again, restart: installed again from the pack.
+7. **A backup** of the whole `files/` folder now includes `McvsOffline/hd/` (the pack) and `McvsOffline/hd-install/` (the
+   originals); restoring it on a
+   reinstall gives the HD textures back without reinstalling them (`installer data: index restored from the saved index`).
 
 ## Build 10 (October 2026): target Android 15, graphics profiles, HD texture probe, PC test kit (not yet on a device)
 
@@ -51,8 +183,8 @@ HD texture probe and a Windows test kit for the Steam version.
   33+ and declares the permission (details below).
 * **Graphics profile** (new default patch `graphics`, settings group Graphics: `graphics.profile`
   auto/mid/high/ultra, `graphics.fullProfile`) and the `[boot] graphics:` log line (details below).
-* **HD texture probe**: the host mounts `McvsOffline/hd/hd-textures.zip` through the engine's zip search path;
-  `tools/hd-textures` builds a probe zip with one coloured texture (details below).
+* **HD texture probe**: the host mounted `McvsOffline/hd/hd-textures.zip` through the engine's zip search path;
+  `tools/hd-textures` built a probe zip with one coloured texture (result below; removed again for build 11).
 * **Status and restart wording**: Status › Game host gains Graphics, HD textures and Notifications rows and "Restart via"
   says that on Android 13+ the game may only close (`host.relaunchUnconfirmed`).
 * **Project icon and launch screen, mechanism only** (`--art auto|stock|<dir>`, `patcher/Art`,
@@ -63,7 +195,7 @@ HD texture probe and a Windows test kit for the Steam version.
   and packs the answers of [research/pc-port.md](research/pc-port.md) §5 into one zip; owner's guide
   [PC-SPIKE.md](PC-SPIKE.md). Built for this build: `McvsOffline.PcSpike.exe`, 35,939,879 bytes, win-x64.
 
-The details of the graphics profile, the HD texture probe and the notification permission follow.
+The details of the graphics profile, the HD texture probe's result and the notification permission follow.
 
 ### Graphics profile (`graphics.profile`, new default patch `graphics`)
 
@@ -111,48 +243,18 @@ The details of the graphics profile, the HD texture probe and the notification p
   along the priority chain; it restarts the game) should not move a forced profile, since its priority entry has no step (the native stepping is not decompiled: check 4 below); with `auto` it
   works as before. The `[boot] graphics:` line shows its stored value.
 
-### HD texture probe (pc-textures.md WP1 + WP3 route B)
+### HD texture probe (pc-textures.md WP1): result
 
-* **Host.** At the first call of patch `graphics` (the engine's file system is up, no level has loaded) the host checks
-  `McvsOffline/hd/hd-textures.zip` (`hd.enabled`, default true: used whenever the file exists). It reads the zip's
-  directory itself (stored entries, no ZIP64, everything inside the file); a missing file gives one quiet line, a broken one
-  "not a usable zip ... the game uses Data/"; nothing else changes either way. Then it mounts the zip through the engine's
-  own API, by reflection: `hd.mount` `auto` (default) tries `SaveStream.PushZip` (LocationType Save) and then
-  `CacheStream.PushZip`, each with the zip's path relative to that root (`GlfStream.SavePath`/`CachePath`, logged; "../"
-  segments when the root is elsewhere); `save`, `cache`, `asset` (`AssetStream.PushZip`, relative to Data/) and `front`
-  (`GlfStream_private.PushZipSearchPathFront`, the call PackManager uses for its packs) force one way. For a probe zip it
-  then reads the probe texture back through the engine's own lookup (`AssetStream.ReadAllBytes`) and names the copy that came
-  back by its CRC-32 (manifest `mcvs-hd.json`).
-* **Tool.** `tools/hd-textures` (net8, `dotnet run --project tools/hd-textures -- probe ...`, [README](../tools/hd-textures/README.md))
-  builds the zip from the player's own `Data/8/dbd2f1.f` (`3d/Environment/01_WorkTextures/ENV_GenericConcrete05_bc.tga`): the
-  texture three times, solid magenta under its logical name, green as `8/dbd2f1.f`, blue as `Data/8/dbd2f1.f` (with `--raw`,
-  bare KTX instead of GCBF: yellow, cyan, orange), each in the original's format (ASTC 6x6 on the S22's pack: void-extent
-  blocks; ETC1 on the ETC pack), size and mip chain. Checked here on the real ETC1 file and on a synthetic ASTC 6x6 one.
+Device session of 2026-10-28 on the owner's S22 (SM-S901E, Adreno 730, build 10; the phone runs the **ETC** pack,
+byte-identical to our copy, with the game's Graphic setting on "quality"):
 
-**HD texture probe: the device test** (one run answers U2; a second run with `--raw` answers U3)
-
-1. On the PC, with build tools for the repository:
-   `adb pull /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/Data/8/dbd2f1.f`, then
-   `dotnet run --project tools/hd-textures -- probe --file dbd2f1.f --out hd-textures.zip`. The tool prints the texture's
-   format: it should say `ASTC 6x6 256x256, 9 mip levels (ASTC pack)` on the S22 (`ETC1 ... (ETC pack)` means the phone
-   has the ETC pack: the probe still works, in ETC1).
-2. Game closed: `adb shell mkdir -p /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/hd` and
-   `adb push hd-textures.zip /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/hd/hd-textures.zip`.
-3. `adb logcat -s McvsOffline mono mono-stdout > probe.txt`, start the game. In the log (also `McvsOffline/logs/bootstrap.log`
-   and Status › Game host › HD textures):
-   * `[boot] hd textures: hd-textures.zip 4 entries, ... kind probe; engine roots: Save '...', Cache '...', Data '...'; hd.mount auto`
-     (the Save/Cache roots answer U2's third question);
-   * `[boot] hd textures: mounted through Save '...'` (or Cache, or `the engine did not mount the zip (...)`);
-   * `[boot] hd textures: probe 3d/Environment/01_WorkTextures/ENV_GenericConcrete05_bc.tga: ...` naming the copy the
-     engine's lookup returned: a zip entry (its naming and colour, "GCBF-decoded" or "bytes as stored") or "another copy ...:
-     Data/, so the zip is not searched before Data/ for this name".
-4. Play a bot match on a map with plain concrete surfaces (walls, floors; the texture is a generic concrete base colour
-   used on several maps). Magenta, green or blue surfaces tell which naming the renderer used, and that a zip entry renders
-   at all (mips, orientation); normal-looking concrete means the renderer still reads Data/. Screenshot it.
-5. If nothing changed: `hd.mount` `front` on the settings page (Graphics › How the HD zip is mounted), restart, repeat
-   3–4. Then, if still nothing, rebuild with `--raw` (yellow, cyan, orange) for the unwrapped-KTX question (U3) and repeat.
-6. Remove it: `adb shell rm /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/hd/hd-textures.zip`.
-   Send `probe.txt`, the `[boot] hd textures:` lines and the screenshots.
+* **Route B failed**: the zip mounted through `SaveStream.PushZip`, and the engine's managed lookup returned the zip's copy
+  of the probe texture, but nothing changed on screen: the renderer does not read through that search path. The mount,
+  `hd.mount` and the probe lines were removed again (build 11).
+* **Route A works**: 13 GCBF-wrapped ETC1 `.f` files (same 256x256, 9 mips, recoloured) written into
+  `files/Data/<h>/<rest>.f` gave green floors in a Port match, with `files/qaTestingConfigs.txt` = `SKIP_VALIDATION=1`
+  (without it the installer deletes every `Data/` file whose size differs from its index at each start). Build 11 installs
+  HD packs this way and keeps the installer's index in line instead ("Build 11 (plan)").
 
 ### Notification permission (target-sdk.md WP-T5, host side)
 
@@ -233,13 +335,7 @@ Install build 10 **over** build 9 (same key; never uninstall: that deletes the s
    MidGPU/HighGPU/High_Ultra", a bot match plays through, then 10 minutes of play for frame rate and heat; no `[watchdog]
    STALL`, no `physics step gate: ... without the gate`. Then `graphics.fullProfile` on at `ultra`: one bot match. With a
    forced profile, the game's own Graphic setting should not change the `[boot] graphics:` profile. Back to `auto` at the end.
-7. **HD texture probe** (steps in "HD texture probe: the device test" above, under "Build 10"): on the PC `adb pull` the phone's
-   `Data/8/dbd2f1.f`, build the zip with `dotnet run --project tools/hd-textures -- probe --file dbd2f1.f --out
-   hd-textures.zip` (it should say ASTC 6x6 on the S22), game closed: `adb push` it to
-   `.../files/McvsOffline/hd/hd-textures.zip`. Start the game: the `[boot] hd textures:` lines (zip read, mounted through
-   which root, which copy the engine's lookup returned; also Status › Game host › HD textures). In a bot match plain
-   concrete walls and floors turn **magenta** (the logical name), **green** (`8/dbd2f1.f`) or **blue**
-   (`Data/8/dbd2f1.f`); normal concrete means `Data/` still wins. Screenshot, then delete the zip.
+7. **HD texture probe**: done on 2026-10-28; route B failed, route A works ("HD texture probe: result" above).
 8. **Reminders**: with notifications allowed, leave the game so it schedules its local reminders and wait for one: it
    arrives. Tapping it only dismisses it on Android 12+ (expected; open the game from the launcher). After a reboot
    reminders still come. A reminder that build 9 scheduled may arrive once more after the update (expected).

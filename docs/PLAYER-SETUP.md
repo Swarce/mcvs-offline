@@ -78,7 +78,7 @@ The patcher prints every change it makes and finishes with a signature check. Us
 
 | Option | Meaning |
 |---|---|
-| `--patch nativeonline,waits,geo,bottile,finder,store,signatures,debloat,adminpage,adminlink,graphics,targetsdk` | The optional patches (this is the default set; `debloat` removes dead ad/analytics/social/push pieces, see ARCHITECTURE.md §2; `adminpage` and `adminlink` open the MCVS Offline page, section 7; `graphics` is needed for the graphics profile and the HD textures, section 7; `targetsdk` raises the app's target Android version, see `--target-sdk`). `none` keeps only the mandatory patches (the server hook, the headless-server fixes and the server physics), `all` adds `lan` and `forum`, `default,forum` adds only `forum`. |
+| `--patch nativeonline,waits,geo,bottile,finder,store,signatures,debloat,adminpage,adminlink,graphics,targetsdk` | The optional patches (this is the default set; `debloat` removes dead ad/analytics/social/push pieces, see ARCHITECTURE.md §2; `adminpage` and `adminlink` open the MCVS Offline page, section 7; `graphics` is needed for the graphics profile, section 7; `targetsdk` raises the app's target Android version, see `--target-sdk`). `none` keeps only the mandatory patches (the server hook, the headless-server fixes and the server physics), `all` adds `lan` and `forum`, `default,forum` adds only `forum`. |
 | `--target-sdk 29` | The Android version the app declares it was built for (`targetsdk` patch). The default, 35, avoids Play Protect's "built for an older version of Android" warning up to Android 17; 36 also covers Android 18. For both the patcher also fixes the game's own Java code (`classes.dex`) where a newer target would make Android refuse it. `--target-sdk 29` keeps the game's own value and files, exactly as builds 9 and earlier: the fallback if something misbehaves on 35. By Android's rules a 29 build installs over a 35 build signed with the same key, but this has not been tried on a phone yet. 35 and 36 need `debloat` (so `--patch` without `debloat` also needs `--target-sdk 29`). |
 | `--game-log all` | The game's own log at every level in logcat (`mono-stdout`), for bug reports; this is the default while the offline build is being tested. `--game-log fatal` keeps the game's original setting (fatal errors only). |
 | `--keystore <file.p12>` | Your signing key. Without it a key is created once in `~/.config/McvsOffline/` (Windows: `%APPDATA%\McvsOffline\`) and reused. |
@@ -127,10 +127,10 @@ What the patches do:
 - **adminlink**: the button of the "MCVS Offline" inbox message opens the page with full access. Without this patch
   the message opens a view-only page.
 - **graphics**: the game reads its GPU profiles (`GameOptions_android.json`) through MCVS Offline, so the page's
-  graphics profile (`graphics.profile`) can pick one, and at that moment the HD texture zip is mounted. The start-up log
-  gets a `[boot] graphics:` line with what the game really got. With `graphics.profile` `auto` and no HD zip nothing
-  changes. Without this patch both settings do nothing, and Status › Game host says so: its Graphics and HD textures
-  rows say the game has not gone through patch 'graphics' (section 7).
+  graphics profile (`graphics.profile`) can pick one. The start-up log gets a `[boot] graphics:` line with what the game
+  really got. With `graphics.profile` `auto` nothing changes. Without this patch the setting does nothing, and Status ›
+  Game host › Graphics says the game has not gone through patch 'graphics' (section 7). (The HD textures need no patch:
+  section 7.)
 - **targetsdk**: the app declares Android 15 (`--target-sdk`, default 35) instead of Android 10 as its target, so Play
   Protect no longer warns that it was "built for an older version of Android". A newer target changes some of Android's
   rules for the app, so the patch also adapts what they touch: the manifest (exported components, the notification
@@ -335,12 +335,52 @@ levels' Physics layer, how often bots think); they stay at the Mid values unless
 world loading too" (`graphics.fullProfile`). The start-up log says what the game really got: a `[boot] graphics:` line
 with the profile and every option. If a profile misbehaves, set it back to `auto` (or edit `settings.json`) and restart.
 
-**HD textures** (`hd.enabled`, default on; `hd.mount`; needs the default patch `graphics`, which mounts the zip). If
-`McvsOffline/hd/hd-textures.zip` exists, the game mounts it at start-up and textures inside it replace the ones in
-`Data/`. Today this is only a test: [tools/hd-textures](../tools/hd-textures/README.md) builds a probe zip from your own
-data in which one concrete texture is magenta, green or blue (one colour per file naming the engine might use);
-[STATUS.md](STATUS.md), "HD texture probe", has the steps. Without the file nothing changes; delete the file to undo.
-Never share the zip: it holds a copy of a game file.
+**HD textures** (Settings › Graphics › HD textures, `hd.enabled`, default on; applies at the next start). The Steam
+version of the game has textures at twice the resolution of the phone's for map surfaces, lightmaps, the characters
+and grenades. [tools/hd-textures](../tools/hd-textures/README.md) converts them, on your own computer from your own Steam
+copy, into an **HD pack** for your phone's data: a file named `mcvs-hd-<scope>.zip` (`mcvs-hd-default.zip` for the
+whole set). HD packs are for the **ETC** data pack: the converter writes ETC1 textures and refuses an ASTC `Data/`
+folder. For a phone with ASTC (the Galaxy S22) the same tool writes a whole **ASTC HD data pack** instead
+(`astc-pack`: Gameloft's ASTC pack with every sharper PC texture in it, all categories), which replaces `Data/` as a
+whole; installing it is in INSTALL-OFFLINE.md, "The ASTC HD data pack". The two variants are explained there too;
+the start-up log line `[boot] installer data: ...` usually names the one your phone has (`ETC` or `ASTC`). To install
+it, with the game closed:
+
+```sh
+adb shell mkdir -p /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/hd
+adb push mcvs-hd-default.zip /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/hd/
+```
+
+`McvsOffline/hd/` is only a drop folder: you may make it with adb (as above), Shizuku or any file manager. On Android 11
+and later a folder made that way belongs to that tool, and the game can read the pack in it but not write there, so
+MCVS Offline never writes in it: its own files (the list of installed files and the backups of the originals) go to
+`McvsOffline/hd-install/`, which the game makes itself (or, if even that cannot be written, to the game's internal
+storage; the log and Status say so). Do not make `McvsOffline/hd-install/` yourself.
+
+At the next start MCVS Offline checks every texture the pack replaces (it must be exactly the original the pack was made
+from), copies the original to `McvsOffline/hd-install/backup/`, writes the HD file in its place and updates the installer's list
+of the data (`pack.info`, the INSTALL-OFFLINE.md page explains it), so the game's installer accepts the new files at
+every start, without internet and without `qaTestingConfigs.txt`. Copying takes a few seconds; a start does at most
+about 8 seconds of it, so with a large pack the first two or three starts take longer and the rest follows at the next
+start. The start-up log says what happened (`[boot] hd: ...`), and so does Status › Game host › HD textures (pack,
+files, size, "N files at the next start" while it is not finished). If a folder cannot be written, nothing in `Data/`
+changes and that line says why, for example `cannot write McvsOffline/hd-install: permission denied`. The pack, the HD files and the backups of the
+originals take extra space: roughly 1.2 GB for the full set of research/pc-textures.md (the pack about 0.6 GB, the HD
+files 0.45 GB more than the originals, the backups 0.15 GB). Check the free space first.
+
+To remove them: Actions › **Remove HD textures** (or turn Settings › Graphics › HD textures off) and restart: the
+originals come back from the backup and the installer's list is set back, byte for byte. This also takes at most about
+8 seconds per start, so with a large pack it takes the first two or three starts (Status says "N originals at the next
+start" until it is done); the game works normally meanwhile. The pack file stays in
+`McvsOffline/hd/`, so turning HD textures on again reinstalls it; delete it with
+`adb shell rm /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/hd/mcvs-hd-*.zip` when you no
+longer want it. Keep the pack, `McvsOffline/hd/` and `McvsOffline/hd-install/` in your backups (a backup of the whole
+`files/` folder has them); do not delete `McvsOffline/hd-install/backup/` by hand while HD textures are installed (it
+holds the only copy of the originals on the phone). Build 11 kept that list and the backups in `McvsOffline/hd/`; a
+newer build takes the list over and still uses those backups, and once nothing is installed Status says
+`McvsOffline/hd/backup ... may be deleted`: then you may delete `McvsOffline/hd/backup/` and `McvsOffline/hd/installed.json`. Only one pack is used: with several `mcvs-hd-*.zip`, the last by name. A pack made for the other texture
+variant, or from other data, is refused and nothing changes. Never share the pack: it holds converted copies of the
+game's files.
 
 **Notifications** (Android 13 and later). A build that targets Android 13 or later must ask for the notification
 permission, or the game's reminders are silently dropped. The game asks **once**, at the main menu, with Android's own

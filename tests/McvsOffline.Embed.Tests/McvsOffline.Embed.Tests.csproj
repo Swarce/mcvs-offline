@@ -12,6 +12,8 @@
     <IsTestProject>true</IsTestProject>
     <RootNamespace>McvsOffline.Embed.Tests</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- hosts/embedded/Install/PackIndex.cs is compiled in here and also into tools/hd-textures (referenced): this copy wins. -->
+    <NoWarn>$(NoWarn);CS0436</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -29,6 +31,11 @@
     <ProjectReference Include="../../patcher/McvsOffline.Patcher.csproj" />
     <ProjectReference Include="../../tools/hd-textures/McvsOffline.HdTextures.csproj" />
   </ItemGroup>
+
+  <PropertyGroup Condition="Exists('../../tools/hd-textures/PackBuilder.cs')">
+    <!-- The HD converter is in the tree: HdInstallerTests also installs a pack its PackBuilder wrote (docs/design/hd-install.md). -->
+    <DefineConstants>$(DefineConstants);MCVS_HD_CONVERTER</DefineConstants>
+  </PropertyGroup>
 
   <ItemGroup>
     <!-- The embedded host's portable code (Android-only files are behind #if MCVS_EMBEDDED). -->
