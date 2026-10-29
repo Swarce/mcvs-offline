@@ -1863,7 +1863,9 @@ Document shape added at the top level of the CRM document:
 * When `crm.newsfeedLink` is false, `admin.enabled` is false or no `IAdminPortal` is registered, the document carries
   **`"newsfeeds": []`** (an absent key would leave an existing message in the inbox forever: `OnCrmDataSet` returns
   before `RemoveExpiredNewsFeed` when `NewsFeed` is null).
-* A `newsfeeds` array from `crm.overlay` is kept; ours is appended (replacing an entry with the same `news_id`).
+* A `newsfeeds` array from `crm.overlay` is kept; ours is added (replacing an entry with the same `news_id`) before the
+  first kept entry with the same asset key (a missing asset is "", like ours), else at the end: the PC client gives
+  every inbox message the dates of the first item of its asset (docs/design/pc-port.md §4.3).
 * Implementation: `server/Services/Crm/CrmNewsfeed.cs` builds the list from `IAdminPortal.PageMarkerUrl` and the clock;
   `CrmDocumentBuilder.Build` gains a `List<object> newsfeeds` parameter applied after the `crm.overlay` merge and before
   `CrmDocumentValidator.Sanitize` (which gains a `newsfeeds` check, §10.8); `CrmDocumentCache` passes it and adds the

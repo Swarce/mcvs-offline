@@ -160,6 +160,16 @@ namespace McvsOffline.Tests.Content
                 DateTime end = ((DateTime)item.EndDate).ToUniversalTime();
                 Assert.Equal(monday.AddDays(CrmNewsfeed.EndDateDays), end);
                 Assert.True(end > now.AddDays(30), "the message must outlive the client's own 30 days");
+
+                // An overlay item without asset and end_date (the key "" for the client) does not take the key from ours.
+                server.Context.Settings.Override("crm.overlay", MiniJson.ParseObject(
+                    "{\"newsfeeds\":[{\"news_id\":\"tester\",\"title\":\"x\",\"timestamp\":1792972800}]}"));
+                list = MiniJson.Serialize(MiniJson.ParseObject(Document(server))["newsfeeds"]);
+                newsfeeds.Clear();
+                Activator.CreateInstance(newsFeedData, GameClient.CallStatic(jtoken, "Parse", list));
+                item = Assert.Single(newsfeeds.Values.Cast<object>());
+                Assert.Equal(CrmNewsfeed.NewsId, (string)item.Id);
+                Assert.Equal(monday.AddDays(CrmNewsfeed.EndDateDays), ((DateTime)item.EndDate).ToUniversalTime());
             }
         }
 
@@ -207,8 +217,9 @@ namespace McvsOffline.Tests.Content
             server.Context.Settings.Override("crm.overlay", MiniJson.ParseObject("{\"newsfeeds\":[{\"news_id\":42,\"title\":\"x\",\"timestamp\":1792972800.5}]}"));
             crm = Activator.CreateInstance(data, Document(server));
             List<object> items = Items(crm);
-            Assert.Equal(new[] { "42", CrmNewsfeed.NewsId }, items.Select(i => (string)((dynamic)i).Id).ToArray());
-            Assert.Equal(Monday, (DateTime)((dynamic)items[0]).CreationDate);
+            // Ours leads the entries without an asset (the PC client's Newsfeeds[""] must be ours, pc-port.md §4.3).
+            Assert.Equal(new[] { CrmNewsfeed.NewsId, "42" }, items.Select(i => (string)((dynamic)i).Id).ToArray());
+            Assert.Equal(Monday, (DateTime)((dynamic)items[1]).CreationDate);
         }
     }
 }

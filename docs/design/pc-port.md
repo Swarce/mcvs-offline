@@ -492,7 +492,9 @@ PC's `NewsFeedData.Newsfeeds` dictionary makes the inbox message take the item's
 MCVS Offline inbox item expired at every week rollover ([CN-V] §8). `server/Services/Crm/CrmNewsfeed.Item` adds
 `"end_date": TimeFormat.Iso8601(WeekStart(now) + 37 days)` after `"timestamp"` (at least 30 days ahead; on Android the
 expiry becomes this date instead of now + 30 days, the same behaviour). Optional in the same package:
-`CrmDocumentValidator` warns when two newsfeed items share an `asset` and the first has no `end_date`.
+`CrmDocumentValidator` warns when two newsfeed items share an `asset` and the first has no `end_date`. A missing
+asset is the key "" (`SafeGetString`'s default), ours; `CrmDocumentBuilder` puts our item before the first overlay
+item of its key, so an overlay item without asset and `end_date` cannot give our message its dates.
 
 ### 4.4 Client id per platform
 
