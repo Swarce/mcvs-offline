@@ -1,0 +1,73 @@
+# Builds McvsOffline.sln and runs its test projects on a clean Linux runner.
+#
+# The runner has no game files. Tests that need the player's own APK, assemblies, data pack or Steam install
+# look for them (MCVS_REFS, MCVS_APK, MCVS_DATAPACK, MCVS_PC_INSTALL, or the default /home/user/mcvs-work paths),
+# log "skipped" and return when they are missing. The MCVS_REQUIRE_* variables, which turn a missing file into a
+# failure, are never set here.
+#
+# server/McvsOffline.Server.Embedded.csproj is not in the solution and is not built here: it compiles against the
+# game's own Mono assemblies (MCVS_REFS). scripts/build.sh builds it on a machine that has them.
+
+name: CI
+
+on:
+  push:
+    branches: [main, main-dev]
+  pull_request:
+    branches: [main, main-dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+  DOTNET_NOLOGO: 1
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 1
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      # No packages.lock.json in the repository, so the NuGet folder is cached by hand.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/*.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore McvsOffline.sln
+
+      - name: Build
+        run: dotnet build McvsOffline.sln -c Release --no-restore
+
+      - name: Test
+        run: |
+          status=0
+          for project in tests/*/*.Tests.csproj; do
+            name=$(basename "$project" .csproj)
+            dotnet test "$project" -c Release --no-build \
+              --logger "trx;LogFileName=$name.trx" --results-directory TestResults || status=1
+          done
+          exit $status
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults/*.trx
+          if-no-files-found: warn

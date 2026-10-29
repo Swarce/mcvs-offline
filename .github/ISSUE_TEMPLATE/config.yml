@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Player setup guide
+    url: https://github.com/Swarce/mcvs-offline/blob/main/docs/PLAYER-SETUP.md
+    about: Building, installing and logs. Most setup questions are answered there.
+  - name: Security problem
+    url: https://github.com/Swarce/mcvs-offline/security
+    about: Report it privately (SECURITY.md), not in a public issue.

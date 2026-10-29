@@ -1,133 +1,284 @@
+<div align="center">
+
 # MCVS Offline
 
-A preservation project for **Modern Combat Versus** (Gameloft, Android, APK 1.17.32,
-`com.gameloft.android.ANMP.GloftMVHM`): the game fully offline, with full progression saved on the device,
-everything obtainable, bot matches, and later LAN and internet P2P.
+**Modern Combat Versus, playable offline, with your progress kept on your phone.**
 
-**Status: feature-complete on the server side, first device test done.** Every piece builds and passes its tests,
-including a conformance harness that drives the game's own client libraries against the server. The first device test
-(October 2026) booted the patched game as far as the in-process game server loading its level; the two blockers it found
-are fixed and the build now carries detailed diagnostics. [docs/STATUS.md](docs/STATUS.md) has the findings and what the
-next device session must check.
+A preservation project for Gameloft's Modern Combat Versus (Android, APK 1.17.32).
+
+No download: you turn your own copy of the game into the offline version on your PC.
+[How to play offline →](docs/PLAYER-SETUP.md)
+
+![Platform: Android](https://img.shields.io/badge/platform-Android-3DDC84?logo=android&logoColor=white)
+![Game: 1.17.32](https://img.shields.io/badge/game-1.17.32-555555)
+![Status: in development](https://img.shields.io/badge/status-in%20development-orange)
+[![CI](https://github.com/Swarce/mcvs-offline/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Swarce/mcvs-offline/actions/workflows/ci.yml)
+[![License: MPL 2.0](https://img.shields.io/badge/license-MPL--2.0-brightgreen)](LICENSE)
+
+[Quick start](#getting-started) · [How to play offline](docs/PLAYER-SETUP.md) · [Status](#status) · [Architecture](docs/ARCHITECTURE.md) · [Roadmap](docs/ROADMAP.md)
+
+</div>
+
+---
+
+## What is this
+
+Modern Combat Versus needs Gameloft's online services to start, and those services are gone. The game itself still
+ships everything else: its own match and menu servers, the bots, the rules and the rewards. Only the backend it talks
+to, Gameloft's **Federation** service, is missing.
+
+MCVS Offline reimplements that backend as a small C# server that runs **inside the game process**. A patcher adds it to
+**your own** copy of the game, on your own computer. The result is an APK that plays fully offline: bot matches with
+full rewards, progression saved on the device, and every item obtainable.
+
+The repository contains no game files. You bring your own APK; the project brings the server and the patcher.
+
+## Features
+
+**Play offline**
+
+- Boots to the menu and plays with no internet connection and no Gameloft servers.
+- Bot-filled PvP matches that start at once, with full rewards and progression. The Bot Match mode in the menu
+  (BOTMATCH) gives the same full rewards as Battle.
+- Live ops generated from the clock: weekly division seasons, daily missions and weekly events.
+- Installs the game data from a backup, a copied `Data/` folder or a mirror, without Gameloft's download servers.
+
+**Your progress**
+
+- Progression, inventory and currencies saved on the device, with atomic writes, automatic backups and recovery from a
+  corrupt file.
+- An in-game **MCVS Offline page** for settings, save backups, logs you can share, and save export and import between
+  phones without a PC.
+
+**Everything obtainable**
+
+- A VersusCoins shop for every item category.
+- Unlock codes: `UNLOCKALL`, smaller split codes, `UNLOCKPAID`, and the opt-in `UNLOCKUNRELEASED`.
+- The **Cosmetic crate**: a play path for the ~600 released items that never had a source in the game.
+
+**Looks and compatibility**
+
+- Graphics profiles (`auto`, `mid`, `high`, `ultra`), using Gameloft's own GPU profiles.
+- **HD textures** from the PC (Steam) version, which has many textures at twice the phone's resolution: an ASTC pack
+  for most recent phones (Galaxy S22 and newer), ETC packs for older GPUs. You build them yourself from your own Steam
+  files; see [tools/hd-textures](tools/hd-textures/README.md).
+- Targets Android 15, so Play Protect does not warn that the app was built for an older version of Android.
+
+**For tinkerers**
+
+- A standalone server for a PC: run the unmodified game against it and watch every request.
+- `settings.json` for the economy multipliers, unlock-all, the game's developer menu and more.
+- Per-service protocol notes, a module guide and the full device-test history.
+
+## Status
+
+Current player build: **12**. The game works offline on a Samsung Galaxy S22 (Android 16): boot, bot matches, saves,
+the shop, the MCVS Offline page and the HD textures. A few newer features are built and waiting for a phone test. Expect rough edges and keep your backups.
+[docs/STATUS.md](docs/STATUS.md) has the detailed history of every build and device test.
+
+| Goal | Status |
+|---|---|
+| Fully offline boot to the menu | Works (tested on a phone) |
+| Bot matches with full rewards | Works (tested on a phone) |
+| Progression saved on the device | Works (tested on a phone) |
+| Shop and unlock codes | Works (tested on a phone) |
+| Offline data install from a backup or copied data | Works (tested on a phone) |
+| Live ops from the clock | Works (tested on a phone) |
+| MCVS Offline page: settings, saves, logs | Works (tested on a phone) |
+| Cosmetic crate | Built, waiting for a phone test (the crate starts with a later season) |
+| Target Android 15 | Works (builds 10 to 12 installed and played on a phone) |
+| Graphics profiles | Works (tested on a phone) |
+| HD textures (ASTC and ETC packs) | Works: the ASTC pack on a Galaxy S22, at the same frame rate as the stock textures |
+| PC (Steam) port | In progress: a Windows test kit ([docs/PC-SPIKE.md](docs/PC-SPIKE.md)); the design is on the `wip/pc-port` branch |
+| LAN multiplayer | Experimental: guests use the host's server for everything |
+| Internet multiplayer | Planned (overlay VPN guide first) |
+| Preservation extras | In progress: CDN mirror and backup verifier done; missing maps not started |
 
 ## How it works
 
-The game already ships its own authoritative servers: the Transaction Server (menus, meta, rewards, profile) and the
-Game Server (matches) run as in-process Worlds in the game's "Embedded" mode, and bots fill the matches. The only dead
-piece is Gameloft's **Federation** HTTP backend (eve, pandora, auth, storage, CRM, matchmaker, social, messaging,
-alerts, leaderboards, coupons, ...). This project reimplements exactly that backend, as a small HTTP/1.1 server written
-in C# 7.3 that runs either on a PC (for development) or inside the game process (for players).
+The game ships its own match and menu servers (Gameloft calls them the **Game Server** and the **Transaction Server**)
+and can run them inside the app. What died is the online account backend, **Federation**: login, cloud saves, offers,
+matchmaking and more. Because those servers load and save your profile through Federation, a local Federation server
+gives full saves without changing the game's logic.
 
-The game saves no progression on the device itself: its TS and GS Worlds load and save the profile through
-Federation storage. A Federation emulator with the right storage semantics therefore gives full persistence with no
-change to the game's logic. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (normative) and the research notes in
+```mermaid
+flowchart LR
+  subgraph proc["The game process on the phone (no network needed)"]
+    client["Game client<br/>(your patched APK)"]
+    subgraph worlds["Gameloft's own servers, inside the app"]
+      ts["Menu server<br/>(Transaction Server)"]
+      gs["Match server<br/>(Game Server)"]
+    end
+    fed["MCVS Offline server<br/>(replaces Gameloft's Federation)"]
+  end
+  disk[("McvsOffline/ folder<br/>profile, settings, logs")]
+
+  client <-->|local TCP and UDP| worlds
+  client -->|HTTP| fed
+  worlds -->|HTTP: load and save the profile| fed
+  fed --> disk
+```
+
+The patcher adds the server DLL to your APK, hooks the game so the server starts first, applies a set of fixes, and
+re-signs the APK with your key. Every patch site is checked against the exact code of 1.17.32 first; if anything
+differs, the patcher stops without writing.
+
+More: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (normative design) and the research notes in
 [docs/research/](docs/research/).
 
-## Status per goal
+## Getting started
 
-| Goal | Status | Where |
-|---|---|---|
-| Fully offline boot to the menu | Works on a Samsung S22 (Android 16) since device test 3; conformance-tested with the real client libraries. Data already on the phone (backup, `Data/` copy or mirror) installs without Gameloft's CDN (build 5, device test pending) | AUTH, STORAGE, CONTENT, MISC; [STATUS](docs/STATUS.md), [INSTALL-OFFLINE](docs/INSTALL-OFFLINE.md) |
-| Full progression saved on the device | Storage complete: byte-exact profile dumps, no ETags, 401 never 403, atomic writes plus directory fsync, backups, corrupt-file recovery | [protocol/storage.md](docs/protocol/storage.md) |
-| Everything obtainable | VersusCoins economy (1,864 store entries), unlock coupons (`UNLOCKALL` and split codes), optional `unlockAll` through the inventory ledger, optional developer menu | [ECONOMY.md](docs/ECONOMY.md), [protocol/content.md](docs/protocol/content.md), [protocol/unlocks.md](docs/protocol/unlocks.md) |
-| Bot matches with full rewards | Instant bot-filled PvP through CRM (`MinPlayers 1`), `bottile` patch routes the BOTMATCH tile to the full-progression GS flow | [verify-C4](docs/research/verify-C4-bot-match-progression.md), patcher |
-| Player build (offline APK) | Patcher complete (hook, nativeonline, waits, geo, bottile, finder, store, signatures, debloat, adminpage, adminlink, graphics, targetsdk, game; signing v1/v2/v3; every ABI by default, `--abi arm64-v8a` for 64-bit only); checked offline with apksigner, zipalign and ILVerify | [PLAYER-SETUP.md](docs/PLAYER-SETUP.md) |
-| Settings, saves and logs on the phone | The in-game MCVS Offline page (build 9, device test pending): settings, backups, save export/import between phones, logs shared through Android's share sheet | [PLAYER-SETUP.md](docs/PLAYER-SETUP.md) §7, [design](docs/design/settings-page.md) |
-| LAN P2P | Experimental: `lan` patch and LAN mode exist; guests must use the host's server for everything (topology A). Forwarding to each device's own server is not implemented | [roadmap](docs/ROADMAP.md) M3, [verify-C6](docs/research/verify-C6-lan-p2p.md) |
-| Internet P2P | Not started (planned: overlay VPN guide first) | [roadmap](docs/ROADMAP.md) M4 |
-| Live ops (division seasons, daily missions, weekly events) | Generated from the clock, offline; conformance-tested with the real client (build 5, device test pending) | [LIVEOPS.md](docs/LIVEOPS.md) |
-| Preservation extras (missing maps, local data archive) | Partly: CDN mirror and backup verifier (`tools/cdn-mirror`); missing maps not started | [roadmap](docs/ROADMAP.md) M5 |
+### For players
 
-## Quickstart
+The full guide, with every command: **[docs/PLAYER-SETUP.md](docs/PLAYER-SETUP.md)**.
 
-Requirements: the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0). The embedded build and the
-conformance tests also need the `assemblies/` folder of **your own** 1.17.32 APK (`unzip mcvs.apk 'assemblies/*'`).
+You need:
 
-```sh
-MCVS_REFS=/path/to/apk/assemblies scripts/build.sh   # net8 solution + embedded DLL + all tests
-scripts/run-standalone.sh                             # Federation server on http://127.0.0.1:51780/
-```
+- an Android phone with the original game (APK 1.17.32, a single APK, not split);
+- a PC with the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0): Linux or macOS, or Windows with WSL
+  (the build scripts are bash scripts);
+- `adb`, with USB debugging on.
 
-### Mode 1: development loop (stock APK, server on a PC)
+1. **Back up.** Pull your APK and the game's data folder (about 1.5 GB) to the PC. Android deletes the data when the
+   original game is uninstalled.
+2. **Build and patch.** Build the server against the libraries in your own APK, then let the patcher turn your APK into
+   the offline APK. Back up the signing key it creates: updates must use the same key.
+3. **Install.** Uninstall the original, install the offline APK, and restore your data backup before the first launch.
+4. **Optional: HD textures.** Build an HD pack from your own Steam copy with
+   [tools/hd-textures](tools/hd-textures/README.md) and push it to the phone
+   ([PLAYER-SETUP.md](docs/PLAYER-SETUP.md) section 7, [INSTALL-OFFLINE.md](docs/INSTALL-OFFLINE.md)).
 
-Install the unmodified game, push an `args.txt` that points it at the PC, forward the port over USB and watch every
-request in the server log. Step by step, with the exact file contents: [docs/DEV-LOOP.md](docs/DEV-LOOP.md).
+Keep your original APK unmodified. It is the only source for future patches.
 
-```sh
-adb reverse tcp:51780 tcp:51780
-adb push args.txt /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/args.txt
-scripts/run-standalone.sh --log-level debug
-```
+### For developers
 
-### Mode 2: player build (server inside the game)
-
-The patcher turns your own APK into the offline APK (the server DLL is added, the game is hooked to start it, the APK
-is re-signed). Full guide, including the data backup you must make before uninstalling the original:
-[docs/PLAYER-SETUP.md](docs/PLAYER-SETUP.md).
+Requirements: the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) and a bash shell. The embedded build
+and the real-client conformance tests also need the `assemblies/` folder of your own 1.17.32 APK.
 
 ```sh
-dotnet artifacts/bin/McvsOffline.Patcher/release/McvsOffline.Patcher.dll \
-  --apk mcvs.apk --server artifacts/bin/McvsOffline.Server.Embedded/release/McvsOffline.Server.dll --out mcvs-offline.apk
+unzip -o mcvs.apk 'assemblies/*' -d mcvs-apk
+MCVS_REFS="$PWD/mcvs-apk/assemblies" scripts/build.sh   # solution, embedded server DLL, all tests
+scripts/run-standalone.sh --log-level debug             # Federation server on http://127.0.0.1:51780/
 ```
 
-## Settings
+Without `MCVS_REFS`, `build.sh` builds and tests the net8 projects and skips the embedded build. The other test
+switches are listed in `scripts/build.sh` and [docs/DEV-LOOP.md](docs/DEV-LOOP.md).
 
-`settings.json` lives next to the server's data (standalone: `./data/`; in the game:
-`/sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/`). The most useful keys:
+**Development loop.** The unmodified game on a phone, the server on a PC, one USB cable. Nothing is patched; every
+request shows up in the PC's log. Step by step, including the `args.txt` the game needs:
+[docs/DEV-LOOP.md](docs/DEV-LOOP.md).
+
+Shared server code is C# 7.3 and must also compile against the game's trimmed Mono class library: no `async`/`await`,
+no `HttpListener`, no Newtonsoft. The rules are in [docs/MODULES.md](docs/MODULES.md) and
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §2.1.
+
+## Configuration
+
+Most settings can be changed on the phone, on the **MCVS Offline page** (Settings › Account › MCVS Offline, or the
+MCVS Offline message in the inbox). Each setting there says when it applies.
+
+Underneath, everything lives in `settings.json` (in the game:
+`/sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/`; standalone: `./data/`). A few keys:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `port` | `51780` | Federation port (the player build bakes it into the `geo` patch; re-patch after changing it) |
-| `unlockAll` | `false` | Grant every merc, weapon, gear slot, signature, camo, accessory and skin through the inventory ledger |
-| `devMenu` | `false` | Leave the game's developer cheat menu enabled (6-tap gesture, verify-C5) |
-| `instantBots` | `true` | Start PvP immediately, filled with bots |
+| `unlockAll` | `false` | Grant every merc, weapon, gear slot, signature, camo, accessory and skin through your inventory |
 | `economy.*Multiplier` | `1.0` | Credits, VersusCoins, XP and store-price multipliers |
-| `assets.couponsEnabled` | `true` | Accept the unlock coupon codes (Settings → Account → Redeem code) |
-| `lanMode`, `bind` | `false`, `127.0.0.1` | LAN host mode (experimental) |
+| `graphics.profile` | `auto` | Graphics profile: `auto`, `mid`, `high` or `ultra` (after a restart) |
+| `hd.enabled` | `true` | Install the HD pack in `McvsOffline/hd/`; `false` removes it at the next start |
 
-Each module's own keys are documented in its protocol note ([docs/PROTOCOL.md](docs/PROTOCOL.md)).
+All keys: [docs/PLAYER-SETUP.md](docs/PLAYER-SETUP.md) section 8 (the in-game host) and the per-module protocol notes
+in [docs/PROTOCOL.md](docs/PROTOCOL.md).
 
 ## Project layout
 
+<details>
+<summary>Folders and what they hold</summary>
+
 ```
-server/            McvsOffline.Server: one source tree compiled twice (net8 and the game's trimmed Mono BCL)
-  Core/            HTTP/1.1 server on raw sockets, router, MiniJson, accounts/tokens, durable storage helpers,
-                   settings, logging, data-pack reader (GCBF/LZ4)
-  Services/        one folder per Federation service: Eve, Pandora, Auth, Storage, Crm, Matchmaker, Assets,
-                   Social, Messaging, Alerts, Leaderboards, GameStats, Profanity, Chat, Clans, Wall, BanTool, Geo,
-                   Misc (catch-all), Unlocks (unlockAll glue); ServiceRegistry wires them
-  Content/         generated store catalogue, economy, unlock groups, CRM overlay (ids and prices only)
-hosts/standalone/  net8 console host: dev loop, LAN host, conformance target
-hosts/embedded/    Bootstrap compiled into the in-game McvsOffline.Server.dll (args.txt, device id, logcat)
-patcher/           McvsOffline.Patcher (net8 + Mono.Cecil): your APK -> the offline APK
-tests/             McvsOffline.Tests (server modules, core, real-client conformance) and
-                   McvsOffline.Embed.Tests (embedded host, patcher, real parser and geo checks)
-tools/content-gen/ generator for server/Content from the decoded data pack (Python, stdlib only)
-tools/art/         owner-side icon exporter and previews (Python, Pillow)
-art/android/       the project's own launcher icon and launch-screen art, built into the patcher (empty until drawn)
-tools/hd-textures/ HD texture converter: PC textures to ETC1 replacements for the phone (net8 console)
-tools/pc-spike/    WP0 kit for the Steam build (one Windows exe; tests in tests/McvsOffline.PcSpike.Tests)
-scripts/           build.sh, run-standalone.sh
-docs/              architecture, module guide, protocol notes, status, guides, research
+server/              McvsOffline.Server: one source tree compiled twice (net8, and the game's trimmed Mono BCL)
+  Core/              HTTP/1.1 server on raw sockets, router, MiniJson, accounts and tokens, durable storage,
+                     settings, logging, data-pack reader (GCBF/LZ4)
+  Services/          one folder per Federation service (Eve, Pandora, Auth, Storage, Crm, Matchmaker, Assets,
+                     Social, Messaging, Alerts, Leaderboards, GameStats, ...), plus Unlocks and Admin (the in-game page)
+  Content/           generated store catalogue, economy, live ops, unlock groups (ids and prices only); the page
+hosts/standalone/    net8 console host: dev loop, LAN host, conformance target
+hosts/embedded/      the in-game host: start-up, args.txt, diagnostics, page hooks, offline data install, HD installer
+patcher/             McvsOffline.Patcher (net8 + Mono.Cecil): your APK -> the offline APK
+tests/               McvsOffline.Tests (server, real-client conformance), McvsOffline.Embed.Tests (embedded host,
+                     patcher, HD installer), McvsOffline.PcSpike.Tests (PC test kit)
+tools/content-gen/   generator for server/Content from the decoded data pack (Python, standard library only)
+tools/cdn-mirror/    mirror Gameloft's data CDN and verify backups against its CRC index (Python, standard library only)
+tools/hd-textures/   PC textures to HD packs for the phone: the ASTC data pack or ETC packs (net8)
+tools/pc-spike/      Windows test kit for the Steam version (one exe)
+tools/art/           icon exporter and previews for the project's own art (Python, Pillow)
+art/android/         the project's own launcher icon and launch-screen art (empty until drawn)
+scripts/             build.sh, run-standalone.sh
+docs/                architecture, status, guides, protocol notes, designs, research
 ```
+
+</details>
 
 ## Documentation
 
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the design (normative)
-- [docs/STATUS.md](docs/STATUS.md): what is implemented, the device-test findings, the expected log sequence, the device-test checklist
-- [docs/DEV-LOOP.md](docs/DEV-LOOP.md): stock APK against the standalone server
-- [docs/PLAYER-SETUP.md](docs/PLAYER-SETUP.md): building and installing the offline APK
-- [docs/PC-SPIKE.md](docs/PC-SPIKE.md): the Windows test kit for the Steam version (PC port WP0)
-- [docs/PROTOCOL.md](docs/PROTOCOL.md): index of the per-service protocol notes
-- [docs/ECONOMY.md](docs/ECONOMY.md): the offline economy and how to tune it
-- [docs/MODULES.md](docs/MODULES.md): module ownership, the module seam, core APIs, rules for code that runs in the game
-- [docs/research/](docs/research/): reverse-engineering reports; the `verify-C*` notes take precedence
+| Document | What it covers |
+|---|---|
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | The design (normative) and the build constraints |
+| [STATUS.md](docs/STATUS.md) | What is implemented, how it was checked, every device test, the next checklist |
+| [PLAYER-SETUP.md](docs/PLAYER-SETUP.md) | Building and installing the offline APK; the MCVS Offline page; logs |
+| [INSTALL-OFFLINE.md](docs/INSTALL-OFFLINE.md) | Installing the game data without Gameloft's servers; the HD packs |
+| [DEV-LOOP.md](docs/DEV-LOOP.md) | The unmodified game against the standalone server |
+| [ECONOMY.md](docs/ECONOMY.md) | The offline economy, unlock codes, the Cosmetic crate, tuning |
+| [LIVEOPS.md](docs/LIVEOPS.md) | Division seasons, daily missions and weekly events |
+| [MODULES.md](docs/MODULES.md) | Module ownership, the module seam, core APIs, rules for code that runs in the game |
+| [PROTOCOL.md](docs/PROTOCOL.md) | Index of the per-service protocol notes in [protocol/](docs/protocol/) |
+| [ROADMAP.md](docs/ROADMAP.md) | Done, next and later |
+| [PC-SPIKE.md](docs/PC-SPIKE.md) | The Windows test kit for the Steam version |
+| [design/](docs/design/) | [Settings page](docs/design/settings-page.md), [Cosmetic crate](docs/design/economy-collector.md), [HD texture packs](docs/design/hd-textures.md), [HD installer](docs/design/hd-install.md) |
+| [research/](docs/research/) | Reverse-engineering reports; where they disagree, the `verify-C*` notes are the checked result |
 
-## Legal note
+## Roadmap
 
-This repository contains no Gameloft files: no APK, no assemblies, no decompiled code, no game data and nothing derived
-from them except generated item ids and prices. The build compiles against the libraries in the player's own APK, the
-patcher modifies the player's own APK on the player's machine, and the server reads the player's own data pack at
-runtime. The `.gitignore` refuses binaries, data-pack files, decompiled sources and signing keys. Modern Combat Versus
-and all related names are trademarks of Gameloft; this is an unofficial, non-commercial preservation project with no
-affiliation to Gameloft.
+- **Next:** the PC (Steam) port, a phone test of the Cosmetic crate, and Android's game
+  category for the patched APK (so Game Mode and Samsung's Game Booster treat it as a game).
+- **Later:** the project's own icon art, LAN multiplayer, internet multiplayer, and preservation extras (a full CDN
+  mirror, maps from older builds).
+
+Details: [docs/ROADMAP.md](docs/ROADMAP.md).
+
+## Reporting issues
+
+Bug reports from real devices are the most useful contribution. Please include:
+
+- the player build (on the MCVS Offline page, under Status), your phone model and Android version;
+- what you did and what happened; for a hang, wait at least 60 seconds before closing the game, so the watchdog can log
+  what it waits for;
+- the logs. On the phone: MCVS Offline page › Logs › **Build**, then **Share** (the "Recent" scope stays under 8 MB).
+  Without the page: Files › Downloads › MCVS-Offline, the files of the newest start. With a PC:
+  `adb logcat -s McvsOffline mono-stdout`.
+
+Never attach your APK, game data, an HD pack or a signing key. More on logs: [PLAYER-SETUP.md](docs/PLAYER-SETUP.md)
+section 6.
+
+## Legal
+
+This repository contains **no Gameloft files**: no APK, no assemblies, no decompiled code, no game data and nothing
+derived from them, except generated item ids and prices. The build compiles against the libraries in the player's own
+APK, the patcher modifies the player's own APK on the player's machine, and the server reads the player's own data pack
+at runtime. HD packs are converted on the player's computer from the player's own files and must not be shared. The
+`.gitignore` refuses binaries, data-pack and texture files (`*.f`, `*.ktx`), ETC HD packs (`mcvs-hd-*.zip`),
+decompiled sources and signing keys.
+
+Modern Combat Versus and all related names are trademarks of Gameloft. This is an unofficial, non-commercial
+preservation project with no affiliation to Gameloft.
+
+The project's own code and documentation are licensed under the [Mozilla Public License 2.0](LICENSE). The license
+covers only this repository: it grants no rights to Modern Combat Versus or any Gameloft file, name or asset.
+
+## Acknowledgements
+
+- **Gameloft**, the original developer of Modern Combat Versus.
+- [Mono.Cecil](https://github.com/jbevain/cecil), which the patcher uses to read and rewrite the game's assemblies.
+- [ARM astc-encoder](https://github.com/ARM-software/astc-encoder) (Apache License 2.0), which `tools/hd-textures`
+  runs to encode the ASTC data pack. It is not part of this repository.
+- [ILSpy](https://github.com/icsharpcode/ILSpy), used in the reverse-engineering research.
