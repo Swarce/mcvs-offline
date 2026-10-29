@@ -576,6 +576,10 @@ net45 build), and the PC folder can never be `MCVS_REFS` (no `mscorlib.dll`, `bu
   `MCVS_PC_REFS` has `Gameloft.OnlinePlatform.dll`, `("pc", MCVS_PC_REFS)`. The 38 tests of the live run become
   `[Theory]` over it. A PC-only `RealClientNewsfeedTests` case asserts `NewsFeedData.Newsfeeds` has one entry for our
   item and that its `EndDate` is our `end_date`.
+  *As built (WP1):* the collector tests that go through `RealTables` stay Android (the bullet above); their client half
+  runs on both folders as `CollectorConformanceTests.EveryServedTreeParsesIntoItsChangers` (`StandardCrm.Data` and
+  `CRMComponent.GetChanger` of each client). Applying our cells to the PC data pack's `MCVS_Meta` tables (a per-folder
+  `RealTables` with the PC `store` patch of WP4 and the PC data pack) is a WP4/WP5a follow-up.
 * `McvsOffline.Embed.Tests` tests fed by `MCVS_REFS` (`GamePatchProbeTests`, `RealArgumentsParserTests`,
   `RealStorePatchTests`, `AdminHooksContractTests`) stay Android; their PC twins are WP3/WP4 tests.
 
