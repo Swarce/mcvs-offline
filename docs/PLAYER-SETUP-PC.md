@@ -105,6 +105,11 @@ game's Steam stats (stock behaviour).
   kit's log then continues in `%TEMP%\McvsOffline\kit\`.
 * After a Steam update or "Verify integrity of game files", run `status`: it says when you need to uninstall and wait
   for a kit that knows the new build.
+* `status` also reads the last start in `McvsOffline\logs\bootstrap.log`. `installed, NOT ACTIVE (Game loaded from the
+  game folder)` (or `… the 'store' patch is missing`) means the files are installed but the game did not run them, so
+  the offline fixes were missing in that start: close the game, run `install` again, start once, and if `status` still
+  says NOT ACTIVE send `collect`. The settings page shows the same as a red banner, and the `[status]` line in
+  `bootstrap.log` ends with `install: installed, NOT ACTIVE (…)`.
 
 ## 6. When something goes wrong
 
@@ -128,7 +133,7 @@ finding, not a failure on your side.
 | 1 | `status --listing` (before install) | any leftovers it lists (an old config, `McvsOffline\spike\`, an `args.txt` block) | the listing file is written to `McvsOffline\kit\` (or `%TEMP%\McvsOffline\kit\`) |
 | 2 | `probe` from a normal terminal | the http.sys line for `http://localhost:51750/`, the urlacl lines, port 51780, excluded port ranges, folder writable, the .NET Release value | http.sys starts and stops without "access denied" |
 | 3 | `install`, then `verify`, then `status` | the notes; the `written … sha256` lines of `verify` | `installed, current`; the six values in the table below, **exactly** |
-| 4 | `watch` in a second window, then start the game from Steam | in `McvsOffline\logs\bootstrap.log`: the `[boot] runtime:`, `[boot] assemblies:` and `[boot] patches:` lines | `process x86, LAA no`, `Release` 528040 or higher (4.5.2 at least: 379893); every assembly from `McvsOffline\bin`; every patch `yes` |
+| 4 | `watch` in a second window, then start the game from Steam; afterwards `status` | in `McvsOffline\logs\bootstrap.log`: the `[boot] runtime:`, `[boot] assemblies:` and `[boot] patches:` lines; the `state:` and `activation:` lines of `status` | `process x86, LAA no`, `Release` 528040 or higher (4.5.2 at least: 379893); every assembly from `McvsOffline\bin`, **`Game` included** (`assemblies: Game …\McvsOffline\bin\Game.dll`); every patch `yes` (`gameload yes`, `store yes`); no `NOT ACTIVE` anywhere; `status`: `installed, current`, `activation: active at the last start` |
 | 5 | reach the main menu | `[pc] quicklaunch:` lines; any `headless world:`, `server world:` or `component … not created` line; the `[boot] graphics:` line | LocalAnubis started and a room; the thread id equals the game thread; no headless/server-world lines; `MEM rule on, removed 1`; `excludedLoadingLayers` without `Physics` |
 | 6 | open the settings page: Settings › Account › MCVS Offline; then the inbox message; then the page's "Open in the system browser"; then `admin.openVia` = `system`, then `game` (restart the game each time); back to `auto`: once fullscreen, once windowed, once with Steam › Settings › In Game › "Enable the Steam Overlay while in-game" off | for each: where the page appeared and whether Status loads; the `admin: page opened … via …` line in `server.log` | the overlay shows the page in both window modes; with the overlay off: `via system` and the browser opens; `game` works after login; if `via overlay` ever shows nothing, the next click logs `via system … overlay showed no page last time` |
 | 7 | on the page: Saves › Save the game now; Saves › Export (Explorer opens `McvsOffline\exports`); Logs › share; copy a text. Then with `admin.openVia` = `system` and the game **minimised** behind the browser: Save the game now | whether each works; whether "Save now" finishes while the game is minimised | all work |
@@ -158,6 +163,8 @@ listed because it holds the install time):
 | `ModernCombatVersus.exe.config` | `3ebe99b3c93a9540cd7f7b03da55fc048a544501c17e8621457884eae456f94c` |
 
 Any difference in this table stops the round until it is explained: the bytes you run must be the bytes we tested.
+(These are build 13's values; build 14 adds the `gameload` patch and the `<qualifyAssembly>` entries, so the table is
+re-recorded for WR3: docs/design/pc-port.md §13.1.)
 
 ## 8. What to send back
 

@@ -100,7 +100,8 @@ ModernCombatVersus.exe (native, 32-bit, mutex GL_MCVS_UNIQUE_INSTANCE, SteamAPI_
           │    settings.json, args.txt managed block, server thread (127.0.0.1:51780), watchdog
           └─ MainLoop.Start(NativeHostsDotNet, null, false)
                native MainLoop_Start reads args.txt, then OnStarted → GameApplication
-                 Assembly.Load("Game") etc. → McvsOffline\bin\*.dll via .exe.config (Q1)
+                 Assembly.Load(new AssemblyName(McvsGameLoad.Qualify("Game")))   ← patch gameload (§8.9, WR2 F1)
+                   = a full name → McvsOffline\bin\Game.dll via the .exe.config codeBase (a bare name got the stock copy)
                  client World; "ts" link auto-connects: Prepare (anonymous session = SteamID64)
                  GetRoom: QuickLaunch → ClientComponent.QuickLaunch   ← patch quicklaunch P2 (§8.3)
                     PcHooks.QuickLaunch: LocalAnubisManager.Start (Lobby, Controller, Finder http.sys :51750)
@@ -430,6 +431,7 @@ WP3 only look them up by these names:
 | `quicklaunch` | `Gameloft.Engine.dll` | type `Gameloft.Engine.McvsQuickLaunch` (internal, abstract sealed) | no |
 | `headless-diag` | `Gameloft.Engine.dll` | type `Gameloft.Engine.McvsWorldDiagnostics` (internal, abstract sealed) | no |
 | `graphics` | `Gameloft.Engine.dll` | type `Gameloft.Engine.McvsGraphics` (`GraphicsPatch.HelperType`) | yes |
+| `gameload` | `Gameloft.Engine.dll` | type `Gameloft.Engine.McvsGameLoad` (internal, abstract sealed; `GameAssemblyLoadPatch.HelperType`, §8.9) | no |
 | `store` | `Game.dll` | type `Game.McvsStoreSafety` (`StorePatch.SafetyType`, `GamePatchProbe.StoreSafetyType`) | yes |
 
 The constants live in the patch classes (WP4) and are duplicated as string literals in `GamePatchProbe` (WP2) and
@@ -950,6 +952,11 @@ with Cecil, and these are the values for build 6372049, [PP] §5.2, [PP-V] §7):
         <assemblyIdentity name="McvsOffline.Server" culture="neutral" />
         <codeBase version="0.0.0.0" href="McvsOffline/bin/McvsOffline.Server.dll" />
       </dependentAssembly>
+      <qualifyAssembly partialName="EngineBridge" fullName="EngineBridge, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null" />
+      <qualifyAssembly partialName="Game" fullName="Game, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null" />
+      <qualifyAssembly partialName="Gameloft.Engine" fullName="Gameloft.Engine, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null" />
+      <qualifyAssembly partialName="Gameloft.Util" fullName="Gameloft.Util, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null" />
+      <qualifyAssembly partialName="McvsOffline.Server" fullName="McvsOffline.Server, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null" />
     </assemblyBinding>
   </runtime>
 </configuration>
@@ -962,6 +969,17 @@ strong-named, so the version is ignored but required by the schema, and the href
 else: no `<startup>`, no `<probing>`, no `<loadFromRemoteSources>`. The spike proved the mechanism for `EngineBridge`
 ([CR] §1 row 1); the chained `Game`/`Gameloft.Engine`/`Gameloft.Util`/`McvsOffline.Server` binds are Load-context binds
 (`PC-EN/ComponentAssemblies.cs:177`) and are WR2 Q1.
+
+WR2 answered Q1 (F1): `Gameloft.Engine`, `Gameloft.Util` and `McvsOffline.Server` came from `McvsOffline\bin` (each is bound
+through a full static reference: EngineBridge → Gameloft.Engine → Gameloft.Util, the patched copies → the server), but
+`Game` came from the game folder in 15 of 15 starts. The engine loads it by bare name
+(`Assembly.Load(new AssemblyName("Game"))`, `PC-EN/ComponentAssemblies.cs:177`, from `Config/Assemblies.mjson`), and a
+partial-name bind gets no application-config policy: it is probed in the application base only. Two layers fix it: the
+`gameload` IL patch (§8.9) makes that load a full reference, and one `<qualifyAssembly partialName fullName>` per
+redirected assembly turns any other bind by bare name (Newtonsoft.Json's `LoadWithPartialName` for a `$type`, a
+`Type.GetType("…, Game")`) into a full one, which gets the codeBase. Each `fullName` is the identity read from the written
+copy (culture neutral, no key; install refuses a copy that is not, and the read-back checks every entry against the file
+its codeBase points to).
 
 `PcExeConfig.IsOurs(text)`: our comment present. `IsSpikeConfig(text)`: the spike's comment (`tools/pc-spike/
 ExeConfig.cs` `OwnerComment`).
@@ -1046,6 +1064,12 @@ with game-run times, `GameFolder.GameWrittenNames`) and "other files, not ours" 
 in the read-only install of `MCVS_PC_REFS` as recorded in `GameFolder.DepotTopLevel`, e.g. `GameVersion`, and not
 ours); whether the game runs;
 data folder size, settings `port` versus `install.json` `options.port`; the last `bootstrap.log` line.
+**Activation** (WR2 F2: the files can be current while the game runs its own): the last start in `bootstrap.log` (from its
+last "embedded host starting" line) is judged by its `[boot] assemblies:` and `patches:` lines (`PcBootActivation`). An
+assembly not from `McvsOffline\bin` or a witness that says `NO` makes a `current` install `installed, NOT ACTIVE (Game
+loaded from the game folder; …)`, with an `ERROR:` line and the start's lines; a start older than `install.json`'s
+`writtenUtc` is not judged ("not started since the install"); a start that did not load Game is "unknown". The
+`activation:` line says which. STALE, DAMAGED and PARTIAL keep their state (the reason is still an error).
 
 **Verify** = status plus the re-read of step 6, and it prints the `written` SHA-256 of every file (so WR2 compares them
 with the Linux run without a file transfer, §13 step 3).
@@ -1084,6 +1108,7 @@ access denial: a virus scanner holding the file) up to 10 times 100 ms apart (`P
 | `quicklaunch` | Gameloft.Engine.dll | mandatory | new: P1, P2, P3 | §8.3; [QL] §7.1, [CR] F5, F6 |
 | `headless-diag` | Gameloft.Engine.dll | mandatory | new: M1, M4 | §8.5; [HL-V] M1, M4 |
 | `graphics` | Gameloft.Engine.dll | **mandatory** on PC (F7) | PC variant | §8.6 |
+| `gameload` | Gameloft.Engine.dll | **mandatory** | new (WR2 F1) | §8.9 |
 | `nativeonline` | Gameloft.Engine.dll | default | new locator (PC shape) | §8.7 |
 | `waits` | Gameloft.Engine.dll | default | new fingerprints | §8.7 |
 | `adminlink` | Gameloft.Engine.dll | default | new fingerprint | §8.7 |
@@ -1095,7 +1120,7 @@ access denial: a virus scanner holding the file) up to 10 times 100 ms apart (`P
 
 Order inside a file (as `ApkPatcher.AllPatches`, `:66-71`, then the new ones): Game.dll `headless`, `bottile`, `store`,
 `signatures`, `adminpage`, `forum`; Gameloft.Engine.dll `headless-engine`, `physics`, `quicklaunch`, `headless-diag`,
-`nativeonline`, `waits`, `adminlink`, `graphics`. The PC list lives in `PatchPlan` only; `ApkPatcher.AllPatches` and its
+`nativeonline`, `waits`, `adminlink`, `graphics`, `gameload`. The PC list lives in `PatchPlan` only; `ApkPatcher.AllPatches` and its
 test (`PatchTests.cs:277-303`) are not touched by the PC work.
 
 Per-build selection inside a patch class: fingerprints stay constants next to the patch (`…Fingerprint` for Android,
@@ -1287,6 +1312,24 @@ description texts take `BuildProfile.GameOptionsFile`. The MEM rule and profiles
 `PatchPlan.For(PcSteam6372049, …)` refuses `hook`, `finder`, `lan`, `debloat`, `targetsdk`, `game` (`PatchPlanTests`,
 §12.4); and every patch class asked to apply on a build it has no table for throws `PatchException` before changing
 anything (the cross-build refusals of §12.4, per patch).
+
+### 8.9 `gameload` (`GameAssemblyLoadPatch`, Gameloft.Engine.dll, PC only; WR2 F1)
+
+`ComponentAssemblies.GetAssembly(string fullPath, string name)`, fingerprint
+`b915f891ed04967504e8f835388ebdf926ff5b2ecdc97717b754dc5a4a14ca91` (45 instructions, one `catch (object)` around
+`IL_0027: ldarg.1; IL_0028: newobj AssemblyName(string); IL_002d: call Assembly::Load(AssemblyName)`). One inserted
+`call string Gameloft.Engine.McvsGameLoad::Qualify(string)` after `IL_0027`, inside the try: the bare name becomes the full
+display name for the names of `GameAssemblyLoadPatch.QualifiedNames`, everything else passes unchanged (the cache key and
+the `Loading`/`Loaded` events keep the bare name). `Assemblies.mjson` (PC data `460951647.f`) lists `Game` (gameDlls) and
+`NicePlaySDK` (managedDlls, absent on PC); of the redirected assemblies only `Game` is loaded this way, so the table is
+`Game → "Game, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null"`. Before any change the patch resolves the game
+folder's `Game.dll` and refuses unless its identity is exactly that (the patched copy keeps it; install cross-checks the
+table against the written copy). `McvsGameLoad` has no server dependency: `Qualify` is
+`if (name == "Game") return "<full name>"; return name;` (`string.op_Equality` from the PC corlib). Its presence is the
+witness (§3.9), reported in `[boot] patches: … gameload yes …`. Tests: `RealPcGameLoadTests` (the stock `GetAssembly`
+asks the loader for the bare name and the patched one for the full name, executed on net8 with a recording load context;
+the mjson and static-reference facts; the identity refusal), `RealPcPatchTests` (fingerprint, exact IL, second
+application, ILVerify).
 
 ---------------------------------------------------------------------------------------------------
 
@@ -1791,6 +1834,9 @@ The owner's copy is [PLAYER-SETUP-PC.md](../PLAYER-SETUP-PC.md) §7.
 
 * Applied patches: `hook-pc, headless, bottile, store, signatures, adminpage, headless-engine, physics, quicklaunch,
   headless-diag, nativeonline, waits, adminlink, graphics, geo`; `install.json` `installer.serverBuild` is `13`.
+* **Stale after WR2 F1 (build 14):** the `gameload` patch (§8.9) changes `Gameloft.Engine.dll` and the MVIDs, and the
+  `<qualifyAssembly>` entries change `ModernCombatVersus.exe.config`; the applied list gains `gameload` after `graphics`.
+  The table above must be re-recorded from a fresh `pc install` before WR3.
 * `MEM rule on, removed 1` (`GameOptionsWindowsTests.RealFileRemoved`, the real `GameOptions_windows.json`).
 * The kit: `McvsOffline.PcKit.exe`, SHA-256 `c608fd1903b83763657646482a0c7aee6ec8282e10f63aa237dcb753b2e8715d`; its
   publish check passed on the embedded DLL (every PC hook, `Gameloft.Logs`, only allowed references).
@@ -1816,7 +1862,7 @@ The owner's copy is [PLAYER-SETUP-PC.md](../PLAYER-SETUP-PC.md) §7.
 
 | # | question | settled by | if the answer is bad |
 |---|---|---|---|
-| Q1 | Do `Game`, `Gameloft.Engine`, `Gameloft.Util`, `McvsOffline.Server` bind through their `<codeBase>` (chained Load-context binds)? Expected yes ([PP-V] §8) | WR2 4 | option B (in place with backups) as a new installer mode; R3 |
+| Q1 | Do `Game`, `Gameloft.Engine`, `Gameloft.Util`, `McvsOffline.Server` bind through their `<codeBase>` (chained Load-context binds)? Expected yes ([PP-V] §8) | WR2 4: **no for `Game`** (bare-name load, 15/15 starts from the game folder), yes for the others. Fixed by `gameload` (§8.9) and `<qualifyAssembly>` (§7.4); WR3 step 4 re-checks (`assemblies: Game …\McvsOffline\bin\Game.dll`, `gameload yes`, `store yes`) | option B (in place with backups) as a new installer mode; R3 |
 | Q2 | Does http.sys accept `http://localhost:51750/` for a standard user? [I] yes ([CR] §1 row 7) | WR2 2, and step 5's log | D4: WP6 (§15) |
 | Q3 | Overlay: `IsOverlayEnabled`, loopback, fragment and `HttpOnly; SameSite=Strict` cookie in the overlay's CEF, in fullscreen and windowed mode | WR2 6 | `auto` already falls back (overlay disabled, or no page last time, §6.5); make `system` the default |
 | Q4 | First headless failure on the Windows engine (R1), with every §8.4/§8.5 site | WR2 5, 8 | new sites in WP4's table; if the engine refuses a second World at all, R1's fallback is a new design |

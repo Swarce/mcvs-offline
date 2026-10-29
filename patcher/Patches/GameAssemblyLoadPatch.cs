@@ -7,7 +7,7 @@ using Mono.Cecil.Cil;
 namespace McvsOffline.Patcher.Patches
 {
     /// <summary>
-    /// PC patch <c>gameload</c> (docs/design/pc-port.md §8.10, WR2 F1), Gameloft.Engine.dll. The engine loads the game's own
+    /// PC patch <c>gameload</c> (docs/design/pc-port.md §8.9, WR2 F1), Gameloft.Engine.dll. The engine loads the game's own
     /// assemblies (<c>Config/Assemblies.mjson</c>: <c>Game</c>, and <c>NicePlaySDK</c>, which the PC build does not have) in
     /// <c>ComponentAssemblies.GetAssembly(string fullPath, string name)</c> with <c>Assembly.Load(new AssemblyName(name))</c>, a
     /// bare name. A partial-name load gets no application-config policy: the <c>&lt;codeBase&gt;</c> of
