@@ -85,7 +85,8 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         {
             return new List<IlPatch>
             {
-                new StandInHookPcPatch(), new BotTilePatch(), new StorePatch(), new SignaturesPatch(), new HeadlessEnginePatch(), new PhysicsPatch(), new GeoPatch(),
+                new StandInHookPcPatch(), new BotTilePatch(), new StorePatch(), new SignaturesPatch(), new HeadlessEnginePatch(), new PhysicsPatch(),
+                new GameAssemblyLoadPatch(), new GeoPatch(),
             };
         }
 

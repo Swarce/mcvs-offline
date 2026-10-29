@@ -73,6 +73,19 @@ namespace McvsOffline.Embedded.Windows
             }
         }
 
+        /// <summary>
+        /// The "install:" part of the status line (WR2 F2): the file check's line, unless the running process shows the install is
+        /// not active (<paramref name="notActive"/>, the patch watcher's reason): then "install: installed, NOT ACTIVE (...)",
+        /// followed by the file check's line when that found something too. Null when neither is known yet.
+        /// </summary>
+        public static string Describe(string fileCheckLine, string notActive)
+        {
+            if (string.IsNullOrEmpty(notActive)) return fileCheckLine;
+            string line = "install: " + PatchWatcher.NotActiveText(notActive);
+            if (!string.IsNullOrEmpty(fileCheckLine) && fileCheckLine != "install: current") line += "; " + fileCheckLine;
+            return line;
+        }
+
         internal static string Sha256(string path)
         {
             using (SHA256 sha = SHA256.Create())

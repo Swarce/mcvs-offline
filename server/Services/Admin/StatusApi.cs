@@ -62,6 +62,13 @@ namespace McvsOffline.Server.Services.Admin
             AdminHostInfo info = api.DescribeHost();
             body["host"] = info == null ? null : Host(info);
 
+            // What the host knows about the client (WR2 F2): "notActive" is the PC error "installed, NOT ACTIVE (...)".
+            ClientCapabilities client = context.Features.Get<ClientCapabilities>();
+            var clientInfo = new Dictionary<string, object>(StringComparer.Ordinal);
+            clientInfo["storePatch"] = client == null ? null : (object)client.StorePatch;
+            clientInfo["notActive"] = client == null ? null : client.NotActive;
+            body["client"] = clientInfo;
+
             var file = new Dictionary<string, object>(StringComparer.Ordinal);
             file["file"] = context.Settings.FilePath;
             file["fallback"] = context.Settings.IsFallback;

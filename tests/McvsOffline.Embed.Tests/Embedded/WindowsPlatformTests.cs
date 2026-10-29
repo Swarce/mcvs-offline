@@ -262,6 +262,21 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.Contains("does not parse", InstallCheck.Run(root, data).Line);
         }
 
+        /// <summary>
+        /// WR2 F2: the status line's "install:" part is the error "installed, NOT ACTIVE (...)" whenever the running process shows
+        /// the redirect or a witness failed, whatever the file check said ("current" is dropped, anything else is kept).
+        /// </summary>
+        [Fact]
+        public void TheInstallLineSaysNotActiveWhenThePatchedClientIsNotRunning()
+        {
+            Assert.Equal("install: current", InstallCheck.Describe("install: current", null));
+            Assert.Null(InstallCheck.Describe(null, null));
+            Assert.Equal("install: installed, NOT ACTIVE (Game loaded from the game folder)", InstallCheck.Describe("install: current", "Game loaded from the game folder"));
+            Assert.Equal("install: installed, NOT ACTIVE (Game loaded from the game folder)", InstallCheck.Describe(null, "Game loaded from the game folder"));
+            Assert.Equal("install: installed, NOT ACTIVE (the 'store' patch is missing); install: stale: Steam updated the game (Game.dll changed since the install)",
+                         InstallCheck.Describe("install: stale: Steam updated the game (Game.dll changed since the install)", "the 'store' patch is missing"));
+        }
+
         // ------------------------------------------------------------------ Configure (IHostExtensions) and WindowsBoot
 
         [Fact]

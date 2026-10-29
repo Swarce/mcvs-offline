@@ -220,6 +220,9 @@ namespace McvsOffline.Embedded
         /// <summary>The capabilities the server reads.</summary>
         public ClientCapabilities Target { get { return target; } }
 
+        /// <summary>The file an assembly came from instead of <c>Assembly.Location</c> (tests: a sandbox assembly has none).</summary>
+        internal Func<Assembly, string> LocationOf { get; set; }
+
         /// <summary>The "patches:" line once written, else null.</summary>
         public string PatchesLine { get; private set; }
 
@@ -379,10 +382,12 @@ namespace McvsOffline.Embedded
             string location = null;
             try
             {
+                Func<Assembly, string> locationOf = LocationOf;
+                if (locationOf != null) location = locationOf(assembly);
                 // By reflection: Assembly.get_Location is a stub in the game's Android mscorlib (EmbeddedDllResolutionTests), and
                 // this file is compiled into the Android DLL too; only the PC host (with a boot trace) gets here.
-                PropertyInfo property = typeof(Assembly).GetProperty("Location", BindingFlags.Public | BindingFlags.Instance);
-                location = property == null ? null : property.GetValue(assembly, null) as string;
+                PropertyInfo property = locationOf != null ? null : typeof(Assembly).GetProperty("Location", BindingFlags.Public | BindingFlags.Instance);
+                if (property != null) location = property.GetValue(assembly, null) as string;
             }
             catch (Exception)
             {

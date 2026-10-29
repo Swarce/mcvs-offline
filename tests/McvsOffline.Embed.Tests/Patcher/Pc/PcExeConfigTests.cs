@@ -12,6 +12,13 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
     /// <summary><c>ModernCombatVersus.exe.config</c> (docs/design/pc-port.md §7.4): the exact text, href validation, ownership.</summary>
     public class PcExeConfigTests
     {
+        private readonly Xunit.Abstractions.ITestOutputHelper output;
+
+        public PcExeConfigTests(Xunit.Abstractions.ITestOutputHelper output)
+        {
+            this.output = output;
+        }
+
         /// <summary>§7.4 verbatim, for build 6372049's versions (the qualifyAssembly entries: WR2 F1).</summary>
         public const string Expected =
             "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n" +
@@ -131,6 +138,39 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         }
 
         /// <summary>
+        /// Install's read-back (and verify) checks each qualifyAssembly against the copy its codeBase points to: a wrong version,
+        /// a missing entry and an entry without a codeBase are problems. Real install of the stand-in plan; skipped without
+        /// MCVS_PC_REFS.
+        /// </summary>
+        [Fact]
+        public void TheReadBackChecksEachQualifiedNameAgainstItsCopy()
+        {
+            using (PcGameCopy copy = PcGameCopy.Create(output))
+            {
+                if (copy == null) return;
+                PcInstallReport installed = copy.Install();
+                Assert.True(installed.ExitCode == 0, installed.Error);
+                string config = copy.Path_(PcExeConfig.FileName);
+                string text = File.ReadAllText(config);
+                Assert.Equal(Expected, text);
+                InstallManifest manifest = copy.Status().Manifest;
+                Assert.Empty(PcInstaller.CheckWritten(copy.Game, manifest, TestEnvironment.Net452Refs));
+
+                const string game = "<qualifyAssembly partialName=\"Game\" fullName=\"Game, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null\" />";
+                File.WriteAllText(config, text.Replace(game, game.Replace("Version=0.0.0.0", "Version=1.0.0.0")));
+                List<string> wrong = PcInstaller.CheckWritten(copy.Game, manifest, TestEnvironment.Net452Refs);
+                Assert.Contains(PcExeConfig.FileName + ": expected one qualifyAssembly Game -> \"Game, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null\" " +
+                                "(the file's identity), found \"Game, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null\"", wrong);
+
+                File.WriteAllText(config, text.Replace(game + "\r\n", "").Replace("</assemblyBinding>",
+                                                       "  <qualifyAssembly partialName=\"Other\" fullName=\"Other, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null\" />\r\n    </assemblyBinding>"));
+                List<string> missing = PcInstaller.CheckWritten(copy.Game, manifest, TestEnvironment.Net452Refs);
+                Assert.Contains(missing, p => p.Contains("expected one qualifyAssembly Game -> ") && p.EndsWith("found none", StringComparison.Ordinal));
+                Assert.Contains(PcExeConfig.FileName + ": qualifyAssembly Other has no codeBase", missing);
+            }
+        }
+
+        /// <summary>
         /// The qualifyAssembly fullName of every redirected game file is the identity the CLR binds it by (read three ways from the
         /// real Steam file), and the gameload patch's table says the same for the names it qualifies (WR2 F1). Skipped without
         /// MCVS_PC_REFS, a failure under MCVS_REQUIRE_PC=1.
@@ -138,7 +178,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         [Fact]
         public void TheQualifiedNamesAreTheShippedAssembliesIdentities()
         {
-            string pc = RealPc.Folder(null);
+            string pc = RealPc.Folder(output);
             if (pc == null) return;
             foreach (string file in RealPc.PatchedFiles)
             {

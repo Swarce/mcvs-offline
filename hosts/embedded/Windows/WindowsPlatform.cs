@@ -136,14 +136,16 @@ namespace McvsOffline.Embedded.Windows
         {
         }
 
-        /// <summary>"steam running yes, overlay enabled yes" and the install check's line once it ran.</summary>
+        /// <summary>"steam running yes, overlay enabled yes" and the install check's line once it ran ("installed, NOT ACTIVE" first, WR2 F2).</summary>
         public string StatusExtras()
         {
             try
             {
                 SteamOverlay o = Overlay();
                 string text = "steam running " + YesNo(o.IsSteamRunning()) + ", overlay enabled " + YesNo(o.IsEnabled()) + "; " + PcHooks.Describe();
-                string install = installLine;
+                EmbeddedHost h = host;
+                PatchWatcher patches = h == null ? null : h.Patches;
+                string install = InstallCheck.Describe(installLine, patches == null ? null : patches.NotActive);
                 if (install != null) text += "; " + install;
                 return text;
             }
