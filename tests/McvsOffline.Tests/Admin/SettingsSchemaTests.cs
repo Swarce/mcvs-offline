@@ -22,7 +22,7 @@ namespace McvsOffline.Tests.Admin
             "graphics.profile", "graphics.fullProfile", "hd.enabled",
             "economy.versusCoinsMultiplier", "economy.creditsMultiplier", "economy.xpMultiplier", "economy.priceMultiplier", "crm.dailyCapMultiplier",
             "economy.collector.enabled", "economy.collector.itemsPerCrate",
-            "unlockAll", "assets.couponsEnabled", "crm.redeemCoupons", "unlocks.batchSize", "admin.redeemCode",
+            "unlockAll", "assets.couponsEnabled", "crm.redeemCoupons", "admin.accountMenu.hideDeadButtons", "unlocks.batchSize", "admin.redeemCode",
             "liveops.enabled", "liveops.divisionSeasons", "liveops.dailyQuests", "liveops.weeklyEvents", "liveops.seasonDays",
             "liveops.seasonStart", "liveops.dailyResetHour", "liveops.modifiers", "liveops.difficulty", "liveops.seasonRewardMultiplier",
             "crm.newsfeedLink",
@@ -111,6 +111,9 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal(true, Default("diagnostics.threadDump"));
             Assert.Equal(true, Default("diagnostics.publicLogCopy"));
             Assert.Equal("MCVSOFFLINE", Default("admin.redeemCode"));
+            // Read by the embedded host (AdminHost.HideDeadAccountButtons) each time Settings › Account opens.
+            Assert.Equal(true, Default("admin.accountMenu.hideDeadButtons"));
+            Assert.Equal("live", Def("admin.accountMenu.hideDeadButtons").Apply);
             Assert.Equal(true, Default("crm.newsfeedLink"));
 
             // Read by the embedded host (EmbeddedHost.ConfigureGraphics, AddEmbeddedDefaults) and patch 'graphics'.

@@ -137,6 +137,9 @@ namespace McvsOffline.Server.Services.Admin
         /// <summary>The Cosmetic crate's kill switch (O7).</summary>
         public const string CollectorEnabledKey = CollectorOptions.SettingsPath + ".enabled";
 
+        /// <summary>Read by the embedded host's AdminHooks.AccountMenuButtons each time Settings › Account opens.</summary>
+        public const string AccountMenuHideDeadButtonsKey = "admin.accountMenu.hideDeadButtons";
+
         private static readonly SettingGroup[] GroupList =
         {
             new SettingGroup("gameplay", "Gameplay"),
@@ -674,6 +677,9 @@ namespace McvsOffline.Server.Services.Admin
                      "Settings > Account > Redeem code accepts the codes listed below."),
                 Bool("unlocks", "crm.redeemCoupons", "Redeem-code button", true, Menu,
                      "Shows the Redeem code button in Settings > Account."),
+                Bool("unlocks", AccountMenuHideDeadButtonsKey, "Only Redeem code and MCVS Offline in Settings > Account", true, Live,
+                     "Hides the Facebook, Google Play Games and Restore buttons, which cannot work offline, and centres the "
+                     + "buttons that are left. Applies the next time Settings > Account opens."),
                 Integer("unlocks", "unlocks.batchSize", "Rewards per batch", 400, 50, 400, 50, Live,
                         "Unlock-all rewards per batch; keep at most 400 (reward popups)."),
                 Text("unlocks", "admin.redeemCode", "Code that opens this page", "MCVSOFFLINE", Live,

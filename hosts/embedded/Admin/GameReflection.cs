@@ -24,6 +24,12 @@ namespace McvsOffline.Embedded.Admin
     /// <item><c>World.EnumerateActiveComponents(Type, ComponentGroupOptions)</c> with <c>Game.PlayerProfileComponent</c>, its
     /// <c>FedId</c> and <c>ForceSaveProfile(CancellationToken)</c> (a <c>[Remote(Any, Any)]</c> RPC: on the client it sends the
     /// game's own request to the menu server, which saves the profile through the dump POST).</item>
+    /// <item><c>Game.UISceneExtentions.GetUI(World)</c> (the client World's <c>Game.UIComponent</c>, a
+    /// <c>Gameloft.Engine.MenuComponent</c>) and the engine's Flash interop the game itself uses
+    /// (OvertimeGaugeUIComponent.cs:81-87, 142-143): <c>MenuComponent.FindClass(string, string)</c> returning an
+    /// <c>ASClass</c>, <c>ASClass/ASCharacter.InvokeMethod(string, object[])</c> and <c>ASCharacter.GetMember(string)</c>
+    /// returning an <c>ASValue</c>, <c>ASCharacter.SetMember(string, object)</c>, <c>ASCharacter.Name</c>,
+    /// <c>ASValue.GetObject(Type)</c>, all three IDisposable (<see cref="AccountMenuLayout"/>).</item>
     /// </list>
     /// Instance members are looked up by name on the object's runtime type (cached), so the same code drives the real game
     /// and the tests' look-alikes; <see cref="Verify"/> checks every member against the real assemblies
@@ -34,6 +40,7 @@ namespace McvsOffline.Embedded.Admin
     {
         public const string GameApplicationTypeName = "Gameloft.Engine.GameApplication, Gameloft.Engine";
         public const string PlayerProfileTypeName = "Game.PlayerProfileComponent, Game";
+        public const string UiExtensionsTypeName = "Game.UISceneExtentions, Game";
 
         private static readonly object cacheGate = new object();
         private static readonly Dictionary<Type, Dictionary<string, MemberInfo>> cache = new Dictionary<Type, Dictionary<string, MemberInfo>>();
@@ -42,6 +49,7 @@ namespace McvsOffline.Embedded.Admin
         private PropertyInfo worldProperty;
         private PropertyInfo contextProperty;
         private Type playerProfileType;
+        private Type uiExtensionsType;
 
         /// <summary>Binds to the game's types in the running process (none in tests and on a PC: every member stays unbound).</summary>
         public static GameReflection Load()
@@ -49,7 +57,8 @@ namespace McvsOffline.Embedded.Admin
             var game = new GameReflection();
             try
             {
-                game.Bind(Type.GetType(GameApplicationTypeName, false), Type.GetType(PlayerProfileTypeName, false));
+                game.Bind(Type.GetType(GameApplicationTypeName, false), Type.GetType(PlayerProfileTypeName, false),
+                          Type.GetType(UiExtensionsTypeName, false));
             }
             catch (Exception)
             {
@@ -57,12 +66,14 @@ namespace McvsOffline.Embedded.Admin
             return game;
         }
 
-        /// <summary>Resolves the static side (tests pass look-alikes); false when GameApplication cannot be used.</summary>
-        public bool Bind(Type gameApplication, Type playerProfileComponent)
+        /// <summary>Resolves the static side (tests pass look-alikes); false when GameApplication cannot be used.
+        /// uiExtensions: Game.UISceneExtentions (its static GetUI(World)), may be null.</summary>
+        public bool Bind(Type gameApplication, Type playerProfileComponent, Type uiExtensions = null)
         {
             try
             {
                 playerProfileType = playerProfileComponent;
+                uiExtensionsType = uiExtensions;
                 if (gameApplication == null) return false;
                 instanceProperty = FindProperty(gameApplication, "Instance", true);
                 worldProperty = FindProperty(gameApplication, "World", false);
@@ -101,6 +112,23 @@ namespace McvsOffline.Embedded.Admin
             {
                 object app = Application();
                 return app == null || worldProperty == null ? null : worldProperty.GetValue(app, null);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>Game.UISceneExtentions.GetUI(GameApplication.Instance.World): the client World's UIComponent (the Flash
+        /// menus), or null. Game thread.</summary>
+        public object ClientUi()
+        {
+            try
+            {
+                object world = ClientWorld();
+                if (world == null || uiExtensionsType == null) return null;
+                MethodInfo getUi = FindStaticMethod(uiExtensionsType, "GetUI", world.GetType());
+                return getUi == null ? null : getUi.Invoke(null, new[] { world });
             }
             catch (Exception)
             {
@@ -364,6 +392,45 @@ namespace McvsOffline.Embedded.Admin
             return (MethodInfo)Cached(type, key.ToString(), () => type.GetMethod(name, BindingFlags.Public | BindingFlags.Instance, null, parameters, null));
         }
 
+        /// <summary>
+        /// A public instance method by name and exact parameter types that is not a generic method definition (the engine's
+        /// ASCharacter has both <c>InvokeMethod(string, object[])</c> and <c>InvokeMethod&lt;T&gt;(string, object[])</c>).
+        /// </summary>
+        public static MethodInfo FindPlainMethod(Type type, string name, params Type[] parameters)
+        {
+            var key = new System.Text.StringBuilder("pm:").Append(name);
+            foreach (Type p in parameters) key.Append(',').Append(p.FullName);
+            return (MethodInfo)Cached(type, key.ToString(), () =>
+            {
+                foreach (MethodInfo m in type.GetMethods(BindingFlags.Public | BindingFlags.Instance))
+                {
+                    if (m.Name != name || m.IsGenericMethodDefinition) continue;
+                    ParameterInfo[] p = m.GetParameters();
+                    if (p.Length != parameters.Length) continue;
+                    bool same = true;
+                    for (int i = 0; i < p.Length && same; i++) same = p[i].ParameterType == parameters[i];
+                    if (same) return m;
+                }
+                return null;
+            });
+        }
+
+        /// <summary>A public static, non-generic one-parameter method by name whose parameter accepts <paramref name="argument"/>.</summary>
+        public static MethodInfo FindStaticMethod(Type type, string name, Type argument)
+        {
+            if (argument == null) return null;
+            return (MethodInfo)Cached(type, "sm:" + name + "," + argument.AssemblyQualifiedName, () =>
+            {
+                foreach (MethodInfo m in type.GetMethods(BindingFlags.Public | BindingFlags.Static))
+                {
+                    if (m.Name != name || m.IsGenericMethodDefinition) continue;
+                    ParameterInfo[] p = m.GetParameters();
+                    if (p.Length == 1 && p[0].ParameterType.IsAssignableFrom(argument)) return m;
+                }
+                return null;
+            });
+        }
+
         /// <summary>World.EnumerateActiveComponents(Type, &lt;enum&gt; options).</summary>
         public static MethodInfo FindEnumerate(Type worldType)
         {
@@ -443,7 +510,14 @@ namespace McvsOffline.Embedded.Admin
             Type profile = resolve("Game.PlayerProfileComponent");
             Type clientComponent = resolve("Gameloft.Engine.ClientComponent");
             Type gameClient = resolve("Game.GameClientComponent");
-            foreach (var t in new[] { app, world, browser, component, authentication, options, credential, profile, clientComponent, gameClient })
+            Type uiExtensions = resolve("Game.UISceneExtentions");
+            Type uiComponent = resolve("Game.UIComponent");
+            Type menuComponent = resolve("Gameloft.Engine.MenuComponent");
+            Type asClass = resolve("Gameloft.Engine.ASClass");
+            Type asCharacter = resolve("Gameloft.Engine.ASCharacter");
+            Type asValue = resolve("Gameloft.Engine.ASValue");
+            foreach (var t in new[] { app, world, browser, component, authentication, options, credential, profile, clientComponent, gameClient,
+                                      uiExtensions, uiComponent, menuComponent, asClass, asCharacter, asValue })
             {
                 if (t == null) problems.Add("a game type is missing");
             }
@@ -479,7 +553,35 @@ namespace McvsOffline.Embedded.Admin
             if (force == null || force.ReturnType != typeof(Task)) problems.Add("PlayerProfileComponent.ForceSaveProfile(CancellationToken) : Task");
             if (!component.IsAssignableFrom(profile)) problems.Add("PlayerProfileComponent is not a Component");
             if (FindConversion(credential) == null) problems.Add("Credential has no implicit conversion to string");
+            VerifyFlash(problems, world, uiExtensions, uiComponent, menuComponent, asClass, asCharacter, asValue);
             return problems;
+        }
+
+        /// <summary>The Flash interop <see cref="AccountMenuLayout"/> drives, with the lookups it uses (and <see cref="ClientUi"/>'s).</summary>
+        private static void VerifyFlash(List<string> problems, Type world, Type uiExtensions, Type uiComponent, Type menuComponent,
+                                        Type asClass, Type asCharacter, Type asValue)
+        {
+            MethodInfo getUi = FindStaticMethod(uiExtensions, "GetUI", world);
+            if (getUi == null || getUi.ReturnType != uiComponent) problems.Add("UISceneExtentions.GetUI(World) : UIComponent");
+            if (!menuComponent.IsAssignableFrom(uiComponent)) problems.Add("UIComponent is not a MenuComponent");
+            MethodInfo findClass = FindPlainMethod(uiComponent, "FindClass", typeof(string), typeof(string));
+            if (findClass == null || findClass.ReturnType != asClass) problems.Add("MenuComponent.FindClass(string, string) : ASClass");
+            foreach (Type owner in new[] { asClass, asCharacter })
+            {
+                MethodInfo invoke = FindPlainMethod(owner, "InvokeMethod", typeof(string), typeof(object[]));
+                if (invoke == null || invoke.ReturnType != asValue) problems.Add(owner.Name + ".InvokeMethod(string, object[]) : ASValue");
+            }
+            MethodInfo getMember = FindPlainMethod(asCharacter, "GetMember", typeof(string));
+            if (getMember == null || getMember.ReturnType != asValue) problems.Add("ASCharacter.GetMember(string) : ASValue");
+            MethodInfo setMember = FindPlainMethod(asCharacter, "SetMember", typeof(string), typeof(object));
+            if (setMember == null || setMember.ReturnType != typeof(void)) problems.Add("ASCharacter.SetMember(string, object) : void");
+            ExpectProperty(problems, asCharacter, "Name", false, typeof(string));
+            MethodInfo getObject = FindPlainMethod(asValue, "GetObject", typeof(Type));
+            if (getObject == null || getObject.ReturnType != typeof(object)) problems.Add("ASValue.GetObject(Type) : object");
+            foreach (Type disposable in new[] { asClass, asCharacter, asValue })
+            {
+                if (!typeof(IDisposable).IsAssignableFrom(disposable)) problems.Add(disposable.Name + " is not IDisposable");
+            }
         }
 
         private static void ExpectProperty(List<string> problems, Type type, string name, bool isStatic, Type expected)
