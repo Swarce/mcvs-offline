@@ -120,7 +120,7 @@ namespace McvsOffline.Embedded.Windows
         {
 #if MCVS_GAMELOG
             return GameLogBridge.Apply(settings.GetString("gameLog.levels", "error warning"), settings.GetString("gameLog.mute", "profile:debug"), gameLog,
-                                       (int)settings.GetLong("gameLog.maxMessageChars", 8192));
+                                       (int)settings.GetLong("gameLog.maxMessageChars", 8192), true);
 #else
             return "game log: bridge not compiled in";
 #endif

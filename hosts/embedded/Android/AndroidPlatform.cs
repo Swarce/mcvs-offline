@@ -150,7 +150,7 @@ namespace McvsOffline.Embedded.Android
         public string ApplyGameLog(Settings settings, SafeLogFile gameLog)
         {
             return GameLogBridge.Apply(settings.GetString("gameLog.levels", "error warning"), settings.GetString("gameLog.mute", "profile:debug"), gameLog,
-                                       (int)settings.GetLong("gameLog.maxMessageChars", 8192));
+                                       (int)settings.GetLong("gameLog.maxMessageChars", 8192), false);
         }
 
         public string JavaStacks(string gameThreadComm)

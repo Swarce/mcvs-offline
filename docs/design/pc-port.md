@@ -746,7 +746,7 @@ rule of §3.1 holds without exceptions.
 | `CreateSystemLogSink` | `DebugOutputSink` (a GUI-subsystem process has no console, [ES-V] claim 10) |
 | `InstallCrashHooks` | nothing (the CLR raises `AppDomain.UnhandledException` for every thread) |
 | `FallbackLogDirectory` | `Path.GetTempPath()` (the host appends `McvsOffline\logs`: `%TEMP%\McvsOffline\logs`, D1, C15) |
-| `ApplyGameLog` | `GameLogBridge.Apply` under `MCVS_GAMELOG` (identical API in the PC `Gameloft.Logs`, [ES-V] claim 6), else `"game log: bridge not compiled in"` |
+| `ApplyGameLog` | `GameLogBridge.Apply` under `MCVS_GAMELOG` (identical API in the PC `Gameloft.Logs`, [ES-V] claim 6), else `"game log: bridge not compiled in"`. On PC `Log`'s static constructor enables every level (Win32NT), so `gameLog.levels` cannot narrow the game's logging: the bridge filters instead and `game.log` keeps Fatal plus `gameLog.levels` (`fileKeepsLevels: true`; Android passes false and keeps every entry). Lines are `GameLogFormat.Line`: UTC `yyyy-MM-ddTHH:mm:ss.fffZ`, redacted (also the game's own `mcvs…` access tokens) (WR2 F5, F6) |
 | `JavaStacks` / `StartBackground` | `null` / nothing |
 | `StatusExtras` | `steam running yes\|no, overlay enabled yes\|no\|unknown` (`SteamAPI_IsSteamRunning`, `IsOverlayEnabled`, both with `U1` return marshalling, §6.5), the `*_args.txt` warning and the install check of §6.2 when done |
 | `SdkInt` / `MissingJniMembers` | `0` / empty list |
