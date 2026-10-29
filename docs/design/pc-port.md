@@ -1,6 +1,6 @@
 # Design: the PC (Steam) port and the Android `game` manifest flags
 
-Status: **design, not implemented** (October 2026; revised after one review round, Appendix A). It is the contract for the work packages in §11: everything another
+Status: **implemented up to WP5a (build 13, October 2026); WR2 and WP5b pending** (designed October 2026; revised after one review round, Appendix A; WP5a results in §13.1). It is the contract for the work packages in §11: everything another
 package relies on (defines, hook signatures, IL sites and fingerprints, file layouts, settings keys, file formats, log
 lines) is fixed here, mostly in §3 ("Day-0 contracts"). Change it only through the integrator (WP5, §11.1).
 
@@ -1759,6 +1759,35 @@ The owner sends back the `collect` zip, the `watch` folder and the two listings;
 STATUS. Expected values (WP5a fills them in from §12.6 before the kit is handed over): the `written` SHA-256 of the
 five DLLs and the config; the `MEM rule on, removed <n>` count. When WP6 runs (Q2 failed), WR3 repeats steps 2, 3, 4, 5, 8 and 16 with the republished kit (§11.4) before WP5b
 closes.
+
+### 13.1 Expected WR2 values (WP5a, build 13)
+
+From the §12.6 run on Linux (`McvsOffline.Patcher pc install` on a temp copy of the read-only Steam files, with the PC
+server DLL the kit embeds, byte-identical), default patch set, port 51780. A second install gave the same bytes.
+The owner's copy is [PLAYER-SETUP-PC.md](../PLAYER-SETUP-PC.md) §7.
+
+| written | sha256 | mvid |
+|---|---|---|
+| `McvsOffline/bin/EngineBridge.dll` | `ed3972f3abe53cb1b9112a235177f8b9cf4a2454f94bfe9750aaf6661c2f9f3f` | `fbd19966-0405-4607-af4f-e9f794f02ac4` |
+| `McvsOffline/bin/Game.dll` | `d374ee60ae2cb50f5467dfae7228da69a4e3eede174db0ee185a8c905032d939` | `1d76dbb8-2de1-479e-a5b1-360e3beebc47` |
+| `McvsOffline/bin/Gameloft.Engine.dll` | `b83a28787b8f279812eec9802a84cbaaf1126fa7094c36d7b425eefe42ed84ca` | `09c4f5d9-9e61-4908-95aa-61f300c86708` |
+| `McvsOffline/bin/Gameloft.Util.dll` | `25287185fe48c574a931ad6d99ea25b621789313bbed0d28f5901682bf8e2f2d` | `b8e80351-1467-401e-83c9-0b123d73d32f` |
+| `McvsOffline/bin/McvsOffline.Server.dll` | `aa4c303d2013dfc8c23857cd5cb44f91d1a906bfc7d918ed53f30667dcbd56a8` | `809b1326-92d6-4440-a56c-269133c36607` |
+| `ModernCombatVersus.exe.config` | `3ebe99b3c93a9540cd7f7b03da55fc048a544501c17e8621457884eae456f94c` | — |
+
+* Applied patches: `hook-pc, headless, bottile, store, signatures, adminpage, headless-engine, physics, quicklaunch,
+  headless-diag, nativeonline, waits, adminlink, graphics, geo`; `install.json` `installer.serverBuild` is `13`.
+* `MEM rule on, removed 1` (`GameOptionsWindowsTests.RealFileRemoved`, the real `GameOptions_windows.json`).
+* The kit: `McvsOffline.PcKit.exe`, SHA-256 `a8c8af043792ea9ff1b40fa34a2ad15d7388e2739c96d317aadab9c57ff9f78d`; its
+  publish check passed on the embedded DLL (every PC hook, `Gameloft.Logs`, only allowed references).
+* The config is byte-identical to §7.4 (UTF-8 without BOM, CRLF, final CRLF). ILVerify of the four patched assemblies
+  against the net452 refs reports exactly the errors of the stock files (none in a patched or added method); the server
+  DLL verifies clean. `uninstall` restored the exact file listing and every SHA-256 of the copy; with a bootstrap
+  `args.txt` block and player data added before it, only `McvsOffline\` with that data remained.
+* Android (§12.6, P5): the APK of the same commit, compared entry by entry with build 12 (`56956ef`, same key and
+  options): same 952 entries in the same order; changed only `AndroidManifest.xml` (exactly `android:isGame=true` and
+  `android:appCategory=0` added), `assemblies/McvsOffline.Server.dll`, `META-INF/1.RSA`, `1.SF`, `MANIFEST.MF`, and
+  `Game.dll`, `Gameloft.Engine.dll`, `Gameloft.Util.dll`, `NicePlaySDK.dll` in their 16 MVID bytes only.
 
 ---------------------------------------------------------------------------------------------------
 
