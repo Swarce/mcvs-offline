@@ -47,6 +47,9 @@ namespace McvsOffline.Server.Core
         private static readonly int[] QuietReportMs = { 10000, 30000, 60000, 120000 };
         private const int BootWindowMs = 10 * 60 * 1000;
 
+        /// <summary>Route names of the settings page (server/Services/Admin).</summary>
+        private const string AdminRoutePrefix = "admin.";
+
         private readonly object gate = new object();
         private readonly Log log;
         private readonly Dictionary<string, int> counts = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -215,10 +218,15 @@ namespace McvsOffline.Server.Core
             }
         }
 
-        /// <summary>Maps a request to a milestone name (first occurrences only), or null.</summary>
+        /// <summary>
+        /// Maps a request to a milestone name (first occurrences only), or null. Never one for the settings page
+        /// (<c>admin.*</c> routes, any <c>/_mcvs/</c> path): it is not on the boot path, and its first status probe is a 401
+        /// by design (no session cookie yet), which as "request failed" became status.txt's last milestone (WR2 F8).
+        /// </summary>
         private string Recognise(HttpRequest request, HttpResponse response)
         {
             string route = request.RouteName ?? "";
+            if (route.StartsWith(AdminRoutePrefix, StringComparison.Ordinal) || LocalAccessGate.IsAdminPath(request)) return null;
             int status = response == null ? 0 : response.StatusCode;
             string path = request.Path ?? "";
             if (status >= 400)
