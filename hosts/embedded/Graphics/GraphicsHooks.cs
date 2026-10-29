@@ -24,6 +24,10 @@ namespace McvsOffline
     /// </list>
     /// The signatures are part of the patch contract
     /// (GraphicsHooksContractTests). Both run on the game thread, are cheap and never throw (the patched IL guards them too).
+    /// <para>On PC (<see cref="ConfigureWindows"/>, docs/design/pc-port.md §6.7) the text is GameOptions_windows.json, rewritten by
+    /// <see cref="GameOptionsWindows"/> (the MEM rule keeps the levels' Physics layer), and <see cref="GameOptionsApplied"/> gets the
+    /// component itself (PC has no <c>m_options</c>): the resolved options are read from <c>GameOptionManager</c> as the PC
+    /// <c>ApplyGameOptions</c> reads them.</para>
     /// </summary>
     public static class GraphicsHooks
     {
@@ -36,6 +40,12 @@ namespace McvsOffline
         private static volatile string forcedProfile;
         private static volatile string rewriteSummary;
         private static volatile string effective;
+        private static volatile bool windows;
+        private static volatile bool keepPhysicsLayer = true;
+        private static volatile string memRule;
+
+        /// <summary>The most options the PC applied line lists (GameOptionManager has a few hundred).</summary>
+        internal const int MaxNativeOptions = 200;
 
         /// <summary>Set by the embedded host once settings.json is read (before the game creates its GameDefinition).</summary>
         public static void Configure(string profileChoice, bool full, Log hostLog, BootTrace bootTrace)
@@ -47,8 +57,27 @@ namespace McvsOffline
         }
 
         /// <summary>
-        /// Called by the patched <c>OnCreate</c> with the text of GameOptions_android.json before the native options are
-        /// initialised; returns the text the engine uses (never null when the input is not).
+        /// PC (EmbeddedHost when the platform is Windows): the text is GameOptions_windows.json, and with
+        /// <paramref name="keepPhysics"/> (settings <c>embedded.physics.keepPhysicsLayer</c>) the MEM rule runs. Call after
+        /// <see cref="Configure"/>.
+        /// </summary>
+        public static void ConfigureWindows(bool keepPhysics)
+        {
+            keepPhysicsLayer = keepPhysics;
+            windows = true;
+        }
+
+        /// <summary>True after <see cref="ConfigureWindows"/>.</summary>
+        public static bool IsWindows { get { return windows; } }
+
+        /// <summary>The MEM rule's last result on PC ("on, removed 1", "off"), else null.</summary>
+        public static string MemRule { get { return memRule; } }
+
+        private static string OptionsFile { get { return windows ? GameOptionsWindows.FileName : "GameOptions_android.json"; } }
+
+        /// <summary>
+        /// Called by the patched <c>OnCreate</c> with the text of GameOptions_android.json (GameOptions_windows.json on PC) before
+        /// the native options are initialised; returns the text the engine uses (never null when the input is not).
         /// </summary>
         public static string GameOptionsJson(string json)
         {
@@ -56,7 +85,9 @@ namespace McvsOffline
             {
                 int n = Interlocked.Increment(ref jsonCalls);
                 if (json == null) return null;
-                GameOptionsRewrite rewrite = GameOptionsProfile.Rewrite(json, choice, fullProfile);
+                GameOptionsRewrite rewrite = windows ? GameOptionsWindows.Rewrite(json, choice, fullProfile, keepPhysicsLayer)
+                                                     : GameOptionsProfile.Rewrite(json, choice, fullProfile);
+                if (rewrite.MemRule != null) memRule = rewrite.MemRule;
                 forcedProfile = rewrite.Profile;
                 rewriteSummary = rewrite.Summary;
                 if (n <= 3) Mark("graphics: " + rewrite.Summary + (rewrite.Changed ? "" : " (text unchanged)"));
@@ -70,7 +101,8 @@ namespace McvsOffline
 
         /// <summary>
         /// Called by the patched <c>OnCreate</c> after <c>ApplyGameOptions</c> with the component's <c>m_options</c>
-        /// (<c>Dictionary&lt;string, object&gt;</c> of every resolved option) or null.
+        /// (<c>Dictionary&lt;string, object&gt;</c> of every resolved option) or null; on PC with the component itself (no
+        /// <c>m_options</c>), whose options are then read from <c>GameOptionManager</c>.
         /// </summary>
         public static void GameOptionsApplied(object options)
         {
@@ -78,7 +110,10 @@ namespace McvsOffline
             {
                 int n = Interlocked.Increment(ref appliedCalls);
                 if (n > 1) return;
-                string line = DescribeApplied(options as IDictionary, NativeProfiles());
+                IDictionary resolved = options as IDictionary;
+                if (resolved == null && options != null) resolved = ReadNativeOptions(FindType(options, "Gameloft.Engine.GameOptionManager"),
+                                                                                        FindType(options, "Gameloft.Engine.MoreMarshal"));
+                string line = DescribeApplied(resolved, NativeProfiles());
                 effective = line;
                 Mark(line);
             }
@@ -92,10 +127,11 @@ namespace McvsOffline
         {
             string c = choice;
             if (jsonCalls == 0 && appliedCalls == 0)
-                return "graphics: graphics.profile " + c + "; the game has not read GameOptions_android.json through patch 'graphics' (yet)";
+                return "graphics: graphics.profile " + c + "; the game has not read " + OptionsFile + " through patch 'graphics' (yet)";
             string forced = forcedProfile;
+            string mem = memRule;
             return "graphics: graphics.profile " + c + (forced == null ? " (the game's own choice)" : ", forced " + forced) +
-                   (fullProfile ? ", fullProfile" : "") + "; " + (NativeSummary ?? "native profile unknown");
+                   (fullProfile ? ", fullProfile" : "") + (mem != null ? ", MEM rule " + mem : "") + "; " + (NativeSummary ?? "native profile unknown");
         }
 
         /// <summary>The summary of the last rewrite (null before the hook ran).</summary>
@@ -119,6 +155,8 @@ namespace McvsOffline
             string loaded = Get(native, "loaded");
             string optimal = Get(native, "optimal");
             string summary = "GPU profile " + (loaded ?? "unknown") + (optimal != null ? " (device optimum " + optimal + ")" : "");
+            string memProfile = Get(native, "memLoaded");
+            if (memProfile != null) summary += ", MEM profile " + memProfile;
             nativeSummary = summary;
             sb.Append(summary);
             sb.Append(", settings graphics.profile ").Append(choice);
@@ -129,10 +167,23 @@ namespace McvsOffline
             if (gpu != null || model != null) sb.Append("; device GPU '").Append(gpu ?? "?").Append("', model '").Append(model ?? "?").Append('\'');
             string selected = Get(native, "selectedProfile");
             if (selected != null) sb.Append("; in-game graphic setting GameOptions_SelectedProfile ").Append(selected);
+            string memory = Get(native, "memory");
+            string level = Get(native, "featureLevel");
+            string cores = Get(native, "cores");
+            if (memory != null || level != null || cores != null)
+                sb.Append("; device memory ").Append(memory ?? "?").Append(", feature level ").Append(level ?? "?").Append(", cores ").Append(cores ?? "?");
+            string mem = memRule;
+            if (mem != null) sb.Append("; MEM rule ").Append(mem);
             if (options == null)
             {
-                sb.Append("; options unknown (m_options is null)");
+                sb.Append(windows ? "; options unknown (GameOptionManager not readable)" : "; options unknown (m_options is null)");
                 return sb.ToString();
+            }
+            if (windows)
+            {
+                object layers = options.Contains("excludedLoadingLayers") ? options["excludedLoadingLayers"] : null;
+                bool physics = layers is string && Array.IndexOf(((string)layers).Split(' '), "Physics") >= 0;
+                sb.Append("; excludedLoadingLayers ").Append(Show(layers ?? "")).Append(physics ? " (Physics excluded!)" : "");
             }
             var keys = new List<string>();
             foreach (object k in options.Keys)
@@ -183,6 +234,13 @@ namespace McvsOffline
                 result["optimal"] = NativeString(manager, marshal, "GetOptimalProfileName", "GPU");
                 result["gpu"] = StaticString(manager, "DeviceGPU");
                 result["model"] = StaticString(manager, "DeviceModel");
+                if (windows)
+                {
+                    result["memLoaded"] = NativeString(manager, marshal, "GetLoadedProfileName", "MEM");
+                    result["memory"] = StaticString(manager, "DeviceTotalMemory");
+                    result["featureLevel"] = StaticString(manager, "DeviceGraphicsFeatureLevel");
+                    result["cores"] = StaticString(manager, "DeviceCPUNumCores");
+                }
                 Type prefs = Type.GetType("Gameloft.Engine.AppPreferences, Gameloft.Engine", false);
                 MethodInfo getInt = prefs == null ? null
                     : prefs.GetMethod("GetSecurePreferenceAsInt", BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(string), typeof(int) }, null);
@@ -230,11 +288,77 @@ namespace McvsOffline
             try
             {
                 PropertyInfo p = type.GetProperty(property, BindingFlags.Public | BindingFlags.Static);
-                return p == null ? null : p.GetValue(null, null) as string;
+                object value = p == null ? null : p.GetValue(null, null);
+                return value == null ? null : Convert.ToString(value, CultureInfo.InvariantCulture);
             }
             catch (Exception)
             {
                 return null;
+            }
+        }
+
+        /// <summary>The type <paramref name="fullName"/> from the assembly of <paramref name="component"/>'s type or a base type.</summary>
+        private static Type FindType(object component, string fullName)
+        {
+            for (Type t = component.GetType(); t != null; t = t.BaseType)
+            {
+                Type found = t.Assembly.GetType(fullName, false, false);
+                if (found != null) return found;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// The resolved options as the PC <c>ApplyGameOptions</c> reads them (<c>PC-EN/GameOptionPerformanceProfileComponent.cs:37-77</c>):
+        /// for Int, Float, Boolean and String, <c>Get&lt;T&gt;OptionsCount()</c>, <c>Get&lt;T&gt;OptionName(i)</c> (a native string,
+        /// released with <c>MoreMarshal.DestroyNativeString</c>) and <c>GetOption&lt;T&gt;(name)</c> (a native string for String); at
+        /// most <see cref="MaxNativeOptions"/> entries. Null when the manager is not there. Never throws.
+        /// </summary>
+        internal static IDictionary ReadNativeOptions(Type manager, Type marshal)
+        {
+            if (manager == null) return null;
+            var options = new Dictionary<string, object>(StringComparer.Ordinal);
+            try
+            {
+                foreach (string kind in new[] { "Int", "Float", "Boolean", "String" })
+                {
+                    MethodInfo count = manager.GetMethod("Get" + kind + "OptionsCount", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null);
+                    MethodInfo name = manager.GetMethod("Get" + kind + "OptionName", BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(int) }, null);
+                    MethodInfo value = manager.GetMethod("GetOption" + kind, BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(string) }, null);
+                    if (count == null || name == null || value == null) continue;
+                    int n = Convert.ToInt32(count.Invoke(null, null), CultureInfo.InvariantCulture);
+                    for (int i = 0; i < n && options.Count < MaxNativeOptions; i++)
+                    {
+                        string option = NameAt(name, marshal, i);
+                        if (string.IsNullOrEmpty(option) || options.ContainsKey(option)) continue;
+                        options[option] = kind == "String" ? NativeString(manager, marshal, "GetOptionString", option)
+                                                           : value.Invoke(null, new object[] { option });
+                    }
+                }
+            }
+            catch (Exception)
+            {
+            }
+            return options;
+        }
+
+        private static string NameAt(MethodInfo name, Type marshal, int index)
+        {
+            object raw = name.Invoke(null, new object[] { index });
+            var text = raw as string;
+            if (text != null || !(raw is IntPtr)) return text;
+            var ptr = (IntPtr)raw;
+            if (ptr == IntPtr.Zero || marshal == null) return null;
+            MethodInfo toString = marshal.GetMethod("NativeStringToString", BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(IntPtr) }, null);
+            MethodInfo destroy = marshal.GetMethod("DestroyNativeString", BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(IntPtr) }, null);
+            if (toString == null) return null;
+            try
+            {
+                return toString.Invoke(null, new object[] { ptr }) as string;
+            }
+            finally
+            {
+                if (destroy != null) destroy.Invoke(null, new object[] { ptr });
             }
         }
 
@@ -264,6 +388,9 @@ namespace McvsOffline
             rewriteSummary = null;
             effective = null;
             nativeSummary = null;
+            windows = false;
+            keepPhysicsLayer = true;
+            memRule = null;
         }
     }
 }

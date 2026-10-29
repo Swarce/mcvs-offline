@@ -51,7 +51,7 @@ namespace McvsOffline.Embedded.Diagnostics
         private int stallReports;
         private int beats;
         private volatile bool stopped;
-        private Dictionary<int, long> lastCpu = new Dictionary<int, long>();
+        private IThreadSnapshot threads;
         private PropertyInfo instanceProperty;
         private PropertyInfo contextProperty;
         private FieldInfo suspendField;
@@ -82,6 +82,17 @@ namespace McvsOffline.Embedded.Diagnostics
         }
 
         /// <summary>
+        /// Where the stall snapshot reads the threads of this process (docs/design/pc-port.md §5.2): null (the default) is
+        /// <see cref="ProcThreadSnapshot"/> over /proc (Android, the tests); the PC host passes its <c>WindowsThreads</c>. Set
+        /// before <see cref="Start"/>.
+        /// </summary>
+        public IThreadSnapshot Threads
+        {
+            get { return threads; }
+            set { threads = value; }
+        }
+
+        /// <summary>
         /// Routine lines that are not problems (the game thread's tid, a lease's "paused: ..." and "resumed"): EmbeddedHost logs them
         /// at INFO, because WARN lines are the settings page's "recent problems" and every page open would add two. Null: they go
         /// to the report callback with the rest. Set before <see cref="Start"/>.
@@ -94,6 +105,7 @@ namespace McvsOffline.Embedded.Diagnostics
 
         public void Start()
         {
+            if (threads == null) threads = new ProcThreadSnapshot(threadDump != null ? (Func<Func<string>, string>)(read => ThreadDump.WithDumpable(read)) : null);
             beatCallback = Beat;
             var thread = new Thread(Run);
             thread.IsBackground = true;
@@ -278,7 +290,7 @@ namespace McvsOffline.Embedded.Diagnostics
             int tid = gameTid;
             Action<int, string> dump = threadDump;
             if (dump == null || tid == 0) return;
-            string comm = (NativeThreads.Read("/proc/self/task/" + tid.ToString(CultureInfo.InvariantCulture) + "/comm") ?? "").Trim();
+            string comm = ThreadName(tid);
             var thread = new Thread(() =>
             {
                 try
@@ -322,6 +334,25 @@ namespace McvsOffline.Embedded.Diagnostics
             }
         }
 
+        private IThreadSnapshot Snapshotter()
+        {
+            IThreadSnapshot current = threads;
+            if (current == null) threads = current = new ProcThreadSnapshot(null);
+            return current;
+        }
+
+        private string ThreadName(int tid)
+        {
+            try
+            {
+                return Snapshotter().Name(tid) ?? "";
+            }
+            catch (Exception)
+            {
+                return "";
+            }
+        }
+
         private string Snapshot(int lagMs, int frameClockMs, bool suspended, bool withJava)
         {
             var sb = new StringBuilder();
@@ -337,13 +368,11 @@ namespace McvsOffline.Embedded.Diagnostics
             }
             int tid = gameTid;
             string comm = null;
+            IThreadSnapshot source = Snapshotter();
             if (tid != 0)
             {
-                // /proc/<tid>/syscall is root-owned while the process is not dumpable ("syscall ?" in device test 2): read it with
-                // PR_SET_DUMPABLE raised when the thread dump is enabled (it does the same).
-                string state = threadDump != null ? ThreadDump.WithDumpable(() => NativeThreads.Describe(tid, true)) : NativeThreads.Describe(tid, true);
-                sb.Append("  game thread ").Append(tid.ToString(CultureInfo.InvariantCulture)).Append(": ").Append(state).Append('\n');
-                comm = (NativeThreads.Read("/proc/self/task/" + tid.ToString(CultureInfo.InvariantCulture) + "/comm") ?? "").Trim();
+                sb.Append("  game thread ").Append(tid.ToString(CultureInfo.InvariantCulture)).Append(": ").Append(source.Describe(tid)).Append('\n');
+                comm = ThreadName(tid);
             }
             else
             {
@@ -351,31 +380,13 @@ namespace McvsOffline.Embedded.Diagnostics
             }
             try
             {
-                var cpu = new Dictionary<int, long>();
-                var lines = new List<KeyValuePair<long, string>>();
-                foreach (int id in NativeThreads.Tids())
-                {
-                    string[] f = NativeThreads.StatFields(id);
-                    long ticks = NativeThreads.CpuTicks(f);
-                    if (ticks < 0) continue;
-                    cpu[id] = ticks;
-                    long previous;
-                    long delta = lastCpu.TryGetValue(id, out previous) ? ticks - previous : 0;
-                    bool blocked = f[0] == "D";
-                    if (delta > 0 || blocked)
-                    {
-                        lines.Add(new KeyValuePair<long, string>(blocked ? McvsOffline.Server.Core.Num.LongMax / 2 : delta,
-                            id.ToString(CultureInfo.InvariantCulture) + " " + NativeThreads.Describe(id, blocked) + " +" + delta.ToString(CultureInfo.InvariantCulture) + " ticks"));
-                    }
-                }
-                lastCpu = cpu;
-                lines.Sort((a, b) => b.Key.CompareTo(a.Key));
-                sb.Append("  busiest threads since the last snapshot (and every thread in D state):\n");
-                for (int i = 0; i < lines.Count && i < 12; i++) sb.Append("    ").Append(lines[i].Value).Append('\n');
+                List<string> lines = source.Busiest(tid, 12);
+                sb.Append("  ").Append(source.BusiestTitle).Append(":\n");
+                foreach (string line in lines) sb.Append("    ").Append(line).Append('\n');
             }
             catch (Exception ex)
             {
-                sb.Append("  /proc/self/task unreadable: ").Append(ex.Message).Append('\n');
+                sb.Append("  ").Append(source.Source).Append(" unreadable: ").Append(ex.Message).Append('\n');
             }
             if (withJava && javaStacks != null)
             {

@@ -69,6 +69,12 @@ namespace McvsOffline.Embedded
     /// LAN mode), retrying while the port is busy.</item>
     /// </list>
     /// Nothing here throws: every failure is logged (logcat + McvsOffline/logs/bootstrap.log) and the game boots anyway.
+    /// <para>On PC (a platform named "windows", docs/design/pc-port.md §6.2) the same runs from the patched
+    /// <c>EngineBridge.Class1.Start</c>, with these differences, chosen at run time from the platform (so the net8 tests see them):
+    /// no install.*, hd.* or notifications.* defaults and <c>embedded.physics.keepPhysicsLayer</c> instead; <c>lanMode</c> forced
+    /// off; GraphicsHooks on GameOptions_windows.json; a WARN for a <c>*_args.txt</c> that makes the engine ignore args.txt; no
+    /// thread dump; and the platform's <see cref="IHostExtensions"/> (PcHooks, the runtime line, the watchdog's thread snapshot,
+    /// the lazy patch probe's assembly-load subscription).</para>
     /// </summary>
     public sealed class EmbeddedHost
     {
@@ -88,6 +94,9 @@ namespace McvsOffline.Embedded
         private MemoryLogSink problemSink;
         private volatile AdminHost adminHost;
         private string fallbackLogDir;
+        private bool isWindows;
+        private IHostExtensions extensions;
+        private volatile string argsWarning;
 
         private EmbeddedHost(Logger logger, Log log)
         {
@@ -181,6 +190,8 @@ namespace McvsOffline.Embedded
                   .Append(", store items skipped: ").Append(GameHooks.StoreReports).Append('\n');
                 sb.Append(GameHooks.DescribePhysics());
                 sb.Append('\n').Append(GraphicsHooks.Describe());
+                string args = argsWarning;
+                if (args != null) sb.Append('\n').Append(args);
 #if !MCVS_WINDOWS
                 sb.Append('\n').Append(HdInstaller.Status);
 #endif
@@ -198,6 +209,9 @@ namespace McvsOffline.Embedded
 
         /// <summary>The settings page's view of this host (registered as the server's IAdminHost), or null before the server exists.</summary>
         internal AdminHost AdminHost { get { return adminHost; } }
+
+        /// <summary>The lazy probe of the client's patches (the instance the server reads is its Target), or null before the server thread.</summary>
+        public PatchWatcher Patches { get; private set; }
 
         /// <summary>One line on the phone-readable copy of the logs (set by the platform's diagnostics), or null.</summary>
         public Func<string> MirrorStatus { get; set; }
@@ -267,6 +281,8 @@ namespace McvsOffline.Embedded
             argsReader = platform.ArgsReader;
             portInUseHint = platform.PortInUseHint;
             diagnostics = platform as IPlatformDiagnostics;
+            isWindows = platformName == "windows";
+            extensions = platform as IHostExtensions;
             if (CrashReporter.Hooks != null) Logger.For("crash").Info("hooks: " + CrashReporter.Hooks);
             Boot = new BootTrace(Logger.For("boot"));
             Boot.Mark("MCVS Offline host started by the game (" + platform.EntryPoint + ")");
@@ -308,10 +324,19 @@ namespace McvsOffline.Embedded
             if (restartReason != null) Boot.Mark("previous exit: restart requested from the settings page (" + restartReason + ")");
 
             Settings = Settings.Load(Paths.SettingsFile, Logger.For("settings"));
-            AddEmbeddedDefaults();
+            AddEmbeddedDefaults(platform);
+            if (isWindows)
+            {
+                // LAN is not supported on PC (docs/design/pc-port.md X): the host's copy here, the server's in RunServer.
+                if (Settings.LanMode) Log.Warn("settings lanMode is true, but LAN play is not supported on PC: running without it");
+                Settings.Override("lanMode", false);
+                MirrorStatus = () => "not needed on Windows: the logs are plain files in " + Paths.LogsDir;
+            }
             GameHooks.Configure(Settings.GetBool("embedded.nativeOnlineSdk", false), Logger.For("game"), Boot);
             ConfigurePhysics();
             ConfigureGraphics();
+            ConfigureExtensions();
+            if (isWindows) CheckArgsPrefixFiles();
             ApplyGameLog();
 #if !MCVS_WINDOWS
             // Before the Java GameInstaller (it starts after OnCreate returns): data already on the device must be accepted
@@ -569,19 +594,73 @@ namespace McvsOffline.Embedded
 
         /// <summary>
         /// settings.json "graphics" (patch 'graphics', docs/research/pc-textures.md WP0): which of Gameloft's GPU profiles the engine
-        /// gets (GameOptionsProfile). Applies at the next start.
+        /// gets (GameOptionsProfile; GameOptionsWindows with the MEM rule on PC). Applies at the next start.
         /// </summary>
         private void ConfigureGraphics()
         {
             string profile = Settings.GetString("graphics.profile", GameOptionsProfile.Auto);
             bool full = Settings.GetBool("graphics.fullProfile", false);
             GraphicsHooks.Configure(profile, full, Logger.For("game"), Boot);
+            string file = "GameOptions_android.json";
+            if (isWindows)
+            {
+                bool keep = Settings.GetBool("embedded.physics.keepPhysicsLayer", true);
+                GraphicsHooks.ConfigureWindows(keep);
+                file = GameOptionsWindows.FileName;
+                if (!keep) Log.Warn("settings embedded.physics.keepPhysicsLayer is false: a MEM profile that excludes the levels' Physics layer applies to the server Worlds too");
+            }
             string normalized = GameOptionsProfile.Normalize(profile);
             if (normalized == null)
                 Log.Warn("settings graphics.profile '" + profile + "' is not one of auto, mid, high, ultra: the game picks its GPU profile itself");
             else if (normalized != GameOptionsProfile.Auto || full)
                 Log.Info("settings graphics.profile " + normalized + (full ? ", graphics.fullProfile true" : "") +
-                         " (applied when the game reads GameOptions_android.json; needs patch 'graphics')");
+                         " (applied when the game reads " + file + "; needs patch 'graphics')");
+        }
+
+        /// <summary>The platform's own pieces (PC: PcHooks, the runtime line, the install check). Never throws.</summary>
+        private void ConfigureExtensions()
+        {
+            if (extensions == null) return;
+            try
+            {
+                extensions.Configure(this);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("the platform's host extensions could not be configured", ex);
+            }
+        }
+
+        /// <summary>
+        /// The PC engine reads "&lt;prefix&gt;_args.txt" instead of args.txt when one is in the game folder ([CR] F9, [WH] §6.2): our
+        /// managed block would be ignored and the game would go online. One WARN per file, and the same sentence in the status.
+        /// </summary>
+        private void CheckArgsPrefixFiles()
+        {
+            try
+            {
+                var found = new List<string>();
+                foreach (string path in Directory.GetFiles(Paths.GameRoot))
+                {
+                    string name = Path.GetFileName(path);
+                    if (name.Length > ArgsFile.FileName.Length + 1 && name.EndsWith("_" + ArgsFile.FileName, StringComparison.OrdinalIgnoreCase))
+                        found.Add(name);
+                }
+                if (found.Count == 0) return;
+                found.Sort(StringComparer.OrdinalIgnoreCase);
+                var lines = new List<string>();
+                foreach (string name in found)
+                {
+                    string line = name + " present: the engine ignores args.txt";
+                    lines.Add(line);
+                    Boot.Warn(line);
+                }
+                argsWarning = string.Join("; ", lines.ToArray()) + " (remove it, or the game goes online)";
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("the game folder could not be listed for *_args.txt", ex);
+            }
         }
 
         private SafeLogFileOptions LogFileOptions()
@@ -627,7 +706,8 @@ namespace McvsOffline.Embedded
                     Func<string, string> javaStacks = null;
                     if (diagnostics != null) javaStacks = diagnostics.JavaStacks;
                     Action<int, string> threadDump = null;
-                    if (diagnostics != null && Settings.GetBool("diagnostics.threadDump", true))
+                    // No in-process thread dump on the .NET Framework CLR ([WH] §4.5): the PC build has only ThreadDumpStub.
+                    if (diagnostics != null && !isWindows && Settings.GetBool("diagnostics.threadDump", true))
                     {
                         // Device test 2: the game thread slept in a futex and nothing said where. Managed stacks of every thread
                         // (Mono's own dump) and native stacks of the game thread, into logcat, bootstrap.log and logs/threaddump-*.txt.
@@ -643,6 +723,17 @@ namespace McvsOffline.Embedded
                     {
                         Notice = s => watchdogLog.Info(WithoutTag(s, "[watchdog] ")),
                     };
+                    if (extensions != null)
+                    {
+                        try
+                        {
+                            Watchdog.Threads = extensions.ThreadSnapshot();
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Warn("the platform's thread snapshot is not available; the watchdog reads /proc", ex);
+                        }
+                    }
                     Watchdog.Start();
                 }
             }
@@ -694,9 +785,14 @@ namespace McvsOffline.Embedded
             }
         }
 
-        /// <summary>Adds this host's keys to settings.json so players can find them (existing values are kept).</summary>
-        private void AddEmbeddedDefaults()
+        /// <summary>
+        /// Adds this host's keys to settings.json so players can find them (existing values are kept). Only the keys the platform
+        /// has a use for (docs/design/pc-port.md §6.2): install.* for an installer platform, notifications.* for a notification
+        /// platform, hd.* and the phone's log copy and thread dump not on PC, embedded.physics.keepPhysicsLayer only on PC.
+        /// </summary>
+        private void AddEmbeddedDefaults(IEmbeddedPlatform platform)
         {
+            bool android = platformName == "android";
             bool changed = false;
             if (Settings.Get("embedded.manageArgs") == null)
             {
@@ -726,29 +822,36 @@ namespace McvsOffline.Embedded
             if (Settings.Get("diagnostics") == null)
             {
                 Settings.Set("diagnostics.watchdog", true);
-                Settings.Set("diagnostics.publicLogCopy", true);
+                if (android) Settings.Set("diagnostics.publicLogCopy", true);
                 changed = true;
             }
             // Keys added after the first device builds: added one by one, so an existing settings.json gets them too.
-            changed |= AddDefault("diagnostics.threadDump", true);
+            if (android) changed |= AddDefault("diagnostics.threadDump", true);
             changed |= AddDefault("embedded.physics.serverMultithreaded", false);
             changed |= AddDefault("embedded.physics.clientMultithreaded", true);
             changed |= AddDefault("embedded.physics.stepGate", true);
             changed |= AddDefault("embedded.physics.stepGateTimeoutMs", GameHooks.DefaultStepGateTimeoutMs);
 #if !MCVS_WINDOWS
-            changed |= AddDefault("install.manageInstaller", true);
-            changed |= AddDefault("install.suppressUpdateCheck", true);
-            changed |= AddDefault("install.rebuildIndex", true);
-            changed |= AddDefault("install.verifyRestoredData", true);
-            changed |= AddDefault("install.monitorInstaller", true);
+            if (platform is IInstallerPlatform)
+            {
+                changed |= AddDefault("install.manageInstaller", true);
+                changed |= AddDefault("install.suppressUpdateCheck", true);
+                changed |= AddDefault("install.rebuildIndex", true);
+                changed |= AddDefault("install.verifyRestoredData", true);
+                changed |= AddDefault("install.monitorInstaller", true);
+            }
 #endif
             changed |= AddDefault("graphics.profile", GameOptionsProfile.Auto);
             changed |= AddDefault("graphics.fullProfile", false);
 #if !MCVS_WINDOWS
-            changed |= AddDefault("hd.enabled", true);
+            if (!isWindows) changed |= AddDefault("hd.enabled", true);
 #endif
-            changed |= AddDefault(NotificationPermission.RequestKey, true);
-            changed |= AddDefault(NotificationPermission.RequestedAtKey, "");
+            if (platform is INotificationPlatform)
+            {
+                changed |= AddDefault(NotificationPermission.RequestKey, true);
+                changed |= AddDefault(NotificationPermission.RequestedAtKey, "");
+            }
+            if (isWindows) changed |= AddDefault("embedded.physics.keepPhysicsLayer", true);
             if (!changed) return;
             if (Settings.IsFallback)
             {
@@ -813,8 +916,10 @@ namespace McvsOffline.Embedded
                     FileLog = true,
                     BootTrace = Boot,
                     FileLogOptions = LogFileOptions(),
-                    ClientCapabilities = GamePatchProbe.Detect(Logger.For("game")),
+                    ClientCapabilities = WatchPatches().Target,
                 };
+                // LAN is not supported on PC: the server's own copy of the settings too (never saved).
+                if (isWindows) serverOptions.LanMode = false;
                 // Sinks are thread-safe, so the server shares the platform sink (logcat) with the bootstrap logger.
                 if (systemSink != null) serverOptions.ExtraSinks.Add(systemSink);
                 if (!string.IsNullOrEmpty(options.Bind)) serverOptions.Bind = options.Bind;
@@ -866,6 +971,19 @@ namespace McvsOffline.Embedded
             {
                 serverReady.Set();
             }
+        }
+
+        /// <summary>
+        /// The client's patches for the server (ServerOptions.ClientCapabilities): probed now, and on PC again when Game loads (the
+        /// bootstrap runs before it there), with the "[boot] assemblies:" and "[boot] patches:" lines.
+        /// </summary>
+        private PatchWatcher WatchPatches()
+        {
+            Func<Action<System.Reflection.Assembly>, Action> watchLoads = null;
+            if (extensions != null) watchLoads = extensions.WatchAssemblyLoads;
+            PatchWatcher watcher = GamePatchProbe.Watch(new ClientCapabilities(), Logger.For("game"), watchLoads, isWindows ? Boot : null, Paths.GameRoot);
+            Patches = watcher;
+            return watcher;
         }
 
         private static bool IsLoopbackBind(string bind)

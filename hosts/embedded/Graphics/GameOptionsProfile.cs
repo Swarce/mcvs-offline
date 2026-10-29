@@ -28,6 +28,12 @@ namespace McvsOffline.Embedded.Graphics
 
         /// <summary>One sentence for the boot trace.</summary>
         public string Summary { get; internal set; }
+
+        /// <summary>PC (GameOptions_windows.json): "on, removed n" or "off"; null on Android.</summary>
+        public string MemRule { get; internal set; }
+
+        /// <summary>PC: how many "Physics" tokens the MEM rule removed from excludedLoadingLayers values.</summary>
+        public int PhysicsRemoved { get; internal set; }
     }
 
     /// <summary>
@@ -93,9 +99,38 @@ namespace McvsOffline.Embedded.Graphics
             return null;
         }
 
+        /// <summary>The file, the profile names and the catch-all rule of one platform's GameOptions file.</summary>
+        internal sealed class Variant
+        {
+            public string FileName;
+            public Func<string, string> ProfileOf;
+
+            /// <summary>The whole selection list naming one profile.</summary>
+            public Func<string, string> Selection;
+
+            /// <summary>"one 'CORES>1' rule" (for the summary).</summary>
+            public string RuleText;
+        }
+
+        /// <summary>Android: GameOptions_android.json, Gameloft's catch-all <c>[[["CORES&gt;1"]]]</c>.</summary>
+        internal static readonly Variant Android = new Variant
+        {
+            FileName = "GameOptions_android.json",
+            ProfileOf = GpuProfileOf,
+            Selection = profile => "[{" + MiniJson.Quote(profile) + ": [[[" + MiniJson.Quote(CatchAllCondition) + "]]]}]",
+            RuleText = "one '" + CatchAllCondition + "' rule",
+        };
+
         /// <summary>Rewrites <paramref name="json"/> for <paramref name="choice"/> (see the class remarks). Never throws.</summary>
         public static GameOptionsRewrite Rewrite(string json, string choice, bool fullProfile)
         {
+            return Rewrite(json, choice, fullProfile, Android);
+        }
+
+        /// <summary><see cref="Rewrite(string, string, bool)"/> for one platform's file. Never throws.</summary>
+        internal static GameOptionsRewrite Rewrite(string json, string choice, bool fullProfile, Variant variant)
+        {
+            string file = variant.FileName;
             var result = new GameOptionsRewrite { Json = json, Choice = Normalize(choice) ?? Auto, Pinned = new List<string>() };
             try
             {
@@ -107,19 +142,19 @@ namespace McvsOffline.Embedded.Graphics
                 }
                 if (normalized == Auto)
                 {
-                    result.Summary = "graphics.profile auto: the game picks its GPU profile itself (GameOptions_android.json unchanged)";
+                    result.Summary = "graphics.profile auto: the game picks its GPU profile itself (" + file + " unchanged)";
                     return result;
                 }
                 if (string.IsNullOrEmpty(json))
                 {
-                    result.Summary = "graphics.profile " + normalized + ": GameOptions_android.json is empty; left alone";
+                    result.Summary = "graphics.profile " + normalized + ": " + file + " is empty; left alone";
                     return result;
                 }
-                string profile = GpuProfileOf(normalized);
+                string profile = variant.ProfileOf(normalized);
                 object parsed;
                 if (!MiniJson.TryParse(json, out parsed))
                 {
-                    result.Summary = "graphics.profile " + normalized + ": GameOptions_android.json does not parse; left alone";
+                    result.Summary = "graphics.profile " + normalized + ": " + file + " does not parse; left alone";
                     return result;
                 }
                 Dictionary<string, object> gpu = Path(parsed, "profiles", "GPU");
@@ -127,13 +162,13 @@ namespace McvsOffline.Embedded.Graphics
                 Dictionary<string, object> chosen = overrides == null || !overrides.ContainsKey(profile) ? null : overrides[profile] as Dictionary<string, object>;
                 if (gpu == null || !(gpu.ContainsKey("selection") && gpu["selection"] is List<object>) || chosen == null)
                 {
-                    result.Summary = "graphics.profile " + normalized + ": GameOptions_android.json has no GPU profile '" + profile + "' (or no selection list); left alone";
+                    result.Summary = "graphics.profile " + normalized + ": " + file + " has no GPU profile '" + profile + "' (or no selection list); left alone";
                     return result;
                 }
 
                 string text = json;
                 // 1. The selection: one rule, Gameloft's own catch-all, naming the chosen block.
-                string rule = "[{" + MiniJson.Quote(profile) + ": [[[" + MiniJson.Quote(CatchAllCondition) + "]]]}]";
+                string rule = variant.Selection(profile);
                 if (!Replace(ref text, rule, "profiles", "GPU", "selection"))
                 {
                     result.Summary = "graphics.profile " + normalized + ": the GPU selection list could not be located in the text; left alone";
@@ -171,15 +206,15 @@ namespace McvsOffline.Embedded.Graphics
                 object check;
                 if (!MiniJson.TryParse(text, out check))
                 {
-                    result.Summary = "graphics.profile " + normalized + ": the rewritten GameOptions_android.json does not parse; left alone";
+                    result.Summary = "graphics.profile " + normalized + ": the rewritten " + file + " does not parse; left alone";
                     result.Pinned.Clear();
                     return result;
                 }
                 result.Json = text;
                 result.Changed = !string.Equals(text, json, StringComparison.Ordinal);
                 result.Profile = profile;
-                result.Summary = "graphics.profile " + normalized + ": GameOptions GPU profile forced to " + profile + " (the selection is one '" +
-                                 CatchAllCondition + "' rule" + (steps ? ", no priority step" : "") + "); " +
+                result.Summary = "graphics.profile " + normalized + ": GameOptions GPU profile forced to " + profile + " (the selection is " +
+                                 variant.RuleText + (steps ? ", no priority step" : "") + "); " +
                                  (fullProfile ? "graphics.fullProfile true: its world options apply unchanged"
                                               : result.Pinned.Count == 0 ? "its world options already equal " + BaselineProfile + "'s"
                                                                          : "world options kept at the " + BaselineProfile + " values: " + string.Join(", ", result.Pinned.ToArray()));
@@ -191,7 +226,7 @@ namespace McvsOffline.Embedded.Graphics
                 result.Changed = false;
                 result.Profile = null;
                 result.Pinned.Clear();
-                result.Summary = "graphics.profile " + choice + ": GameOptions_android.json could not be rewritten (" + ex.GetType().Name + "); left alone";
+                result.Summary = "graphics.profile " + choice + ": " + file + " could not be rewritten (" + ex.GetType().Name + "); left alone";
                 return result;
             }
         }

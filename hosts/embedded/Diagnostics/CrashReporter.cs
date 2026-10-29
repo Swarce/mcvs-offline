@@ -67,6 +67,16 @@ namespace McvsOffline.Embedded.Diagnostics
 
         public static void Install()
         {
+            Install(null);
+        }
+
+        /// <summary>
+        /// <see cref="Install()"/>, with the unobserved-task hook through <paramref name="subscribeUnobserved"/> first (the PC host
+        /// subscribes the public <c>TaskScheduler.UnobservedTaskException</c> event, which the game's Android mscorlib lacks;
+        /// docs/design/pc-port.md §6.1); the backing-field hook is the fallback. One of the two, never both (each report once).
+        /// </summary>
+        public static void Install(Func<EventHandler<UnobservedTaskExceptionEventArgs>, bool> subscribeUnobserved)
+        {
             if (Interlocked.Exchange(ref installed, 1) != 0) return;
             string domain = "no", tasks = "no";
             try
@@ -79,7 +89,14 @@ namespace McvsOffline.Embedded.Diagnostics
             }
             try
             {
-                if (HookUnobservedTasks()) tasks = "ok";
+                if (subscribeUnobserved != null && subscribeUnobserved(OnUnobserved)) tasks = "ok (event)";
+            }
+            catch (Exception)
+            {
+            }
+            try
+            {
+                if (tasks == "no" && HookUnobservedTasks()) tasks = "ok";
             }
             catch (Exception)
             {

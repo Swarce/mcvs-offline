@@ -4,6 +4,7 @@
 // the Android DLL.
 using System;
 using System.Threading;
+using System.Threading.Tasks;
 using McvsOffline.Embedded.Diagnostics;
 using McvsOffline.Server.Core;
 
@@ -13,6 +14,12 @@ namespace McvsOffline.Embedded.Windows
     /// The body of <c>McvsOffline.Bootstrap.Init()</c> on PC (its <c>MCVS_WINDOWS</c> branch is the one call to <see cref="Init"/>,
     /// docs/design/pc-port.md §6.1): called by the patched <c>EngineBridge.Class1.Start</c> before <c>MainLoop.Start</c>, which
     /// reads args.txt after it returns. Same contract as on Android: idempotent, returns within milliseconds, never throws.
+    /// <list type="number">
+    /// <item><c>InstallDiagnostics</c>: SelfLog writes through OutputDebugString, the crash reporter with the public
+    /// <c>TaskScheduler.UnobservedTaskException</c> event;</item>
+    /// <item><c>InitCore</c>: the working directory becomes the exe folder (a shortcut elsewhere would make the engine's relative
+    /// args.txt another file, [WH] §6.3), then <see cref="EmbeddedHost.Start"/> on a <see cref="WindowsPlatform"/>.</item>
+    /// </list>
     /// </summary>
     public static class WindowsBoot
     {
@@ -47,7 +54,7 @@ namespace McvsOffline.Embedded.Windows
                 // Never let a server problem prevent the game from starting.
                 try
                 {
-                    Console.WriteLine("McvsOffline: bootstrap failed: " + ex);
+                    DebugOutput.Write(SelfLog.Error, "bootstrap failed: " + ex);
                 }
                 catch (Exception)
                 {
@@ -62,23 +69,37 @@ namespace McvsOffline.Embedded.Windows
             Host = null;
         }
 
-        private static void InstallDiagnostics()
+        internal static void InstallDiagnostics()
         {
-            // WP2 adds the OutputDebugString writer for SelfLog and the UnobservedTaskException subscription (§6.1).
-            CrashReporter.Install();
+            SelfLog.SetWriter(DebugOutput.Write);
+            CrashReporter.Install(SubscribeUnobservedTasks);
         }
 
-        private static EmbeddedHost InitCore()
+        /// <summary>The public event (present in the .NET Framework's mscorlib, unlike the game's trimmed Android one).</summary>
+        internal static bool SubscribeUnobservedTasks(EventHandler<UnobservedTaskExceptionEventArgs> handler)
+        {
+            TaskScheduler.UnobservedTaskException += handler;
+            return true;
+        }
+
+        /// <summary>The exe folder, as the CLR host gives it; changes the working directory when it differs. Never throws.</summary>
+        internal static void SetWorkingDirectory(string baseDirectory)
         {
             try
             {
-                // The game is started from Steam with the exe folder as working directory; a shortcut elsewhere would make
-                // the engine's relative args.txt another file ([WH] §6.3).
-                Environment.CurrentDirectory = AppDomain.CurrentDomain.BaseDirectory;
+                if (string.IsNullOrEmpty(baseDirectory)) return;
+                if (!string.Equals(System.IO.Path.GetFullPath(Environment.CurrentDirectory).TrimEnd('\\', '/'),
+                                   System.IO.Path.GetFullPath(baseDirectory).TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase))
+                    Environment.CurrentDirectory = baseDirectory;
             }
             catch (Exception)
             {
             }
+        }
+
+        private static EmbeddedHost InitCore()
+        {
+            SetWorkingDirectory(AppDomain.CurrentDomain.BaseDirectory);
             return EmbeddedHost.Start(new WindowsPlatform(), new EmbeddedHostOptions());
         }
     }

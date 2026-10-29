@@ -60,8 +60,9 @@ namespace McvsOffline.Embed.Tests.Embedded
         }
 
         [Fact]
-        public void CapabilitiesFollowTheJniTableAndTheAndroidVersion()
+        public void DescribeCombinesThePlatformsCapabilitiesWithTheGameState()
         {
+            // The Android matrix itself is AndroidCapabilitiesTests'; here: how Describe turns capabilities into AdminHostInfo.
             using (McvsServer server = AdminFixtures.CreateServer(TestEnvironment.NewTempDir("adminhost-caps")))
             {
                 var platform = new RecordingAdminPlatform { Sdk = 34, Free = 123456789 };
@@ -74,7 +75,8 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.Equal("/storage/emulated/0/Download/MCVS-Offline", info.PublicLogsDir);
                 Assert.True(info.CanOpenPage && info.CanShareFile && info.CanSaveToDownloads && info.CanShareText && info.CanCopy && info.CanToast && info.CanExit);
                 Assert.False(info.CanSave);   // no game: GameReflection unbound
-                Assert.True(info.RelaunchUnconfirmed);   // Android 13+: the restart alarm may bring nothing back (target-sdk.md §4.6, not observed yet)
+                Assert.True(info.RelaunchUnconfirmed);
+                Assert.False(info.CanOpenInBrowser);
                 host.NotificationStatus = () => "allowed";
                 Assert.Equal("allowed", host.Describe().Notifications);
                 host.NotificationStatus = () => throw new InvalidOperationException("jni");
@@ -84,38 +86,32 @@ namespace McvsOffline.Embed.Tests.Embedded
                 platform.Missing.Add(AndroidJni.ClipboardSetPrimary.Key);
                 info = host.Describe();
                 Assert.False(info.CanCopy);
-                Assert.True(info.CanShareFile);
                 Assert.Equal(new[] { "android/content/ClipboardManager.setPrimaryClip(Landroid/content/ClipData;)V" }, info.MissingJni);
-
                 platform.Missing.Clear();
-                platform.Missing.Add(AndroidJni.DownloadsUri.Key);
-                info = host.Describe();
-                Assert.False(info.CanShareFile);
-                Assert.False(info.CanSaveToDownloads);
 
-                platform.Missing.Clear();
-                platform.Sdk = 28;   // Android 9: file:// shares, no Downloads
+                // One to one, except CanOpenPage (the game's browser or the platform) and CanExit (admin.restartVia).
+                platform.Caps = new AdminPlatformCapabilities { ShareText = true, ExitViaHost = true, RelaunchUnconfirmed = false, OpenInBrowser = true };
                 info = host.Describe();
+                Assert.False(info.CanOpenPage);   // no platform opener and the game's browser is not bound
+                Assert.True(info.CanShareText);
+                Assert.False(info.CanShareFile || info.CanSaveToDownloads || info.CanCopy || info.CanToast);
+                Assert.True(info.CanExit);        // game: the host's route is enough
                 Assert.False(info.RelaunchUnconfirmed);
-                Assert.True(info.CanShareFile);
-                Assert.False(info.CanSaveToDownloads);
-                platform.Missing.Add(AndroidJni.StrictSetVmPolicy.Key);
-                Assert.False(host.Describe().CanShareFile);
-                platform.Sdk = 23;   // no StrictMode relaxation needed before Android 7
-                Assert.True(host.Describe().CanShareFile);
-
-                platform.Missing.Clear();
-                platform.Sdk = 34;
-                platform.Missing.Add(AndroidJni.MainActivityRestart.Key);
-                Assert.True(host.Describe().CanExit);    // the host's restart remains
-                platform.Missing.Add(AndroidJni.KillProcess.Key);
-                Assert.False(host.Describe().CanExit);
-                platform.Missing.Clear();
+                Assert.True(info.CanOpenInBrowser);
+                platform.Caps.OpenPage = true;
+                Assert.True(host.Describe().CanOpenPage);
+                server.Context.Settings.Set("admin.restartVia", "host");
+                Assert.True(host.Describe().CanExit);
+                platform.Caps = new AdminPlatformCapabilities { ExitViaGame = true };
+                Assert.False(host.Describe().CanExit);   // host needs the host's route
+                server.Context.Settings.Set("admin.restartVia", "game");
+                Assert.True(host.Describe().CanExit);
                 server.Context.Settings.Set("admin.restartVia", "none");
                 Assert.Equal("none", host.Describe().RestartVia);
                 Assert.False(host.Describe().CanExit);
                 server.Context.Settings.Set("admin.restartVia", "nonsense");
                 Assert.Equal("game", host.Describe().RestartVia);
+                platform.Caps = null;
             }
         }
 
@@ -532,10 +528,13 @@ namespace McvsOffline.Embed.Tests.Embedded
             return new List<string>(Missing);
         }
 
-        /// <summary>Android's rules over <see cref="Sdk"/> and <see cref="Missing"/> (the matrix these tests check).</summary>
+        /// <summary>Fixed capabilities instead of Android's rules (null: Android's).</summary>
+        public AdminPlatformCapabilities Caps { get; set; }
+
+        /// <summary><see cref="Caps"/>, else Android's rules over <see cref="Sdk"/> and <see cref="Missing"/>.</summary>
         public AdminPlatformCapabilities Capabilities()
         {
-            return McvsOffline.Embedded.Android.AndroidCapabilities.From(Sdk, new List<string>(Missing));
+            return Caps ?? McvsOffline.Embedded.Android.AndroidCapabilities.From(Sdk, new List<string>(Missing));
         }
     }
 
