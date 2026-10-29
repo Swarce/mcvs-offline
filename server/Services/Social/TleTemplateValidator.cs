@@ -331,6 +331,50 @@ namespace McvsOffline.Server.Services.Social
             return null;
         }
 
+        /// <summary>True for an event whose template's <c>event_tuning.event_type</c> is an ArenaModeEvent (a Special Event).</summary>
+        public static bool IsArenaEvent(Dictionary<string, object> evt)
+        {
+            object parsed;
+            string template = JsonValue.GetString(evt, "_template");
+            if (template == null || !MiniJson.TryParse(template, out parsed)) return false;
+            string eventType = EventType(JsonValue.Get(JsonValue.GetObject(parsed as Dictionary<string, object>, "event_tuning"), "event_type"));
+            return eventType != null && eventType.EndsWith("ArenaModeEvent", StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The chain hand-written Special Events form, independent of the time: a gap or an overlap between them (as
+        /// <see cref="ArenaChainProblem"/> words it), otherwise where the chain ends. Null for no events. Nothing generates
+        /// a successor for a hand-written chain, so its end is trap 3 for a game still running then.
+        /// </summary>
+        public static string ArenaChainEnd(IList<Dictionary<string, object>> events, out bool broken)
+        {
+            broken = false;
+            if (events.Count == 0) return null;
+            var windows = new List<KeyValuePair<DateTime, DateTime>>();
+            foreach (Dictionary<string, object> e in events)
+            {
+                DateTime start, end;
+                if (!TimeFormat.TryParse(JsonValue.GetString(e, "start_date"), out start)
+                    || !TimeFormat.TryParse(JsonValue.GetString(e, "end_date"), out end) || end <= start)
+                {
+                    broken = true;
+                    return "Special Event " + JsonValue.GetString(e, "id") + " has no valid start_date/end_date";
+                }
+                windows.Add(new KeyValuePair<DateTime, DateTime>(start, end));
+            }
+            windows.Sort((a, b) => a.Key.CompareTo(b.Key));
+            for (int i = 1; i < windows.Count; i++)
+            {
+                if (windows[i].Key != windows[i - 1].Value)
+                {
+                    broken = true;
+                    return "Special Events " + (windows[i].Key > windows[i - 1].Value ? "leave a gap" : "overlap") + " at "
+                           + TimeFormat.Iso8601(windows[i - 1].Value);
+                }
+            }
+            return "the chain runs from " + TimeFormat.Iso8601(windows[0].Key) + " and ends at " + TimeFormat.Iso8601(windows[windows.Count - 1].Value);
+        }
+
         /// <summary>
         /// Why a list of Special Events (the ones the CRM lists, in any order) would leave the client holding an event the
         /// TS no longer has, or null. The client never clears its current event (GameClientComponent
