@@ -83,7 +83,9 @@ Built by `CrmDocumentBuilder`, layers in order (last wins):
    client: its inbox gives a message whose creation date differs from its item's (ours moves every Monday) the item's
    `EndDate` as expiry (`PC-GM/InboxComponent.cs:465-491`), and without `end_date` that is `default(DateTime)`, so the
    message vanished at every week rollover; on Android it only replaces the inbox's own now + 30 days expiry
-   (docs/design/pc-port.md §4.3). On PC, overlay newsfeed items with the same `asset` share the first one's `EndDate`.
+   (docs/design/pc-port.md §4.3). On PC, overlay newsfeed items with the same `asset` share the first one's `EndDate`;
+   `CrmDocumentValidator` logs a WARN (and changes nothing) when an item shares its `asset` with an earlier one that has
+   no `end_date`.
    The inbox shows it as the message "MCVS Offline" from "MCVS"; its button
    opens the page through the `adminlink` patch. `redirect` is a fixed marker, **never a secret**: `configs/users/me`
    answers anyone. With `crm.newsfeedLink` false, `admin.enabled` false or no admin module the list is `"newsfeeds": []`

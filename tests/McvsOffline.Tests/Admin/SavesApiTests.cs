@@ -640,8 +640,10 @@ namespace McvsOffline.Tests.Admin
                 Assert.Equal(true, J(raw)["canStage"]);
                 Assert.Equal(0L, At(raw, "bundle.messages"));
 
-                foreach (string bad in new[] { "link.txt", "big.txt", "bad#name.txt", "folder.txt", "../accounts.json", "../import/raw.json", "RAW.JSON", "" })
+                foreach (string bad in new[] { "link.txt", "big.txt", "bad#name.txt", "folder.txt", "../accounts.json", "../import/raw.json", "" })
                     Error(404, "not_found", s.Client.Post("saves/import/validate", new Dictionary<string, object> { ["file"] = bad }));
+                // A name that differs only in case is the same file, as on NTFS (docs/design/pc-port.md §4.6).
+                Status(200, s.Client.Post("saves/import/validate", new Dictionary<string, object> { ["file"] = "RAW.JSON" }));
 
                 HttpResponse staged = s.Client.Post("saves/import/stage", new Dictionary<string, object> { ["uploadId"] = J(checkedFile)["uploadId"], ["confirm"] = "switch" });
                 Status(200, staged);
