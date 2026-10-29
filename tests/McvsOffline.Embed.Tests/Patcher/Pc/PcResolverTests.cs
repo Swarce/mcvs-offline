@@ -41,6 +41,32 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         }
 
         [Fact]
+        public void TheBclComesFirstThenTheGameThenTheServerFolder()
+        {
+            string bcl = TestEnvironment.Net452Refs;
+            Assert.True(bcl != null, "the net452 reference assemblies are part of the test setup (NuGet)");
+            string game = TestEnvironment.NewTempDir("resolver-game");
+            string server = TestEnvironment.NewTempDir("resolver-server");
+            // The same name in all three places: the BCL wins; a name only in the game and the server folder: the game wins.
+            File.WriteAllBytes(Path.Combine(game, "System.dll"), PcHookServer.Compile());
+            File.WriteAllBytes(Path.Combine(game, "Shared.dll"), PcHookServer.Compile());
+            File.WriteAllBytes(Path.Combine(server, "Shared.dll"), PcHookServer.Compile());
+            File.WriteAllBytes(Path.Combine(server, "OnlyServer.exe"), PcHookServer.Compile());
+            using (var resolver = new PcAssemblyResolver(bcl, game, server))
+            {
+                Assert.Equal(new[] { bcl, Path.GetFullPath(game), Path.GetFullPath(server) }, resolver.Directories);
+                Assert.Equal(Path.Combine(bcl, "System.dll"), resolver.Find("System"));
+                Assert.Equal(Path.Combine(game, "Shared.dll"), resolver.Find("Shared"));
+                Assert.Equal(Path.Combine(server, "OnlyServer.exe"), resolver.Find("OnlyServer"));
+                Assert.Null(resolver.Find("../System"));
+                Assert.Null(resolver.Find("Nowhere"));
+                AssemblyResolutionException missing = Assert.Throws<AssemblyResolutionException>(() => resolver.Resolve(AssemblyNameReference.Parse("Nowhere")));
+                Assert.Equal("Nowhere", missing.AssemblyReference.Name);
+            }
+            Assert.Throws<ArgumentException>(() => new PcAssemblyResolver(null, game, server));
+        }
+
+        [Fact]
         public void ThePcHookServerHasOneCorlibAndAssertPcCorlibCatchesTheDefaultResolver()
         {
             byte[] image = PcHookServer.Compile();

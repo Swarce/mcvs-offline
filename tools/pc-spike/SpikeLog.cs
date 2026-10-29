@@ -10,7 +10,7 @@ namespace McvsOffline.PcSpike
     /// and what it found. 'collect' ships it, so the log says what happened even when the owner forgets.
     /// Also echoed to the console.
     /// </summary>
-    public sealed class SpikeLog
+    public sealed class SpikeLog : IToolLog
     {
         public const string FileName = "pc-spike.log";
 

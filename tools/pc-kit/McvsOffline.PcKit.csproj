@@ -2,12 +2,14 @@
   <!--
     McvsOffline.PcKit: the player's installer and diagnostics kit for the Steam (PC) build (docs/design/pc-port.md §9).
     install / uninstall / status / verify / probe / watch / collect. It patches the player's own game files on the
-    player's PC (McvsOffline\bin + ModernCombatVersus.exe.config, option A) and never ships a Gameloft binary.
+    player's PC (McvsOffline\bin + ModernCombatVersus.exe.config, option A) and never ships a Gameloft binary: no game
+    file, no reference assemblies, no download inside. The PC McvsOffline.Server.dll is an embedded resource.
 
-    Windows build for the player (self-contained, one file, no .NET install needed), from any OS:
+    Windows build for the player (self-contained, one file, no .NET install needed), from any OS, after the PC server DLL
+    was built (dotnet build McvsOffline.sln -c Release, or scripts/build.sh):
       dotnet publish tools/pc-kit/McvsOffline.PcKit.csproj -c Release -r win-x64 -p:McvsPcKitPublish=true -o artifacts/pc-kit
-
-    Day-0 skeleton: Main only says "not implemented" (WP3 fills it in).
+    The publish fails when that DLL is missing, lacks Gameloft.Logs (built without MCVS_GAMELOG) or lacks a hook a PC
+    patch imports (the check is McvsOffline.PcKit.Tests' 'check-server' entry point).
   -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -17,6 +19,8 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <!-- The patcher is an exe referenced as a library; the single-file bundle carries its DLL. -->
     <ValidateExecutableReferencesMatchSelfContained>false</ValidateExecutableReferencesMatchSelfContained>
+    <McvsConfigDir>$(Configuration.ToLowerInvariant())</McvsConfigDir>
+    <McvsPcServerDll Condition="'$(McvsPcServerDll)' == ''">$(McvsRepoRoot)artifacts/bin/McvsOffline.Server.Pc/$(McvsConfigDir)/McvsOffline.Server.dll</McvsPcServerDll>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(McvsPcKitPublish)' == 'true'">
@@ -33,6 +37,51 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Shared with the WP0 spike, no copies (§9.1). -->
+    <Compile Include="../pc-spike/IToolLog.cs" Link="Spike/IToolLog.cs" />
+    <Compile Include="../pc-spike/SteamLocator.cs" Link="Spike/SteamLocator.cs" />
+    <Compile Include="../pc-spike/Vdf.cs" Link="Spike/Vdf.cs" />
+    <Compile Include="../pc-spike/DebugOutputCapture.cs" Link="Spike/DebugOutputCapture.cs" />
+    <Compile Include="../pc-spike/CrashLogDecoder.cs" Link="Spike/CrashLogDecoder.cs" />
+    <Compile Include="../pc-spike/ConsoleLines.cs" Link="Spike/ConsoleLines.cs" />
+    <Compile Include="../pc-spike/StopSignal.cs" Link="Spike/StopSignal.cs" />
+    <Compile Include="../pc-spike/Telemetry.cs" Link="Spike/Telemetry.cs" />
+  </ItemGroup>
+
+  <!-- The PC server DLL of this configuration, when it was built; the publish below insists on it. -->
+  <ItemGroup Condition="Exists('$(McvsPcServerDll)')">
+    <EmbeddedResource Include="$(McvsPcServerDll)" LogicalName="McvsOffline.Server.dll" Link="McvsOffline.Server.dll" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="McvsOffline.PcKit.Tests" />
   </ItemGroup>
+
+  <!--
+    A kit is never published with a server DLL a PC patch cannot use: it must exist, reference Gameloft.Logs (the game-log
+    bridge), pass ServerAssemblyCheck for the PC build and have every hook of §3.2 with its exact signature. The check is the
+    PcKit.Tests entry point (one implementation for the tests and the publish), run in its own process.
+  -->
+  <Target Name="McvsPcKitCheckServer" BeforeTargets="BeforeBuild" Condition="'$(McvsPcKitPublish)' == 'true'">
+    <Error Condition="!Exists('$(McvsPcServerDll)')"
+           Text="The PC server DLL $(McvsPcServerDll) is missing: build it first (dotnet build McvsOffline.sln -c $(Configuration), or scripts/build.sh with MCVS_PC_REFS)." />
+    <PropertyGroup>
+      <_McvsDotnet>$(DOTNET_HOST_PATH)</_McvsDotnet>
+      <_McvsDotnet Condition="'$(_McvsDotnet)' == ''">dotnet</_McvsDotnet>
+      <_McvsKitTests>$(McvsRepoRoot)tests/McvsOffline.PcKit.Tests/McvsOffline.PcKit.Tests.csproj</_McvsKitTests>
+      <_McvsKitTestsDll>$(McvsRepoRoot)artifacts/bin/McvsOffline.PcKit.Tests/$(McvsConfigDir)/McvsOffline.PcKit.Tests.dll</_McvsKitTestsDll>
+    </PropertyGroup>
+    <!-- The nested restore must keep the win-x64 target in the shared assets files of the kit and the patcher, or this
+         publish fails afterwards with NETSDK1047. -->
+    <Exec Command="&quot;$(_McvsDotnet)&quot; build &quot;$(_McvsKitTests)&quot; -c $(Configuration) -p:RuntimeIdentifiers=$(RuntimeIdentifier) -nologo -v quiet" />
+    <Exec Command="&quot;$(_McvsDotnet)&quot; &quot;$(_McvsKitTestsDll)&quot; check-server &quot;$(McvsPcServerDll)&quot;" />
+  </Target>
+
+  <!-- The player gets one file: drop the symbols and the referenced exe's config files. -->
+  <Target Name="McvsPcKitSingleFileOnly" AfterTargets="Publish" Condition="'$(McvsPcKitPublish)' == 'true'">
+    <ItemGroup>
+      <_McvsPcKitExtra Include="$(PublishDir)*.pdb;$(PublishDir)*.deps.json;$(PublishDir)*.runtimeconfig.json" />
+    </ItemGroup>
+    <Delete Files="@(_McvsPcKitExtra)" />
+  </Target>
 </Project>

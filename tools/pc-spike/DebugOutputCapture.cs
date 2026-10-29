@@ -54,7 +54,7 @@ namespace McvsOffline.PcSpike
 
         /// <summary>Starts listening; null (with the reason logged) when another listener owns the buffer or it fails.</summary>
         [SupportedOSPlatform("windows")]
-        public static DebugOutputCapture TryStart(string dataDir, SpikeLog log)
+        public static DebugOutputCapture TryStart(string dataDir, IToolLog log)
         {
             EventWaitHandle bufferReady = null, dataReady = null;
             MemoryMappedFile buffer = null;
