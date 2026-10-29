@@ -78,6 +78,74 @@ namespace McvsOffline.Server.Services.Social.LiveOps
     }
 
     /// <summary>
+    /// A Special Event (Arena) window: <c>arenaHours</c> long, on a grid of whole windows from 2024-01-01
+    /// <c>dailyResetHour</c>:00 UTC (<see cref="LiveOpsSchedule.ArenaAt"/>). Its <see cref="Key"/> carries start and length,
+    /// so an event id names its window whatever the settings are later.
+    /// </summary>
+    public sealed class ArenaWindow
+    {
+        public ArenaWindow(DateTime start, int hours)
+        {
+            Start = DateTime.SpecifyKind(start, DateTimeKind.Utc);
+            Hours = hours;
+            End = new DateTime(Start.Ticks + hours * LiveOpsSchedule.TicksPerHour, DateTimeKind.Utc);
+        }
+
+        public DateTime Start { get; private set; }
+
+        public DateTime End { get; private set; }
+
+        public int Hours { get; private set; }
+
+        /// <summary>The window that starts when this one ends (same length).</summary>
+        public ArenaWindow Next
+        {
+            get { return new ArenaWindow(End, Hours); }
+        }
+
+        /// <summary>"yyyyMMddHHx&lt;hours&gt;h", e.g. "2026102900x24h".</summary>
+        public string Key
+        {
+            get { return Start.ToString("yyyyMMddHH", CultureInfo.InvariantCulture) + "x" + Hours.ToString(CultureInfo.InvariantCulture) + "h"; }
+        }
+
+        public bool Contains(DateTime utc)
+        {
+            return Start <= utc && utc < End;
+        }
+
+        /// <summary>Whole windows of this length between 2024-01-01 00:00 UTC and the start (the rotation index).</summary>
+        public long Ordinal
+        {
+            get
+            {
+                DateTime anchor = LiveOpsSettings.DefaultAnchor;
+                long length = Hours * LiveOpsSchedule.TicksPerHour;
+                long offset = Start.Ticks - anchor.Ticks;
+                return offset >= 0 ? offset / length : -((-offset + length - 1) / length);
+            }
+        }
+
+        /// <summary>Parses a <see cref="Key"/> (only the exact form it writes: 1..168 hours, no leading zero); null otherwise.</summary>
+        public static ArenaWindow Parse(string key)
+        {
+            if (key == null || key.Length < 13 || key[10] != 'x' || key[key.Length - 1] != 'h') return null;
+            LiveOpsWindow start = LiveOpsWindow.Parse(key.Substring(0, 10), false);
+            if (start == null) return null;
+            string hoursText = key.Substring(11, key.Length - 12);
+            if (hoursText.Length == 0 || hoursText.Length > 3 || hoursText[0] == '0') return null;
+            int hours = 0;
+            foreach (char c in hoursText)
+            {
+                if (c < '0' || c > '9') return null;
+                hours = hours * 10 + (c - '0');
+            }
+            if (hours < 1 || hours > 168) return null;
+            return new ArenaWindow(start.Start, hours);
+        }
+    }
+
+    /// <summary>
     /// The deterministic calendar: everything is a function of the clock and the settings, nothing is stored.
     /// <list type="bullet">
     /// <item>Season k starts at <c>seasonStart + k × seasonDays</c> (default: every Monday 00:00 UTC) and lasts
@@ -99,6 +167,7 @@ namespace McvsOffline.Server.Services.Social.LiveOps
         public const string DailyPrefix = "mcvs_daily_";
         public const string WeeklyPrefix = "mcvs_weekly_";
         public const string BoardPrefix = "mcvs_division_";
+        public const string ArenaPrefix = "mcvs_arena_";
 
         /// <summary>The division boards end with this word: the TS turns it into "Leaderboard_QA" for a developer
         /// profile (GM/DivisionsComponent.cs DivisionData.LeaderboardId, and every loopback player is one).</summary>
@@ -117,6 +186,17 @@ namespace McvsOffline.Server.Services.Social.LiveOps
             DateTime start = new DateTime(utc.Year, utc.Month, utc.Day, settings.DailyResetHour, 0, 0, DateTimeKind.Utc);
             if (start > utc) start = start.AddDays(-1);
             return new LiveOpsWindow(start, 1);
+        }
+
+        /// <summary>The Special Event window at <paramref name="utc"/>: <c>arenaHours</c> long, on the grid of whole windows
+        /// from 2024-01-01 <c>dailyResetHour</c>:00 UTC (24 h windows start at the daily reset, like the quests).</summary>
+        public static ArenaWindow ArenaAt(LiveOpsSettings settings, DateTime utc)
+        {
+            long length = TicksPerHour * settings.ArenaHours;
+            long anchor = AnchorTicks() + settings.DailyResetHour * TicksPerHour;
+            long offset = utc.Ticks - anchor;
+            long index = offset >= 0 ? offset / length : -((-offset + length - 1) / length);
+            return new ArenaWindow(new DateTime(anchor + index * length, DateTimeKind.Utc), settings.ArenaHours);
         }
 
         /// <summary>Whole seasons of this length between 2024-01-01 and the season start (the modifier rotation index).</summary>
@@ -168,6 +248,29 @@ namespace McvsOffline.Server.Services.Social.LiveOps
         public static string WeeklyEventId(LiveOpsWindow season)
         {
             return WeeklyPrefix + season.Key;
+        }
+
+        /// <summary>"mcvs_arena_&lt;window key&gt;_&lt;mode id&gt;": the window and the mode the event runs (mode ids have no '_').</summary>
+        public static string ArenaEventId(ArenaWindow window, string modeId)
+        {
+            return ArenaPrefix + window.Key + "_" + modeId;
+        }
+
+        /// <summary>A Special Event id: its window and mode id; false otherwise.</summary>
+        public static bool TryParseArena(string id, out ArenaWindow window, out string modeId)
+        {
+            window = null;
+            modeId = null;
+            if (id == null || !id.StartsWith(ArenaPrefix, StringComparison.Ordinal)) return false;
+            string rest = id.Substring(ArenaPrefix.Length);
+            int at = rest.IndexOf('_');
+            if (at < 0 || at == rest.Length - 1) return false;
+            string mode = rest.Substring(at + 1);
+            if (!LiveOpsArena.IsModeId(mode)) return false;
+            window = ArenaWindow.Parse(rest.Substring(0, at));
+            if (window == null) return false;
+            modeId = mode;
+            return true;
         }
 
         /// <summary>A division event id: its season and division; false otherwise.</summary>

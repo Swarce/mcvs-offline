@@ -590,7 +590,11 @@ namespace McvsOffline.Tests.Content
         private static McvsServer BaselineServer(TempDir dir, bool preconfiguration)
         {
             string pack = preconfiguration ? ContentTestSupport.CreateFakeDataPack(dir.Combine("pack"), ContentTestSupport.SamplePreconfiguration()) : null;
-            return AdminTestClient.CreateServer(dir.Combine("data"), clock: new ManualClock(Wednesday), configure: o => o.DataPackDir = pack);
+            McvsServer server = AdminTestClient.CreateServer(dir.Combine("data"), clock: new ManualClock(Wednesday), configure: o => o.DataPackDir = pack);
+            // The baseline predates the Special Events (two more participation ids and an earlier expiry): they have
+            // their own tests (LiveOpsArenaTests).
+            server.Context.Settings.Override("liveops.arenaEvents", false);
+            return server;
         }
 
         private static string Sha256(string text) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))).ToLowerInvariant();

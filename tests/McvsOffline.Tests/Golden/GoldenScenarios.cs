@@ -482,6 +482,9 @@ namespace McvsOffline.Tests.Golden
             };
             options.ExtraSinks.Add(Logs);
             Server = McvsServer.Create(options);
+            // The golden file predates the Special Events (ac64bfd): they would add two event ids to every document. They
+            // have their own tests (LiveOpsArenaTests, LiveOpsArenaConformanceTests).
+            Set("liveops.arenaEvents", false);
         }
 
         public McvsServer Server { get; private set; }

@@ -1,4 +1,4 @@
-# Live ops: weekly division seasons, daily quests, weekly achievement events
+# Live ops: weekly division seasons, daily quests, weekly achievement events, Special Events
 
 What the offline server runs so that the game has seasons, missions and events again, how the game consumes them,
 and how to change the schedule. Owner: MISC/CONTENT (`server/Services/Social/LiveOps/`, `server/Services/Leaderboards/SeasonRivals.cs`,
@@ -17,6 +17,7 @@ player's profile, saved by the game as always.
 | **Division season** | every Monday 00:00 UTC (7 days) | Divisions screen: a league group of 100 (the player + 99 rivals whose trophies grow during the week). At the season end the game promotes (top zone), keeps or demotes the player by one division and sends the end-of-season reward to the inbox. |
 | **Daily missions** | every day 00:00 UTC | "DAILY MISSIONS": 3 missions picked from 6 (matches, wins, kill shots, eliminations, assists, MVP) with VersusCoins + Credits, and a "complete all" bonus: the game's own *Daily mission loot crate* (`Crate_Contracts`). |
 | **Weekly event** | same window as the season | a limited-time event with a theme (kill shots, wins, eliminations or assists in turn) and 4 objectives × 3 milestones (VersusCoins, Credits, upgrade tokens), plus a final reward for completing everything: 20 diamonds and one of the 65 cosmetic *event crates* (`Crate_Event_<n>`, rotating weekly). The next week's event is announced during the last day. |
+| **Special Event** | a new mode every day at the daily reset (`arenaHours`) | Battle › Special Event: an Arena mode (Havoc, Blitz, Scorecharge, Competitive best of 3, Override, Ambush, Grand Bounty, Bountiful or a plain mode) with bots as in Classic and full match rewards, wins ×1.25 (Competitive ×1.5) in Credits and VersusCoins; the next mode's timer on the box (§8a). |
 | **Weekly modifier** | one per season, rotating | standard / Coin rush (VersusCoins ×1.5) / Trophy fever (division trophies ×1.5) / Credit rush (Credits ×1.5) / MVP bounty (MVP bonus ×3) / Rival surge (rivals ×1.2, VersusCoins and Credits ×1.25). Daily caps scale with the rewards. Visible in the division perks (daily cap, MVP bonus) and as a "MATCH REWARDS BOOSTED!" tag on the weekly event. |
 
 From `collector.since` (2026-11-09) the daily missions, the weekly event and the season rewards also hand out the
@@ -63,6 +64,7 @@ the data pack (only their texts remain in `Localization/Achiev_*.json`). The tim
 | `modifiers` | `"rotate"` | `"rotate"` (season ordinal mod rotation), `"off"`, or a modifier id (`coinRush`, `trophyFever`, …) every week. |
 | `difficulty` | `1.0` | Scales every rival's score (0.1–10): 0.5 = half the matches for promotion. |
 | `seasonRewardMultiplier` | `1.0` | Multiplies the end-of-season reward quantities (`PVPDivisionRewards`). |
+| `arenaEvents`, `arenaRotation`, `arenaHours`, `arenaMap` | `true`, `"rotate"`, `24`, `"Random"` | The Special Events: §8a.2. |
 
 Ids embed their window (`yyyyMMddHH` start + `x<days>`), so an event or board stays what it was even after the
 settings change: `mcvs_season_2026101900x7` (season id = `_batch_tag`), `mcvs_season_2026101900x7_d05` (division 5's
@@ -224,10 +226,11 @@ What the game offers for "season modifiers":
   rewards and trophies) `game._ServerConfig.default._OverrideTables` (the builder mirrors them). A MUL cell (`"*1.5"`)
   on an existing row (CRM cannot add rows). The season's modifier cells are combined with the static economy
   multipliers (`economy.*`: one cell, product of both) and change at the season boundary with the CRM refresh.
-* **`ArenaModeEvent`** (not used): `EndMatchRewardMultipliers`, restricted agents, map, match type, but only for the
-  separate Arena mode the player has to select (`GameClientComponent IsArenaSelected` → `filters._arena`), carried in
-  the matchmaker room kwargs (`default_room_kwargs._arenaParams`), i.e. a LocalAnubis change; regular quick matches
-  never see it.
+* **`ArenaModeEvent`** (used for the Special Events, §8a, not as a modifier): `EndMatchRewardMultipliers`, restricted
+  agents, map, match type, but only for the separate Arena mode the player selects (`GameClientComponent
+  IsArenaSelected` → `filters._arena`), carried in the matchmaker room kwargs (`default_room_kwargs._arenaParams`).
+  The in-process LocalAnubis already copies those kwargs into the room (`Lobby.cs`), so no LocalAnubis change was
+  needed; Classic matches never see the multipliers.
 * **`BonusMultiplierEvent`** (not used): only the texts of the ad-reward "boost" banner; ads do not exist offline.
 * The **trophy curve** itself: `PlayerLevelXP.DivisionTrophiesBonus` (trophies per win) and `DivisionsList`
   `DivisionTrophies.*` are table values, so a modifier can scale them (Trophy fever).
@@ -245,6 +248,116 @@ Rotation: `standard, coinRush, trophyFever, creditRush, mvpBounty, rivalSurge` b
 (the week of 2026-10-19 is `trophyFever`, the next `creditRush`). Change the list or the factors in `liveops_tuning.json`, or pin one with
 `liveops.modifiers`.
 
+## 8a. Special Events (Arena)
+
+The Battle popup has two boxes: **Classic multiplayer** and the **Special Event** (`menu.ArenaTitle` "ARENA EVENT" /
+`menu.ArenaDescription` "SPECIAL EVENT"). The second is the game's **Arena mode** (`GameMode.Arena`), driven by one
+time-limited `ArenaModeEvent`; it unlocks only while such an event is in progress, listed in CRM participation
+(`CanParticipate`), and the player owns (or trials) one of the agents it allows (`GM/GameClientComponent.cs
+GetArenaUIInfo`, `MeetsArenaAgentRequirements`). There is no level gate or CRM switch. Before build 15 the server never
+served one, so the box was always locked. Research and code references: the match-modes notes (`special-event.md`,
+`verify.md`).
+
+### 8a.1 What runs
+
+Live ops list a **contiguous chain** of Special Events: the window in progress and the next one, always both (ids in
+`groupware.events.participation`, the CRM `expiry` at the latest at the window's end; in the last 2 s of a window, the
+one after the next too and the next window's end, §8a.3). A window is
+`liveops.arenaHours` long (default 24) on a grid of whole windows from 2024-01-01 `dailyResetHour`:00 UTC, so 24 h
+windows change with the daily missions. Ids carry window and mode: `mcvs_arena_2026102100x24h_havoc`.
+
+The mode of a window is picked from the 23 modes of `liveops.json` `arena.modes`, which content-gen builds from the
+data pack's Arena variants (the `Arena.*` loc ids and the `MCVS_Gameplay` `Arena*` rule tables; every table and every
+titled variant must be used by a mode or named in `unusedTables`/`unusedTexts`):
+
+| Mode ids | Match type | Rule tables (`MatchParameterSets`) | Wins pay |
+|---|---|---|---|
+| `havoc` (TDM), `override` (Zone Control), `ambush` (Warzone), `grandBounty`, `bountiful` (Bounty) | fixed | `ArenaHavoc`, `ArenaOverride`, `ArenaAmbush`, `ArenaGrandBounty`, `ArenaBountiful` | ×1.25 |
+| `blitzTDM`, `blitzZoneControl`, `blitzWarzone`, `blitzBounty` | the four modes | `ArenaBlitz` (core charge ×2) | ×1.25 |
+| `scorechargeTDM`, `…ZoneControl`, `…Warzone`, `…Bounty` | the four modes | `ArenaScorecharge<Mode>` (charge only from kills, captures, chips) | ×1.25 |
+| `competitiveTDM`, `…ZoneControl`, `…Warzone`, `…Bounty`, `competitiveRegular` (random mode per map) | fixed / `None` | `Arena3RoundSystem` (best of 3), no duplicate agents | ×1.5 |
+| `tdm`, `zoneControl`, `warzone`, `bounty` | fixed | – (the plain mode) | ×1.25 |
+| `tripleElixir` (pinned only: it has no title or rules text of its own) | TDM | `ArenaTripleElixir` (core charge ×3) | ×1.25 |
+
+"Wins pay" is the event's `CreditsVictoryAmountMultiplier` and `VersusCoinsVictoryAmountMultiplier` (defeat and MVP
+×1): see [ECONOMY.md](ECONOMY.md) §4. Every event allows all 21 agents as an explicit `Merc_1 … Merc_21` list, plays on
+a random PvP map (or the one `liveops.arenaMap` names; never Barrage, Bridge or Downtown, whose levels are not in the
+data pack), shows the match type's tournament icon (`Menus/assets/png/tournament/mode_*.png`) and leaves gear and the
+level bonus as in Classic (`ForcedMercModTier` false).
+
+**Rotation** (`liveops.arenaRotation: "rotate"`): every rotating mode once per cycle of 22 windows, the cycle shuffled
+by its number, never the same mode twice in a row (when a cycle would begin with the previous cycle's last mode, its
+first two swap). A function of the window alone: nothing is stored.
+
+### 8a.2 Settings
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `liveops.arenaEvents` | `true` | The Special Events. Needs `liveops.enabled`. |
+| `liveops.arenaRotation` | `"rotate"` | `"rotate"`, `"off"` (none), or a mode id: always that mode (the cheapest "pick your mode" bot match with full rewards, e.g. `competitiveWarzone`, or `tdm` with `arenaMap`). An unknown id rotates (a warning in the log). |
+| `liveops.arenaHours` | `24` | 1–168. The window length. |
+| `liveops.arenaMap` | `"Random"` | `"Random"` (each mode's own map: random) or `Snow`, `Desert`, `Favelas`, `Rooftop`, `DogDays`, `Port`, `Stadium`, `Stadium2` for every Special Event. |
+
+All four are on the settings page (Live ops), applied at the next CRM fetch, with one exception (§8a.3).
+
+### 8a.3 The client's three traps, and how the server avoids them
+
+1. **`img` is mandatory.** `ArenaModeEvent.Initialize` turns it into a `DownloadableAsset` (`value.Trim()`): without it
+   Initialize throws a NullReferenceException, RetrieveEventsAsync rethrows it and **no** event (seasons, missions)
+   reaches the menu.
+2. **The agent list must be a non-empty list of `<name>_<id>` strings, never `"Any"` or `"MercClass_…"`.** A
+   `MercClass_` entry throws in Initialize (`int.Parse`). An empty list, or one with "Any", becomes
+   `RestrictedAgents = null`: the C# then treats the event as unrestricted and `GetArenaUIInfo` hands the Flash box
+   `arenaEventRestrictedAgents = null`, whose `.length` `MatchTypeBox.setup` reads (a TypeError in the lobby).
+   (The research expected an ArgumentNullException in `GetArenaUIInfo`; the real client, Android and PC, does not throw:
+   its LINQ chain is null-conditional. `LiveOpsArenaConformanceTests` shows both.)
+3. **No gap between windows.** The client never clears its current Arena event (`UpdateCurrentAndNextArenaEvent` only
+   assigns), so after an event ends the box stays open; the TS, when the player starts, takes the first event **in
+   progress** for the room (`AddArenaEventParametersToArgs`). With none, the room gets `_arena` without `_arenaParams`
+   and the GS throws (`GameServerComponent` reads `Room["_arenaParams"]` unguarded).
+
+The server's answers: every Arena event goes through `TleTemplateValidator` (img, agents, match type, map, rule
+tables, multipliers, booleans, loc ids), also the hand-written ones of `content/social/events.json`, which are dropped
+when they fail; content-gen and the catalogue parser check the same rules on every mode (a broken mode is left out, a
+broken `arena` block costs only the Special Events); the CRM lists an Arena event only when the current and the next
+one pass and form a chain (`TleTemplateValidator.ArenaChainProblem`); the next window is always listed, so at a window
+change the TS starts it on its own timer (`OnEventsStarted`) even before the CRM refresh. The chain is checked at the
+real time and at the document's expiry: a document served in the last 2 s of a window (its expiry is pushed to the next
+window's end so that the TS reads it before it expires) lists three events, the one in progress, the next and the one
+after, because the TS replaces its list on every fetch and must still have the event the client holds.
+
+**Hand-written Arena events** (`content/social/events.json`, listed with `crm.eventIds`) get the per-event checks
+only (img, agents and the rest above), not the chain check: nothing lists a successor for them. When the last one ends
+while the game runs (and no generated Special Event is in progress), trap 3 applies until the game restarts. So such
+events must cover the whole session or be followed, without a gap, by another one; when `social/events.json` is read
+the log says where their chain ends, and warns about a gap or an overlap between them.
+
+**Switching off.** Because of trap 3, Special Events cannot stop while the game runs once the TS has been handed one:
+`liveops.arenaEvents: false`, `arenaRotation: "off"` or `liveops.enabled: false` then keep the chain going, pinned to the
+mode of the window that was in progress, until the game restarts (the server lives in the game's process; its memory
+of the served event ends with it). The log says so once (`Special Events are switched off, but the game already has
+one`), and `/_mcvs/liveops` shows `arena.kept: true`. Before the TS has seen one, off is off at the next CRM fetch.
+(The standalone host is the exception: a game that outlives a server restart keeps its event; restart the game too.)
+
+### 8a.4 Matchmaking and bots
+
+Nothing Arena-specific: Battle → Special Event → lobby → Start goes through the same group-play automatch as Classic
+with the filter `_arena = true` (`GameClientComponent.ConnectGameplayServer`). The TS adds
+`default_room_kwargs._arenaParams` (the event's `ArenaParams`, JSON), the in-process LocalAnubis creates the room from
+them (`Lobby.cs`), and the GS's public `CloseRoom` branch fills it with bots exactly as in Classic: the CRM's
+`_ServerConfig.default.Matchmaking` `MinPlayers` 1 and `MaxOpenTimeInSeconds` 0 (`instantBots`, on by default) have no
+mode check. Bots pick from the event's agents (`AiUtils`: all 21) and, in the competitive modes, avoid duplicates in a
+team. A Special Event match is a public PvP match: trophies, division, Credits and VersusCoins (with the event's
+multipliers, within the daily caps), MVP, agent XP and the daily and weekly objectives, as in Classic.
+`LiveOpsArenaTests.TheCrmListsThisWindowAndTheNextAndTheEventsAreServed` checks the instant-bot cells in the same
+document that lists the events. Not device-tested yet (§11).
+
+### 8a.5 Diagnostics
+
+`GET /_mcvs/liveops` → `arena`: `listed`, `kept`, `current` and `next` (id, mode, loc ids, match type, rule tables, map,
+agent count, win multipliers, window), `upcoming` (the modes of the seven windows after the next), `modes` (`*`: outside
+the rotation), `maps`, `problem` (why the catalogue has fewer or no modes); `settings` carries the four arena keys.
+
 ## 9. Safety rules (why the TS cannot choke on these events)
 
 * Template values are SEM `{"private":"1","value":…}` elements, so `ParseTemplate` returns exactly our values; every
@@ -260,7 +373,9 @@ Rotation: `standard, coinRush, trophyFever, creditRush, mvpBounty, rivalSurge` b
   bad tuning. `LiveOpsConformanceTests` runs 16 days of generated CRM documents and events through the real client:
   `StandardCrm.Data`, `Json.Load`, `SocialEvent`, `ParseTemplate`, `TypeUtil.GetType`, each type's `Initialize` (with
   `RewardHelper` creating every reward), then the TS's later unguarded reads; under a day-first culture.
-* `liveops.enabled: false` is the kill switch.
+* Special Events (`ArenaModeEvent`): their own three traps and the chain rule, §8a.3; `LiveOpsArenaConformanceTests`
+  runs 14 days of them through the real client, its `GetArenaUIInfo` included.
+* `liveops.enabled: false` is the kill switch (for Special Events once the game has one: at the next start, §8a.3).
 
 ## 10. Tuning without code
 
@@ -273,7 +388,7 @@ Rotation: `standard, coinRush, trophyFever, creditRush, mvpBounty, rivalSurge` b
 
 ## 11. Device checklist
 
-- [ ] Boot with live ops on: the TS logs `GET events?event_ids=mcvs_season_…` (37 ids) and reaches the menu (no wait).
+- [ ] Boot with live ops on: the TS logs `GET events?event_ids=mcvs_season_…` (39 ids: 37 and the two Special Events) and reaches the menu (no wait).
 - [ ] Divisions screen: season timer counts down to Monday 00:00 UTC; the board shows 100 entries, the player among
       rivals; after a match the player's score rises (`POST leaderboards/desc/mcvs_division_…_Leaderboard_QA/me`).
 - [ ] Daily missions screen shows 3 missions + bonus; a quick match advances them; claiming pays; the next day (or
@@ -283,4 +398,15 @@ Rotation: `standard, coinRush, trophyFever, creditRush, mvpBounty, rivalSurge` b
       season-end popup, the "DIVISION REWARD" inbox message, promotion when above the line.
 - [ ] Modifier week: division perks show the boosted daily cap; a win pays more (Coin rush / Credit rush).
 - [ ] The Cosmetic crate from `since` on: STATUS.md, build 9, checks 14–28.
+- [ ] Special Event (§8a): Battle shows the box unlocked with the mode's title and match type (e.g. "TEAM DEATHMATCH:
+      HAVOC" / "TEAM DEATHMATCH") and an end timer; its lobby shows the rules text and the 21 agent icons; Start fills the
+      room with 7 bots at once (as Classic) and the match is the event's mode on a valid map; no GS exception about
+      `_arenaParams` in the logs; the end screen pays more Credits and VersusCoins for a win than Classic does (×1.25,
+      ×1.5 in a Competitive mode, up to the daily cap); trophies and the daily/weekly objectives advance.
+- [ ] Special Event window change (set `liveops.arenaHours` 1, or play over midnight UTC): the box switches to the next
+      mode without a restart; with the game open across the change the next match still starts.
+- [ ] `liveops.arenaRotation` set to a mode (e.g. `competitiveWarzone`): that mode after the next match; the
+      competitive best of three really has three rounds and no duplicate agents in a team.
+- [ ] `liveops.arenaEvents` off while the game runs: the box stays usable (log line "switched off, but the game already
+      has one"); after a restart it is locked.
 - [ ] Descriptions with `{0_…}` placeholders (TLE event descriptions): check how the SWF renders them.

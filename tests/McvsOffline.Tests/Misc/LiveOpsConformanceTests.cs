@@ -97,7 +97,7 @@ namespace McvsOffline.Tests.Misc
                 {
                     CultureInfo.CurrentCulture = dayFirst;
                     string crmText = s.Get("/configs/users/me?access_token=t").BodyText;
-                    dynamic crm = Activator.CreateInstance(crmData, crmText);
+                    dynamic crm = GameClient.NewCrmData(crmData, crmText);
                     List<string> ids = ((IEnumerable)crm.TimeLimitedEvents.Participation).Cast<object>().Select(x => (string)x).ToList();
                     LiveOpsSnapshot snap = LiveOpsService.For(s.Context).Snapshot(clock.UtcNow);
                     Assert.Equal(snap.EventIds, ids);
@@ -138,6 +138,10 @@ namespace McvsOffline.Tests.Misc
                         {
                             CheckDivision(tle, raw);
                         }
+                        else if (eventType == LiveOpsEvents.ArenaType)
+                        {
+                            LiveOpsArenaConformanceTests.CheckArenaParams(tle);   // the Special Events (docs/LIVEOPS.md §8a)
+                        }
                         else
                         {
                             CheckAchievements(tle, eventType, rewardItem);
@@ -158,6 +162,7 @@ namespace McvsOffline.Tests.Misc
             Assert.True(types.ContainsKey("DivisionSeasonEvent") && types["DivisionSeasonEvent"] >= 17 * 4);
             Assert.True(types.ContainsKey("TimeLimitedDailyQuestEvent") && types["TimeLimitedDailyQuestEvent"] >= 16);
             Assert.True(types.ContainsKey("TimeLimitedAchievementEvent") && types["TimeLimitedAchievementEvent"] >= 3);
+            Assert.True(types.ContainsKey(LiveOpsEvents.ArenaType) && types[LiveOpsEvents.ArenaType] >= 17);   // a window a day, and the next
             int Crates(string kind) => crates.TryGetValue(kind, out int n) ? n : 0;
             Assert.True(Crates("TimeLimitedDailyQuestEvent without the Cosmetic crate") >= 3);   // 10-23 … 10-25
             Assert.True(Crates("TimeLimitedDailyQuestEvent with the Cosmetic crate") >= 12);     // 10-26 … 11-08

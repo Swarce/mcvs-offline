@@ -15,6 +15,17 @@ namespace McvsOffline.Server.Services.Social.LiveOps
         public LiveOpsWindow Day;
         public LiveOpsModifier Modifier;
 
+        /// <summary>The Special Event window now and its event id (null: no Special Event is listed).</summary>
+        public ArenaWindow ArenaWindow;
+        public string ArenaEventId;
+
+        /// <summary>The next window's event id (listed with the current one: the chain never has a gap).</summary>
+        public string NextArenaEventId;
+
+        /// <summary>The window after the next one, listed only by a document served in the last moments of a window
+        /// (its expiry is the next window's end, so the chain must reach past it); null otherwise.</summary>
+        public string LaterArenaEventId;
+
         /// <summary>Event ids for <c>groupware.events.participation</c> (empty when live ops are off).</summary>
         public List<string> EventIds = new List<string>();
 
@@ -90,6 +101,15 @@ namespace McvsOffline.Server.Services.Social.LiveOps
         private LiveOpsSettings settings = LiveOpsSettings.Defaults();
         private bool collectorFailing;
         private readonly HashSet<string> warned = new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// The mode of the last Special Event handed to the TS in this process (the one in progress when it was served),
+        /// or null: none yet. Once the TS has one, the client holds it until the game restarts (it never clears its current
+        /// Arena event), so from then on the chain must not break: switching Special Events off keeps them running,
+        /// pinned to this mode, until the next start (docs/LIVEOPS.md §8a.3). In memory on purpose: the client's state ends
+        /// with the process, and so does this.
+        /// </summary>
+        private LiveOpsArenaMode servedArenaMode;
 
         public LiveOpsService(ServerContext context)
         {
@@ -310,7 +330,9 @@ namespace McvsOffline.Server.Services.Social.LiveOps
             snap.Day = LiveOpsSchedule.DayAt(s, at);
             if (!s.Enabled || c.IsEmpty)
             {
-                snap.Key = "off|" + s.Fingerprint + "|" + c.Hash;
+                // Only a Special Event chain the TS has seen survives this (ArenaPlan): the client keeps it.
+                AddArena(snap, s, c, utc, at);
+                snap.Key = "off|" + s.Fingerprint + "|" + c.Hash + "|" + ArenaKey(snap);
                 return snap;
             }
             snap.On = true;
@@ -348,6 +370,7 @@ namespace McvsOffline.Server.Services.Social.LiveOps
                 }
             }
             snap.Expiry = expiry;
+            AddArena(snap, s, c, utc, at);
             snap.Modifier = ModifierFor(snap.Season, s, c);
             if (snap.Modifier != null) snap.Cells.AddRange(snap.Modifier.Cells);
             if (s.SeasonRewardMultiplier != 1.0 && c.SeasonRewards != null)
@@ -361,9 +384,184 @@ namespace McvsOffline.Server.Services.Social.LiveOps
             snap.Key = string.Join("|", new[]
             {
                 "on", s.Fingerprint, c.Hash, snap.Season.Key, snap.Day.Key, advertise ? "a" : "-",
-                snap.Modifier == null ? "-" : snap.Modifier.Id,
+                snap.Modifier == null ? "-" : snap.Modifier.Id, ArenaKey(snap),
             });
             return snap;
+        }
+
+        // ------------------------------------------------------------------------------------------ Special Events
+
+        /// <summary>What the Special Event chain runs now: the modes, a pinned mode (or null: the rotation) and the map.</summary>
+        private sealed class ArenaPlan
+        {
+            public LiveOpsArena Arena;
+            public LiveOpsArenaMode Pinned;
+            public string Map;
+
+            /// <summary>Switched off, but kept running because the TS has seen a Special Event (<see cref="servedArenaMode"/>).</summary>
+            public bool Kept;
+
+            public LiveOpsArenaMode ModeOf(ArenaWindow window)
+            {
+                return Pinned ?? (Arena == null ? null : Arena.Rotating(window));
+            }
+
+            public LiveOpsArenaMode Lookup(string modeId, LiveOpsArenaMode served)
+            {
+                LiveOpsArenaMode m = Arena == null ? null : Arena.Mode(modeId);
+                if (m == null && Pinned != null && Pinned.Id == modeId) m = Pinned;
+                if (m == null && served != null && served.Id == modeId) m = served;
+                return m;
+            }
+
+            public string MapFor(LiveOpsArenaMode mode)
+            {
+                return string.Equals(Map, "Random", StringComparison.Ordinal) ? mode.Map : Map;
+            }
+        }
+
+        private static bool Is(string value, string word)
+        {
+            return string.Equals(value, word, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// The Special Event plan, or null when none runs. On: live ops on (with a catalogue), <c>liveops.arenaEvents</c>,
+        /// <c>liveops.arenaRotation</c> not "off" and a usable <c>arena</c> block. Otherwise null, unless the TS was handed a
+        /// Special Event in this process: then the chain keeps running, pinned to that mode, until the game restarts (the
+        /// client keeps its current Arena event, and with no event on the TS the GS throws on the missing
+        /// <c>_arenaParams</c>; special-event.md §5.3).
+        /// </summary>
+        private ArenaPlan PlanFor(LiveOpsSettings s, LiveOpsCatalog c)
+        {
+            LiveOpsArenaMode served;
+            lock (gate) served = servedArenaMode;
+            bool on = s.Enabled && !c.IsEmpty && s.ArenaEvents && !Is(s.ArenaRotation, "off") && c.Arena != null;
+            ArenaPlan plan;
+            if (on)
+            {
+                plan = new ArenaPlan { Arena = c.Arena };
+                if (!Is(s.ArenaRotation, "rotate"))
+                {
+                    plan.Pinned = c.Arena.Mode(s.ArenaRotation);
+                    if (plan.Pinned == null) WarnOnce("arena:" + s.ArenaRotation, "liveops: unknown Special Event mode '" + s.ArenaRotation + "' (liveops.arenaRotation); rotating");
+                }
+            }
+            else if (served != null)
+            {
+                plan = new ArenaPlan { Arena = c.Arena, Pinned = served, Kept = true };
+                WarnOnce("arena-kept:" + served.Id, "liveops: Special Events are switched off, but the game already has one: they keep running ("
+                                                    + served.Id + ") until the game restarts");
+            }
+            else
+            {
+                return null;
+            }
+            plan.Map = "Random";
+            if (!Is(s.ArenaMap, "Random"))
+            {
+                List<string> maps = plan.Arena != null && plan.Arena.Maps.Count > 0 ? plan.Arena.Maps : new List<string>(TleTemplateValidator.ArenaMaps);
+                if (maps.Contains(s.ArenaMap)) plan.Map = s.ArenaMap;
+                else WarnOnce("arena-map:" + s.ArenaMap, "liveops: '" + s.ArenaMap + "' is not a playable map (liveops.arenaMap); each mode's own map is used");
+            }
+            return plan;
+        }
+
+        private void WarnOnce(string key, string message)
+        {
+            lock (gate)
+                if (warned.Add(key)) log.Warn(message);
+        }
+
+        private Dictionary<string, object> ArenaEventFor(LiveOpsCatalog c, ArenaPlan plan, ArenaWindow window, LiveOpsArenaMode mode)
+        {
+            return LiveOpsEvents.ArenaMode(c, plan.Arena, window, mode, plan.MapFor(mode));
+        }
+
+        /// <summary>
+        /// Lists the Special Event of the window in progress at <paramref name="utc"/> (the real time) and of the next one
+        /// (participation: the client unlocks only events it can take part in), and moves the expiry to the end of the
+        /// window at <paramref name="at"/> (a moment later, so the TS reads the document before it expires). A document
+        /// served in the last moments of a window, where <paramref name="at"/> already falls in the next one, lists the
+        /// window after that too: the TS replaces its list on every fetch and must still hold the event in progress now
+        /// (the client never clears its current one) and the one after the expiry. Every event goes through
+        /// <see cref="TleTemplateValidator"/> and the chain check, at both moments, first: an event the TS would drop or
+        /// choke on is never listed (the error is logged once).
+        /// </summary>
+        private void AddArena(LiveOpsSnapshot snap, LiveOpsSettings s, LiveOpsCatalog c, DateTime utc, DateTime at)
+        {
+            ArenaPlan plan = PlanFor(s, c);
+            if (plan == null) return;
+            ArenaWindow current = LiveOpsSchedule.ArenaAt(s, utc);
+            var windows = new List<ArenaWindow> { current, current.Next };
+            ArenaWindow expiring = current;
+            if (!current.Contains(at))
+            {
+                expiring = current.Next;
+                windows.Add(expiring.Next);
+            }
+            var events = new List<Dictionary<string, object>>();
+            foreach (ArenaWindow w in windows)
+            {
+                LiveOpsArenaMode mode = plan.ModeOf(w);
+                if (mode == null) return;
+                events.Add(ArenaEventFor(c, plan, w, mode));
+            }
+            string problem = null;
+            foreach (Dictionary<string, object> e in events)
+            {
+                problem = TleTemplateValidator.Problem(e);
+                if (problem != null) break;
+            }
+            if (problem == null) problem = TleTemplateValidator.ArenaChainProblem(events, utc);
+            if (problem == null) problem = TleTemplateValidator.ArenaChainProblem(events, at);
+            if (problem != null)
+            {
+                lock (gate)
+                    if (warned.Add("arena-problem:" + problem)) log.Error("liveops: no Special Event listed: " + problem);
+                return;
+            }
+            snap.ArenaWindow = current;
+            snap.ArenaEventId = (string)events[0]["id"];
+            snap.NextArenaEventId = (string)events[1]["id"];
+            if (events.Count > 2) snap.LaterArenaEventId = (string)events[2]["id"];
+            foreach (Dictionary<string, object> e in events) snap.EventIds.Add((string)e["id"]);
+            if (!snap.Expiry.HasValue || expiring.End < snap.Expiry.Value) snap.Expiry = expiring.End;
+        }
+
+        private static string ArenaKey(LiveOpsSnapshot snap)
+        {
+            return snap.ArenaEventId == null
+                       ? "arena:-"
+                       : "arena:" + snap.ArenaEventId + "," + snap.NextArenaEventId + (snap.LaterArenaEventId == null ? "" : "," + snap.LaterArenaEventId);
+        }
+
+        /// <summary>A Special Event the TS asked for: any window and mode while Special Events run (also a kept chain).
+        /// Handing one over sets <see cref="servedArenaMode"/> (the mode of the window in progress).</summary>
+        private Dictionary<string, object> ArenaEvent(string eventId, ArenaWindow window, string modeId, LiveOpsSettings s, LiveOpsCatalog c, DateTime utcNow)
+        {
+            ArenaPlan plan = PlanFor(s, c);
+            if (plan == null) return null;
+            LiveOpsArenaMode served;
+            lock (gate) served = servedArenaMode;
+            LiveOpsArenaMode mode = plan.Lookup(modeId, served);
+            if (mode == null) return null;
+            Dictionary<string, object> e = ArenaEventFor(c, plan, window, mode);
+            string problem = TleTemplateValidator.Problem(e);
+            if (problem != null)
+            {
+                log.Error("liveops: Special Event " + eventId + " not served: " + problem);
+                return null;
+            }
+            lock (gate)
+            {
+                if (servedArenaMode == null || window.Contains(utcNow))
+                {
+                    if (servedArenaMode == null) log.Info("liveops: first Special Event handed to the TS (" + eventId + "); the chain now runs until the game restarts");
+                    servedArenaMode = mode;
+                }
+            }
+            return e;
         }
 
         // ------------------------------------------------------------------------------------------ events
@@ -371,6 +569,11 @@ namespace McvsOffline.Server.Services.Social.LiveOps
         public Dictionary<string, object> FindEvent(string eventId, string language, DateTime utcNow)
         {
             LiveOpsSettings s = Settings;
+            ArenaWindow arenaWindow;
+            string arenaMode;
+            // Before the live-ops switch: a Special Event chain the TS has seen keeps running (PlanFor).
+            if (LiveOpsSchedule.TryParseArena(eventId, out arenaWindow, out arenaMode))
+                return ArenaEvent(eventId, arenaWindow, arenaMode, s, Catalog, utcNow);
             if (!s.Enabled) return null;
             LiveOpsCatalog c = Catalog;
             LiveOpsWindow window;
@@ -470,6 +673,7 @@ namespace McvsOffline.Server.Services.Social.LiveOps
             o["achievementEvents"] = quests;
             o["collector"] = DescribeCollector(snap, c, runtime, utc);
             o["divisionTablesFromDataPack"] = Tables.IsLoaded;
+            o["arena"] = DescribeArena(snap, c);
             o["settings"] = new Dictionary<string, object>(StringComparer.Ordinal)
             {
                 ["seasonStart"] = TimeFormat.Iso8601(snap.Settings.SeasonAnchor),
@@ -478,8 +682,74 @@ namespace McvsOffline.Server.Services.Social.LiveOps
                 ["modifiers"] = snap.Settings.Modifiers,
                 ["difficulty"] = snap.Settings.Difficulty,
                 ["seasonRewardMultiplier"] = snap.Settings.SeasonRewardMultiplier,
+                ["arenaEvents"] = snap.Settings.ArenaEvents,
+                ["arenaRotation"] = snap.Settings.ArenaRotation,
+                ["arenaHours"] = (long)snap.Settings.ArenaHours,
+                ["arenaMap"] = snap.Settings.ArenaMap,
             };
             return o;
+        }
+
+        /// <summary>
+        /// <c>arena: {listed, kept, current, next, upcoming, modes, maps, problem}</c>: the Special Events a CRM document served
+        /// now lists (current and next with mode, loc ids, match type, map and window), whether they only run because the TS
+        /// has seen one (switched off: until the game restarts), the modes of the seven windows after the next, the
+        /// catalogue's modes ("*" marks the ones outside the rotation) and maps, and why the catalogue has no or fewer modes.
+        /// </summary>
+        private Dictionary<string, object> DescribeArena(LiveOpsSnapshot snap, LiveOpsCatalog c)
+        {
+            var o = new Dictionary<string, object>(StringComparer.Ordinal);
+            ArenaPlan plan = PlanFor(snap.Settings, c);
+            o["listed"] = snap.ArenaEventId != null;
+            o["kept"] = plan != null && plan.Kept;
+            o["current"] = null;
+            o["next"] = null;
+            var upcoming = new List<object>();
+            if (plan != null && snap.ArenaWindow != null)
+            {
+                o["current"] = DescribeArenaEvent(c, plan, snap.ArenaWindow);
+                o["next"] = DescribeArenaEvent(c, plan, snap.ArenaWindow.Next);
+                ArenaWindow w = snap.ArenaWindow.Next;
+                for (int i = 0; i < 7; i++)
+                {
+                    w = w.Next;
+                    LiveOpsArenaMode m = plan.ModeOf(w);
+                    upcoming.Add(TimeFormat.Iso8601(w.Start) + " " + (m == null ? "-" : m.Id));
+                }
+            }
+            o["upcoming"] = upcoming;
+            var modes = new List<object>();
+            var maps = new List<object>();
+            if (c.Arena != null)
+            {
+                foreach (LiveOpsArenaMode m in c.Arena.Modes) modes.Add(m.Rotate ? m.Id : m.Id + "*");
+                foreach (string map in c.Arena.Maps) maps.Add(map);
+            }
+            o["modes"] = modes;
+            o["maps"] = maps;
+            o["problem"] = c.ArenaProblem;
+            return o;
+        }
+
+        private static Dictionary<string, object> DescribeArenaEvent(LiveOpsCatalog c, ArenaPlan plan, ArenaWindow w)
+        {
+            LiveOpsArenaMode m = plan.ModeOf(w);
+            if (m == null) return null;
+            return new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                ["id"] = LiveOpsSchedule.ArenaEventId(w, m.Id),
+                ["mode"] = m.Id,
+                ["name"] = m.EventName,
+                ["rule"] = m.EventRule,
+                ["matchType"] = m.MatchType,
+                ["parameterSets"] = new List<object>(m.ParameterSets.ToArray()),
+                ["map"] = plan.MapFor(m),
+                ["agents"] = (long)m.Agents.Count,
+                ["creditsVictory"] = m.CreditsVictory,
+                ["versusCoinsVictory"] = m.CoinsVictory,
+                ["start"] = TimeFormat.Iso8601(w.Start),
+                ["end"] = TimeFormat.Iso8601(w.End),
+            };
         }
 
         /// <summary>

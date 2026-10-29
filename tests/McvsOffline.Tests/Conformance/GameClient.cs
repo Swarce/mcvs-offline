@@ -135,6 +135,19 @@ namespace McvsOffline.Tests.Conformance
 
         public dynamic New(Type type, params object[] args) => Activator.CreateInstance(type, args);
 
+        private static readonly object CrmDataGate = new object();
+
+        /// <summary>
+        /// <c>new StandardCrm.Data(text)</c> (<paramref name="crmData"/> is that type of any load context), one at a time:
+        /// the PC client's NewsFeedData adds every item to a static, unsynchronized dictionary (ContainsKey, then Add), so
+        /// two test classes parsing a CRM document at once in the shared load context race on it ("An item with the same
+        /// key has already been added").
+        /// </summary>
+        public static dynamic NewCrmData(Type crmData, string text)
+        {
+            lock (CrmDataGate) return Activator.CreateInstance(crmData, text);
+        }
+
         public dynamic Credential(string text) => New(Op("Credential"), text);
 
         public dynamic Enum(Type type, string value) => System.Enum.Parse(type, value);

@@ -25,6 +25,7 @@ namespace McvsOffline.Tests.Admin
             "unlockAll", "assets.couponsEnabled", "crm.redeemCoupons", "admin.accountMenu.hideDeadButtons", "unlocks.batchSize", "admin.redeemCode",
             "liveops.enabled", "liveops.divisionSeasons", "liveops.dailyQuests", "liveops.weeklyEvents", "liveops.seasonDays",
             "liveops.seasonStart", "liveops.dailyResetHour", "liveops.modifiers", "liveops.difficulty", "liveops.seasonRewardMultiplier",
+            "liveops.arenaEvents", "liveops.arenaRotation", "liveops.arenaHours", "liveops.arenaMap",
             "crm.newsfeedLink",
             "storage.backups.keep", "storage.backups.intervalMinutes", "storage.autoRestoreCorrupt", "logging.fileLevel", "logging.keepStarts",
             "gameLog.levels",
@@ -107,6 +108,10 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal(liveOps.Modifiers, Default("liveops.modifiers"));
             Assert.Equal(liveOps.Difficulty, Default("liveops.difficulty"));
             Assert.Equal(liveOps.SeasonRewardMultiplier, Default("liveops.seasonRewardMultiplier"));
+            Assert.Equal(liveOps.ArenaEvents, Default("liveops.arenaEvents"));
+            Assert.Equal(liveOps.ArenaRotation, Default("liveops.arenaRotation"));
+            Assert.Equal((long)liveOps.ArenaHours, Default("liveops.arenaHours"));
+            Assert.Equal(liveOps.ArenaMap, Default("liveops.arenaMap"));
 
             var collector = new CollectorOptions();
             Assert.Equal(collector.Enabled, Default("economy.collector.enabled"));

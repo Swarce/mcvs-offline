@@ -49,7 +49,7 @@ namespace McvsOffline.Tests.Content
             using var dir = new TempDir();
             using var server = Server(dir);
 
-            dynamic crm = Activator.CreateInstance(game.Op("StandardCrm+Data"), Document(server)); // runs every parser
+            dynamic crm = GameClient.NewCrmData(game.Op("StandardCrm+Data"), Document(server)); // runs every parser
             dynamic item = Assert.Single(Items(crm));
             Assert.Equal(CrmNewsfeed.NewsId, (string)item.Id);
             Assert.Equal(CrmNewsfeed.Title, (string)item.Title);
@@ -96,7 +96,7 @@ namespace McvsOffline.Tests.Content
             if (game == null) return;
             using var dir = new TempDir();
             using var server = Server(dir);
-            dynamic crm = Activator.CreateInstance(game.Op("StandardCrm+Data"), Document(server));
+            dynamic crm = GameClient.NewCrmData(game.Op("StandardCrm+Data"), Document(server));
             object item = Assert.Single(Items(crm));
 
             // InboxComponent.UpdateNewsFeedItem: kept while CreationDate + ExpirationDays is not in the past, then
@@ -182,7 +182,7 @@ namespace McvsOffline.Tests.Content
             using var dir = new TempDir();
             using var server = Server(dir);
             server.Context.Settings.Override("crm.newsfeedLink", false);
-            dynamic crm = Activator.CreateInstance(game.Op("StandardCrm+Data"), Document(server));
+            dynamic crm = GameClient.NewCrmData(game.Op("StandardCrm+Data"), Document(server));
             // OnCrmDataSet returns early when NewsFeed (or its Items) is null; with [] it runs RemoveExpiredNewsFeed,
             // which deletes our message because its id is no longer listed.
             Assert.NotNull(crm.NewsFeed);
@@ -202,20 +202,20 @@ namespace McvsOffline.Tests.Content
 
             // What the client does with a newsfeeds that is not an array: the whole document fails.
             raw["newsfeeds"] = MiniJson.ParseObject("{\"oops\":true}");
-            var thrown = Assert.ThrowsAny<Exception>(() => Activator.CreateInstance(data, MiniJson.Serialize(raw)));
+            var thrown = Assert.ThrowsAny<Exception>(() => GameClient.NewCrmData(data, MiniJson.Serialize(raw)));
             output.WriteLine("unsanitized: " + (thrown is TargetInvocationException ? thrown.InnerException : thrown).GetType().Name);
             // And with an entry whose timestamp has a fraction: Convert.ToInt64 fails, the item looks 2000 years old.
             raw["newsfeeds"] = MiniJson.ParseArray("[{\"news_id\":42,\"title\":\"x\",\"timestamp\":1792972800.5}]");
-            dynamic unsanitized = Activator.CreateInstance(data, MiniJson.Serialize(raw));
+            dynamic unsanitized = GameClient.NewCrmData(data, MiniJson.Serialize(raw));
             Assert.Equal(default(DateTime), (DateTime)((dynamic)Assert.Single(Items(unsanitized))).CreationDate);
 
             // Through crm.overlay the server sanitizes both: the document parses, our item is there and the entry is usable.
             server.Context.Settings.Override("crm.overlay", MiniJson.ParseObject("{\"newsfeeds\":{\"oops\":true}}"));
-            dynamic crm = Activator.CreateInstance(data, Document(server));
+            dynamic crm = GameClient.NewCrmData(data, Document(server));
             Assert.Equal(CrmNewsfeed.NewsId, (string)((dynamic)Assert.Single(Items(crm))).Id);
 
             server.Context.Settings.Override("crm.overlay", MiniJson.ParseObject("{\"newsfeeds\":[{\"news_id\":42,\"title\":\"x\",\"timestamp\":1792972800.5}]}"));
-            crm = Activator.CreateInstance(data, Document(server));
+            crm = GameClient.NewCrmData(data, Document(server));
             List<object> items = Items(crm);
             // Ours leads the entries without an asset (the PC client's Newsfeeds[""] must be ours, pc-port.md §4.3).
             Assert.Equal(new[] { CrmNewsfeed.NewsId, "42" }, items.Select(i => (string)((dynamic)i).Id).ToArray());

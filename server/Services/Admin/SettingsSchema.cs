@@ -156,6 +156,16 @@ namespace McvsOffline.Server.Services.Admin
         /// <summary>Read by the embedded host's AdminHooks.AccountMenuButtons each time Settings › Account opens.</summary>
         public const string AccountMenuHideDeadButtonsKey = "admin.accountMenu.hideDeadButtons";
 
+        /// <summary>liveops.arenaRotation: rotate, off and every mode of the shipped liveops.json <c>arena.modes</c> (a test
+        /// keeps the list equal to the catalogue).</summary>
+        internal static readonly string[] ArenaRotationChoices =
+        {
+            "rotate", "off", "havoc", "override", "ambush", "grandBounty", "bountiful", "blitzTDM", "blitzZoneControl", "blitzWarzone",
+            "blitzBounty", "scorechargeTDM", "scorechargeZoneControl", "scorechargeWarzone", "scorechargeBounty", "competitiveTDM",
+            "competitiveZoneControl", "competitiveWarzone", "competitiveBounty", "competitiveRegular", "tdm", "zoneControl", "warzone",
+            "bounty", "tripleElixir",
+        };
+
         private static readonly SettingGroup[] GroupList =
         {
             new SettingGroup("gameplay", "Gameplay"),
@@ -754,6 +764,21 @@ namespace McvsOffline.Server.Services.Admin
                        "rotate", "off", "standard", "coinRush", "trophyFever", "creditRush", "mvpBounty", "rivalSurge"),
                 Number("liveops", "liveops.difficulty", "Event difficulty", 0.1, 10, 0.1, Menu, ""),
                 Number("liveops", "liveops.seasonRewardMultiplier", "Season rewards", 0.1, 20, 0.1, Menu, ""),
+                // Special Events (docs/LIVEOPS.md §8a). Once the game has shown one, switching them off (here or with Live
+                // events) only applies after a restart: the game keeps the Special Event it has seen.
+                Bool("liveops", "liveops.arenaEvents", "Special Events", true, Menu,
+                     "Battle > Special Event: a new Arena mode every few hours, filled with bots like Classic, with a Credits "
+                     + "and VersusCoins bonus on wins. Turning it off applies after the game restarts once a Special Event was shown."),
+                Choice("liveops", "liveops.arenaRotation", "Special Event mode", "rotate", Menu,
+                       "Rotate: a new mode every window, each mode once before any repeats. A mode: always that one (tdm, "
+                       + "zoneControl, warzone, bounty are the plain modes; tripleElixir only runs when chosen here). Off: no "
+                       + "Special Event (after a restart once one was shown).",
+                       ArenaRotationChoices),
+                Integer("liveops", "liveops.arenaHours", "Special Event length (hours)", 24, 1, 168, 1, Menu,
+                        "Windows run back to back from the daily reset hour: 24 gives one mode a day, and a divisor of 24 keeps them aligned to the reset."),
+                Choice("liveops", "liveops.arenaMap", "Special Event map", "Random", Menu,
+                       "Random: a random map each match. A map: every Special Event match there.",
+                       "Random", "Snow", "Desert", "Favelas", "Rooftop", "DogDays", "Port", "Stadium", "Stadium2"),
                 Bool("liveops", "crm.newsfeedLink", "Inbox message for this page", true, Menu,
                      "The \"MCVS Offline\" inbox message. Off removes it at the next CRM fetch."),
 

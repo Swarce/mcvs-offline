@@ -1019,6 +1019,106 @@ class RealDataTests(unittest.TestCase):
         self.assertEqual(len(block["weeklyMilestones"]), 3)
         self.assertEqual(self.out["liveops.json"]["revision"], 1)
 
+    def test_arena_modes_from_the_data_pack(self):
+        """The Special Event modes (docs/LIVEOPS.md §8a): every Arena rule table and titled variant of 1.17.32 is used,
+        the playable maps leave out the three MapsList rows without a level, every mode allows the 21 agents."""
+        arena = self.out["liveops.json"]["arena"]
+        self.assertEqual(arena["maps"], ["Snow", "Desert", "Favelas", "Rooftop", "DogDays", "Port", "Stadium", "Stadium2"])
+        self.assertEqual(len(arena["modes"]), 23)
+        self.assertEqual([m["id"] for m in arena["modes"] if not m["rotate"]], ["tripleElixir"])
+        used = set(t for m in arena["modes"] for t in m["parameterSets"])
+        self.assertEqual(used, {"ArenaHavoc", "ArenaOverride", "ArenaAmbush", "ArenaGrandBounty", "ArenaBountiful", "ArenaBlitz",
+                                "ArenaScorechargeTDM", "ArenaScorechargeZoneControl", "ArenaScorechargeWarzone",
+                                "ArenaScorechargeBounty", "Arena3RoundSystem", "ArenaTripleElixir"})
+        for m in arena["modes"]:
+            self.assertEqual(m["agents"], ["Merc_%d" % i for i in range(1, 22)])
+            self.assertTrue(m["img"].startswith("Menus/assets/png/tournament/mode_"), m["id"])
+            self.assertEqual(m["map"], "Random")
+            self.assertEqual(sorted(m["multipliers"]), sorted(cg.ARENA_MULTIPLIERS))
+            self.assertEqual(m["allowDuplicates"], not m["id"].startswith("competitive"), m["id"])
+
+
+class ArenaTests(unittest.TestCase):
+    """build_liveops_arena on a synthetic catalogue: what it expands and what it refuses."""
+
+    class Cat:
+        def __init__(self):
+            self.merc_ids = [1, 2, 3]
+            self.files = {"Levels/A/A.level", "Levels/B/B.level", "img/tdm.png", "img/rnd.png"}
+            self.asset_files = set(["marker"])
+            self.tables = {"Design/MCVS_Gameplay.xlsx": {"ArenaFast": {"fields": ["Index", "X"]}, "ArenaSlow": {"fields": ["Index"]},
+                                                         "ArenaNoIndex": {"fields": ["X"]}, "MapsList": {"fields": []}}}
+
+        def asset_exists(self, path):
+            return path in self.files
+
+        def table_fields(self, db, table):
+            t = self.tables.get("Design/%s.xlsx" % db, {}).get(table)
+            return t["fields"] if t else None
+
+    MAPS = {"Fields": ["Index", "MapPath", "AvailableInGameModes"],
+            "Rows": [["A", "Levels/A/A.level", "PVP,Tournament"], ["B", "Levels/B/B.level", "Tournament"],
+                     ["C", "Levels/C/C.level", "PVP"], ["random", None, None]]}
+    LOC = {"Arena": {"Fast", "FastDesc", "Slow", "SlowDesc", "Lonely", "LonelyDesc", "Other"}, "HUD": {"TDM", "Any"}}
+
+    def block(self):
+        return {"agents": "all", "multipliers": {"creditsVictory": 1.25},
+                "matchTypes": {"TeamDeathMatch": {"text": "HUD.TDM", "img": "img/tdm.png"},
+                               "None": {"text": "HUD.Any", "img": "img/rnd.png"}},
+                "modes": [{"id": "fast", "name": "Arena.Fast", "rule": "Arena.FastDesc", "matchType": "TeamDeathMatch",
+                           "parameterSets": ["ArenaFast"]},
+                          {"id": "slow", "name": "Arena.Slow", "rule": "Arena.SlowDesc", "matchType": "None", "parameterSets": ["ArenaSlow"],
+                           "allowDuplicates": False, "map": "A", "multipliers": {"versusCoinsMvp": 2}}],
+                "unusedTables": {"ArenaNoIndex": "test"}, "unusedTexts": {"Arena.Lonely": "test"}}
+
+    def build(self, block=None):
+        return cg.build_liveops_arena(self.Cat(), block or self.block(), self.LOC, self.MAPS)
+
+    def refused(self, change, text):
+        block = self.block()
+        change(block)
+        with self.assertRaises(cg.ContentError) as raised:
+            self.build(block)
+        self.assertIn(text, str(raised.exception))
+
+    def test_expands_every_field(self):
+        out = self.build()
+        self.assertEqual(out["maps"], ["A"])          # B is not PVP, C has no level, random has no path
+        fast, slow = out["modes"]
+        self.assertEqual(fast, {"id": "fast", "eventName": "Arena.Fast", "rule": "Arena.FastDesc", "matchTypeText": "HUD.TDM",
+                                "matchType": "TeamDeathMatch", "parameterSets": ["ArenaFast"], "map": "Random", "allowDuplicates": True,
+                                "img": "img/tdm.png", "agents": ["Merc_1", "Merc_2", "Merc_3"],
+                                "multipliers": {"creditsVictory": 1.25, "creditsDefeat": 1, "creditsMvp": 1, "versusCoinsVictory": 1,
+                                                "versusCoinsDefeat": 1, "versusCoinsMvp": 1}, "rotate": True})
+        self.assertEqual((slow["map"], slow["allowDuplicates"], slow["matchTypeText"], slow["img"]), ("A", False, "HUD.Any", "img/rnd.png"))
+        self.assertEqual(slow["multipliers"]["versusCoinsMvp"], 2)
+        self.assertEqual(slow["multipliers"]["creditsVictory"], 1.25)
+        self.assertEqual(out["priority"], 3)
+
+    def test_refuses_what_the_client_cannot_use(self):
+        self.refused(lambda b: b.update(agents=["Merc_1"]), "agents must be")
+        self.refused(lambda b: b["modes"][0].update(map="C"), "not playable")
+        self.refused(lambda b: b["modes"][0].update(map="B"), "not playable")
+        self.refused(lambda b: b["modes"][0].update(id="with_underscore"), "letters or digits")
+        self.refused(lambda b: b["modes"][1].update(id="fast"), "duplicate")
+        self.refused(lambda b: b["modes"][0].update(matchType="Uphold"), "no matchTypes entry")
+        self.refused(lambda b: b["matchTypes"].update(CaptureFlag={"text": "HUD.TDM", "img": "img/tdm.png"}), "CaptureFlag")
+        self.refused(lambda b: b["matchTypes"]["None"].update(img="img/missing.png"), "not in the data pack")
+        self.refused(lambda b: b["modes"][0].update(img="img/missing.png"), "not in the data pack")
+        self.refused(lambda b: b["modes"][0].update(name="Arena.Nope"), "does not exist")
+        self.refused(lambda b: b["modes"][0].update(parameterSets=["ArenaMissing"]), "no MCVS_Gameplay table")
+        self.refused(lambda b: b["modes"][0].update(parameterSets=["ArenaNoIndex"]), "no Index")
+        self.refused(lambda b: b["modes"][0].update(multipliers={"creditsVictory": 0}), "0.1 to 10")
+        self.refused(lambda b: b["modes"][0].update(multipliers={"bogus": 1}), "unknown multiplier")
+        self.refused(lambda b: b["modes"][0].update(allowDuplicates="no"), "true or false")
+        self.refused(lambda b: [m.update(rotate=False) for m in b["modes"]], "no mode in the rotation")
+
+    def test_every_variant_is_used_or_named(self):
+        self.refused(lambda b: b.pop("unusedTables"), "ArenaNoIndex is used by no mode")
+        self.refused(lambda b: b.pop("unusedTexts"), "Arena.Lonely")
+        self.refused(lambda b: b["unusedTables"].update(ArenaFast="x"), "listed in unusedTables")
+        self.refused(lambda b: b["modes"].pop(1), "ArenaSlow is used by no mode")
+
 
 if __name__ == "__main__":
     result = unittest.main(exit=False, verbosity=1).result
