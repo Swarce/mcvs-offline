@@ -46,8 +46,8 @@ namespace McvsOffline
         private static volatile string inGame;
         private static int inGameMarked;
 
-        /// <summary>The PC in-game graphics options' type (<c>Game.dll</c>, <c>PC-EN/Game/GamePreferencesComponent.cs</c>).</summary>
-        internal const string PreferencesTypeName = "Game.GamePreferencesComponent, Game";
+        /// <summary>The PC in-game graphics options' type (<c>Game.dll</c>, <c>PC-EN/Game/GamePreferencesComponent.cs</c>), looked up only among the loaded assemblies.</summary>
+        internal const string PreferencesTypeName = PreferencesType + ", " + PreferencesAssembly;
 
         /// <summary>The PC options-menu preferences the graphics lines show, in this order (LocalStorage member names).</summary>
         internal static readonly string[] InGameOptions = { "Performance", "RenderScale", "FPS", "Vsync", "FullScreen" };
@@ -163,12 +163,30 @@ namespace McvsOffline
             if (known != null) return known;
             try
             {
-                return CaptureInGame(Type.GetType(PreferencesTypeName, false));
+                return CaptureInGame(LoadedType(PreferencesAssembly, PreferencesType));
             }
             catch (Exception)
             {
                 return null;
             }
+        }
+
+        private const string PreferencesAssembly = "Game";
+        private const string PreferencesType = "Game.GamePreferencesComponent";
+
+        /// <summary>
+        /// <paramref name="typeName"/> from an assembly named <paramref name="assemblyName"/> that is already loaded, or null: the
+        /// status thread must never be the one that makes the runtime load Game.dll (its load and redirect belong to the game).
+        /// </summary>
+        private static Type LoadedType(string assemblyName, string typeName)
+        {
+            foreach (Assembly a in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                if (!string.Equals(a.GetName().Name, assemblyName, StringComparison.Ordinal)) continue;
+                Type t = a.GetType(typeName, false, false);
+                if (t != null) return t;
+            }
+            return null;
         }
 
         /// <summary><see cref="CaptureInGame()"/> with the preferences type given (tests pass a look-alike).</summary>
