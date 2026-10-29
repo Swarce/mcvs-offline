@@ -5,7 +5,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Threading;
-using McvsOffline.Embedded.Android;
 using McvsOffline.Embedded.Diagnostics;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Storage;
@@ -25,8 +24,9 @@ namespace McvsOffline.Embedded.Admin
     /// <item><see cref="Exit"/> writes <c>logs/restart-requested.txt</c>, flushes the logs and leaves through
     /// <c>admin.restartVia</c>: the game's own restart (closing a browser still shown first), with the host's restart as the
     /// fallback when the process is still alive 3 s later; <c>none</c> does nothing.</item>
-    /// <item>Capabilities follow the platform's JNI table (<see cref="AndroidJni.Available"/>); without a platform (a PC, the
-    /// tests' DirectoryPlatform) every capability is false and the share methods answer <c>none</c>.</item>
+    /// <item>Capabilities come from the platform (<see cref="IAdminPlatform.Capabilities"/>: Android's JNI table, Windows' own
+    /// routes) combined with the game-side state; without a platform (the tests' DirectoryPlatform) every capability is false
+    /// and the share methods answer <c>none</c>.</item>
     /// </list>
     /// Every member is thread-safe and never throws. The page's one-time ticket URL is never logged.
     /// </summary>
@@ -221,8 +221,10 @@ namespace McvsOffline.Embedded.Admin
             try
             {
                 info.Graphics = McvsOffline.GraphicsHooks.Describe();
+#if !MCVS_WINDOWS
                 info.HdTextures = McvsOffline.Embedded.Hd.HdInstaller.Status;
                 info.HdInstalled = McvsOffline.Embedded.Hd.HdInstaller.Installed;
+#endif
                 Func<string> notifications = NotificationStatus;
                 if (notifications != null) info.Notifications = notifications();
             }
@@ -252,25 +254,21 @@ namespace McvsOffline.Embedded.Admin
                 List<string> missing = platform.MissingJniMembers() ?? new List<string>();
                 info.SdkInt = sdk;
                 info.MissingJni = missing;
-                // From Android 13 AlarmManager is expected to start no activity for an alarm, whatever the target
-                // (target-sdk.md §4.6), but no device has shown it yet (STATUS device-test item 9; device test 8 passed
-                // checks 1-13 only as a whole). The page says the game may close without coming back, not that it will.
-                info.RelaunchUnconfirmed = sdk >= 33;
                 info.PublicLogsDir = platform.PublicDownloadsDir();
                 info.BrowserOpen = platform.IsInGameBrowserOpen();
                 info.FreeBytes = FreeBytes();
-                bool jniBrowser = AndroidJni.Available(sdk, missing, AndroidJni.Common, AndroidJni.Browser);
-                info.CanOpenPage = game.IsBound || jniBrowser;
-                info.CanShareFile = sdk >= 21 && AndroidJni.Available(sdk, missing, AndroidJni.ShareFileUses(sdk));
-                info.CanSaveToDownloads = sdk >= 29 && AndroidJni.Available(sdk, missing, AndroidJni.Common, AndroidJni.Downloads);
-                info.CanShareText = AndroidJni.Available(sdk, missing, AndroidJni.Common, AndroidJni.ShareTextUse);
-                info.CanCopy = AndroidJni.Available(sdk, missing, AndroidJni.Common, AndroidJni.Clipboard);
-                info.CanToast = AndroidJni.Available(sdk, missing, AndroidJni.Toast);
+                AdminPlatformCapabilities caps = platform.Capabilities() ?? new AdminPlatformCapabilities();
+                info.CanOpenPage = game.IsBound || caps.OpenPage;
+                info.CanShareFile = caps.ShareFile;
+                info.CanSaveToDownloads = caps.SaveToDownloads;
+                info.CanShareText = caps.ShareText;
+                info.CanCopy = caps.Copy;
+                info.CanToast = caps.Toast;
                 info.CanSave = game.CanSave;
                 string via = info.RestartVia;
-                bool host = AndroidJni.Available(sdk, missing, AndroidJni.Common, AndroidJni.ExitHost);
-                bool own = AndroidJni.Available(sdk, missing, AndroidJni.Browser, AndroidJni.ExitGame);
-                info.CanExit = via == "game" ? own || host : via == "host" && host;
+                info.CanExit = via == "game" ? caps.ExitViaGame || caps.ExitViaHost : via == "host" && caps.ExitViaHost;
+                info.RelaunchUnconfirmed = caps.RelaunchUnconfirmed;
+                info.CanOpenInBrowser = caps.OpenInBrowser;
             }
             catch (Exception ex)
             {

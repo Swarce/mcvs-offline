@@ -1,6 +1,6 @@
 // Host: embedded - owner group: EMBED (hosts/embedded, patcher/)
-// Android only: compiled into the embedded DLL (MCVS_EMBEDDED), never into the net8 build.
-#if MCVS_EMBEDDED
+// Android only: compiled into the embedded DLL (MCVS_ANDROID), never into the net8 build.
+#if MCVS_ANDROID
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -47,6 +47,12 @@ namespace McvsOffline.Embedded.Android
         private const string AndroidUtilsClass = "com/gameloft/android/PackageUtils/AndroidUtils";
 
         public string Name { get { return "android"; } }
+
+        public string EntryPoint { get { return "NicePlaySDKDLL.OnInitialize"; } }
+
+        public string ArgsReader { get { return "JNIBridge.NativeInit"; } }
+
+        public string PortInUseHint { get { return "If a standalone server is connected with 'adb reverse', the game will use that one."; } }
 
         public string ResolveGameRoot(Log log)
         {
@@ -279,6 +285,11 @@ namespace McvsOffline.Embedded.Android
         public List<string> MissingJniMembers()
         {
             return AndroidJni.Resolve();
+        }
+
+        public AdminPlatformCapabilities Capabilities()
+        {
+            return AndroidCapabilities.From(SdkInt, MissingJniMembers());
         }
 
         public bool OpenInGameBrowserJni(string url)

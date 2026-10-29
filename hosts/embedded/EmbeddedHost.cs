@@ -9,7 +9,9 @@ using System.Threading;
 using McvsOffline.Embedded.Admin;
 using McvsOffline.Embedded.Diagnostics;
 using McvsOffline.Embedded.Graphics;
+#if !MCVS_WINDOWS
 using McvsOffline.Embedded.Hd;
+#endif
 using McvsOffline.Embedded.Notifications;
 using McvsOffline.Server;
 using McvsOffline.Server.Core;
@@ -80,6 +82,9 @@ namespace McvsOffline.Embedded
         private IPlatformDiagnostics diagnostics;
         private IAdminPlatform adminPlatform;
         private INotificationPlatform notificationPlatform;
+        private string platformName = "directory";
+        private string argsReader = "nobody";
+        private string portInUseHint = "";
         private MemoryLogSink problemSink;
         private volatile AdminHost adminHost;
         private string fallbackLogDir;
@@ -176,7 +181,9 @@ namespace McvsOffline.Embedded
                   .Append(", store items skipped: ").Append(GameHooks.StoreReports).Append('\n');
                 sb.Append(GameHooks.DescribePhysics());
                 sb.Append('\n').Append(GraphicsHooks.Describe());
+#if !MCVS_WINDOWS
                 sb.Append('\n').Append(HdInstaller.Status);
+#endif
                 string extras = diagnostics == null ? null : diagnostics.StatusExtras();
                 if (!string.IsNullOrEmpty(extras)) sb.Append('\n').Append(extras);
             }
@@ -256,10 +263,13 @@ namespace McvsOffline.Embedded
             problemSink = new MemoryLogSink(LogLevel.Warn, 100);
             Logger.AddSink(problemSink);
             Log.Info("MCVS Offline " + McvsVersion.Current + " embedded host starting (platform " + platform.Name + ")");
+            platformName = platform.Name;
+            argsReader = platform.ArgsReader;
+            portInUseHint = platform.PortInUseHint;
             diagnostics = platform as IPlatformDiagnostics;
             if (CrashReporter.Hooks != null) Logger.For("crash").Info("hooks: " + CrashReporter.Hooks);
             Boot = new BootTrace(Logger.For("boot"));
-            Boot.Mark("MCVS Offline host started by the game (NicePlaySDKDLL.OnInitialize)");
+            Boot.Mark("MCVS Offline host started by the game (" + platform.EntryPoint + ")");
 
             string root = platform.ResolveGameRoot(Log);
             Paths = new EmbeddedPaths(root);
@@ -303,9 +313,11 @@ namespace McvsOffline.Embedded
             ConfigurePhysics();
             ConfigureGraphics();
             ApplyGameLog();
+#if !MCVS_WINDOWS
             // Before the Java GameInstaller (it starts after OnCreate returns): data already on the device must be accepted
             // without Gameloft's CDN (docs/INSTALL-OFFLINE.md).
             PrepareInstallerData(platform);
+#endif
             ResolveAdminPlatform(platform);
             notificationPlatform = platform as INotificationPlatform;
 
@@ -369,7 +381,7 @@ namespace McvsOffline.Embedded
             {
                 var admin = new AdminHost(created.Context, adminPlatform, GameReflection.Load(), created.Context.Logger.For("admin"))
                 {
-                    PlatformName = adminPlatform == null ? "directory" : "android",
+                    PlatformName = platformName,
                     DeviceId = DeviceId,
                     GameRoot = Paths.GameRoot,
                     LogsDir = Paths.LogsDir,
@@ -425,6 +437,7 @@ namespace McvsOffline.Embedded
             }
         }
 
+#if !MCVS_WINDOWS
         /// <summary>settings.json "install.*": the Java installer's state (InstallerData) and its progress in the log.</summary>
         private void PrepareInstallerData(IEmbeddedPlatform platform)
         {
@@ -533,6 +546,7 @@ namespace McvsOffline.Embedded
             thread.Name = "mcvs-data-check";
             thread.Start();
         }
+#endif
 
         /// <summary>
         /// settings.json "embedded.physics" (device test 2, patch 'physics'): the defaults are the fix (single-threaded Havok for
@@ -721,14 +735,18 @@ namespace McvsOffline.Embedded
             changed |= AddDefault("embedded.physics.clientMultithreaded", true);
             changed |= AddDefault("embedded.physics.stepGate", true);
             changed |= AddDefault("embedded.physics.stepGateTimeoutMs", GameHooks.DefaultStepGateTimeoutMs);
+#if !MCVS_WINDOWS
             changed |= AddDefault("install.manageInstaller", true);
             changed |= AddDefault("install.suppressUpdateCheck", true);
             changed |= AddDefault("install.rebuildIndex", true);
             changed |= AddDefault("install.verifyRestoredData", true);
             changed |= AddDefault("install.monitorInstaller", true);
+#endif
             changed |= AddDefault("graphics.profile", GameOptionsProfile.Auto);
             changed |= AddDefault("graphics.fullProfile", false);
+#if !MCVS_WINDOWS
             changed |= AddDefault("hd.enabled", true);
+#endif
             changed |= AddDefault(NotificationPermission.RequestKey, true);
             changed |= AddDefault(NotificationPermission.RequestedAtKey, "");
             if (!changed) return;
@@ -778,7 +796,7 @@ namespace McvsOffline.Embedded
             var written = new List<string>();
             foreach (var entry in result.Written) written.Add(entry.ToString());
             Log.Info("args.txt updated (" + path + "): " + string.Join(" ", written.ToArray()));
-            Boot.Mark("args.txt updated: the native engine reads it at JNIBridge.NativeInit");
+            Boot.Mark("args.txt updated: the native engine reads it at " + argsReader);
         }
 
         private void RunServer(EmbeddedHostOptions options, int port)
@@ -824,8 +842,7 @@ namespace McvsOffline.Embedded
                         if (attempt >= attempts)
                         {
                             serverError = ex;
-                            Log.Error("cannot listen on port " + port + " after " + attempt + " attempts (" + ex.Message +
-                                      "). If a standalone server is connected with 'adb reverse', the game will use that one.");
+                            Log.Error("cannot listen on port " + port + " after " + attempt + " attempts (" + ex.Message + "). " + portInUseHint);
                             created.Dispose();
                             return;
                         }

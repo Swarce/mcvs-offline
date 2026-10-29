@@ -38,7 +38,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- The embedded host's portable code (Android-only files are behind #if MCVS_EMBEDDED). -->
+    <!-- The embedded host's portable code (Android-only files are behind #if MCVS_ANDROID; Windows/ is compiled in too). -->
     <Compile Include="../../hosts/embedded/**/*.cs" LinkBase="Embedded" />
   </ItemGroup>
 </Project>

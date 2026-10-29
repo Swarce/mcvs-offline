@@ -756,6 +756,12 @@ namespace McvsOffline.Embed.Tests.Embedded
 
             public string Name => "installer-test";
 
+            public string EntryPoint => "test host";
+
+            public string ArgsReader => "nobody";
+
+            public string PortInUseHint => "";
+
             public string ResolveGameRoot(Log log) => root;
 
             public LogSink CreateSystemLogSink(LogLevel minLevel) => null;

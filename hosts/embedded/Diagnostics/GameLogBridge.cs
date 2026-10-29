@@ -1,10 +1,11 @@
 #define ENABLE_LOGGER
 // Host: embedded - owner group: EMBED (hosts/embedded, patcher/)
-// Android only: compiled into the embedded DLL (MCVS_EMBEDDED), never into the net8 build.
+// Compiled into the embedded DLLs that reference Gameloft.Logs (MCVS_GAMELOG: always on Android, on PC when the build saw
+// the Steam install's Gameloft.Logs.dll; the PC Gameloft.Logs has the same API), never into the net8 build.
 // ENABLE_LOGGER must be defined in THIS file: Gameloft.Log.EnableLogCategory and DisableLogLevelForCategory are
 // [Conditional("ENABLE_LOGGER")], so without it the compiler drops our calls (that is how the game's own
 // SetLogCategoryFilter call vanished from the release Gameloft.Engine; its GameLog.cs defines it the same way).
-#if MCVS_EMBEDDED
+#if MCVS_GAMELOG
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -13,7 +14,7 @@ using Gameloft.Logs;
 using LogRedaction = McvsOffline.Server.Core.Http.LogRedaction;
 using SafeLogFile = McvsOffline.Server.Core.SafeLogFile;
 
-namespace McvsOffline.Embedded.Android
+namespace McvsOffline.Embedded.Diagnostics
 {
     /// <summary>
     /// The game's own log (Gameloft.Logs, which writes to logcat "mono-stdout" through its ConsoleLogger) at the levels the

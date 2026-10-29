@@ -14,16 +14,23 @@ namespace McvsOffline.Server.Core.Storage
     /// </summary>
     public static class FileSystem
     {
+#if MCVS_ANDROID || !MCVS_EMBEDDED
         private const int O_RDONLY = 0;
 
         private static volatile bool directoryFlushUnavailable;
+#endif
 
         /// <summary>
         /// False once a directory fsync failed to bind (no libc, not Unix); <see cref="FlushDirectory"/> is then a no-op.
+        /// Always false in the PC DLL.
         /// </summary>
         public static bool DirectoryFlushAvailable
         {
+#if MCVS_ANDROID || !MCVS_EMBEDDED
             get { return IsUnix && !directoryFlushUnavailable; }
+#else
+            get { return false; }
+#endif
         }
 
         /// <summary>Renames <paramref name="source"/> to <paramref name="destination"/>, atomically replacing it.</summary>
@@ -96,6 +103,7 @@ namespace McvsOffline.Server.Core.Storage
 #endif
         }
 
+#if MCVS_ANDROID || !MCVS_EMBEDDED
         private static bool IsUnix
         {
             get
@@ -104,6 +112,7 @@ namespace McvsOffline.Server.Core.Storage
                 return platform == PlatformID.Unix || platform == PlatformID.MacOSX;
             }
         }
+#endif
 
         private static class NativeMethods
         {

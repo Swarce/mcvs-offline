@@ -233,6 +233,12 @@ namespace McvsOffline.Embed.Tests.Embedded
 
             public string Name => "diagnostic";
 
+            public string EntryPoint => "test host";
+
+            public string ArgsReader => "nobody";
+
+            public string PortInUseHint => "";
+
             public string ResolveGameRoot(Log log) => root;
 
             public LogSink CreateSystemLogSink(LogLevel minLevel) => null;
@@ -261,6 +267,12 @@ namespace McvsOffline.Embed.Tests.Embedded
         private sealed class FailingPlatform : IEmbeddedPlatform
         {
             public string Name => "failing";
+
+            public string EntryPoint => "test host";
+
+            public string ArgsReader => "nobody";
+
+            public string PortInUseHint => "";
 
             public string ResolveGameRoot(Log log) => throw new InvalidOperationException("no storage");
 

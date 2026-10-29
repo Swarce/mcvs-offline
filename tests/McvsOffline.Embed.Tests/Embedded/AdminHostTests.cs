@@ -531,6 +531,12 @@ namespace McvsOffline.Embed.Tests.Embedded
         {
             return new List<string>(Missing);
         }
+
+        /// <summary>Android's rules over <see cref="Sdk"/> and <see cref="Missing"/> (the matrix these tests check).</summary>
+        public AdminPlatformCapabilities Capabilities()
+        {
+            return McvsOffline.Embedded.Android.AndroidCapabilities.From(Sdk, new List<string>(Missing));
+        }
     }
 
     /// <summary>A list safe to add to from several threads (the exit fallback runs on its own).</summary>

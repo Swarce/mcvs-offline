@@ -11,7 +11,7 @@ namespace McvsOffline.Embedded
     /// <summary>The few things <see cref="EmbeddedHost"/> needs from the device.</summary>
     public interface IEmbeddedPlatform
     {
-        /// <summary>Short name for the log ("android", "directory").</summary>
+        /// <summary>Short name for the log and the settings page ("android", "windows", "directory").</summary>
         string Name { get; }
 
         /// <summary>
@@ -22,6 +22,21 @@ namespace McvsOffline.Embedded
 
         /// <summary>A sink for the platform's system log (logcat on Android), or null.</summary>
         LogSink CreateSystemLogSink(LogLevel minLevel);
+
+        /// <summary>
+        /// The game method that started the host, for the boot trace: "NicePlaySDKDLL.OnInitialize" (Android),
+        /// "EngineBridge.Class1.Start" (Windows), "test host".
+        /// </summary>
+        string EntryPoint { get; }
+
+        /// <summary>Where the native engine reads args.txt: "JNIBridge.NativeInit" (Android), "MainLoop_Start" (Windows), "nobody".</summary>
+        string ArgsReader { get; }
+
+        /// <summary>
+        /// One sentence appended to the error when the server cannot bind its port after every retry (Android: a standalone
+        /// server connected with adb reverse; Windows: another program or a reserved port range).
+        /// </summary>
+        string PortInUseHint { get; }
     }
 
     /// <summary>
@@ -50,6 +65,7 @@ namespace McvsOffline.Embedded
         string StatusExtras();
     }
 
+#if !MCVS_WINDOWS
     /// <summary>
     /// Optional: what <see cref="Install.InstallerData"/> needs to prepare the Java installer's state before it runs (Android:
     /// getFilesDir() and the installer's SharedPreferences through the game's own SUtils). Every member must catch everything.
@@ -71,6 +87,7 @@ namespace McvsOffline.Embedded
         /// </summary>
         int InstallerHandedOver();
     }
+#endif
 
     /// <summary>
     /// Optional: what the settings page needs from the device (design §8.2; Android: <c>AndroidPlatform</c> over the JNI table of
@@ -129,6 +146,54 @@ namespace McvsOffline.Embedded
 
         /// <summary>AndroidJni table entries that did not resolve ("class.name descriptor").</summary>
         List<string> MissingJniMembers();
+
+        /// <summary>What this platform can do for the page; AdminHost combines it with the game-side state. Never null.</summary>
+        AdminPlatformCapabilities Capabilities();
+    }
+
+    /// <summary>
+    /// What an <see cref="IAdminPlatform"/> can do for the settings page (docs/design/pc-port.md §3.3). <see cref="Admin.AdminHost"/>
+    /// turns it into AdminHostInfo: CanOpenPage = the game's browser is bound or <see cref="OpenPage"/>, CanExit from
+    /// admin.restartVia and the two exit routes, the rest one to one.
+    /// </summary>
+    public sealed class AdminPlatformCapabilities
+    {
+        /// <summary>The platform can open the page without the game's browser.</summary>
+        public bool OpenPage { get; set; }
+
+        public bool ShareFile { get; set; }
+
+        /// <summary>Android: Download/MCVS-Offline; Windows: McvsOffline\exports.</summary>
+        public bool SaveToDownloads { get; set; }
+
+        public bool ShareText { get; set; }
+
+        public bool Copy { get; set; }
+
+        public bool Toast { get; set; }
+
+        public bool ExitViaGame { get; set; }
+
+        public bool ExitViaHost { get; set; }
+
+        /// <summary>The page must not promise that the game comes back after a restart.</summary>
+        public bool RelaunchUnconfirmed { get; set; }
+
+        /// <summary>The page can be reopened in the system browser (Windows).</summary>
+        public bool OpenInBrowser { get; set; }
+    }
+
+    /// <summary>
+    /// Optional (Windows): opening the page without the in-game browser (docs/design/pc-port.md §6.5). PageOpener uses it when
+    /// the platform implements it. Every member is thread-safe and never throws.
+    /// </summary>
+    public interface IPagePlatform
+    {
+        /// <summary>admin.openVia values besides "auto" and "game" this platform takes (Windows: "overlay", "system").</summary>
+        string[] OpenModes { get; }
+
+        /// <summary>Opens url by mode ("auto", or one of <see cref="OpenModes"/>); the route used ("overlay", "system") or null. Never throws.</summary>
+        string Open(string url, string mode);
     }
 
     /// <summary>A fixed directory as game root (tests, and running the embedded host on a PC).</summary>
@@ -145,6 +210,12 @@ namespace McvsOffline.Embedded
         }
 
         public string Name { get { return "directory"; } }
+
+        public string EntryPoint { get { return "test host"; } }
+
+        public string ArgsReader { get { return "nobody"; } }
+
+        public string PortInUseHint { get { return "Another program holds the port; stop it or change 'port' in settings.json."; } }
 
         public string ResolveGameRoot(Log log)
         {

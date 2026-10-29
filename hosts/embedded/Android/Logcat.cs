@@ -1,6 +1,6 @@
 // Host: embedded - owner group: EMBED (hosts/embedded, patcher/)
-// Android only: compiled into the embedded DLL (MCVS_EMBEDDED), never into the net8 build.
-#if MCVS_EMBEDDED
+// Android only: compiled into the embedded DLL (MCVS_ANDROID), never into the net8 build.
+#if MCVS_ANDROID
 using System;
 using System.Runtime.InteropServices;
 

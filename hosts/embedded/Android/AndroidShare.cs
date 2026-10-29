@@ -1,9 +1,9 @@
 // Host: embedded - owner group: EMBED (hosts/embedded, patcher/)
-// The JNI calls are Android only (MCVS_EMBEDDED); the outcomes of the bounded UI-thread waits are platform-independent
+// The JNI calls are Android only (MCVS_ANDROID); the outcomes of the bounded UI-thread waits are platform-independent
 // (compiled into the net8 tests).
 using System;
 using McvsOffline.Server.Services.Admin;
-#if MCVS_EMBEDDED
+#if MCVS_ANDROID
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -59,7 +59,7 @@ namespace McvsOffline.Embedded.Android
             return outcome == UiCall.Done;
         }
 
-#if MCVS_EMBEDDED
+#if MCVS_ANDROID
         private const int FlagGrantReadUriPermission = 1;
 
         /// <summary>The chooser of ShareFile (IAdminHost allows ShareFile 10 s).</summary>
