@@ -78,7 +78,7 @@ Gameloft device-id files in Documents (`GDID.bin`, `DC.bin`, `HDIDFV.bin`) and d
      Move it out of the game folder and run `install` again.
    * "a ModernCombatVersus.exe.config that is not ours exists": move it away and run `install` again.
 5. In a second terminal: `.\McvsOffline.PcKit.exe watch` (records memory, debug output and network endpoints until the
-   game exits or you press Ctrl+C).
+   game exits or you press Ctrl+C; when the game freezes for a minute it also saves a dump of the game, see section 6).
 6. Start the game **from Steam**, as usual. Do not start it under a debugger: the game then shows a dead window.
 
 **The settings page.** Settings › Account › **MCVS Offline** (or the "MCVS Offline" message in the inbox) opens the
@@ -117,6 +117,45 @@ game's Steam stats (stock behaviour).
   and the logs of older starts are deleted (setting `logging.keepStarts`, default 1: this start and the previous one).
   So run `collect` before you start the game twice more.
 * If the game misbehaves, close capture and overlay tools and try again.
+
+### Crash and freeze dumps (WR3)
+
+A dump is a snapshot of the game's memory. It shows us where the game was stuck or where it crashed. Dumps are large
+(about 1.5 to 2 GB each), so `collect` never puts them in its zip. Its `summary.txt` and `dumps.txt` list each dump with
+its path and size. Send the dumps separately, for example through a file-sharing link. Delete them after we have them.
+
+* **Freezes.** While `watch` runs, it reads `McvsOffline\logs\bootstrap.log`. When the game has not run a frame for 60
+  seconds (a `[watchdog] STALL` line), it saves one dump of the game to `%LOCALAPPDATA%\McvsOffline\dumps\`. The game
+  pauses for a few seconds while the dump is written. `watch` saves one dump per freeze and at most 3 per run. It writes
+  no dump when 6 dumps are already in that folder, or when the drive has less than 5 GB free. Keep `watch` running for
+  the whole round.
+* **Crashes: Windows' own crash dumps (once, needs an administrator).** Windows only keeps a full dump of a crashing
+  game if you turn this on. Open **Command Prompt as administrator** (Start, type `cmd`, then "Run as administrator").
+  Run these two commands exactly as written:
+
+  ```
+  reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\ModernCombatVersus.exe" /v DumpType /t REG_DWORD /d 2 /f
+  reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\ModernCombatVersus.exe" /v DumpCount /t REG_DWORD /d 3 /f
+  ```
+
+  `DumpType 2` is a full dump. `DumpCount 3` keeps the last three. With no `DumpFolder` value, Windows writes them to
+  `%LOCALAPPDATA%\CrashDumps\ModernCombatVersus.exe.<number>.dmp` of the user who played. `collect` lists them.
+  To check the setting, run
+  `reg query "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\ModernCombatVersus.exe"`. To turn
+  it off after the round, run
+  `reg delete "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\ModernCombatVersus.exe" /f`.
+  This setting affects only this game.
+* **Crashes: Windows' crash reports.** For every crash, Windows also keeps a small text report in a folder named
+  `C:\ProgramData\Microsoft\Windows\WER\ReportArchive\AppCrash_ModernCombatVers_<…>`. Zip all of these folders and
+  send the zip. In PowerShell (as administrator if it says access is denied):
+
+  ```
+  Compress-Archive -Path "C:\ProgramData\Microsoft\Windows\WER\ReportArchive\AppCrash_ModernCombatVers_*" -DestinationPath "$env:USERPROFILE\Desktop\mcvs-wer-reports.zip"
+  ```
+
+* After a crash, `McvsOffline\logs\` should hold a `crash-<time>-native.txt`. After a crash that the game logged
+  first, it should also hold an `exception-<time>.txt` that starts with `PROBABLY FATAL`. `collect` includes both.
+  The game's own `core.dmp` in the game folder is not needed. It holds only the last crash and is often empty.
 
 ## 7. WR2 checklist (what to record)
 
@@ -163,5 +202,7 @@ Any difference in this table stops the round until it is explained: the bytes yo
 
 * the `collect` zip from step 16 (on your Desktop);
 * the `watch` folder (`McvsOffline\kit\watch-<date>\`; with `--remove-data` it is gone, so copy it first);
+* from WR3 on: the dumps that `collect` lists in `dumps.txt` (`%LOCALAPPDATA%\McvsOffline\dumps\`, `%LOCALAPPDATA%\CrashDumps\`)
+  and the zip of the `AppCrash_ModernCombatVers_*` folders (section 6), each sent separately;
 * the two listings and `listing-diff.txt` from `McvsOffline\kit\` (or `%TEMP%\McvsOffline\kit\`);
 * your checklist notes (section 7).
