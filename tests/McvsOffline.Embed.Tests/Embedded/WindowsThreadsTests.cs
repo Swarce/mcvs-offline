@@ -45,7 +45,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.Equal("Wait (Executive), cpu 1010 ms", threads.Describe(100));
             Assert.Equal("not in the process's thread list", threads.Describe(555));
             Assert.Null(threads.Name(100));
-            Assert.Equal(1, threads.Busiest(100, 1).Count);
+            Assert.Single(threads.Busiest(100, 1));
         }
 
         [Fact]
@@ -144,8 +144,8 @@ namespace McvsOffline.Embed.Tests.Embedded
 
             public volatile int GameTid;
 
-            internal double totalTime;
-            internal bool suspendUpdateInBackground;
+            internal double totalTime = 0;
+            internal bool suspendUpdateInBackground = false;
         }
 
         private sealed class QueueContext : SynchronizationContext

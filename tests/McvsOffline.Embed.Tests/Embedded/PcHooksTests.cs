@@ -63,6 +63,12 @@ namespace McvsOffline.Embed.Tests.Embedded
             return task;
         }
 
+        /// <summary>True when the task ran to completion within 10 s.</summary>
+        private static bool Completes(Task task)
+        {
+            return ((IAsyncResult)task).AsyncWaitHandle.WaitOne(10000) && task.Status == TaskStatus.RanToCompletion;
+        }
+
         private static Exception WaitFault(Task task)
         {
             Assert.True(((IAsyncResult)task).AsyncWaitHandle.WaitOne(10000), "the task did not end");
@@ -82,7 +88,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             object link;
             object component = game.NewComponent(out link, "Embedded");
             Task task = Launch(component, link);
-            Assert.True(task.Wait(10000));
+            Assert.True(Completes(task));
             Assert.Equal(1, (int)game.Static("Gameloft.Engine.LocalAnubisManager", "StartCalls"));
             Assert.Equal(context.ThreadId, (int)game.Static("Gameloft.Engine.LocalAnubisManager", "StartThread"));
             List<string> calls = MatchmakerCalls();
@@ -100,7 +106,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             // Already started: no second Start.
             object link2;
             object component2 = game.NewComponent(out link2, "Embedded", "Gameloft.Engine.DerivedLink");
-            Assert.True(Launch(component2, link2).Wait(10000));
+            Assert.True(Completes(Launch(component2, link2)));
             Assert.Equal(1, (int)game.Static("Gameloft.Engine.LocalAnubisManager", "StartCalls"));
             Assert.Equal(2, MatchmakerCalls().Count);
             Assert.NotNull(PcLookAlikes.Get(link2, "Room"));
@@ -112,12 +118,12 @@ namespace McvsOffline.Embed.Tests.Embedded
             object link;
             object component = game.NewComponent(out link, "Online");
             Task task = Launch(component, link);
-            Assert.True(task.Wait(10000));
+            Assert.True(Completes(task));
             Assert.Equal(1, (int)link.GetType().GetField("StockCalls").GetValue(link));
             Assert.Equal(0, (int)game.Static("Gameloft.Engine.LocalAnubisManager", "StartCalls"));
             Assert.Empty(MatchmakerCalls());
             Assert.Contains(Lines(), l => l.Contains("[pc] quicklaunch: ServerLocation Online: the game's own path"));
-            Launch(component, link).Wait(10000);
+            Assert.True(Completes(Launch(component, link)));
             Assert.Single(Lines(), l => l.Contains("ServerLocation Online"));   // logged once
         }
 
@@ -216,12 +222,15 @@ namespace McvsOffline.Embed.Tests.Embedded
         {
             object link;
             object component = game.NewComponent(out link, "Embedded");
-            Task task = Task.Factory.StartNew(() =>
+            Task task = null;
+            var thread = new Thread(() =>
             {
                 SynchronizationContext.SetSynchronizationContext(null);
-                return PcHooks.QuickLaunch(component, link, CancellationToken.None);
-            }, CancellationToken.None, TaskCreationOptions.None, TaskScheduler.Default).Result;
-            Assert.True(task.Wait(10000));
+                task = PcHooks.QuickLaunch(component, link, CancellationToken.None);
+            });
+            thread.Start();
+            Assert.True(thread.Join(10000));
+            Assert.True(Completes(task));
             Assert.NotNull(PcLookAlikes.Get(link, "Room"));
             Assert.Single(Warnings());
             Assert.Contains("no synchronization context", Warnings()[0].Message);
