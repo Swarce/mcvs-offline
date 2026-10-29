@@ -64,7 +64,7 @@ namespace McvsOffline.Embedded.Windows
             {
                 foreach (ThreadSample sample in source())
                 {
-                    if (sample != null && sample.Id == tid) return Line(sample, null);
+                    if (sample != null && sample.Id == tid) return State(sample);
                 }
                 return "not in the process's thread list";
             }
@@ -102,13 +102,17 @@ namespace McvsOffline.Embedded.Windows
         }
 
         /// <summary>"1234 Wait (UserRequest), cpu 5000 ms +120 ms".</summary>
-        private static string Line(ThreadSample sample, long? delta)
+        private static string Line(ThreadSample sample, long delta)
         {
-            string text = sample.Id.ToString(CultureInfo.InvariantCulture) + " " + (sample.State ?? "?");
+            return sample.Id.ToString(CultureInfo.InvariantCulture) + " " + State(sample) + " +" + delta.ToString(CultureInfo.InvariantCulture) + " ms";
+        }
+
+        /// <summary>"Wait (UserRequest), cpu 5000 ms".</summary>
+        private static string State(ThreadSample sample)
+        {
+            string text = sample.State ?? "?";
             if (!string.IsNullOrEmpty(sample.WaitReason)) text += " (" + sample.WaitReason + ")";
-            text += ", cpu " + (sample.CpuMs < 0 ? "?" : sample.CpuMs.ToString(CultureInfo.InvariantCulture) + " ms");
-            if (delta.HasValue) text += " +" + delta.Value.ToString(CultureInfo.InvariantCulture) + " ms";
-            return text;
+            return text + ", cpu " + (sample.CpuMs < 0 ? "?" : sample.CpuMs.ToString(CultureInfo.InvariantCulture) + " ms");
         }
 
         private static IList<ThreadSample> ProcessThreads()

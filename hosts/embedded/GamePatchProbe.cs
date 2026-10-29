@@ -108,7 +108,6 @@ namespace McvsOffline.Embedded
         /// <param name="watchLoads">Subscribes a callback to assembly loads and returns the unsubscribe action; null: probe once.</param>
         public static PatchWatcher Watch(ClientCapabilities target, Log log, Func<Action<Assembly>, Action> watchLoads, BootTrace boot, string gameRoot)
         {
-            var watcher = new PatchWatcher(target ?? new ClientCapabilities(), log, boot, gameRoot);
             Assembly[] loaded;
             try
             {
@@ -119,7 +118,21 @@ namespace McvsOffline.Embedded
                 Warn(log, ex);
                 loaded = new Assembly[0];
             }
-            watcher.Start(loaded, watchLoads);
+            return Watch(target, log, watchLoads, boot, gameRoot, loaded);
+        }
+
+        /// <summary>The probe of docs/design/pc-port.md §6.2 without a load subscription or the boot lines (Android: Game is loaded).</summary>
+        public static PatchWatcher Watch(ClientCapabilities target, Log log)
+        {
+            return Watch(target, log, null, null, null);
+        }
+
+        /// <summary><see cref="Watch(ClientCapabilities, Log, Func{Action{Assembly}, Action}, BootTrace, string)"/> over a given list of loaded assemblies (tests).</summary>
+        internal static PatchWatcher Watch(ClientCapabilities target, Log log, Func<Action<Assembly>, Action> watchLoads, BootTrace boot, string gameRoot,
+                                           IEnumerable<Assembly> loaded)
+        {
+            var watcher = new PatchWatcher(target ?? new ClientCapabilities(), log, boot, gameRoot);
+            watcher.Start(loaded ?? new Assembly[0], watchLoads);
             return watcher;
         }
 
@@ -301,7 +314,10 @@ namespace McvsOffline.Embedded
             string location = null;
             try
             {
-                location = assembly.Location;
+                // By reflection: Assembly.get_Location is a stub in the game's Android mscorlib (EmbeddedDllResolutionTests), and
+                // this file is compiled into the Android DLL too; only the PC host (with a boot trace) gets here.
+                PropertyInfo property = typeof(Assembly).GetProperty("Location", BindingFlags.Public | BindingFlags.Instance);
+                location = property == null ? null : property.GetValue(assembly, null) as string;
             }
             catch (Exception)
             {
