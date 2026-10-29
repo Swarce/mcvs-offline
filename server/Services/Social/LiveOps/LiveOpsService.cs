@@ -22,6 +22,10 @@ namespace McvsOffline.Server.Services.Social.LiveOps
         /// <summary>The next window's event id (listed with the current one: the chain never has a gap).</summary>
         public string NextArenaEventId;
 
+        /// <summary>The window after the next one, listed only by a document served in the last moments of a window
+        /// (its expiry is the next window's end, so the chain must reach past it); null otherwise.</summary>
+        public string LaterArenaEventId;
+
         /// <summary>Event ids for <c>groupware.events.participation</c> (empty when live ops are off).</summary>
         public List<string> EventIds = new List<string>();
 
@@ -327,7 +331,7 @@ namespace McvsOffline.Server.Services.Social.LiveOps
             if (!s.Enabled || c.IsEmpty)
             {
                 // Only a Special Event chain the TS has seen survives this (ArenaPlan): the client keeps it.
-                AddArena(snap, s, c, at);
+                AddArena(snap, s, c, utc, at);
                 snap.Key = "off|" + s.Fingerprint + "|" + c.Hash + "|" + ArenaKey(snap);
                 return snap;
             }
@@ -366,7 +370,7 @@ namespace McvsOffline.Server.Services.Social.LiveOps
                 }
             }
             snap.Expiry = expiry;
-            AddArena(snap, s, c, at);
+            AddArena(snap, s, c, utc, at);
             snap.Modifier = ModifierFor(snap.Season, s, c);
             if (snap.Modifier != null) snap.Cells.AddRange(snap.Modifier.Cells);
             if (s.SeasonRewardMultiplier != 1.0 && c.SeasonRewards != null)
@@ -475,26 +479,41 @@ namespace McvsOffline.Server.Services.Social.LiveOps
         }
 
         /// <summary>
-        /// Lists the Special Event of the window at <paramref name="at"/> and of the next one (participation: the client
-        /// unlocks only events it can take part in), and moves the expiry to the window's end. Both events go through
-        /// <see cref="TleTemplateValidator"/> and the chain check first: an event the TS would drop or choke on is never
-        /// listed (the error is logged once).
+        /// Lists the Special Event of the window in progress at <paramref name="utc"/> (the real time) and of the next one
+        /// (participation: the client unlocks only events it can take part in), and moves the expiry to the end of the
+        /// window at <paramref name="at"/> (a moment later, so the TS reads the document before it expires). A document
+        /// served in the last moments of a window, where <paramref name="at"/> already falls in the next one, lists the
+        /// window after that too: the TS replaces its list on every fetch and must still hold the event in progress now
+        /// (the client never clears its current one) and the one after the expiry. Every event goes through
+        /// <see cref="TleTemplateValidator"/> and the chain check, at both moments, first: an event the TS would drop or
+        /// choke on is never listed (the error is logged once).
         /// </summary>
-        private void AddArena(LiveOpsSnapshot snap, LiveOpsSettings s, LiveOpsCatalog c, DateTime at)
+        private void AddArena(LiveOpsSnapshot snap, LiveOpsSettings s, LiveOpsCatalog c, DateTime utc, DateTime at)
         {
             ArenaPlan plan = PlanFor(s, c);
             if (plan == null) return;
-            ArenaWindow current = LiveOpsSchedule.ArenaAt(s, at);
-            ArenaWindow next = current.Next;
-            LiveOpsArenaMode currentMode = plan.ModeOf(current), nextMode = plan.ModeOf(next);
-            if (currentMode == null || nextMode == null) return;
-            var events = new List<Dictionary<string, object>> { ArenaEventFor(c, plan, current, currentMode), ArenaEventFor(c, plan, next, nextMode) };
+            ArenaWindow current = LiveOpsSchedule.ArenaAt(s, utc);
+            var windows = new List<ArenaWindow> { current, current.Next };
+            ArenaWindow expiring = current;
+            if (!current.Contains(at))
+            {
+                expiring = current.Next;
+                windows.Add(expiring.Next);
+            }
+            var events = new List<Dictionary<string, object>>();
+            foreach (ArenaWindow w in windows)
+            {
+                LiveOpsArenaMode mode = plan.ModeOf(w);
+                if (mode == null) return;
+                events.Add(ArenaEventFor(c, plan, w, mode));
+            }
             string problem = null;
             foreach (Dictionary<string, object> e in events)
             {
                 problem = TleTemplateValidator.Problem(e);
                 if (problem != null) break;
             }
+            if (problem == null) problem = TleTemplateValidator.ArenaChainProblem(events, utc);
             if (problem == null) problem = TleTemplateValidator.ArenaChainProblem(events, at);
             if (problem != null)
             {
@@ -505,14 +524,16 @@ namespace McvsOffline.Server.Services.Social.LiveOps
             snap.ArenaWindow = current;
             snap.ArenaEventId = (string)events[0]["id"];
             snap.NextArenaEventId = (string)events[1]["id"];
-            snap.EventIds.Add(snap.ArenaEventId);
-            snap.EventIds.Add(snap.NextArenaEventId);
-            if (!snap.Expiry.HasValue || current.End < snap.Expiry.Value) snap.Expiry = current.End;
+            if (events.Count > 2) snap.LaterArenaEventId = (string)events[2]["id"];
+            foreach (Dictionary<string, object> e in events) snap.EventIds.Add((string)e["id"]);
+            if (!snap.Expiry.HasValue || expiring.End < snap.Expiry.Value) snap.Expiry = expiring.End;
         }
 
         private static string ArenaKey(LiveOpsSnapshot snap)
         {
-            return snap.ArenaEventId == null ? "arena:-" : "arena:" + snap.ArenaEventId + "," + snap.NextArenaEventId;
+            return snap.ArenaEventId == null
+                       ? "arena:-"
+                       : "arena:" + snap.ArenaEventId + "," + snap.NextArenaEventId + (snap.LaterArenaEventId == null ? "" : "," + snap.LaterArenaEventId);
         }
 
         /// <summary>A Special Event the TS asked for: any window and mode while Special Events run (also a kept chain).

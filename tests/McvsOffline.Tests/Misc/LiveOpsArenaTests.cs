@@ -192,10 +192,51 @@ namespace McvsOffline.Tests.Misc
             {
                 clock.Advance(TimeSpan.FromHours(1));
                 LiveOpsSnapshot snap = LiveOpsService.For(s.Context).Snapshot(clock.UtcNow);
-                Assert.True(snap.ArenaWindow.Contains(clock.UtcNow.AddSeconds(2)));
+                Assert.True(snap.ArenaWindow.Contains(clock.UtcNow));
                 Assert.True(snap.Expiry.Value <= snap.ArenaWindow.End && snap.Expiry.Value > clock.UtcNow);
                 Assert.True(LiveOpsSchedule.TryParseArena(snap.NextArenaEventId, out ArenaWindow next, out string _));
                 Assert.Equal(snap.ArenaWindow.End, next.Start);
+            }
+        }
+
+        /// <summary>
+        /// A document served in the last 2 s of a window expires at the next window's end (the TS must read it before it
+        /// expires), so it still lists the window in progress (the TS replaces its list on every fetch, the client keeps its
+        /// current event) and the one after the next: at every moment until the expiry one event is in progress and the
+        /// next is listed.
+        /// </summary>
+        [Fact]
+        public void AFetchJustBeforeAWindowChangeStillListsTheEventInProgress()
+        {
+            DateTime boundary = new DateTime(2026, 10, 22, 0, 0, 0, DateTimeKind.Utc);
+            var clock = new ManualClock(boundary.AddSeconds(-3));
+            using var s = new MiscServer(clock);
+            TestPlayer p = s.NewPlayer("boundary");
+            foreach (int secondsBefore in new[] { 3, 2, 1 })
+            {
+                clock.UtcNow = boundary.AddSeconds(-secondsBefore);
+                var doc = MiscServer.Obj(s.Get("/configs/users/me?access_token=t"));
+                List<string> ids = ArenaIds(doc);
+                Assert.StartsWith("mcvs_arena_2026102100x24h_", ids[0]);
+                Assert.StartsWith("mcvs_arena_2026102200x24h_", ids[1]);
+                bool reachesPast = secondsBefore <= 2;
+                Assert.Equal(reachesPast ? 3 : 2, ids.Count);
+                if (reachesPast) Assert.StartsWith("mcvs_arena_2026102300x24h_", ids[2]);
+                Assert.Equal(reachesPast ? "2026-10-23 00:00:00Z" : "2026-10-22 00:00:00Z", doc["expiry"]);
+                DateTime expiry;
+                Assert.True(TimeFormat.TryParse((string)doc["expiry"], out expiry));
+
+                var events = MiniJson.ParseArray(s.Get("/events?event_ids=" + string.Join(",", ids) + "&language=en", p.OnBehalfToken).BodyText)
+                                     .Cast<Dictionary<string, object>>().ToList();
+                Assert.Equal(ids, events.Select(e => (string)e["id"]));
+                for (DateTime t = clock.UtcNow; t < expiry; t = t.AddSeconds(t < boundary.AddSeconds(5) ? 1 : 3600))
+                    Assert.Null(TleTemplateValidator.ArenaChainProblem(events, t));
+
+                LiveOpsSnapshot snap = LiveOpsService.For(s.Context).Snapshot(clock.UtcNow);
+                Assert.True(snap.ArenaWindow.Contains(clock.UtcNow));
+                Assert.Equal(ids[0], snap.ArenaEventId);
+                Assert.Equal(ids[1], snap.NextArenaEventId);
+                Assert.Equal(reachesPast ? ids[2] : null, snap.LaterArenaEventId);
             }
         }
 
@@ -476,6 +517,40 @@ namespace McvsOffline.Tests.Misc
             Assert.Equal("social/events.json", SocialEvents.ContentName);
             var served = MiniJson.ParseArray(s.Get("/events?event_ids=mcvs_arena_poc,mcvs_arena_poc_noimg&language=en", p.OnBehalfToken).BodyText);
             Assert.Equal(new[] { "mcvs_arena_poc" }, served.Select(e => (string)((Dictionary<string, object>)e)["id"]));
+            // Only the img check: the log says where the hand-written chain ends (nothing lists a successor for it).
+            Assert.Single(s.Logs.Snapshot(), e => e.Level == LogLevel.Info && e.Message.Contains("1 hand-written Special Event(s)")
+                                                  && e.Message.Contains("ends at 2026-10-22T09:30:00Z"));
+        }
+
+        /// <summary>Hand-written Special Events are not chain-checked when listed (crm.eventIds): a gap or an overlap
+        /// between them is a warning when social/events.json is read, the event itself is still served.</summary>
+        [Fact]
+        public void AHandWrittenArenaChainWithAGapIsAWarning()
+        {
+            using var s = new MiscServer(new ManualClock(Wednesday));
+            TestPlayer p = s.NewPlayer("poc");
+            LiveOpsCatalog c = Shipped();
+            var first = new ArenaWindow(Wednesday, 24);
+            Dictionary<string, object> a = LiveOpsEvents.ArenaMode(c, c.Arena, first, c.Arena.Mode("havoc"), "Random");
+            Dictionary<string, object> b = LiveOpsEvents.ArenaMode(c, c.Arena, new ArenaWindow(first.End.AddHours(1), 24), c.Arena.Mode("tdm"), "Random");
+            a["id"] = "mcvs_arena_poc_a";
+            b["id"] = "mcvs_arena_poc_b";
+            Assert.True(TleTemplateValidator.IsArenaEvent(a));
+            string path = System.IO.Path.Combine(s.Context.DataDir, "content", "social", "events.json");
+            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path));
+            System.IO.File.WriteAllText(path, MiniJson.Serialize(new Dictionary<string, object> { ["events"] = new List<object> { a, b } }));
+            var served = MiniJson.ParseArray(s.Get("/events?event_ids=mcvs_arena_poc_a,mcvs_arena_poc_b&language=en", p.OnBehalfToken).BodyText);
+            Assert.Equal(2, served.Count);
+            Assert.Single(s.Logs.Snapshot(), e => e.Level == LogLevel.Warn && e.Message.Contains("2 hand-written Special Event(s)")
+                                                  && e.Message.Contains("leave a gap at 2026-10-22T09:30:00Z"));
+
+            bool broken;
+            Assert.Null(TleTemplateValidator.ArenaChainEnd(new Dictionary<string, object>[0], out broken));
+            Assert.Contains("overlap", TleTemplateValidator.ArenaChainEnd(new[] { a, LiveOpsEvents.ArenaMode(c, c.Arena, new ArenaWindow(Wednesday.AddHours(12), 24), c.Arena.Mode("tdm"), "Random") }, out broken));
+            Assert.True(broken);
+            Assert.Contains("ends at", TleTemplateValidator.ArenaChainEnd(new[] { LiveOpsEvents.ArenaMode(c, c.Arena, first.Next, c.Arena.Mode("tdm"), "Random"), a }, out broken));
+            Assert.False(broken);
+            Assert.False(TleTemplateValidator.IsArenaEvent(new Dictionary<string, object> { ["_template"] = "{\"event_tuning\":{}}" }));
         }
     }
 }

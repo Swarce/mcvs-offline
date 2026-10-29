@@ -97,7 +97,7 @@ namespace McvsOffline.Tests.Misc
                 {
                     CultureInfo.CurrentCulture = dayFirst;
                     string crmText = s.Get("/configs/users/me?access_token=t").BodyText;
-                    dynamic crm = Activator.CreateInstance(crmData, crmText);
+                    dynamic crm = GameClient.NewCrmData(crmData, crmText);
                     List<string> ids = ((IEnumerable)crm.TimeLimitedEvents.Participation).Cast<object>().Select(x => (string)x).ToList();
                     LiveOpsSnapshot snap = LiveOpsService.For(s.Context).Snapshot(clock.UtcNow);
                     Assert.Equal(snap.EventIds, ids);

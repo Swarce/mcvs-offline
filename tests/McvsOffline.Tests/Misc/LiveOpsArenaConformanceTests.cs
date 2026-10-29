@@ -22,7 +22,7 @@ namespace McvsOffline.Tests.Misc
     /// <c>TypeUtil.GetType</c> and <c>ArenaModeEvent.Initialize</c>, as RetrieveEventsAsync runs them; the TS's choice
     /// for a room (<c>TimeLimitedEventsComponent.GetInProgressEvents&lt;ArenaModeEvent&gt;().FirstOrDefault()</c>); the
     /// client's own <c>GameClientComponent.UpdateCurrentAndNextArenaEvent</c> and <c>GetArenaUIInfo</c> (the Battle popup's
-    /// Special Event box: unlocked or not, and the throw an agent list without restrictions causes); the TS → GS hand-over
+    /// Special Event box: unlocked or not, and the null agent list an event without restrictions hands the Flash box); the TS → GS hand-over
     /// of <c>ArenaParams</c> through the game's Newtonsoft.
     /// <para>
     /// <see cref="ArenaClient"/> stands the client's GameClientComponent up in a World made of uninitialized game objects
@@ -107,6 +107,73 @@ namespace McvsOffline.Tests.Misc
         }
 
         /// <summary>
+        /// A CRM fetch in the last second of a window (at boot, or with a clock a little ahead): the document expires at the
+        /// next window's end, so it lists three Special Events, and the TS, whose list the fetch replaces, still has the one
+        /// in progress. The client, which never clears its current event, and the TS agree before the window change and
+        /// after it (OnEventsStarted, no refetch in between), so a match started in either second gets its
+        /// <c>_arenaParams</c>.
+        /// </summary>
+        [Theory]
+        [MemberData(nameof(TestFolders.RealClientFolders), MemberType = typeof(TestFolders))]
+        public void AFetchJustBeforeAWindowChangeKeepsTheEventInProgress(string platform, string folder)
+        {
+            GameClient game = GameClient.TryGetFrom(output, platform, folder, "Gameloft.Engine", "Game", "Gameloft.Util", "Newtonsoft.Json");
+            if (game == null) return;
+            game.RegisterGameAssemblies();
+            var clock = new ManualClock(Start);
+            using var s = new MiscServer(clock);
+            TestPlayer p = s.NewPlayer("boundary");
+            var client = new ArenaClient(game, ownedAgent: "7");
+            Fetched first = Fetch(game, s, p, Start);
+            client.SetTime(Start);
+            client.SetEvents(first.ArenaEvents);
+            object held = AssertOneCurrentOneNext(client, Start, "at " + TimeFormat.Iso8601(Start));
+            DateTime boundary = Utc((DateTime)GameClient.Get(held, "EndDate"));
+
+            foreach (int secondsBefore in new[] { 3, 2, 1 })
+            {
+                DateTime now = boundary.AddSeconds(-secondsBefore);
+                clock.UtcNow = now;
+                Fetched late = Fetch(game, s, p, now);
+                string when = secondsBefore + " s before " + TimeFormat.Iso8601(boundary);
+                client.SetTime(now);
+                client.SetEvents(late.ArenaEvents);
+                List<object> inProgress = client.InProgress();
+                Assert.True(inProgress.Count == 1, when + ": " + inProgress.Count + " Special Events in progress");
+                Assert.Equal(GameClient.Get(held, "Id"), (string)GameClient.Get(inProgress[0], "Id"));
+                client.Update();
+                Assert.NotNull(client.TsChoice());
+                Assert.Same(client.Current, client.TsChoice());
+                Assert.Equal(boundary, Utc((DateTime)GameClient.Get(client.Next, "StartDate")));
+                Assert.False((bool)client.UiInfo()["arenaLocked"], when + ": the Special Event box is locked");
+                // Served 2 s or less before the change, the document expires at the next window's end and lists the one
+                // after it too; earlier, it expires at the change.
+                bool reachesPast = secondsBefore <= 2;
+                Assert.Equal(reachesPast ? 3 : 2, late.ArenaEvents.Count);
+                Assert.True(reachesPast ? late.Expiry > boundary : late.Expiry == boundary, when + ": the CRM expires at " + TimeFormat.Iso8601(late.Expiry));
+
+                // The window changes before the next fetch (the expiry is the next window's end, or the fetch is late).
+                client.SetTime(boundary.AddSeconds(1));
+                inProgress = client.InProgress();
+                Assert.True(inProgress.Count == 1, when + ", then after it: " + inProgress.Count + " Special Events in progress");
+                client.Update();
+                Assert.Same(inProgress[0], client.Current);
+                Assert.Same(client.Current, client.TsChoice());
+                Assert.Equal(boundary, Utc((DateTime)GameClient.Get(client.Current, "StartDate")));
+                // The client's next event: the one after (listed in the last 2 s), or, until the refetch at the expiry,
+                // still the one now in progress (UpdateCurrentAndNextArenaEvent never clears it either).
+                if (reachesPast) Assert.True(Utc((DateTime)GameClient.Get(client.Next, "StartDate")) > boundary);
+                else Assert.Same(client.Current, client.Next);
+                Assert.True(late.Expiry <= Utc((DateTime)GameClient.Get(client.Current, "EndDate")));
+
+                // Back to the window in progress for the next round.
+                client.SetEvents(first.ArenaEvents);
+                client.SetTime(now);
+                client.Update();
+            }
+        }
+
+        /// <summary>
         /// liveops.arenaRotation pins a mode (and liveops.arenaMap a map): for a fortnight of 6 h windows every Special
         /// Event the real client parses is Competitive Warzone on Port, with its rules (Dominion, best of three, no duplicate
         /// agents, the 1.5 win bonus), and the ArenaParams the TS writes into the room come back unchanged through the
@@ -173,7 +240,8 @@ namespace McvsOffline.Tests.Misc
         /// <summary>
         /// The three traps, each shown on the real client and refused by <see cref="TleTemplateValidator"/>: a missing
         /// <c>img</c> throws in ArenaModeEvent.Initialize (which aborts every event on the TS); an "Any" or empty agent list
-        /// initializes, but GetArenaUIInfo then throws ArgumentNullException (every second, from OnPostUpdate); a
+        /// initializes and GetArenaUIInfo does not throw, but it returns <c>arenaEventRestrictedAgents = null</c> and the
+        /// Flash MatchTypeBox.setup then reads its <c>.length</c>; a
         /// "MercClass_" entry throws in Initialize; a gap between windows leaves the client with an event the TS no longer
         /// has (the GS then throws on the missing <c>_arenaParams</c>). The event the server generates passes all of them.
         /// </summary>
@@ -255,7 +323,7 @@ namespace McvsOffline.Tests.Misc
             Type json = game.Type("Gameloft.Util", "Gameloft.Util.Json");
             Type socialEvent = game.Op("SocialEvent");
             string crmText = s.Get("/configs/users/me?access_token=t").BodyText;
-            dynamic crm = Activator.CreateInstance(crmData, crmText);
+            dynamic crm = GameClient.NewCrmData(crmData, crmText);
             List<string> ids = ((IEnumerable)crm.TimeLimitedEvents.Participation).Cast<object>().Select(x => (string)x).ToList();
             var fetched = new Fetched { Expiry = Utc((DateTime)crm.Expiry) };
             Assert.True(fetched.Expiry > now, "the CRM document expires in the future");
