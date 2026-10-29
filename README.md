@@ -12,6 +12,7 @@ No download: you turn your own copy of the game into the offline version on your
 ![Platform: Android](https://img.shields.io/badge/platform-Android-3DDC84?logo=android&logoColor=white)
 ![Game: 1.17.32](https://img.shields.io/badge/game-1.17.32-555555)
 ![Status: in development](https://img.shields.io/badge/status-in%20development-orange)
+[![CI](https://github.com/Swarce/mcvs-offline/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Swarce/mcvs-offline/actions/workflows/ci.yml)
 [![License: MPL 2.0](https://img.shields.io/badge/license-MPL--2.0-brightgreen)](LICENSE)
 
 [Quick start](#getting-started) · [How to play offline](docs/PLAYER-SETUP.md) · [Status](#status) · [Architecture](docs/ARCHITECTURE.md) · [Roadmap](docs/ROADMAP.md)
