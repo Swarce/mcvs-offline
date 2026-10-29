@@ -59,6 +59,51 @@ namespace McvsOffline.Embedded.Windows
 
         [DllImport("user32", EntryPoint = "DestroyWindow", ExactSpelling = true, SetLastError = true)]
         public static extern bool DestroyWindow(IntPtr window);
+
+        // ---------------------------------------------------------------- the native crash filter (NativeCrashFilter, §6.4)
+        // Called from inside a top-level exception filter: no string marshalling (paths and names go through pinned char[]
+        // buffers, the report through a pinned byte[]), so a crash report allocates nothing on the managed heap.
+
+        /// <summary>GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT.</summary>
+        public const uint ModuleFromAddressNoRef = 0x00000004 | 0x00000002;
+
+        /// <summary>GENERIC_WRITE.</summary>
+        public const uint GenericWrite = 0x40000000;
+
+        /// <summary>FILE_SHARE_READ.</summary>
+        public const uint FileShareRead = 0x00000001;
+
+        /// <summary>CREATE_NEW (never overwrites).</summary>
+        public const uint CreateNew = 1;
+
+        /// <summary>FILE_ATTRIBUTE_NORMAL.</summary>
+        public const uint FileAttributeNormal = 0x80;
+
+        /// <summary>INVALID_HANDLE_VALUE.</summary>
+        public static readonly IntPtr InvalidHandle = new IntPtr(-1);
+
+        /// <summary>Takes and returns a LPTOP_LEVEL_EXCEPTION_FILTER (a WINAPI function pointer); no error is set.</summary>
+        [DllImport("kernel32", EntryPoint = "SetUnhandledExceptionFilter", ExactSpelling = true)]
+        public static extern IntPtr SetUnhandledExceptionFilter(IntPtr filter);
+
+        [DllImport("kernel32", EntryPoint = "GetModuleHandleExW", ExactSpelling = true, CharSet = CharSet.Unicode)]
+        public static extern bool GetModuleHandleExW(uint flags, IntPtr address, out IntPtr module);
+
+        [DllImport("kernel32", EntryPoint = "GetModuleFileNameW", ExactSpelling = true, CharSet = CharSet.Unicode)]
+        public static extern uint GetModuleFileNameW(IntPtr module, [Out] char[] buffer, uint size);
+
+        /// <summary><paramref name="path"/> is NUL-terminated.</summary>
+        [DllImport("kernel32", EntryPoint = "CreateFileW", ExactSpelling = true, CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern IntPtr CreateFileW(char[] path, uint access, uint share, IntPtr security, uint disposition, uint flags, IntPtr template);
+
+        [DllImport("kernel32", EntryPoint = "WriteFile", ExactSpelling = true, SetLastError = true)]
+        public static extern bool WriteFile(IntPtr file, byte[] buffer, uint count, out uint written, IntPtr overlapped);
+
+        [DllImport("kernel32", EntryPoint = "FlushFileBuffers", ExactSpelling = true, SetLastError = true)]
+        public static extern bool FlushFileBuffers(IntPtr file);
+
+        [DllImport("kernel32", EntryPoint = "CloseHandle", ExactSpelling = true, SetLastError = true)]
+        public static extern bool CloseHandle(IntPtr handle);
     }
 }
 #endif

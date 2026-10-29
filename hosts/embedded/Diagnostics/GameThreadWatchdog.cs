@@ -358,7 +358,8 @@ namespace McvsOffline.Embedded.Diagnostics
             var sb = new StringBuilder();
             sb.Append("[watchdog] STALL: no game-thread work item ran for ").Append(lagMs.ToString(CultureInfo.InvariantCulture))
               .Append(" ms; frame clock (totalTime) unchanged for ").Append(frameClockMs.ToString(CultureInfo.InvariantCulture))
-              .Append(" ms; suspendUpdateInBackground=").Append(suspended ? "true" : "false").Append('\n');
+              .Append(" ms; suspendUpdateInBackground=").Append(suspended ? "true" : "false")
+              .Append(HostProcess.Suffix("; ")).Append('\n');
             try
             {
                 if (serverState != null) sb.Append("  server: ").Append(serverState()).Append('\n');

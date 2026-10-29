@@ -15,7 +15,9 @@ namespace McvsOffline.PcKit
     /// <c>McvsOffline\kit\watch-&lt;stamp&gt;\</c>: memory every 2 s (the spike's <see cref="TelemetrySampler"/>; the game is 32-bit
     /// without LARGE_ADDRESS_AWARE, so the virtual size is shown as a share of 2048 MB), the game's OutputDebugString output
     /// (<see cref="DebugOutputCapture"/>, Windows), and the game's listening TCP and UDP endpoints every 10 s (<c>netstat -ano</c>:
-    /// the Havok debugger on 25001+, the Finder on 51750, Lobby/Controller, the GS UDP socket).
+    /// the Havok debugger on 25001+, the Finder on 51750, Lobby/Controller, the GS UDP socket). It also follows the host's
+    /// bootstrap.log and takes one full dump of the game, outside the zip, when a STALL reaches 60 s (<see cref="StallDumps"/>,
+    /// WR2 F4).
     /// </summary>
     public static class Watch
     {
@@ -25,11 +27,17 @@ namespace McvsOffline.PcKit
         public static readonly TimeSpan EndpointInterval = TimeSpan.FromSeconds(10);
         public const double AddressSpaceMb = 2048;
 
-        public static int Run(KitEnvironment env, string kitFolder, KitLog log)
+        /// <summary>How often bootstrap.log is read for STALL lines.</summary>
+        public static readonly TimeSpan LogInterval = TimeSpan.FromSeconds(2);
+
+        public static int Run(KitEnvironment env, string game, string kitFolder, KitLog log)
         {
             string folder = Path.Combine(kitFolder, FolderPrefix + KitServer.Stamp(env.Now()));
             Directory.CreateDirectory(folder);
             log.Info("watch: recording into " + folder + " until the game exits (Ctrl+C stops earlier)");
+            var stalls = new StallDumps(env, StallDumps.BootstrapLogs(env, game), log);
+            stalls.Poll(null);   // what bootstrap.log holds already is not news
+            log.Info("watch: a STALL of " + StallDumps.ThresholdMs / 1000 + " s or more in bootstrap.log gets one full dump of the game in " + StallDumps.Folder(env));
             using (var stop = new StopSignal())
             using (var telemetry = new TelemetrySampler(folder, MemoryInterval, log))
             {
@@ -39,12 +47,20 @@ namespace McvsOffline.PcKit
                     telemetry.StartBackground();
                     var previous = new List<string>();
                     bool seen = false;
+                    DateTime lastSample = DateTime.MinValue;
                     while (!stop.IsRequested)
                     {
                         List<int> pids = GamePids();
+                        stalls.Poll(pids);   // every 2 s: a 60 s STALL line is acted on while the stall lasts
                         if (pids.Count > 0)
                         {
                             seen = true;
+                            if (DateTime.UtcNow - lastSample < EndpointInterval)
+                            {
+                                stop.Wait((int)LogInterval.TotalMilliseconds);
+                                continue;
+                            }
+                            lastSample = DateTime.UtcNow;
                             string memory = MemoryLine(pids[0]);
                             if (memory != null) log.Info("watch: " + memory);
                             List<string> endpoints = Endpoints(pids);
@@ -63,14 +79,14 @@ namespace McvsOffline.PcKit
                             log.Info("watch: the game exited");
                             break;
                         }
-                        stop.Wait((int)EndpointInterval.TotalMilliseconds);
+                        stop.Wait((int)LogInterval.TotalMilliseconds);
                     }
                 }
                 finally
                 {
                     if (capture != null) capture.Dispose();
                 }
-                log.Info("watch: " + telemetry.Samples + " memory samples in " + telemetry.CsvPath);
+                log.Info("watch: " + telemetry.Samples + " memory samples in " + telemetry.CsvPath + ", " + stalls.Written + " stall dumps");
             }
             return PcExitCodes.Ok;
         }

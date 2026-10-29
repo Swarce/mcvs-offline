@@ -98,9 +98,41 @@ namespace McvsOffline.Embedded.Windows
 
         // ------------------------------------------------------------------ IPlatformDiagnostics
 
+        /// <summary>
+        /// Our top-level exception filter (<see cref="NativeCrashFilter"/>), once: the exe's own filter never chains, so on the game
+        /// thread no AppDomain.UnhandledException runs (WR2 F3). WindowsBoot installs it first thing; this call does nothing more.
+        /// </summary>
         public void InstallCrashHooks()
         {
-            // Nothing: the CLR raises AppDomain.UnhandledException for every thread.
+            InstallNativeCrashFilter();
+        }
+
+        private static int nativeFilterInstalled;
+
+        /// <summary>
+        /// Installs <see cref="NativeCrashFilter"/> on Windows (once per process) and adds it to the "[crash] hooks:" line; the
+        /// filter writes to the crash directory, or %TEMP%\McvsOffline\logs (which Install creates) before the host knows the game
+        /// folder or when that one is not writable. Never throws.
+        /// </summary>
+        internal static void InstallNativeCrashFilter()
+        {
+            try
+            {
+                if (Environment.OSVersion.Platform != PlatformID.Win32NT) return;
+                if (Interlocked.Exchange(ref nativeFilterInstalled, 1) != 0) return;
+                string fallback = null;
+                try
+                {
+                    fallback = Path.Combine(Path.Combine(Path.GetTempPath(), EmbeddedPaths.DataFolderName), "logs");
+                }
+                catch (Exception)
+                {
+                }
+                CrashReporter.AddHook(NativeCrashFilter.Install(new Win32CrashFilterNative(), HostProcess.Id, fallback));
+            }
+            catch (Exception)
+            {
+            }
         }
 
         /// <summary>%TEMP%; the host appends McvsOffline\logs.</summary>
@@ -119,8 +151,9 @@ namespace McvsOffline.Embedded.Windows
         public string ApplyGameLog(Settings settings, SafeLogFile gameLog)
         {
 #if MCVS_GAMELOG
+            // The game's Fatal lines before a rethrow into native code are the only managed trace of such a crash on PC (§6.4).
             return GameLogBridge.Apply(settings.GetString("gameLog.levels", "error warning"), settings.GetString("gameLog.mute", "profile:debug"), gameLog,
-                                       (int)settings.GetLong("gameLog.maxMessageChars", 8192));
+                                       (int)settings.GetLong("gameLog.maxMessageChars", 8192), new GameFatalLines(CrashReporter.ReportProbablyFatal));
 #else
             return "game log: bridge not compiled in";
 #endif

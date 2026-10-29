@@ -374,6 +374,44 @@ namespace McvsOffline.Embed.Tests.Embedded
             }
         }
 
+        /// <summary>
+        /// WR2 F3: WindowsBoot's first step sets the pid and installs our top-level filter after the crash reporter; the filter is
+        /// created by WindowsPlatform with the kernel32 implementation; the game-log bridge gets the Fatal-line watcher on PC.
+        /// </summary>
+        [Fact]
+        public void TheCrashCaptureIsWiredIntoTheBoot()
+        {
+            using (ModuleDefinition module = PcDll())
+            {
+                if (module == null) return;
+                List<string> boot = Calls(Method(module, "McvsOffline.Embedded.Windows.WindowsBoot", "InstallDiagnostics"))
+                                        .Select(c => c.DeclaringType.Name + "::" + c.Name).ToList();
+                output.WriteLine("InstallDiagnostics: " + string.Join(", ", boot));
+                int pid = boot.IndexOf("HostProcess::set_Id");
+                int reporter = boot.FindIndex(c => c.StartsWith("CrashReporter::Install", StringComparison.Ordinal));
+                int filter = boot.IndexOf("WindowsPlatform::InstallNativeCrashFilter");
+                Assert.True(pid >= 0 && reporter > pid && filter > reporter, string.Join(", ", boot));
+
+                List<string> install = Calls(Method(module, "McvsOffline.Embedded.Windows.WindowsPlatform", "InstallNativeCrashFilter"))
+                                           .Select(c => c.DeclaringType.Name + "::" + c.Name).ToList();
+                Assert.Contains("Win32CrashFilterNative::.ctor", install);
+                Assert.Contains("NativeCrashFilter::Install", install);
+                Assert.Contains("CrashReporter::AddHook", install);
+                Assert.Contains("WindowsPlatform::InstallNativeCrashFilter",
+                                Calls(Method(module, "McvsOffline.Embedded.Windows.WindowsPlatform", "InstallCrashHooks")).Select(c => c.DeclaringType.Name + "::" + c.Name));
+
+                List<string> gameLog = Calls(Method(module, "McvsOffline.Embedded.Windows.WindowsPlatform", "ApplyGameLog"))
+                                           .Select(c => c.DeclaringType.Name + "::" + c.Name + "/" + c.Parameters.Count).ToList();
+                Assert.Contains("GameFatalLines::.ctor/2", gameLog);
+                Assert.Contains("GameLogBridge::Apply/5", gameLog);
+                // The bridge reads LogEntry.Member and hands Fatal entries to the watcher.
+                List<string> entry = Method(module, "McvsOffline.Embedded.Diagnostics.GameLogBridge", "EntryAdded").Body.Instructions
+                                         .Select(i => i.Operand as MemberReference).Where(r => r != null).Select(r => r.Name).ToList();
+                Assert.Contains("Member", entry);
+                Assert.Contains("Fatal", entry);
+            }
+        }
+
         [Fact]
         public void NothingCallsIntoInstallOrHdAndThereIsNoThreadDump()
         {

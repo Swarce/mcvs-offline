@@ -53,6 +53,12 @@ namespace McvsOffline.PcKit
         /// <summary>The .NET Framework 4 folder the game runs on (Windows: %WINDIR%\Microsoft.NET\Framework\v4.0.30319).</summary>
         public Func<string> DefaultBcl { get; set; }
 
+        /// <summary>(pid, file): writes a full minidump of that process, returns its size; throws on failure (<see cref="MiniDump"/>).</summary>
+        public Func<int, string, long> WriteDump { get; set; }
+
+        /// <summary>Free bytes on the drive of a folder, -1 when unknown.</summary>
+        public Func<string, long> FreeBytes { get; set; }
+
         public static KitEnvironment Real()
         {
             return new KitEnvironment
@@ -80,6 +86,8 @@ namespace McvsOffline.PcKit
                     return found;
                 },
                 DefaultBcl = PcCli.DefaultBcl,
+                WriteDump = MiniDump.Write,
+                FreeBytes = MiniDump.FreeBytes,
             };
         }
     }

@@ -132,10 +132,55 @@ namespace McvsOffline.Embed.Tests.Embedded
                     }
                     Assert.True(problems.Count == 0, Path.GetFileName(path) + ":\n" + string.Join("\n", problems));
                     foreach (string expected in new[] { "OutputDebugStringW", "GetCurrentThreadId", "GlobalAlloc", "GlobalLock", "GlobalUnlock", "GlobalFree",
-                                                        "OpenClipboard", "EmptyClipboard", "SetClipboardData", "CloseClipboard", "CreateWindowExW", "DestroyWindow" })
+                                                        "OpenClipboard", "EmptyClipboard", "SetClipboardData", "CloseClipboard", "CreateWindowExW", "DestroyWindow",
+                                                        "SetUnhandledExceptionFilter", "GetModuleHandleExW", "GetModuleFileNameW", "CreateFileW", "WriteFile",
+                                                        "FlushFileBuffers", "CloseHandle" })
                     {
                         Assert.Contains(win32, m => (m.PInvokeInfo.EntryPoint ?? m.Name) == expected);
                     }
+                }
+            }
+        }
+
+        /// <summary>
+        /// WR2 F3: the native crash filter's imports run inside a top-level exception filter, so none marshals a string (paths and
+        /// names are pinned char[] buffers of exactly the *W exports); SetUnhandledExceptionFilter takes and returns a raw
+        /// function pointer (WINAPI), and the filter's delegate type is declared stdcall with the LONG (EXCEPTION_POINTERS*) shape.
+        /// </summary>
+        [Fact]
+        public void TheCrashFilterImportsAreAllocationFreeAndTheFilterIsStdcall()
+        {
+            foreach (string path in Modules())
+            {
+                using (ModuleDefinition module = ModuleDefinition.ReadModule(path, new ReaderParameters { InMemory = true }))
+                {
+                    Dictionary<string, MethodDefinition> win32 = Imports(module, true).Where(m => m.DeclaringType.Name == "Win32")
+                                                                                       .ToDictionary(m => m.PInvokeInfo.EntryPoint ?? m.Name);
+                    string Shape(string entry)
+                    {
+                        MethodDefinition m = win32[entry];
+                        return m.ReturnType.FullName + " (" + string.Join(", ", m.Parameters.Select(p => p.ParameterType.FullName)) + ")";
+                    }
+                    Assert.Equal("System.IntPtr (System.IntPtr)", Shape("SetUnhandledExceptionFilter"));
+                    Assert.True(win32["SetUnhandledExceptionFilter"].PInvokeInfo.IsCallConvWinapi);
+                    Assert.Equal("System.Boolean (System.UInt32, System.IntPtr, System.IntPtr&)", Shape("GetModuleHandleExW"));
+                    Assert.Equal("System.UInt32 (System.IntPtr, System.Char[], System.UInt32)", Shape("GetModuleFileNameW"));
+                    Assert.True(win32["GetModuleFileNameW"].Parameters[1].IsOut);
+                    Assert.Equal("System.IntPtr (System.Char[], System.UInt32, System.UInt32, System.IntPtr, System.UInt32, System.UInt32, System.IntPtr)", Shape("CreateFileW"));
+                    Assert.Equal("System.Boolean (System.IntPtr, System.Byte[], System.UInt32, System.UInt32&, System.IntPtr)", Shape("WriteFile"));
+                    Assert.Equal("System.Boolean (System.IntPtr)", Shape("FlushFileBuffers"));
+                    Assert.Equal("System.Boolean (System.IntPtr)", Shape("CloseHandle"));
+                    foreach (string entry in new[] { "GetModuleHandleExW", "GetModuleFileNameW", "CreateFileW" })
+                        Assert.True(win32[entry].PInvokeInfo.IsCharSetUnicode, entry + ": the char[] must be WCHAR (blittable, pinned)");
+                    foreach (string entry in new[] { "SetUnhandledExceptionFilter", "GetModuleHandleExW", "GetModuleFileNameW", "CreateFileW", "WriteFile", "FlushFileBuffers", "CloseHandle" })
+                        Assert.DoesNotContain(win32[entry].Parameters, p => p.ParameterType.FullName == "System.String");
+
+                    TypeDefinition filter = module.GetType("McvsOffline.Embedded.Windows.NativeCrashFilter").NestedTypes.Single(t => t.Name == "TopLevelFilter");
+                    CustomAttribute convention = filter.CustomAttributes.Single(a => a.AttributeType.Name == "UnmanagedFunctionPointerAttribute");
+                    Assert.Equal(3, (int)convention.ConstructorArguments[0].Value);   // CallingConvention.StdCall (WINAPI on x86)
+                    MethodDefinition invoke = filter.Methods.Single(m => m.Name == "Invoke");
+                    Assert.Equal("System.Int32", invoke.ReturnType.FullName);
+                    Assert.Equal(new[] { "System.IntPtr" }, invoke.Parameters.Select(p => p.ParameterType.FullName).ToArray());
                 }
             }
         }
