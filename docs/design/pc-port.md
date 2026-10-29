@@ -862,8 +862,8 @@ New `hosts/embedded/Graphics/GameOptionsWindows.cs` (platform-neutral, tested on
 * **Settings page text on PC** (`SettingsSchema.GroupsFor("windows")`): `graphics.profile` states the GPU selection of
   `GameOptions_windows.json` (catch-all rules: HighGPU with `GPUMEM>=700`, `CORES>=4`; MidGPU with `GPUMEM>=550`,
   `MEM_T>=4000`, `CORES>=4`; both feature level above 9.3; then LowGPU930 at 9.3, else LowGPU), that the in-game Graphics
-  quality overrides it, and that High costs memory in the 32-bit process; `graphics.fullProfile` says that on PC it only
-  changes the AI update rate (no PC GPU block sets `excludedLoadingLayers`). `GameOptionsWindowsTests` checks the numbers
+  quality overrides it, and that High costs memory in the 32-bit process; `graphics.fullProfile` is labelled "High profiles change the bots'
+  AI rate too" and says that on PC it only changes the AI update rate (no PC GPU block sets `excludedLoadingLayers`). `GameOptionsWindowsTests` checks the numbers
   against the player's real file.
 
 ---------------------------------------------------------------------------------------------------

@@ -113,7 +113,10 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal(android.Type, pc.Type);
             Assert.Equal(android.Default, pc.Default);
             Assert.Equal(android.Apply, pc.Apply);
-            Assert.Equal(android.Label, pc.Label);
+            Assert.Equal("High profiles change world loading too", android.Label);
+            Assert.NotEqual(android.Label, pc.Label);
+            Assert.DoesNotContain("world loading", pc.Label);
+            Assert.Contains("AI rate", pc.Label);
             Assert.Equal(android.ConfirmWhen, pc.ConfirmWhen);
             Assert.Equal(android.BackupBefore, pc.BackupBefore);
         }

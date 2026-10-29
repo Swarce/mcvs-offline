@@ -79,6 +79,14 @@ namespace McvsOffline.Server.Services.Admin
             copy.Confirm = confirm;
             return copy;
         }
+
+        /// <summary>A copy with another label, help text and confirmation text (a platform's wording of the same key).</summary>
+        internal SettingDefinition WithWording(string label, string help, string confirm)
+        {
+            SettingDefinition copy = WithHelp(help, confirm);
+            copy.Label = label ?? "";
+            return copy;
+        }
     }
 
     /// <summary>
@@ -238,6 +246,8 @@ namespace McvsOffline.Server.Services.Admin
 
         // No GPU block of GameOptions_windows.json sets excludedLoadingLayers (only MEM LowEnd does, and the MEM rule keeps Physics):
         // the one world option a High profile moves on PC is reducedAiUpdateFrequency.
+        private const string WindowsFullProfileLabel = "High profiles change the bots' AI rate too";
+
         private const string WindowsFullProfileHelp =
             "Off: High and Ultra keep the bots' AI update rate at the Mid value, because the match servers in the game share it. "
             + "On: Gameloft's profile as it is, so bots think twice as often. On PC this is the only difference: the levels' "
@@ -306,7 +316,7 @@ namespace McvsOffline.Server.Services.Admin
                         }
                         if (HiddenOnWindows(def.Key)) continue;
                         if (def.Key == "graphics.profile") view.Keys.Add(def.WithHelp(WindowsGraphicsProfileHelp));
-                        else if (def.Key == "graphics.fullProfile") view.Keys.Add(def.WithHelp(WindowsFullProfileHelp, WindowsFullProfileConfirm));
+                        else if (def.Key == "graphics.fullProfile") view.Keys.Add(def.WithWording(WindowsFullProfileLabel, WindowsFullProfileHelp, WindowsFullProfileConfirm));
                         else if (def.Key == "logging.keepStarts") view.Keys.Add(def.WithHelp(WindowsKeepStartsHelp));
                         else view.Keys.Add(def);
                     }
