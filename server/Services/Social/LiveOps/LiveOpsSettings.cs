@@ -15,7 +15,11 @@ namespace McvsOffline.Server.Services.Social.LiveOps
     ///   "divisionSeasons": true, "dailyQuests": true, "weeklyEvents": true,
     ///   "modifiers": "rotate",                 // "rotate" | "off" | a modifier id (always that one)
     ///   "difficulty": 1.0,                     // scales the rivals' scores (0.1..10)
-    ///   "seasonRewardMultiplier": 1.0          // scales the end-of-season reward quantities (PVPDivisionRewards)
+    ///   "seasonRewardMultiplier": 1.0,         // scales the end-of-season reward quantities (PVPDivisionRewards)
+    ///   "arenaEvents": true,                   // the Battle popup's "Special Event" (Arena mode events)
+    ///   "arenaRotation": "rotate",             // "rotate" | "off" | a mode id of liveops.json arena.modes (always that one)
+    ///   "arenaHours": 24,                      // 1..168: a new Special Event every arenaHours, on a grid from dailyResetHour
+    ///   "arenaMap": "Random"                   // "Random" or a playable map of liveops.json arena.maps (every Special Event there)
     /// }
     /// </code>
     /// The economy collector's settings are not read here: <c>CollectorOptions</c> is their only parser
@@ -47,6 +51,18 @@ namespace McvsOffline.Server.Services.Social.LiveOps
         public double Difficulty { get; private set; }
 
         public double SeasonRewardMultiplier { get; private set; }
+
+        /// <summary>The Special Event (Arena) chain (docs/LIVEOPS.md §9).</summary>
+        public bool ArenaEvents { get; private set; }
+
+        /// <summary>"rotate", "off" or an arena mode id.</summary>
+        public string ArenaRotation { get; private set; }
+
+        /// <summary>1..168: the length of a Special Event window.</summary>
+        public int ArenaHours { get; private set; }
+
+        /// <summary>"Random" or a map index (checked against the catalogue's playable maps when used).</summary>
+        public string ArenaMap { get; private set; }
 
         /// <summary>The collector inputs these settings were read with (<c>CollectorRuntime.InputsKey</c>); null: none.</summary>
         public string CollectorKey { get; private set; }
@@ -87,12 +103,17 @@ namespace McvsOffline.Server.Services.Social.LiveOps
             if (s.Modifiers.Length == 0) s.Modifiers = "rotate";
             s.Difficulty = Clamp(settings == null ? 1.0 : settings.GetDouble("liveops.difficulty", 1.0), 0.1, 10.0);
             s.SeasonRewardMultiplier = Clamp(settings == null ? 1.0 : settings.GetDouble("liveops.seasonRewardMultiplier", 1.0), 0.1, 100.0);
+            s.ArenaEvents = Bool(settings, "liveops.arenaEvents", true);
+            s.ArenaRotation = Trimmed(settings, "liveops.arenaRotation", "rotate");
+            s.ArenaHours = (int)Num.Clamp(settings == null ? 24 : settings.GetLong("liveops.arenaHours", 24), 1, 168);
+            s.ArenaMap = Trimmed(settings, "liveops.arenaMap", "Random");
             s.CollectorKey = collectorKey;
             s.Fingerprint = string.Join("|", new[]
             {
                 s.Enabled ? "on" : "off", TimeFormat.Iso8601(s.SeasonAnchor), Str(s.SeasonDays), Str(s.DailyResetHour),
                 s.DivisionSeasons ? "s" : "-", s.DailyQuests ? "q" : "-", s.WeeklyEvents ? "w" : "-", s.Modifiers,
                 s.Difficulty.ToString("R", CultureInfo.InvariantCulture), s.SeasonRewardMultiplier.ToString("R", CultureInfo.InvariantCulture),
+                s.ArenaEvents ? "a" : "-", s.ArenaRotation, Str(s.ArenaHours), s.ArenaMap,
             });
             if (collectorKey != null) s.Fingerprint += "|" + collectorKey;
             return s;
@@ -101,6 +122,13 @@ namespace McvsOffline.Server.Services.Social.LiveOps
         private static bool Bool(Settings settings, string path, bool defaultValue)
         {
             return settings == null ? defaultValue : settings.GetBool(path, defaultValue);
+        }
+
+        private static string Trimmed(Settings settings, string path, string defaultValue)
+        {
+            string value = settings == null ? null : settings.GetString(path, defaultValue);
+            value = value == null ? "" : value.Trim();
+            return value.Length == 0 ? defaultValue : value;
         }
 
         private static double Clamp(double value, double min, double max)

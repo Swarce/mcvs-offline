@@ -14,8 +14,8 @@ for index columns and the collector's rules) plus our tuning in ``pricing.json``
   economy.json        ``_OverrideTables`` targets for the settings.json economy multipliers + a cost summary
   crm_overlay.json    static CRM overlay (game parameters we always send)
   liveops.json        live-ops catalogue (weekly division seasons, daily quests, weekly achievement events, weekly
-                      modifiers, the collector's crate rewards) from ``liveops_tuning.json``, validated against the
-                      catalogue (docs/LIVEOPS.md)
+                      modifiers, the collector's crate rewards, the Special Event modes) from ``liveops_tuning.json``,
+                      validated against the catalogue (docs/LIVEOPS.md)
   collector.json      the Cosmetic crate (economy collector): crate rows, item pools and season tables from
                       ``collector_tuning.json`` (ids only), see docs/design/economy-collector.md §3.4
   manifest.json       what was generated from what
@@ -811,9 +811,10 @@ def warn(message):
     print("content-gen: warning: %s" % message, file=sys.stderr)
 
 
-def build_liveops(cat, tuning, loc_tables, now=None):
+def build_liveops(cat, tuning, loc_tables, now=None, maps_list=None):
     """liveops.json: our live-ops tuning with every id validated and every id list expanded. ``now`` (UTC) only decides
-    whether the collector's ``since`` warning is printed; the output never depends on it."""
+    whether the collector's ``since`` warning is printed; the output never depends on it. ``maps_list`` is
+    Design/MCVS_Gameplay.xlsx ``MapsList`` (the Special Events' playable maps; needed with an ``arena`` block)."""
 
     def loc(locid, where):
         return check_loc_id(loc_tables, locid, "liveops: " + where)
@@ -962,6 +963,8 @@ def build_liveops(cat, tuning, loc_tables, now=None):
         "seasonRewards": {"database": "MCVS_Meta", "table": sr["table"], "index": sr["index"], "ids": ranks,
                           "fields": reward_fields},
     }
+    if "arena" in tuning:
+        out["arena"] = build_liveops_arena(cat, tuning["arena"], loc_tables, maps_list)
     if "collector" in tuning:
         today = {"dailyBonus": daily["bonus"]["rewards"],
                  "dailyMission": [(o["id"], o["daily"]["rewards"]) for o in daily_pool],
@@ -970,6 +973,141 @@ def build_liveops(cat, tuning, loc_tables, now=None):
                                                               if weekly["final"]["eventCrate"] else [])}
         out["collector"] = build_liveops_collector(tuning["collector"], today, rewards, now)
     return out
+
+
+# ----------------------------------------------------------------------------------------------- Special Events (Arena)
+
+# Game.MatchType names an ArenaModeEvent may name (GM/MatchType.cs; CaptureFlag is Active=NO in MatchTypeSpecs; "None"
+# lets the GS pick one per map). Kept equal to TleTemplateValidator.ArenaMatchTypes.
+ARENA_MATCH_TYPES = ("None", "TeamDeathMatch", "ControlPoint", "Uphold", "Dominion")
+# The six multipliers ArenaModeEvent.Initialize reads (liveops.json names), in output order.
+ARENA_MULTIPLIERS = ("creditsVictory", "creditsDefeat", "creditsMvp", "versusCoinsVictory", "versusCoinsDefeat", "versusCoinsMvp")
+ARENA_MODE_ID = re.compile(r"^[A-Za-z0-9]{1,40}$")
+
+
+def arena_maps(cat, maps_list):
+    """The maps a Special Event may name: MapsList rows available in PVP (AvailableInGameModes) whose level file is in
+    the data pack (when names.json is known). Barrage, Bridge and Downtown are listed without a level: the GS would
+    get no path from MapsComponent.GetMapPathFromIndex."""
+    if not maps_list or "Fields" not in maps_list:
+        raise ContentError("liveops: arena: Design/MCVS_Gameplay.xlsx has no MapsList")
+    fields = maps_list["Fields"]
+    for f in ("Index", "MapPath", "AvailableInGameModes"):
+        if f not in fields:
+            raise ContentError("liveops: arena: MapsList has no field %s" % f)
+    out = []
+    for row in maps_list["Rows"]:
+        index, path, modes = row[fields.index("Index")], row[fields.index("MapPath")], row[fields.index("AvailableInGameModes")]
+        if not isinstance(index, str) or not isinstance(path, str) or not isinstance(modes, str):
+            continue
+        if "PVP" not in [m.strip() for m in modes.split(",")]:
+            continue
+        if cat.asset_files is not None and not cat.asset_exists(path):
+            continue
+        out.append(index)
+    if not out:
+        raise ContentError("liveops: arena: no playable map in MapsList")
+    return out
+
+
+def build_liveops_arena(cat, block, loc_tables, maps_list):
+    """liveops.json ``arena`` (docs/LIVEOPS.md §9): the Special Event modes with every field the server needs expanded
+    (agents, the six multipliers, the match-type text and image) and checked against the player's data: loc ids, the
+    MCVS_Gameplay rule tables (an Index column of map ids, GameMatch.ApplySettingTableForMap), the image, the map, the
+    agents. Every Arena* rule table and every Arena title with a description is used by a mode or named in
+    ``unusedTables``/``unusedTexts`` with a reason: a new data pack's variants show up here instead of silently missing."""
+    if not isinstance(block, dict):
+        raise ContentError("liveops: arena must be an object")
+
+    def loc(locid, where):
+        return check_loc_id(loc_tables, locid, "liveops: arena: " + where)
+
+    maps = arena_maps(cat, maps_list)
+    agents_rule = block.get("agents", "all")
+    if agents_rule != "all":
+        raise ContentError("liveops: arena: agents must be \"all\" (an explicit list of every agent: the client throws on "
+                           "an empty, \"Any\" or \"MercClass_\" list)")
+    agents = ["Merc_%d" % m for m in cat.merc_ids if m > 0]
+    if not agents:
+        raise ContentError("liveops: arena: no agents in the catalogue")
+
+    def multipliers(values, base, where):
+        out = dict(base)
+        for k, v in (values or {}).items():
+            if k not in ARENA_MULTIPLIERS:
+                raise ContentError("liveops: arena: %s: unknown multiplier %s" % (where, k))
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0.1 <= v <= 10:
+                raise ContentError("liveops: arena: %s: multiplier %s must be a number from 0.1 to 10" % (where, k))
+            out[k] = v
+        return {k: out[k] for k in ARENA_MULTIPLIERS}
+
+    base = multipliers(block.get("multipliers"), {k: 1 for k in ARENA_MULTIPLIERS}, "multipliers")
+    types = block.get("matchTypes") or {}
+    for t, spec in sorted(types.items()):
+        if t not in ARENA_MATCH_TYPES:
+            raise ContentError("liveops: arena: matchTypes: %s is not a Game.MatchType the client accepts" % t)
+        loc(spec["text"], "matchTypes.%s.text" % t)
+        check_image(cat, spec["img"], "liveops: arena: matchTypes.%s.img" % t)
+
+    used_tables, used_texts, modes, ids = set(), set(), [], set()
+    for m in block.get("modes", []):
+        mid = m.get("id")
+        if not isinstance(mid, str) or not ARENA_MODE_ID.match(mid):
+            raise ContentError("liveops: arena: mode id %r must be 1 to 40 letters or digits" % (mid,))
+        if mid in ids:
+            raise ContentError("liveops: arena: duplicate mode %s" % mid)
+        ids.add(mid)
+        mtype = m.get("matchType", "None")
+        if mtype not in types:
+            raise ContentError("liveops: arena: %s: matchType %s has no matchTypes entry" % (mid, mtype))
+        name, rule = loc(m["name"], mid + ".name"), loc(m["rule"], mid + ".rule")
+        used_texts.update([name, rule])
+        text = loc(m.get("matchTypeText", types[mtype]["text"]), mid + ".matchTypeText")
+        img = check_image(cat, m.get("img", types[mtype]["img"]), "liveops: arena: %s.img" % mid)
+        sets = list(m.get("parameterSets", []))
+        for t in sets:
+            have = cat.table_fields("MCVS_Gameplay", t)
+            if have is None:
+                raise ContentError("liveops: arena: %s: no MCVS_Gameplay table %s" % (mid, t))
+            if "Index" not in have:
+                raise ContentError("liveops: arena: %s: MCVS_Gameplay.%s has no Index (map) column" % (mid, t))
+            used_tables.add(t)
+        mp = m.get("map", "Random")
+        if mp != "Random" and mp not in maps:
+            raise ContentError("liveops: arena: %s: map %s is not playable (%s)" % (mid, mp, ", ".join(maps)))
+        dup = m.get("allowDuplicates", True)
+        if not isinstance(dup, bool):
+            raise ContentError("liveops: arena: %s: allowDuplicates must be true or false" % mid)
+        rotate = m.get("rotate", True)
+        if not isinstance(rotate, bool):
+            raise ContentError("liveops: arena: %s: rotate must be true or false" % mid)
+        modes.append({"id": mid, "eventName": name, "rule": rule, "matchTypeText": text, "matchType": mtype,
+                      "parameterSets": sets, "map": mp, "allowDuplicates": dup, "img": img, "agents": list(agents),
+                      "multipliers": multipliers(m.get("multipliers"), base, mid), "rotate": rotate})
+    if not any(m["rotate"] for m in modes):
+        raise ContentError("liveops: arena: no mode in the rotation")
+
+    arena_tables = sorted(t for t in (cat.tables.get("Design/MCVS_Gameplay.xlsx") or {}) if t.startswith("Arena"))
+    unused_tables = block.get("unusedTables") or {}
+    for t in arena_tables:
+        if t not in used_tables and t not in unused_tables:
+            raise ContentError("liveops: arena: the rule table MCVS_Gameplay.%s is used by no mode (add one, or name it in "
+                               "arena.unusedTables with the reason)" % t)
+    for t in unused_tables:
+        if t in used_tables:
+            raise ContentError("liveops: arena: %s is used by a mode and listed in unusedTables" % t)
+    if loc_tables is not None:
+        arena_ids = loc_tables.get("Arena", set())
+        titles = sorted("Arena." + i for i in arena_ids if i + "Desc" in arena_ids)
+        unused_texts = block.get("unusedTexts") or {}
+        for t in titles:
+            if t not in used_texts and t not in unused_texts:
+                raise ContentError("liveops: arena: the Arena variant %s (with %sDesc) is used by no mode (add one, or name it "
+                                   "in arena.unusedTexts with the reason)" % (t, t))
+    priority = block.get("priority", 3)
+    if isinstance(priority, bool) or not isinstance(priority, int) or not 1 <= priority <= 100:
+        raise ContentError("liveops: arena: priority must be an integer from 1 to 100")
+    return {"priority": priority, "maps": maps, "modes": modes}
 
 
 def one_crate_per_milestone(where, added, milestone, today):
@@ -1534,6 +1672,10 @@ def generate(decoded_dir, pricing_path, liveops_path=None, collector_path=None, 
         path = os.path.join(design_dir, db + ".xlsx")
         if os.path.exists(path):
             design[db] = load_json(path)
+    maps_list = None
+    gameplay_path = os.path.join(design_dir, "MCVS_Gameplay.xlsx")
+    if os.path.exists(gameplay_path):
+        maps_list = load_json(gameplay_path).get("MapsList")
     pricing = load_json(pricing_path)
     here = os.path.dirname(os.path.abspath(__file__))
     if liveops_path is None:
@@ -1564,7 +1706,7 @@ def generate(decoded_dir, pricing_path, liveops_path=None, collector_path=None, 
     coupons = build_coupons(set(g["id"] for g in unlocks["groups"]))
     economy = build_economy(cat, store_summary, unlock_counts)
     overlay = build_crm_overlay()
-    liveops = build_liveops(cat, liveops_tuning, loc_tables, now)
+    liveops = build_liveops(cat, liveops_tuning, loc_tables, now, maps_list)
     collector = build_collector(cat, collector_tuning, unlocks, loc_tables)
     check_collector_rewards(liveops, collector)
 
@@ -1581,7 +1723,8 @@ def generate(decoded_dir, pricing_path, liveops_path=None, collector_path=None, 
         "schema": FORMAT,
         "generator": GENERATOR,
         "source": {"game": "Modern Combat Versus", "version": cat.game_version,
-                   "inputs": inputs + (["Design/MCVS_Meta.xlsx (index columns; ids and flags for the collector)"] if design else []),
+                   "inputs": inputs + (["Design/MCVS_Meta.xlsx (index columns; ids and flags for the collector)"] if design else [])
+                   + (["Design/MCVS_Gameplay.xlsx (MapsList: map ids, level paths, game modes)"] if maps_list else []),
                    "pricing": "tools/content-gen/pricing.json", "liveops": "tools/content-gen/liveops_tuning.json",
                    "collector": "tools/content-gen/collector_tuning.json"},
         "files": [{"name": name, "entries": _entries(name, data)} for name, data in sorted(files.items())],

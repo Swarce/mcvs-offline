@@ -4,7 +4,7 @@
   "source": {
     "game": "Modern Combat Versus",
     "version": "1.17.32 (data pack revision 162074)",
-    "inputs": ["_catalog.json","_tables.json","Localization/*_en.json (ids only)","Config/game_object.json (ids only)","names.json (file list only)","Design/MCVS_Meta.xlsx (index columns; ids and flags for the collector)"],
+    "inputs": ["_catalog.json","_tables.json","Localization/*_en.json (ids only)","Config/game_object.json (ids only)","names.json (file list only)","Design/MCVS_Meta.xlsx (index columns; ids and flags for the collector)","Design/MCVS_Gameplay.xlsx (MapsList: map ids, level paths, game modes)"],
     "pricing": "tools/content-gen/pricing.json",
     "liveops": "tools/content-gen/liveops_tuning.json",
     "collector": "tools/content-gen/collector_tuning.json"
