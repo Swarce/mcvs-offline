@@ -1782,27 +1782,33 @@ The owner's copy is [PLAYER-SETUP-PC.md](../PLAYER-SETUP-PC.md) §7.
 
 | written | sha256 | mvid |
 |---|---|---|
-| `McvsOffline/bin/EngineBridge.dll` | `4b0ea8fac51bbee17c6d906d55c897789e203488fe031ab01a527bab89c31257` | `094c4ada-c9cf-4c72-bd75-d55e5c99fe8f` |
-| `McvsOffline/bin/Game.dll` | `90cbbe22a2797777cad4d486f55ba20eb0ad7ca18d9f2474ec3acb1cd481a7bf` | `0d2a948e-b56f-4bda-9903-e45d30f50171` |
-| `McvsOffline/bin/Gameloft.Engine.dll` | `f61725587852e7fb14efb8fd513164f35c35b031c380c3a3adfc795b89fe37e4` | `6985f363-bcc3-483e-befc-99e3ca209668` |
-| `McvsOffline/bin/Gameloft.Util.dll` | `b7de6ae97a3aab35cf6b392d87579262eda2c0202a139b3b22faaa3f374a4618` | `e5148c05-8704-40f0-8376-3e62c16a3152` |
-| `McvsOffline/bin/McvsOffline.Server.dll` | `b79f8b6afe553a45f96df30358c19d4db152909aa8e3a7efda5edbf42f2a1328` | `537e3fc9-959a-4829-a498-41fcde1f9379` |
+| `McvsOffline/bin/EngineBridge.dll` | `1d669508abc805528e88454338cd1f3ba0dced4f87d0d6e24aaa8aec28652e04` | `87a2342e-2004-45b0-986e-9b3e40bb3e42` |
+| `McvsOffline/bin/Game.dll` | `f511c72b100d7cd1ea7b98339a4330ea7ae4491c811145ad61206b5ee31ae278` | `e063ab69-5565-4097-9dd3-38a22d292fbe` |
+| `McvsOffline/bin/Gameloft.Engine.dll` | `5c21dc66bbbe3d6414ae6910cbf2723ec1345443e09208599a4f63d02e11abf9` | `1a511a9f-bff0-4659-812f-c1d086358810` |
+| `McvsOffline/bin/Gameloft.Util.dll` | `3d4926d36b27c88b456c6613d1a914c2c9ac7f6bd44dd9a0a72caea34bf8abbd` | `ce044a21-ed30-41a9-aa4c-bbaee58203ae` |
+| `McvsOffline/bin/McvsOffline.Server.dll` | `6303a789f9724c7fb3bcf16f44a4071fb2fb7e52f3f7c9901e41b1f66b243dd5` | `2a7952e5-96e9-4565-a160-76d12e07e874` |
 | `ModernCombatVersus.exe.config` | `3ebe99b3c93a9540cd7f7b03da55fc048a544501c17e8621457884eae456f94c` | — |
 
 * Applied patches: `hook-pc, headless, bottile, store, signatures, adminpage, headless-engine, physics, quicklaunch,
   headless-diag, nativeonline, waits, adminlink, graphics, geo`; `install.json` `installer.serverBuild` is `13`.
 * `MEM rule on, removed 1` (`GameOptionsWindowsTests.RealFileRemoved`, the real `GameOptions_windows.json`).
-* The kit: `McvsOffline.PcKit.exe`, SHA-256 `0ca7d218084d8d5e8db6d73fce78e26983819faf66fbba3fd070fc5c4af6292a`; its
+* The kit: `McvsOffline.PcKit.exe`, SHA-256 `c608fd1903b83763657646482a0c7aee6ec8282e10f63aa237dcb753b2e8715d`; its
   publish check passed on the embedded DLL (every PC hook, `Gameloft.Logs`, only allowed references).
 * The config is byte-identical to §7.4 (UTF-8 without BOM, CRLF, final CRLF). ILVerify of the four patched assemblies
   against the net452 refs reports exactly the errors of the stock files (none in a patched or added method); the server
   DLL verifies clean. `uninstall` restored the exact file listing and every SHA-256 of the copy; with a bootstrap
   `args.txt` block and player data added before it, only `McvsOffline\` with that data remained.
-* Android (§12.6, P5): the APK of the same code (`mcvs-offline-00b37fb.apk`, cert SHA-256 `fc0db84e…7d16`, targetSdk 35,
-  both ABIs, zipalign OK), compared entry by entry with build 12 (`56956ef`, same key and
+* Android (§12.6, P5): build 12 (`56956ef`) against the APK of WP5a (`mcvs-offline-00b37fb.apk`, same key and
   options): same 952 entries in the same order; changed only `AndroidManifest.xml` (exactly `android:isGame=true` and
   `android:appCategory=0` added), `assemblies/McvsOffline.Server.dll`, `META-INF/1.RSA`, `1.SF`, `MANIFEST.MF`, and
   `Game.dll`, `Gameloft.Engine.dll`, `Gameloft.Util.dll`, `NicePlaySDK.dll` in their 16 MVID bytes only.
+* Build 13 (`f158cb9`: WP5a plus the Account menu, the log retention and the PC-port minor fixes): the values above are
+  re-recorded from a fresh `pc install` with this kit's DLL; `ModernCombatVersus.exe.config` is unchanged, every other
+  file changed with the server DLL (the patched assemblies' MVIDs derive from it). The APK `mcvs-offline-f158cb9.apk`
+  (cert SHA-256 `fc0db84e…7d16`, targetSdk 35, both ABIs, `isGame` and `appCategory=0`, zipalign OK), compared entry by
+  entry with `mcvs-offline-00b37fb.apk`: same 952 entries in the same order; changed only
+  `assemblies/McvsOffline.Server.dll`, `META-INF/1.RSA`, `1.SF`, `MANIFEST.MF`, and `Game.dll`, `Gameloft.Engine.dll`,
+  `Gameloft.Util.dll`, `NicePlaySDK.dll` in their 16 MVID bytes only.
 
 ---------------------------------------------------------------------------------------------------
 
