@@ -628,15 +628,16 @@ namespace McvsOffline.Tests.Conformance
         /// last one, and the currencies before a crate are credited unseen; live ops never serve two crates in one milestone
         /// (LiveOpsTests.NoGeneratedMilestoneHoldsTwoCrates, LiveOpsConformanceTests).
         /// </summary>
-        [Fact]
-        public void AMilestoneRevealsOnlyItsLastCrate()
+        [Theory]
+        [MemberData(nameof(TestFolders.RealClientFolders), MemberType = typeof(TestFolders))]
+        public void AMilestoneRevealsOnlyItsLastCrate(string platform, string folder)
         {
-            string refs = GameClient.RefsDirectory;
+            string refs = folder;
             string path = System.IO.Path.Combine(refs, "Game.dll");
             if (!System.IO.File.Exists(path))
             {
-                if (GameClient.Required) throw new InvalidOperationException("MCVS_REQUIRE_REAL_CLIENT=1 but " + path + " is missing");
-                output.WriteLine("Game.dll not found in MCVS_REFS: skipped");
+                if (TestFolders.Required(platform)) throw new InvalidOperationException("the " + platform + " client is required but " + path + " is missing");
+                output.WriteLine("Game.dll not found in " + TestFolders.VariableOf(platform) + ": skipped");
                 return;
             }
             using (var resolver = new Mono.Cecil.DefaultAssemblyResolver())

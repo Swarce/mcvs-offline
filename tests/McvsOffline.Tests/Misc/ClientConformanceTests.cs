@@ -28,11 +28,15 @@ namespace McvsOffline.Tests.Misc
     /// The assemblies are loaded at run time from MCVS_REFS (default /home/user/mcvs-work/extracted/assemblies, as for
     /// the embedded build) into an isolated load context; the test is skipped when they are absent (and fails instead
     /// with MCVS_REQUIRE_REAL_CLIENT=1). The server is the complete one: the sessions are opened through the AUTH module.
+    /// Each test runs for every folder of <see cref="TestFolders.RealClientFolders"/> (the Steam install's too, with
+    /// the Steam client id; docs/design/pc-port.md §4.7).
     /// </para>
     /// </summary>
     public class ClientConformanceTests
     {
         private const string ClientId = "2620:66102:1.17.32:android:googleplay";
+
+        private static string ClientIdOf(string platform) => platform == TestFolders.Pc ? McvsConstants.ClientIdSteam : ClientId;
         private const string ServerScopes = "storage_restricted chat message storage_ro leaderboard_override social_trophies storage social_group leaderboard_ro social_event clusters config message_secured leaderboard_restricted message_broadcast alert auth lobby leaderboard social social_clan";
 
         private readonly ITestOutputHelper output;
@@ -42,13 +46,14 @@ namespace McvsOffline.Tests.Misc
             this.output = output;
         }
 
-        [Fact]
-        public async Task RealClientParsesEveryMiscAnswer()
+        [Theory]
+        [MemberData(nameof(TestFolders.RealClientFolders), MemberType = typeof(TestFolders))]
+        public async Task RealClientParsesEveryMiscAnswer(string platform, string folder)
         {
-            GameClient client = GameClient.TryLoad();
+            GameClient client = GameClient.TryLoad(platform, folder);
             if (client == null)
             {
-                output.WriteLine("Gameloft.OnlinePlatform.dll not found (set MCVS_REFS to the APK's assemblies folder): skipped");
+                output.WriteLine("Gameloft.OnlinePlatform.dll not found (set " + TestFolders.VariableOf(platform) + " to the client's assemblies folder): skipped");
                 return;
             }
 
@@ -69,7 +74,7 @@ namespace McvsOffline.Tests.Misc
             var ct = new CancellationTokenSource(TimeSpan.FromSeconds(60)).Token;
             List<string> scopes = ServerScopes.Split(' ').ToList();
 
-            dynamic fed = client.New("Federation", ClientId, "http://127.0.0.1:" + server.Port + "/", "mcvs", 60000, 3, client.Enum("Federation+Protocol", "HTTPS"));
+            dynamic fed = client.New("Federation", ClientIdOf(platform), "http://127.0.0.1:" + server.Port + "/", "mcvs", 60000, 3, client.Enum("Federation+Protocol", "HTTPS"));
             dynamic player = await GameClient.Await(fed.OpenSession(client.Credential("anonymous:conformance1"), "pw", "device1", null, new List<string> { "auth", "lobby", "config" }, ct));
             dynamic ts = await GameClient.Await(fed.OpenSessionForUser(client.Credential("game:mcvsoffline"), "mcvsoffline", client.Credential("anonymous:conformance1"), "device1", null, scopes, ct));
             dynamic gs = await GameClient.Await(fed.OpenSession(client.Credential("game:mcvsoffline"), "mcvsoffline", "mcvsGameServer", null, scopes, ct));
@@ -204,14 +209,15 @@ namespace McvsOffline.Tests.Misc
         /// (<c>Gameloft.Engine.TimeLimitedEventsComponent.ParseTemplate</c>): every template the validator drops must make
         /// the real parser throw, and every template it keeps must parse.
         /// </summary>
-        [Fact]
-        public void TemplateValidatorAgreesWithTheRealTemplateParser()
+        [Theory]
+        [MemberData(nameof(TestFolders.RealClientFolders), MemberType = typeof(TestFolders))]
+        public void TemplateValidatorAgreesWithTheRealTemplateParser(string platform, string folder)
         {
-            GameClient client = GameClient.TryLoad();
+            GameClient client = GameClient.TryLoad(platform, folder);
             Type tle = client == null ? null : client.TypeIn("Gameloft.Engine", "Gameloft.Engine.TimeLimitedEventsComponent");
             if (tle == null)
             {
-                output.WriteLine("Gameloft.Engine.dll not found (set MCVS_REFS to the APK's assemblies folder): skipped");
+                output.WriteLine("Gameloft.Engine.dll not found (set " + TestFolders.VariableOf(platform) + " to the client's assemblies folder): skipped");
                 return;
             }
             object component = System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(tle);
@@ -291,14 +297,13 @@ namespace McvsOffline.Tests.Misc
                 return File.Exists(path) ? context.LoadFromAssemblyPath(path).GetType(typeName, true) : null;
             }
 
-            public static GameClient TryLoad()
+            /// <summary>The client in <paramref name="folder"/> (a row of TestFolders.RealClientFolders), in a new load context.</summary>
+            public static GameClient TryLoad(string platform, string dir)
             {
-                string dir = Environment.GetEnvironmentVariable("MCVS_REFS");
-                if (string.IsNullOrEmpty(dir)) dir = "/home/user/mcvs-work/extracted/assemblies";
                 string path = Path.Combine(dir, "Gameloft.OnlinePlatform.dll");
                 if (!File.Exists(path))
                 {
-                    if (Conformance.GameClient.Required) throw new InvalidOperationException("MCVS_REQUIRE_REAL_CLIENT=1 but " + path + " is missing");
+                    if (TestFolders.Required(platform)) throw new InvalidOperationException("the " + platform + " client is required but " + path + " is missing");
                     return null;
                 }
                 var context = new AssemblyLoadContext("mcvs-game-client");

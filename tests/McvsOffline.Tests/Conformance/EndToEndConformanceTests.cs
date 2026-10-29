@@ -58,10 +58,11 @@ namespace McvsOffline.Tests.Conformance
             this.output = output;
         }
 
-        [Fact]
-        public async Task BootSaveRestartAndReloadThroughTheRealClient()
+        [Theory]
+        [MemberData(nameof(TestFolders.RealClientFolders), MemberType = typeof(TestFolders))]
+        public async Task BootSaveRestartAndReloadThroughTheRealClient(string platform, string folder)
         {
-            GameClient game = GameClient.TryGet(output, "Gameloft.Engine", "Game", "Gameloft.Templates", "Gameloft.Util");
+            GameClient game = GameClient.TryGetFrom(output, platform, folder, "Gameloft.Engine", "Game", "Gameloft.Templates", "Gameloft.Util");
             if (game == null) return;
             var ct = new CancellationTokenSource(TimeSpan.FromMinutes(2)).Token;
             using var host = new Host(game, output);
@@ -198,7 +199,9 @@ namespace McvsOffline.Tests.Conformance
             dynamic playerFedId = game.Credential(fedId);
             Type storageApi = game.Op("StorageApi");
             dynamic emptyMatch = await host.LoadCurrentMatch(game, gs, playerFedId, ct);
-            Assert.Equal("Object", emptyMatch.Token.Type.ToString()); // never 404 (verify-C3 §3.4)
+            // JToken.Type through reflection: the PC Newtonsoft (net45 build) makes JObject a dynamic object, so a dynamic
+            // ".Type" would read a JSON property named Type.
+            Assert.Equal("Object", GameClient.Get((object)emptyMatch.Token, "Type").ToString()); // never 404 (verify-C3 §3.4)
             Assert.Empty((IEnumerable)emptyMatch.Token);
             string match = "{\"CurrentServerType\":\"gs\",\"CurrentServerId\":\"room-1\",\"ReconnectAttemptsCount\":0,\"CurrentRoomUser\":\"" + fedId + "\"}";
             dynamic save = GameClient.CallStatic(storageApi, "SetProfileRequest", gs, playerFedId, "storage_admin", match, Selector + ".currentMatch",
@@ -335,10 +338,11 @@ namespace McvsOffline.Tests.Conformance
         /// the TS's own InventorySection reads it, CheckInventory's integer cast holds for every entry, the TS's
         /// AlertListener receives the set_profile alerts, and every key is a reward the game's RewardItem.Parse knows.
         /// </summary>
-        [Fact]
-        public async Task UnlockAllLedgerIsReadableByTheRealClient()
+        [Theory]
+        [MemberData(nameof(TestFolders.RealClientFolders), MemberType = typeof(TestFolders))]
+        public async Task UnlockAllLedgerIsReadableByTheRealClient(string platform, string folder)
         {
-            GameClient game = GameClient.TryGet(output, "Gameloft.Engine", "Game", "Gameloft.Templates", "Gameloft.Util");
+            GameClient game = GameClient.TryGetFrom(output, platform, folder, "Gameloft.Engine", "Game", "Gameloft.Templates", "Gameloft.Util");
             if (game == null) return;
             var ct = new CancellationTokenSource(TimeSpan.FromMinutes(2)).Token;
             using var host = new Host(game, output, settings =>

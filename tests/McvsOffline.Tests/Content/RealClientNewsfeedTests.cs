@@ -40,10 +40,11 @@ namespace McvsOffline.Tests.Content
 
         private static DateTime Monday => TimeFormat.FromUnixSeconds(CrmNewsfeedTests.MondayEpoch);
 
-        [Fact]
-        public void TheWholeDocumentParsesWithOurItem()
+        [Theory]
+        [MemberData(nameof(TestFolders.RealClientFolders), MemberType = typeof(TestFolders))]
+        public void TheWholeDocumentParsesWithOurItem(string platform, string folder)
         {
-            GameClient game = GameClient.TryGet(output, "Gameloft.Util");
+            GameClient game = GameClient.TryGetFrom(output, platform, folder, "Gameloft.Util");
             if (game == null) return;
             using var dir = new TempDir();
             using var server = Server(dir);
@@ -67,10 +68,11 @@ namespace McvsOffline.Tests.Content
             Assert.DoesNotContain("t=", (string)item.RedirectLink);
         }
 
-        [Fact]
-        public void NewsFeedDataReadsOurTokenWithTheGamesNewtonsoft()
+        [Theory]
+        [MemberData(nameof(TestFolders.RealClientFolders), MemberType = typeof(TestFolders))]
+        public void NewsFeedDataReadsOurTokenWithTheGamesNewtonsoft(string platform, string folder)
         {
-            GameClient game = GameClient.TryGet(output, "Gameloft.Util");
+            GameClient game = GameClient.TryGetFrom(output, platform, folder, "Gameloft.Util");
             if (game == null) return;
             using var dir = new TempDir();
             using var server = Server(dir);
@@ -86,10 +88,11 @@ namespace McvsOffline.Tests.Content
             Assert.Equal(Monday, (DateTime)item.CreationDate);
         }
 
-        [Fact]
-        public void TheInboxMessageIsFromMcvsAndLinksToTheMarker()
+        [Theory]
+        [MemberData(nameof(TestFolders.RealClientFolders), MemberType = typeof(TestFolders))]
+        public void TheInboxMessageIsFromMcvsAndLinksToTheMarker(string platform, string folder)
         {
-            GameClient game = GameClient.TryGet(output, "Gameloft.Engine", "Game", "Gameloft.Util");
+            GameClient game = GameClient.TryGetFrom(output, platform, folder, "Gameloft.Engine", "Game", "Gameloft.Util");
             if (game == null) return;
             using var dir = new TempDir();
             using var server = Server(dir);
@@ -123,10 +126,50 @@ namespace McvsOffline.Tests.Content
             Assert.Equal((string)message.Id, (string)GameClient.Call(inbox, "ToInboxIdFromNewsFeedId", CrmNewsfeed.NewsId));
         }
 
+        /// <summary>
+        /// PC only (docs/design/pc-port.md §4.3): the Steam client keeps every item in the static
+        /// <c>NewsFeedData.Newsfeeds</c> (keyed by <c>asset</c>, first item wins) and gives an inbox message whose creation
+        /// date differs from its item's that item's <c>EndDate</c> as expiry. Our item is the one entry for asset "", and its
+        /// EndDate is our end_date, 37 days after the week start, in every week: the message no longer expires at the
+        /// Monday rollover.
+        /// </summary>
         [Fact]
-        public void TurnedOffTheEmptyListReachesTheInboxCleanup()
+        public void PcNewsfeedDictionaryHoldsOurItemWithItsEndDate()
         {
-            GameClient game = GameClient.TryGet(output, "Gameloft.Util");
+            GameClient game = GameClient.TryGetFrom(output, TestFolders.Pc, TestFolders.PcRefs, "Gameloft.Util");
+            if (game == null) return;
+            Type newsFeedData = game.Op("NewsFeedData");
+            var newsfeeds = (IDictionary)GameClient.Static(newsFeedData, "Newsfeeds");
+            Assert.NotNull(newsfeeds); // the PC member (Android's NewsFeedData has none)
+            Type jtoken = game.Type("Newtonsoft.Json", "Newtonsoft.Json.Linq.JToken");
+
+            foreach (DateTime now in new[] { CrmNewsfeedTests.Wednesday, CrmNewsfeedTests.Wednesday.AddDays(7) })
+            {
+                using var dir = new TempDir();
+                using var server = AdminTestClient.CreateServer(dir.Combine("data"), clock: new ManualClock(now));
+                string list = MiniJson.Serialize(MiniJson.ParseObject(Document(server))["newsfeeds"]);
+                lock (newsfeeds)
+                {
+                    newsfeeds.Clear(); // a new game process: the static dictionary starts empty
+                    Activator.CreateInstance(newsFeedData, GameClient.CallStatic(jtoken, "Parse", list));
+                    Assert.Equal(1, newsfeeds.Count);
+                    dynamic item = newsfeeds[""];
+                    Assert.Equal(CrmNewsfeed.NewsId, (string)item.Id);
+                    DateTime monday = CrmNewsfeed.WeekStart(now);
+                    Assert.Equal(monday, ((DateTime)item.CreationDate).ToUniversalTime());
+                    DateTime end = ((DateTime)item.EndDate).ToUniversalTime();
+                    Assert.Equal(monday.AddDays(CrmNewsfeed.EndDateDays), end);
+                    Assert.True(end > now.AddDays(30), "the message must outlive the client's own 30 days");
+                    newsfeeds.Clear();
+                }
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(TestFolders.RealClientFolders), MemberType = typeof(TestFolders))]
+        public void TurnedOffTheEmptyListReachesTheInboxCleanup(string platform, string folder)
+        {
+            GameClient game = GameClient.TryGetFrom(output, platform, folder, "Gameloft.Util");
             if (game == null) return;
             using var dir = new TempDir();
             using var server = Server(dir);
@@ -138,10 +181,11 @@ namespace McvsOffline.Tests.Content
             Assert.Empty(Items(crm));
         }
 
-        [Fact]
-        public void TheSanitizerKeepsABrokenOverlayFromBreakingTheClient()
+        [Theory]
+        [MemberData(nameof(TestFolders.RealClientFolders), MemberType = typeof(TestFolders))]
+        public void TheSanitizerKeepsABrokenOverlayFromBreakingTheClient(string platform, string folder)
         {
-            GameClient game = GameClient.TryGet(output, "Gameloft.Util");
+            GameClient game = GameClient.TryGetFrom(output, platform, folder, "Gameloft.Util");
             if (game == null) return;
             Type data = game.Op("StandardCrm+Data");
             using var dir = new TempDir();

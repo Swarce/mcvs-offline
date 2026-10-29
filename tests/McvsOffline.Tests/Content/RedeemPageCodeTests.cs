@@ -330,10 +330,11 @@ namespace McvsOffline.Tests.Content
         /// "(&lt;client id&gt;; mcvs)" (FedRequestMessage's constructor), the client gets the 404 it maps to "code does not
         /// exist", and the page opens once with a fresh ticket.
         /// </summary>
-        [Fact]
-        public async Task TheRealClientsRedemptionOpensThePage()
+        [Theory]
+        [MemberData(nameof(TestFolders.RealClientFolders), MemberType = typeof(TestFolders))]
+        public async Task TheRealClientsRedemptionOpensThePage(string platform, string folder)
         {
-            GameClient game = GameClient.TryGet(output, "Gameloft.Util");
+            GameClient game = GameClient.TryGetFrom(output, platform, folder, "Gameloft.Util");
             if (game == null) return;
             var ct = new CancellationTokenSource(TimeSpan.FromMinutes(1)).Token;
             using var dir = new TempDir();
