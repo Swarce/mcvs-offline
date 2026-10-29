@@ -182,7 +182,14 @@ namespace McvsOffline
                     object link = RuntimeHelpers.GetUninitializedObject(engine.GetType("Gameloft.Engine.ClientLink", true));
                     var result = (Task)QuickLaunch(engine).Invoke(component, new object[] { link, cts.Token });
                     Assert.NotNull(result);
-                    Assert.True(result.Wait(TimeSpan.FromSeconds(10)) || true);
+                    try
+                    {
+                        result.Wait(TimeSpan.FromSeconds(10));
+                    }
+                    catch (AggregateException)
+                    {
+                        // asserted below
+                    }
                     output.WriteLine((fallbackServer == null ? "no server" : "throwing hook") + ": " + result.Status + " " +
                                      (result.Exception == null ? "" : result.Exception.InnerException.GetType().Name));
                     Assert.True(result.IsFaulted, "the stock ClientLink.QuickLaunch ran on an uninitialised link: a faulted task");
