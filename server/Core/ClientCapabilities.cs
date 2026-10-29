@@ -14,5 +14,13 @@ namespace McvsOffline.Server.Core
         /// null: unknown (treated as present). The collector is never active when it is false.
         /// </summary>
         public bool? StorePatch { get; set; }
+
+        /// <summary>
+        /// PC (WR2 F2): why the patched client is not the one running, e.g. "Game loaded from the game folder" (an assembly the
+        /// .exe.config redirects came from elsewhere) or "the 'store' patch is missing" (a witness of §3.9); several reasons are
+        /// joined with "; ". null: active, or unknown (Android, the standalone host, Game not loaded yet). The settings page and
+        /// the status line show "installed, NOT ACTIVE (...)" as an error.
+        /// </summary>
+        public string NotActive { get; set; }
     }
 }

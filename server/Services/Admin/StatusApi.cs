@@ -62,6 +62,17 @@ namespace McvsOffline.Server.Services.Admin
             AdminHostInfo info = api.DescribeHost();
             body["host"] = info == null ? null : Host(info);
 
+            // WR2 F2: "client" only while the PC host says the patched client is not the one running ("notActive", the error
+            // "installed, NOT ACTIVE (...)"); only the PC host sets it, so Android's and the standalone host's payload is unchanged.
+            ClientCapabilities client = context.Features.Get<ClientCapabilities>();
+            if (client != null && !string.IsNullOrEmpty(client.NotActive))
+            {
+                var clientInfo = new Dictionary<string, object>(StringComparer.Ordinal);
+                clientInfo["storePatch"] = client.StorePatch;
+                clientInfo["notActive"] = client.NotActive;
+                body["client"] = clientInfo;
+            }
+
             var file = new Dictionary<string, object>(StringComparer.Ordinal);
             file["file"] = context.Settings.FilePath;
             file["fallback"] = context.Settings.IsFallback;

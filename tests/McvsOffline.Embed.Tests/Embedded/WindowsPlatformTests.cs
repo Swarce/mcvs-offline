@@ -262,6 +262,21 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.Contains("does not parse", InstallCheck.Run(root, data).Line);
         }
 
+        /// <summary>
+        /// WR2 F2: the status line's "install:" part is the error "installed, NOT ACTIVE (...)" whenever the running process shows
+        /// the redirect or a witness failed, whatever the file check said ("current" is dropped, anything else is kept).
+        /// </summary>
+        [Fact]
+        public void TheInstallLineSaysNotActiveWhenThePatchedClientIsNotRunning()
+        {
+            Assert.Equal("install: current", InstallCheck.Describe("install: current", null));
+            Assert.Null(InstallCheck.Describe(null, null));
+            Assert.Equal("install: installed, NOT ACTIVE (Game loaded from the game folder)", InstallCheck.Describe("install: current", "Game loaded from the game folder"));
+            Assert.Equal("install: installed, NOT ACTIVE (Game loaded from the game folder)", InstallCheck.Describe(null, "Game loaded from the game folder"));
+            Assert.Equal("install: installed, NOT ACTIVE (the 'store' patch is missing); install: stale: Steam updated the game (Game.dll changed since the install)",
+                         InstallCheck.Describe("install: stale: Steam updated the game (Game.dll changed since the install)", "the 'store' patch is missing"));
+        }
+
         // ------------------------------------------------------------------ Configure (IHostExtensions) and WindowsBoot
 
         [Fact]
@@ -328,10 +343,11 @@ namespace McvsOffline.Embed.Tests.Embedded
                 System.Reflection.Assembly loaded = sandbox.LoadFromStream(new MemoryStream(image));
                 lock (seen) Assert.Contains(loaded.GetName().Name, seen);
                 stop();
-                int count;
-                lock (seen) count = seen.Count;
-                sandbox.LoadFromStream(new MemoryStream(FixtureCompiler.Compile("WatchMeNot" + Guid.NewGuid().ToString("N"), "public class Y { }")));
-                lock (seen) Assert.Equal(count, seen.Count);
+                // By name, not by count: AssemblyLoad is process-wide, and a load another test class runs in parallel can still
+                // reach the handler from a delegate snapshot taken just before the unsubscribe.
+                string notWatched = "WatchMeNot" + Guid.NewGuid().ToString("N");
+                sandbox.LoadFromStream(new MemoryStream(FixtureCompiler.Compile(notWatched, "public class Y { }")));
+                lock (seen) Assert.DoesNotContain(notWatched, seen);
             }
             Assert.Null(new WindowsPlatform().WatchAssemblyLoads(null));
         }

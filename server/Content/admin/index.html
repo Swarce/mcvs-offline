@@ -140,6 +140,7 @@ p { margin: 4px 0 8px; }
       <div id="banner-nosession" class="banner bad" style="display:none"><span id="banner-nosession-text" class="btext">Open this page from the game: Settings › Account › MCVS Offline, or the MCVS Offline message in the inbox.</span></div>
       <div id="banner-viewmode" class="banner info" style="display:none"><span id="banner-viewmode-text" class="btext">This view cannot change anything. Open MCVS Offline from the game: Settings › Account › MCVS Offline (or the inbox message in a build with the default patches).</span></div>
       <div id="banner-error" class="banner bad" style="display:none"><span id="banner-error-text" class="btext">The game is not answering. Go back to the game.</span></div>
+      <div id="banner-inactive" class="banner bad" style="display:none"><span id="banner-inactive-text" class="btext"></span></div>
       <div id="banner-staged" class="banner warn" style="display:none"><span id="banner-staged-text" class="btext"></span><button id="banner-staged-restart" type="button">Restart now</button><button id="banner-staged-cancel" type="button">Cancel</button><button id="banner-staged-x" class="x" type="button">×</button></div>
       <div id="banner-restart" class="banner warn" style="display:none"><span id="banner-restart-text" class="btext"></span><button id="banner-restart-now" type="button">Restart now</button><button id="banner-restart-x" class="x" type="button">×</button></div>
       <div id="banner-probation" class="banner info" style="display:none"><span id="banner-probation-text" class="btext"></span><button id="banner-probation-x" class="x" type="button">×</button></div>
@@ -850,6 +851,11 @@ p { margin: 4px 0 8px; }
     }
     banner('banner-probation', ptext && S.session && !S.dismissed[pkey], ptext || '');
     S.bannerKeys = { staged: key, restart: rkey, probation: pkey };
+
+    // PC (WR2 F2): the game did not run the patched files; not dismissible, it stays until a start that does.
+    var inactive = S.status && S.status.client ? S.status.client.notActive : null;
+    banner('banner-inactive', !!inactive, inactive ? 'MCVS Offline is installed, NOT ACTIVE (' + inactive + '): the game runs its own files, ' +
+           'so the offline fixes are missing. Close the game, run the kit\'s status, then install again.' : '');
   }
 
   // The text with a full stop, unless it already ends a sentence (server messages usually do).
@@ -1114,6 +1120,7 @@ p { margin: 4px 0 8px; }
     } else {
       kv(body, 'Platform', h.platform === 'windows' ? 'windows (the Steam PC build)'
                                                      : (h.platform || '?') + (h.sdkInt ? ', Android API ' + h.sdkInt : ''));
+      if (d.client && d.client.notActive) kv(body, 'Install', 'installed, NOT ACTIVE (' + d.client.notActive + ')', 'errt');
       kv(body, 'In-game browser', (h.browser || 'unknown') + (h.browserOpen ? ', open' : ''));
       kv(body, 'Watchdog', h.watchdog);
       kv(body, 'Log copies', h.mirror);
@@ -2526,7 +2533,7 @@ p { margin: 4px 0 8px; }
     for (var i = 0; i < SCREENS.length; i++) on($('nav-' + SCREENS[i]), 'click', goTo(SCREENS[i]));
     on($('dialog-ok'), 'click', dialogOk);
     on($('dialog-cancel'), 'click', dialogCancel);
-    var banners = ['banner-nosession', 'banner-viewmode', 'banner-error', 'banner-staged', 'banner-restart', 'banner-probation'];
+    var banners = ['banner-nosession', 'banner-viewmode', 'banner-error', 'banner-inactive', 'banner-staged', 'banner-restart', 'banner-probation'];
     for (var j = 0; j < banners.length; j++) on($(banners[j] + '-text'), 'click', toggleOpen($(banners[j])));
     on($('banner-staged-restart'), 'click', function () { restartDialog('import'); });
     on($('banner-staged-cancel'), 'click', cancelStaged);

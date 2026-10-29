@@ -108,6 +108,18 @@ namespace McvsOffline.Server.Core
             log.Warn(stamp + " " + text);
         }
 
+        /// <summary>An error milestone: the boot went wrong in a way the player has to act on (PC: the install is not active).</summary>
+        public void Error(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            string stamp = BootClock.Stamp();
+            lock (gate)
+            {
+                if (milestones.Count < 200) milestones.Add(stamp + " ERROR " + text);
+            }
+            log.Error(stamp + " " + text);
+        }
+
         /// <summary>Called when a request arrives (before it is routed).</summary>
         public void RequestStarted(HttpRequest request)
         {

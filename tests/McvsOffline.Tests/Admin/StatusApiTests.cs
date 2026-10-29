@@ -98,6 +98,30 @@ namespace McvsOffline.Tests.Admin
             Assert.NotNull(AdminTestClient.At(client.Get("status"), "player.lastGameSave"));
         }
 
+        /// <summary>
+        /// WR2 F2: "client" carries "notActive", the PC error the page shows as "installed, NOT ACTIVE", and is there only while it is
+        /// set (only the PC host sets it), so Android's and the standalone host's payload keeps its shape.
+        /// </summary>
+        [Fact]
+        public void TheClientSectionCarriesNotActive()
+        {
+            using var dir = new TempDir();
+            using var server = AdminTestClient.CreateServer(dir.Combine("data"));
+            var client = new AdminTestClient(server);
+            client.OpenSession();
+            var body = AdminTestClient.Json(client.Get("status"));
+            Assert.False(body.ContainsKey("client"));
+            server.Context.Features.Get<ClientCapabilities>().StorePatch = false;
+            Assert.False(AdminTestClient.Json(client.Get("status")).ContainsKey("client"));
+
+            ClientCapabilities capabilities = server.Context.Features.Get<ClientCapabilities>();
+            capabilities.StorePatch = false;
+            capabilities.NotActive = "Game loaded from the game folder; the 'store' patch is missing";
+            body = AdminTestClient.Json(client.Get("status"));
+            Assert.Equal("Game loaded from the game folder; the 'store' patch is missing", JsonPath.Get(body, "client.notActive"));
+            Assert.Equal(false, JsonPath.Get(body, "client.storePatch"));
+        }
+
         [Fact]
         public void ProblemsComeFromBothLoggersNewestFirstWithoutSecrets()
         {

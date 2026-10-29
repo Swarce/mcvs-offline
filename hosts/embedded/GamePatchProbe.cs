@@ -6,6 +6,8 @@ using System.IO;
 using System.Reflection;
 using System.Text;
 using McvsOffline.Server.Core;
+using McvsOffline.Server.Core.Json;
+using McvsOffline.Server.Core.Storage;
 
 namespace McvsOffline.Embedded
 {
@@ -46,6 +48,9 @@ namespace McvsOffline.Embedded
 
         /// <summary>graphics (Gameloft.Engine.dll).</summary>
         public const string GraphicsType = "Gameloft.Engine.McvsGraphics";
+
+        /// <summary>gameload (Gameloft.Engine.dll): the engine loads Game by its full name (WR2 F1).</summary>
+        public const string GameLoadType = "Gameloft.Engine.McvsGameLoad";
 
         /// <summary>The assemblies the "[boot] assemblies:" lines report.</summary>
         public static readonly string[] WatchedAssemblies = { EngineBridgeAssembly, ServerAssembly, EngineAssembly, GameAssembly, UtilAssembly };
@@ -140,31 +145,71 @@ namespace McvsOffline.Embedded
             return watcher;
         }
 
+        /// <summary>The value of a missing witness whose patch install.json does not list (an optional patch left out: not an error).</summary>
+        public const string NotApplied = "off (not applied)";
+
         /// <summary>
-        /// "patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, store yes" from the loaded assemblies ("NO" for a
-        /// missing witness, "unknown" for an assembly that is not loaded).
+        /// "patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload yes, store yes" from the loaded assemblies ("NO" for a
+        /// missing witness, "unknown" for an assembly that is not loaded). With <paramref name="applied"/> (install.json
+        /// <c>options.patches</c>), a missing witness of a patch the install did not apply is <see cref="NotApplied"/> instead of
+        /// "NO" (e.g. <c>--patch none</c> leaves out the default 'store'); null: every missing witness is "NO".
         /// </summary>
-        internal static string DescribePatches(Assembly engineBridge, Assembly engine, Assembly game)
+        internal static string DescribePatches(Assembly engineBridge, Assembly engine, Assembly game, ICollection<string> applied = null)
         {
             var sb = new StringBuilder("patches: ");
-            sb.Append("hook-pc ").Append(YesNo(engineBridge, a =>
+            sb.Append("hook-pc ").Append(YesNo(engineBridge, "hook-pc", applied, a =>
             {
                 Type type = a.GetType(HookPcType, false, false);
                 return type != null && type.GetMethod(HookPcMethod, BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static) != null;
             }));
-            sb.Append(", quicklaunch ").Append(YesNo(engine, a => a.GetType(QuickLaunchType, false, false) != null));
-            sb.Append(", headless-diag ").Append(YesNo(engine, a => a.GetType(WorldDiagnosticsType, false, false) != null));
-            sb.Append(", graphics ").Append(YesNo(engine, a => a.GetType(GraphicsType, false, false) != null));
-            sb.Append(", store ").Append(YesNo(game, a => a.GetType(StoreSafetyType, false, false) != null));
+            sb.Append(", quicklaunch ").Append(YesNo(engine, "quicklaunch", applied, a => a.GetType(QuickLaunchType, false, false) != null));
+            sb.Append(", headless-diag ").Append(YesNo(engine, "headless-diag", applied, a => a.GetType(WorldDiagnosticsType, false, false) != null));
+            sb.Append(", graphics ").Append(YesNo(engine, "graphics", applied, a => a.GetType(GraphicsType, false, false) != null));
+            sb.Append(", gameload ").Append(YesNo(engine, "gameload", applied, a => a.GetType(GameLoadType, false, false) != null));
+            sb.Append(", store ").Append(YesNo(game, "store", applied, a => a.GetType(StoreSafetyType, false, false) != null));
             return sb.ToString();
         }
 
-        private static string YesNo(Assembly assembly, Func<Assembly, bool> test)
+        /// <summary>
+        /// install.json's <c>options.patches</c> (every applied id) under <paramref name="gameRoot"/>\McvsOffline, or null when it is
+        /// missing, does not parse, has another format or no list (then every missing witness counts). Never throws.
+        /// </summary>
+        internal static ICollection<string> AppliedPatches(string gameRoot)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(gameRoot)) return null;
+                string path = Path.Combine(Path.Combine(gameRoot, EmbeddedPaths.DataFolderName), "install.json");
+                string text = AtomicFile.ReadAllTextOrNull(path);
+                object parsed;
+                if (text == null || !MiniJson.TryParse(text, out parsed)) return null;
+                var root = parsed as Dictionary<string, object>;
+                object value;
+                if (root == null || !root.TryGetValue("format", out value) || !(value is long) || (long)value != 1) return null;
+                var options = root.TryGetValue("options", out value) ? value as Dictionary<string, object> : null;
+                var list = options != null && options.TryGetValue("patches", out value) ? value as List<object> : null;
+                if (list == null) return null;
+                var ids = new HashSet<string>(StringComparer.Ordinal);
+                foreach (object id in list)
+                {
+                    var s = id as string;
+                    if (s != null) ids.Add(s);
+                }
+                return ids;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        private static string YesNo(Assembly assembly, string id, ICollection<string> applied, Func<Assembly, bool> test)
         {
             if (assembly == null) return "unknown (not loaded)";
             try
             {
-                return test(assembly) ? "yes" : "NO";
+                if (test(assembly)) return "yes";
+                return applied != null && !applied.Contains(id) ? NotApplied : "NO";
             }
             catch (Exception ex)
             {
@@ -199,6 +244,7 @@ namespace McvsOffline.Embedded
         private readonly BootTrace boot;
         private readonly string gameRoot;
         private readonly Dictionary<string, Assembly> seen = new Dictionary<string, Assembly>(StringComparer.Ordinal);
+        private readonly List<string> notActive = new List<string>();
         private Action unsubscribe;
         private bool storeDone;
         private bool patchesDone;
@@ -215,8 +261,30 @@ namespace McvsOffline.Embedded
         /// <summary>The capabilities the server reads.</summary>
         public ClientCapabilities Target { get { return target; } }
 
+        /// <summary>The file an assembly came from instead of <c>Assembly.Location</c> (tests: a sandbox assembly has none).</summary>
+        internal Func<Assembly, string> LocationOf { get; set; }
+
+        /// <summary>install.json's applied ids for the game root instead of <see cref="GamePatchProbe.AppliedPatches"/> (tests).</summary>
+        internal Func<string, ICollection<string>> AppliedOf { get; set; }
+
         /// <summary>The "patches:" line once written, else null.</summary>
         public string PatchesLine { get; private set; }
+
+        /// <summary>
+        /// With a boot trace (PC), why the patched client is not the one running: "Game loaded from the game folder", "the
+        /// 'store' patch is missing" (joined with "; "); null while everything seen so far is ours. Also in
+        /// <see cref="ClientCapabilities.NotActive"/>. WR2 F2.
+        /// </summary>
+        public string NotActive
+        {
+            get { lock (gate) return notActive.Count == 0 ? null : string.Join("; ", notActive.ToArray()); }
+        }
+
+        /// <summary>"installed, NOT ACTIVE (Game loaded from the game folder)", the error the status line and the page show.</summary>
+        public static string NotActiveText(string reason)
+        {
+            return "installed, NOT ACTIVE (" + reason + ")";
+        }
 
         /// <summary>True while subscribed to assembly loads.</summary>
         public bool Watching
@@ -311,12 +379,46 @@ namespace McvsOffline.Embedded
             }
             if (writePatches)
             {
-                string line = GamePatchProbe.DescribePatches(engineBridge, engine, game);
+                Func<string, ICollection<string>> appliedOf = AppliedOf ?? GamePatchProbe.AppliedPatches;
+                string line = GamePatchProbe.DescribePatches(engineBridge, engine, game, appliedOf(gameRoot));
                 PatchesLine = line;
-                if (line.IndexOf(" NO", StringComparison.Ordinal) >= 0) boot.Warn(line);
-                else boot.Mark(line);
+                if (line.IndexOf(" NO", StringComparison.Ordinal) >= 0)
+                {
+                    boot.Warn(line);
+                    foreach (string item in line.Substring("patches: ".Length).Split(','))
+                    {
+                        string[] parts = item.Trim().Split(' ');
+                        if (parts.Length == 2 && parts[1] == "NO") AddNotActive("the '" + parts[0] + "' patch is missing", false);
+                    }
+                }
+                else
+                {
+                    boot.Mark(line);
+                }
+                ReportNotActive();
             }
             if (done) Stop();
+        }
+
+        /// <summary>Records a reason; after the "patches:" line a new one is reported at once (an assembly that loads late).</summary>
+        private void AddNotActive(string reason, bool report)
+        {
+            lock (gate)
+            {
+                if (notActive.Contains(reason)) return;
+                notActive.Add(reason);
+            }
+            target.NotActive = NotActive;
+            if (report) ReportNotActive();
+        }
+
+        /// <summary>The one ERROR line of a start that does not run our files: "install: installed, NOT ACTIVE (...)".</summary>
+        private void ReportNotActive()
+        {
+            string reason = NotActive;
+            if (reason == null || boot == null) return;
+            boot.Error("install: " + NotActiveText(reason) + ": the game runs its own files, so MCVS Offline's fixes are missing; run the kit's " +
+                       "status, then install again (docs/PLAYER-SETUP-PC.md)");
         }
 
         /// <summary>"assemblies: Game C:\...\McvsOffline\bin\Game.dll (McvsOffline\bin)"; a WARN when it came from elsewhere.</summary>
@@ -325,18 +427,27 @@ namespace McvsOffline.Embedded
             string location = null;
             try
             {
+                Func<Assembly, string> locationOf = LocationOf;
+                if (locationOf != null) location = locationOf(assembly);
                 // By reflection: Assembly.get_Location is a stub in the game's Android mscorlib (EmbeddedDllResolutionTests), and
                 // this file is compiled into the Android DLL too; only the PC host (with a boot trace) gets here.
-                PropertyInfo property = typeof(Assembly).GetProperty("Location", BindingFlags.Public | BindingFlags.Instance);
-                location = property == null ? null : property.GetValue(assembly, null) as string;
+                PropertyInfo property = locationOf != null ? null : typeof(Assembly).GetProperty("Location", BindingFlags.Public | BindingFlags.Instance);
+                if (property != null) location = property.GetValue(assembly, null) as string;
             }
             catch (Exception)
             {
             }
             string where = Where(location, gameRoot);
             string line = "assemblies: " + name + " " + (string.IsNullOrEmpty(location) ? "(no file)" : location) + " (" + where + ")";
-            if (where == BinFolder) boot.Mark(line);
-            else boot.Warn(line + ": the .exe.config redirect did not apply");
+            if (where == BinFolder)
+            {
+                boot.Mark(line);
+                return;
+            }
+            boot.Warn(line + ": the .exe.config redirect did not apply");
+            bool reported;
+            lock (gate) reported = patchesDone;
+            AddNotActive(name + (where == GameFolder ? " loaded from the game folder" : " loaded from outside " + BinFolder + " (" + where + ")"), reported);
         }
 
         /// <summary>McvsOffline\bin, GAME FOLDER (the stock copy next to the exe) or "elsewhere".</summary>

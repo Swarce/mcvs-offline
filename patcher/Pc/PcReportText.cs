@@ -20,6 +20,7 @@ namespace McvsOffline.Patcher.Pc
                 case PcInstallState.Current: return "installed, current";
                 case PcInstallState.Stale: return "installed, STALE";
                 case PcInstallState.Damaged: return "DAMAGED";
+                case PcInstallState.NotActive: return "installed, NOT ACTIVE";
                 default: return "PARTIAL";
             }
         }
@@ -28,8 +29,9 @@ namespace McvsOffline.Patcher.Pc
         {
             var lines = new List<string>();
             lines.Add("game folder: " + r.GameFolder);
-            lines.Add("state:       " + StateName(r.State) + (r.StateDetail != null && r.State != PcInstallState.Current && r.State != PcInstallState.NotInstalled
-                                                               ? " - " + r.StateDetail : ""));
+            if (r.State == PcInstallState.NotActive && r.StateDetail != null) lines.Add("state:       " + r.StateDetail);
+            else lines.Add("state:       " + StateName(r.State) + (r.StateDetail != null && r.State != PcInstallState.Current && r.State != PcInstallState.NotInstalled
+                                                                    ? " - " + r.StateDetail : ""));
             foreach (string p in r.Problems) lines.Add("  " + p);
             lines.Add("build:       " + (r.UnknownFiles.Count == 0 && r.Identity.Count > 0 ? "Steam build 6372049 (game 1.17.30), every file known" : "NOT the verified build 6372049"));
             foreach (PcFileIdentity id in r.Identity.Where(i => !i.Known)) lines.Add("  " + id);
@@ -49,6 +51,7 @@ namespace McvsOffline.Patcher.Pc
                 if (r.SettingsPort.HasValue && r.InstalledPort.HasValue && r.SettingsPort != r.InstalledPort) ports += " (they differ: the server listens on settings.json's, the geo patch calls install.json's; run install again)";
                 lines.Add(ports);
             }
+            if (r.Activation != null) lines.Add("activation:  " + r.Activation);
             if (r.LastBootstrapLine != null) lines.Add("last boot:   " + r.LastBootstrapLine);
             foreach (string e in r.Errors) lines.Add("ERROR: " + e);
             foreach (string l in r.Leftovers) lines.Add("leftover: " + l);

@@ -487,8 +487,12 @@ namespace McvsOffline
                 return LoadFromAssemblyName(new AssemblyName(name));
             }
 
+            /// <summary>Every name this context was asked to load (what the code inside asked for: a bare or a full name).</summary>
+            public List<AssemblyName> Requests { get; } = new List<AssemblyName>();
+
             protected override Assembly Load(AssemblyName name)
             {
+                lock (Requests) Requests.Add(name);
                 string simple = name.Name;
                 byte[] image;
                 if (images.TryGetValue(simple, out image)) return LoadFromStream(new MemoryStream(image));

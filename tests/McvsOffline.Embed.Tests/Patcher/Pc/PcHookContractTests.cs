@@ -119,6 +119,8 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             Assert.Equal(QuickLaunchPatch.HelperNamespace + "." + QuickLaunchPatch.HelperType, McvsOffline.Embedded.GamePatchProbe.QuickLaunchType);
             Assert.Equal(HeadlessDiagnosticsPatch.HelperNamespace + "." + HeadlessDiagnosticsPatch.HelperType, McvsOffline.Embedded.GamePatchProbe.WorldDiagnosticsType);
             Assert.Equal("Gameloft.Engine." + GraphicsPatch.HelperType, McvsOffline.Embedded.GamePatchProbe.GraphicsType);
+            Assert.Equal("Gameloft.Engine.McvsGameLoad", GameAssemblyLoadPatch.HelperNamespace + "." + GameAssemblyLoadPatch.HelperType);
+            Assert.Equal(GameAssemblyLoadPatch.HelperNamespace + "." + GameAssemblyLoadPatch.HelperType, McvsOffline.Embedded.GamePatchProbe.GameLoadType);
 
             var expected = new Dictionary<string, (string File, string Type, string Member)>(StringComparer.Ordinal)
             {
@@ -126,6 +128,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 ["quicklaunch"] = (new QuickLaunchPatch().AssemblyFile, QuickLaunchPatch.HelperNamespace + "." + QuickLaunchPatch.HelperType, null),
                 ["headless-diag"] = (new HeadlessDiagnosticsPatch().AssemblyFile, HeadlessDiagnosticsPatch.HelperNamespace + "." + HeadlessDiagnosticsPatch.HelperType, null),
                 ["graphics"] = (new GraphicsPatch().AssemblyFile, "Gameloft.Engine." + GraphicsPatch.HelperType, null),
+                ["gameload"] = (new GameAssemblyLoadPatch().AssemblyFile, GameAssemblyLoadPatch.HelperNamespace + "." + GameAssemblyLoadPatch.HelperType, null),
                 ["store"] = (new StorePatch().AssemblyFile, "Game." + StorePatch.SafetyType, null),
             };
             var actual = McvsOffline.Patcher.Pc.PcInstaller.Witnesses.ToDictionary(

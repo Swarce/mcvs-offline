@@ -23,14 +23,41 @@ namespace McvsOffline.Patcher.Pc
 
         /// <summary>Relative to the exe folder, with '/': "McvsOffline/bin/Game.dll".</summary>
         public string Href { get; }
+
+        /// <summary>
+        /// The full display name of the copy: "Game, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null" (the assemblies are
+        /// culture-neutral and not strong-named, as the <c>assemblyIdentity</c> says); the <c>qualifyAssembly</c> fullName.
+        /// </summary>
+        public string FullName
+        {
+            get { return AssemblyName + ", Version=" + PcExeConfig.Version4(Version) + ", Culture=neutral, PublicKeyToken=null"; }
+        }
+    }
+
+    /// <summary>One <c>&lt;qualifyAssembly partialName fullName&gt;</c> of the config.</summary>
+    public sealed class PcQualifiedName
+    {
+        public PcQualifiedName(string partialName, string fullName)
+        {
+            PartialName = partialName;
+            FullName = fullName;
+        }
+
+        public string PartialName { get; }
+
+        public string FullName { get; }
     }
 
     /// <summary>
     /// <c>ModernCombatVersus.exe.config</c> for option A (docs/design/pc-port.md §7.4): one <c>&lt;codeBase&gt;</c> per patched
     /// assembly and the server, pointing into <c>McvsOffline/bin/</c>. A <c>&lt;codeBase&gt;</c> is consulted before probing and is
     /// the only way to skip the same-named stock DLL in the application base; the assemblies are not strong-named, so the
-    /// version is ignored but required by the schema, and the href must lie under the exe folder. Nothing else goes in: no
-    /// <c>&lt;startup&gt;</c>, no <c>&lt;probing&gt;</c>, no <c>&lt;loadFromRemoteSources&gt;</c>. UTF-8 without BOM, CRLF, final CRLF.
+    /// version is ignored but required by the schema, and the href must lie under the exe folder. After them one
+    /// <c>&lt;qualifyAssembly partialName fullName&gt;</c> per assembly (WR2 F1): a bind by bare name (the engine's
+    /// <c>Assembly.Load(new AssemblyName("Game"))</c>) gets no application-config policy and is probed in the application base
+    /// only; qualified, it becomes a full reference and the codeBase applies (the <c>gameload</c> IL patch is the first layer).
+    /// Nothing else goes in: no <c>&lt;startup&gt;</c>, no <c>&lt;probing&gt;</c>, no <c>&lt;loadFromRemoteSources&gt;</c>. UTF-8
+    /// without BOM, CRLF, final CRLF.
     /// </summary>
     public static class PcExeConfig
     {
@@ -65,6 +92,11 @@ namespace McvsOffline.Patcher.Pc
                 sb.Append("        <codeBase version=\"").Append(Version4(codeBase.Version))
                   .Append("\" href=\"").Append(SecurityElement.Escape(codeBase.Href)).Append("\" />\r\n");
                 sb.Append("      </dependentAssembly>\r\n");
+            }
+            foreach (PcCodeBase codeBase in codeBases)
+            {
+                sb.Append("      <qualifyAssembly partialName=\"").Append(SecurityElement.Escape(codeBase.AssemblyName))
+                  .Append("\" fullName=\"").Append(SecurityElement.Escape(codeBase.FullName)).Append("\" />\r\n");
             }
             sb.Append("    </assemblyBinding>\r\n");
             sb.Append("  </runtime>\r\n");
@@ -103,25 +135,14 @@ namespace McvsOffline.Patcher.Pc
 
         /// <summary>
         /// The codeBases of a config (any writer's), in order; <see cref="FormatException"/> when it is not well-formed XML or
-        /// a <c>&lt;dependentAssembly&gt;</c> lacks its identity or codeBase. Used to check our own file after writing it.
+        /// a <c>&lt;dependentAssembly&gt;</c> lacks its identity or codeBase. Used to check our own file after writing it. The
+        /// <c>&lt;qualifyAssembly&gt;</c> siblings are <see cref="ParseQualified"/>'s.
         /// </summary>
         public static List<PcCodeBase> Parse(string text)
         {
             var list = new List<PcCodeBase>();
-            var doc = new XmlDocument { XmlResolver = null };
-            try
-            {
-                using (var reader = XmlReader.Create(new StringReader(text), new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit }))
-                {
-                    doc.Load(reader);
-                }
-            }
-            catch (XmlException ex)
-            {
-                throw new FormatException("not a valid config: " + ex.Message, ex);
-            }
-            var ns = new XmlNamespaceManager(doc.NameTable);
-            ns.AddNamespace("b", "urn:schemas-microsoft-com:asm.v1");
+            XmlNamespaceManager ns;
+            XmlDocument doc = Load(text, out ns);
             XmlNodeList nodes = doc.SelectNodes("/configuration/runtime/b:assemblyBinding/b:dependentAssembly", ns);
             foreach (XmlNode node in nodes)
             {
@@ -135,7 +156,45 @@ namespace McvsOffline.Patcher.Pc
             return list;
         }
 
-        private static string Version4(Version v)
+        /// <summary>
+        /// The <c>&lt;qualifyAssembly&gt;</c> entries of a config, in order; <see cref="FormatException"/> when it is not well-formed
+        /// XML or an entry lacks partialName or fullName.
+        /// </summary>
+        public static List<PcQualifiedName> ParseQualified(string text)
+        {
+            var list = new List<PcQualifiedName>();
+            XmlNamespaceManager ns;
+            XmlDocument doc = Load(text, out ns);
+            foreach (XmlNode node in doc.SelectNodes("/configuration/runtime/b:assemblyBinding/b:qualifyAssembly", ns))
+            {
+                var element = (XmlElement)node;
+                string partial = element.GetAttribute("partialName"), full = element.GetAttribute("fullName");
+                if (partial.Length == 0 || full.Length == 0) throw new FormatException("a qualifyAssembly has no partialName or fullName");
+                list.Add(new PcQualifiedName(partial, full));
+            }
+            return list;
+        }
+
+        private static XmlDocument Load(string text, out XmlNamespaceManager ns)
+        {
+            var doc = new XmlDocument { XmlResolver = null };
+            try
+            {
+                using (var reader = XmlReader.Create(new StringReader(text), new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit }))
+                {
+                    doc.Load(reader);
+                }
+            }
+            catch (XmlException ex)
+            {
+                throw new FormatException("not a valid config: " + ex.Message, ex);
+            }
+            ns = new XmlNamespaceManager(doc.NameTable);
+            ns.AddNamespace("b", "urn:schemas-microsoft-com:asm.v1");
+            return doc;
+        }
+
+        internal static string Version4(Version v)
         {
             return new Version(v.Major, v.Minor, Math.Max(v.Build, 0), Math.Max(v.Revision, 0)).ToString(4);
         }

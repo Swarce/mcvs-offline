@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using McvsOffline.Embed.Tests.Support;
@@ -18,7 +19,11 @@ namespace McvsOffline.Embed.Tests.Embedded
     {
         private const string EngineBridgeSource = @"namespace EngineBridge { public class Class1 { private static void McvsOfflineInit() { } public void Start() { } } }";
         private const string EngineSource = @"namespace Gameloft.Engine {
+            internal static class McvsQuickLaunch { } internal static class McvsWorldDiagnostics { } internal static class McvsGraphics { }
+            internal static class McvsGameLoad { } }";
+        private const string EngineWithoutGameLoadSource = @"namespace Gameloft.Engine {
             internal static class McvsQuickLaunch { } internal static class McvsWorldDiagnostics { } internal static class McvsGraphics { } }";
+        private const string Root = "C:\\Steam\\steamapps\\common\\Modern Combat Versus";
         private const string StockEngineSource = @"namespace Gameloft.Engine { public class World { } }";
         private const string GameSource = @"namespace Game { internal static class McvsStoreSafety { } }";
 
@@ -57,6 +62,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.Equal("Gameloft.Engine.McvsQuickLaunch", GamePatchProbe.QuickLaunchType);
             Assert.Equal("Gameloft.Engine.McvsWorldDiagnostics", GamePatchProbe.WorldDiagnosticsType);
             Assert.Equal("Gameloft.Engine." + GraphicsPatch.HelperType, GamePatchProbe.GraphicsType);
+            Assert.Equal(GameAssemblyLoadPatch.HelperNamespace + "." + GameAssemblyLoadPatch.HelperType, GamePatchProbe.GameLoadType);
             Assert.Equal("Game." + StorePatch.SafetyType, GamePatchProbe.StoreSafetyType);
             Assert.Equal(QuickLaunchPatch.HelperNamespace + "." + QuickLaunchPatch.HelperType, GamePatchProbe.QuickLaunchType);
             Assert.Equal(HeadlessDiagnosticsPatch.HelperNamespace + "." + HeadlessDiagnosticsPatch.HelperType, GamePatchProbe.WorldDiagnosticsType);
@@ -85,7 +91,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                 loads.Callback(typeof(object).Assembly);   // not watched
                 loads.Callback(sandbox.Get("Game"));
                 Assert.True(target.StorePatch);
-                Assert.Equal("patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, store yes", watcher.PatchesLine);
+                Assert.Equal("patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload yes, store yes", watcher.PatchesLine);
                 loads.Callback(sandbox.Get("Game"));       // seen once
                 List<string> lines = sink.Snapshot().Select(e => e.Message).ToList();
                 Assert.Single(lines, l => l.Contains("patches: hook-pc"));
@@ -143,8 +149,177 @@ namespace McvsOffline.Embed.Tests.Embedded
                 loads.Callback(sandbox.Get("Game"));
                 loads.Callback(sandbox.Get("Gameloft.Engine"));
                 Assert.False(target.StorePatch);
-                Assert.Equal("patches: hook-pc unknown (not loaded), quicklaunch NO, headless-diag NO, graphics NO, store NO", watcher.PatchesLine);
+                Assert.Equal("patches: hook-pc unknown (not loaded), quicklaunch NO, headless-diag NO, graphics NO, gameload NO, store NO", watcher.PatchesLine);
                 Assert.Contains(sink.Snapshot(), e => e.Level == LogLevel.Warn && e.Message.Contains("patches: hook-pc unknown"));
+                Assert.StartsWith("Game loaded from outside McvsOffline\\bin (elsewhere); Gameloft.Engine loaded from outside McvsOffline\\bin (elsewhere); " +
+                                  "the 'quicklaunch' patch is missing; the 'headless-diag' patch is missing", target.NotActive);
+                Assert.EndsWith("the 'gameload' patch is missing; the 'store' patch is missing", target.NotActive);
+            }
+        }
+
+        /// <summary>The five redirected assemblies of a start: from McvsOffline\bin, except the names in <paramref name="fromGameFolder"/>.</summary>
+        private static Func<Assembly, string> Locations(params string[] fromGameFolder)
+        {
+            return a =>
+            {
+                string name = a.GetName().Name;
+                return Array.IndexOf(fromGameFolder, name) >= 0 ? Root + "\\" + name + ".dll" : Root + "\\McvsOffline\\bin\\" + name + ".dll";
+            };
+        }
+
+        private static FixtureCompiler.Sandbox Start(string engineSource, string gameSource)
+        {
+            return new FixtureCompiler.Sandbox()
+                .With("EngineBridge", FixtureCompiler.Compile("EngineBridge", EngineBridgeSource))
+                .With("Gameloft.Engine", FixtureCompiler.Compile("Gameloft.Engine", engineSource))
+                .With("Game", FixtureCompiler.Compile("Game", gameSource));
+        }
+
+        /// <summary>WR2 F2: every assembly from McvsOffline\bin and every witness yes: active, no ERROR line.</summary>
+        [Fact]
+        public void AStartThatRunsOurFilesIsActive()
+        {
+            var (logger, sink, boot) = Logs();
+            using (FixtureCompiler.Sandbox sandbox = Start(EngineSource, GameSource))
+            {
+                var loads = new Loads();
+                var target = new ClientCapabilities();
+                PatchWatcher watcher = GamePatchProbe.Watch(target, logger.For("game"), loads.Watch, boot, Root, Nothing);
+                watcher.LocationOf = Locations();
+                foreach (string name in new[] { "EngineBridge", "Gameloft.Engine", "Game" }) loads.Callback(sandbox.Get(name));
+                Assert.Equal("patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload yes, store yes", watcher.PatchesLine);
+                Assert.Null(watcher.NotActive);
+                Assert.Null(target.NotActive);
+                Assert.DoesNotContain(sink.Snapshot(), e => e.Level >= LogLevel.Warn);
+                Assert.Contains(sink.Snapshot(), e => e.Message.Contains("assemblies: Game " + Root + "\\McvsOffline\\bin\\Game.dll (McvsOffline\\bin)"));
+            }
+        }
+
+        /// <summary>
+        /// WR2 F2, the WR2 start: Game from the game folder. The server's capabilities say NOT ACTIVE, and the boot trace has one
+        /// ERROR "install: installed, NOT ACTIVE (Game loaded from the game folder)" once the patches line is written.
+        /// </summary>
+        [Fact]
+        public void GameFromTheGameFolderIsNotActiveAndAnError()
+        {
+            var (logger, sink, boot) = Logs();
+            using (FixtureCompiler.Sandbox sandbox = Start(EngineSource, "namespace Game { public class X { } }"))
+            {
+                var loads = new Loads();
+                var target = new ClientCapabilities();
+                PatchWatcher watcher = GamePatchProbe.Watch(target, logger.For("game"), loads.Watch, boot, Root, Nothing);
+                watcher.LocationOf = Locations("Game");
+                loads.Callback(sandbox.Get("EngineBridge"));
+                loads.Callback(sandbox.Get("Gameloft.Engine"));
+                loads.Callback(sandbox.Get("Game"));
+                Assert.Equal("Game loaded from the game folder; the 'store' patch is missing", watcher.NotActive);
+                Assert.Equal(watcher.NotActive, target.NotActive);
+                Assert.Equal("installed, NOT ACTIVE (Game loaded from the game folder; the 'store' patch is missing)", PatchWatcher.NotActiveText(target.NotActive));
+                LogEntry error = Assert.Single(sink.Snapshot(), e => e.Level == LogLevel.Error);
+                Assert.Contains("install: installed, NOT ACTIVE (Game loaded from the game folder; the 'store' patch is missing): the game runs its own files", error.Message);
+                Assert.Contains(sink.Snapshot(), e => e.Level == LogLevel.Warn && e.Message.Contains("assemblies: Game " + Root + "\\Game.dll (GAME FOLDER): the .exe.config redirect did not apply"));
+                Assert.Contains(boot.Milestones(), m => m.Contains(" ERROR install: installed, NOT ACTIVE (Game loaded from the game folder"));
+
+                // An assembly that loads after the patches line from the game folder: reported at once, with every reason so far.
+                using (var late = new FixtureCompiler.Sandbox().With("Gameloft.Util", FixtureCompiler.Compile("Gameloft.Util", "namespace Gameloft.Util { public class U { } }")))
+                {
+                    watcher.LocationOf = Locations("Game", "Gameloft.Util");
+                    loads.Callback(late.Get("Gameloft.Util"));
+                }
+                Assert.Equal("Game loaded from the game folder; the 'store' patch is missing; Gameloft.Util loaded from the game folder", target.NotActive);
+                Assert.Equal(2, sink.Snapshot().Count(e => e.Level == LogLevel.Error));
+            }
+        }
+
+        /// <summary>WR2 F2: the files from McvsOffline\bin but a witness missing (an engine patched without gameload) is not active either.</summary>
+        [Fact]
+        public void AMissingWitnessIsNotActive()
+        {
+            var (logger, sink, boot) = Logs();
+            using (FixtureCompiler.Sandbox sandbox = Start(EngineWithoutGameLoadSource, GameSource))
+            {
+                var loads = new Loads();
+                var target = new ClientCapabilities();
+                PatchWatcher watcher = GamePatchProbe.Watch(target, logger.For("game"), loads.Watch, boot, Root, Nothing);
+                watcher.LocationOf = Locations();
+                foreach (string name in new[] { "EngineBridge", "Gameloft.Engine", "Game" }) loads.Callback(sandbox.Get(name));
+                Assert.Equal("patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload NO, store yes", watcher.PatchesLine);
+                Assert.Equal("the 'gameload' patch is missing", target.NotActive);
+                Assert.Single(sink.Snapshot(), e => e.Level == LogLevel.Error && e.Message.Contains("install: installed, NOT ACTIVE (the 'gameload' patch is missing)"));
+            }
+        }
+
+        /// <summary>
+        /// An install without the default 'store' (--patch none): Game from bin without McvsStoreSafety is active. The witness of a
+        /// patch install.json does not list is "off (not applied)", not NO; StorePatch stays false for the collector, as before WR2 F2.
+        /// </summary>
+        [Fact]
+        public void AWitnessOfAPatchNotAppliedIsOffNotNo()
+        {
+            var mandatoryOnly = new HashSet<string> { "hook-pc", "headless", "headless-engine", "physics", "quicklaunch", "headless-diag", "graphics", "gameload" };
+            var (logger, sink, boot) = Logs();
+            using (FixtureCompiler.Sandbox sandbox = Start(EngineSource, "namespace Game { public class X { } }"))
+            {
+                var loads = new Loads();
+                var target = new ClientCapabilities();
+                PatchWatcher watcher = GamePatchProbe.Watch(target, logger.For("game"), loads.Watch, boot, Root, Nothing);
+                watcher.LocationOf = Locations();
+                string askedRoot = null;
+                watcher.AppliedOf = root => { askedRoot = root; return mandatoryOnly; };
+                foreach (string name in new[] { "EngineBridge", "Gameloft.Engine", "Game" }) loads.Callback(sandbox.Get(name));
+                Assert.Equal(Root, askedRoot);
+                Assert.Equal("patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload yes, store off (not applied)", watcher.PatchesLine);
+                Assert.Null(watcher.NotActive);
+                Assert.Null(target.NotActive);
+                Assert.False(target.StorePatch);
+                Assert.DoesNotContain(sink.Snapshot(), e => e.Level >= LogLevel.Error);
+                Assert.Contains(sink.Snapshot(), e => e.Level == LogLevel.Info && e.Message.Contains("store off (not applied)"));
+            }
+
+            // 'store' applied but its witness missing: NO and NOT ACTIVE (a mandatory one too, whatever the list says).
+            var withStore = new HashSet<string>(mandatoryOnly) { "store" };
+            (logger, sink, boot) = Logs();
+            using (FixtureCompiler.Sandbox sandbox = Start(EngineWithoutGameLoadSource, "namespace Game { public class X { } }"))
+            {
+                var loads = new Loads();
+                var target = new ClientCapabilities();
+                PatchWatcher watcher = GamePatchProbe.Watch(target, logger.For("game"), loads.Watch, boot, Root, Nothing);
+                watcher.LocationOf = Locations();
+                watcher.AppliedOf = root => withStore;
+                foreach (string name in new[] { "EngineBridge", "Gameloft.Engine", "Game" }) loads.Callback(sandbox.Get(name));
+                Assert.Equal("patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload NO, store NO", watcher.PatchesLine);
+                Assert.Equal("the 'gameload' patch is missing; the 'store' patch is missing", target.NotActive);
+            }
+        }
+
+        /// <summary>The host reads the applied ids from the install.json the kit writes (options.patches); anything else is unknown (null).</summary>
+        [Fact]
+        public void AppliedPatchesComeFromInstallJson()
+        {
+            string root = TestEnvironment.NewTempDir("applied");
+            try
+            {
+                Assert.Null(GamePatchProbe.AppliedPatches(root));
+                Assert.Null(GamePatchProbe.AppliedPatches(null));
+                Directory.CreateDirectory(Path.Combine(root, "McvsOffline"));
+                string file = Path.Combine(root, "McvsOffline", "install.json");
+                var manifest = new McvsOffline.Patcher.Pc.InstallManifest { Port = 51780, WrittenUtc = "2026-11-02T18:00:00Z" };
+                manifest.Patches.AddRange(new[] { "hook-pc", "headless", "gameload" });
+                File.WriteAllText(file, manifest.ToJson());
+                ICollection<string> applied = GamePatchProbe.AppliedPatches(root);
+                Assert.Equal(new[] { "gameload", "headless", "hook-pc" }, applied.OrderBy(x => x, StringComparer.Ordinal));
+                Assert.DoesNotContain("store", applied);
+
+                File.WriteAllText(file, "{ \"format\": 2, \"options\": { \"patches\": [\"store\"] } }");
+                Assert.Null(GamePatchProbe.AppliedPatches(root));
+                File.WriteAllText(file, "{ \"format\": 1, \"options\": { \"port\": 1 } }");
+                Assert.Null(GamePatchProbe.AppliedPatches(root));
+                File.WriteAllText(file, "not json");
+                Assert.Null(GamePatchProbe.AppliedPatches(root));
+            }
+            finally
+            {
+                Directory.Delete(root, true);
             }
         }
 
@@ -163,6 +338,8 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.False(watcher.Watching);
                 Assert.Null(watcher.PatchesLine);
                 Assert.DoesNotContain(sink.Snapshot(), e => e.Message.Contains("assemblies:"));
+                Assert.Null(target.NotActive);   // Android: never judged
+                Assert.Null(watcher.NotActive);
             }
         }
 
