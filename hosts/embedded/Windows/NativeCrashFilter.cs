@@ -340,8 +340,14 @@ namespace McvsOffline.Embedded.Windows
             return at + digits;
         }
 
-        /// <summary>The report text (UTF-8) into <see cref="report"/>; <see cref="length"/> is its size.</summary>
-        private static void Format(IntPtr pointers, DateTime now, ICrashFilterNative api)
+        /// <summary>Tests: the text <see cref="Format"/> produced last.</summary>
+        internal static string FormattedText()
+        {
+            return Encoding.UTF8.GetString(report, 0, length);
+        }
+
+        /// <summary>The report text (UTF-8) into <see cref="report"/>; <see cref="length"/> is its size. Allocates nothing.</summary>
+        internal static void Format(IntPtr pointers, DateTime now, ICrashFilterNative api)
         {
             length = 0;
             Put("FATAL native unhandled exception (top-level filter; the game's own filter runs next and writes core.dmp, then Windows Error Reporting)\n");
