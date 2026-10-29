@@ -180,9 +180,13 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 scene.Headless = false;
                 Exception client = scene.Run("OnStop");   // the stock base.OnStart() on an uninitialised component
                 output.WriteLine("client World: " + (client == null ? "returned" : client.GetType().Name + ": " + client.Message));
+                // Not nulled either way (the base OnStop path would null both and return, as the headless run shows): reassigned
+                // by base.OnStart(), or still the sentinels when it threw before touching them.
+                Assert.NotNull(mercs.GetValue(scene.Component));
+                Assert.NotNull(gameplay.GetValue(scene.Component));
                 if (client != null)
                 {
-                    Assert.Same(mercsSentinel, mercs.GetValue(scene.Component));       // not nulled: base.OnStart() threw first
+                    Assert.Same(mercsSentinel, mercs.GetValue(scene.Component));       // base.OnStart() threw first
                     Assert.Same(gameplaySentinel, gameplay.GetValue(scene.Component));
                 }
             }

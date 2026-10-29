@@ -1,4 +1,5 @@
 using System.Linq;
+using McvsOffline.Patcher.Core;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
@@ -18,7 +19,8 @@ namespace McvsOffline.Patcher.Patches
     /// </code>
     /// The non-inlined helper keeps a missing or unloadable McvsOffline.Server.dll inside the try (the bind fails when the
     /// helper is compiled, at the call). Checked first: both methods of <c>Class1</c> against the fingerprints of build 6372049,
-    /// no helper yet, and mscorlib 4 as the corlib (the Steam build; the Android server DLL would add mscorlib 2.0.5.0).
+    /// no helper yet, and mscorlib 4 with token b77a5c561934e089 as the corlib (the Steam build; the Android server DLL would add
+    /// mscorlib 2.0.5.0).
     /// </summary>
     public sealed class EngineBridgeHookPatch : IlPatch
     {
@@ -58,7 +60,8 @@ namespace McvsOffline.Patcher.Patches
             RequireFingerprint(start, startFingerprint, "EngineBridge.Class1.Start()");
             RequireFingerprint(ctor, ctorFingerprint, "EngineBridge.Class1()");
             var corlib = module.TypeSystem.CoreLibrary as AssemblyNameReference;
-            if (corlib == null || corlib.Name != "mscorlib" || corlib.Version == null || corlib.Version.Major != 4)
+            if (corlib == null || corlib.Name != "mscorlib" || corlib.Version == null || corlib.Version.Major != 4 ||
+                TokenHex(corlib.PublicKeyToken) != BuildProfile.PcSteam6372049.CorlibPublicKeyToken)
                 throw new PatchException("EngineBridge.dll does not reference mscorlib 4.x (" + module.TypeSystem.CoreLibrary + "): not the Steam build");
             MethodReference init = ImportServerMethod(module, context, "McvsOffline.Bootstrap", "Init", "System.Void");
 
@@ -74,6 +77,12 @@ namespace McvsOffline.Patcher.Patches
             ILProcessor il = start.Body.GetILProcessor();
             PrependGuarded(start, new[] { il.Create(OpCodes.Call, helper) }, null);
             context.Notes.Add(TypeName + "::Start: try { McvsOffline.Bootstrap.Init(); } catch { } before MainLoop.Start (the original body)");
+        }
+
+        /// <summary>The token as lower-case hex ("b77a5c561934e089"); "" when there is none.</summary>
+        private static string TokenHex(byte[] token)
+        {
+            return token == null ? "" : string.Concat(token.Select(b => b.ToString("x2")));
         }
     }
 }

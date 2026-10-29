@@ -170,10 +170,16 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             }
         }
 
-        private void AssertRefusedUnchanged(string folder, string file, ReaderParameters reader, IlPatch patch, PatchContext context, string what)
+        /// <summary>
+        /// Applies <paramref name="patch"/> to <paramref name="file"/> (after <paramref name="change"/>, when given) and asserts it is
+        /// refused with nothing changed: the same methods, types and no note. Returns the refusal.
+        /// </summary>
+        private PatchException AssertRefusedUnchanged(string folder, string file, ReaderParameters reader, IlPatch patch, PatchContext context, string what,
+                                                      Action<ModuleDefinition> change = null)
         {
             using (ModuleDefinition module = ModuleDefinition.ReadModule(new MemoryStream(File.ReadAllBytes(Path.Combine(folder, file))), reader))
             {
+                change?.Invoke(module);
                 string before = RealPc.MethodsDigest(module);
                 int types = module.Types.Count;
                 PatchException refused = Assert.Throws<PatchException>(() => patch.Apply(module, context));
@@ -181,6 +187,31 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 Assert.Equal(before, RealPc.MethodsDigest(module));
                 Assert.Equal(types, module.Types.Count);
                 Assert.Empty(context.Notes);
+                return refused;
+            }
+        }
+
+        /// <summary>§8.2: hook-pc takes mscorlib 4 only with the framework's token (b77a5c561934e089).</summary>
+        [Fact]
+        public void HookPcRefusesAnMscorlib4WithAnotherToken()
+        {
+            string pc = RealPc.Folder(output);
+            if (pc == null) return;
+            byte[] server = PcHookServer.Compile();
+            ReaderParameters reader = RealPc.Reader(pc, PcHookServer.WriteToTempFolder());
+            using (reader.AssemblyResolver)
+            using (ModuleDefinition serverModule = ModuleDefinition.ReadModule(new MemoryStream(server), reader))
+            {
+                byte[] androidToken = Enumerable.Range(0, 8).Select(i => Convert.ToByte(BuildProfile.Android1_17_32.CorlibPublicKeyToken.Substring(2 * i, 2), 16)).ToArray();
+                PatchException refused = AssertRefusedUnchanged(pc, "EngineBridge.dll", reader, new EngineBridgeHookPatch(), new PatchContext(serverModule, 51780, Pc),
+                                                                "mscorlib 4.0.0.0 with the Android token", m =>
+                                                                {
+                                                                    AssemblyNameReference corlib = m.AssemblyReferences.Single(r => r.Name == "mscorlib");
+                                                                    Assert.Equal(new Version(4, 0, 0, 0), corlib.Version);
+                                                                    corlib.PublicKeyToken = androidToken;
+                                                                    Assert.Same(corlib, m.TypeSystem.CoreLibrary);
+                                                                });
+                Assert.StartsWith("EngineBridge.dll does not reference mscorlib 4.x", refused.Message);
             }
         }
 
@@ -191,13 +222,79 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             if (pc == null) return;
             byte[] server = PcHookServer.Compile();
             Dictionary<string, byte[]> once = RealPc.Patch(pc, server, null, Pc, RealPc.FullPlan().ToArray());
+            HashSet<string> changed = ChangedMethods(pc, once);
             string copy = RealPc.CopyWith(pc, once);
-            foreach (IlPatch patch in RealPc.FullPlan())
+            try
             {
-                PatchException refused = Assert.Throws<PatchException>(() => RealPc.Patch(copy, server, null, Pc, patch));
-                output.WriteLine(patch.Id + ": " + refused.Message.Split('\n')[0]);
+                // Through the installer's path: refused.
+                foreach (IlPatch patch in RealPc.FullPlan())
+                {
+                    PatchException refused = Assert.Throws<PatchException>(() => RealPc.Patch(copy, server, null, Pc, patch));
+                    AssertSecondApplication(patch, refused, changed);
+                }
+
+                // The patch itself on the patched module: refused before any change.
+                ReaderParameters reader = RealPc.Reader(copy, PcHookServer.WriteToTempFolder());
+                using (reader.AssemblyResolver)
+                using (ModuleDefinition serverModule = ModuleDefinition.ReadModule(new MemoryStream(server), reader))
+                {
+                    foreach (IlPatch patch in RealPc.FullPlan())
+                    {
+                        PatchException refused = AssertRefusedUnchanged(copy, patch.AssemblyFile, reader, patch, new PatchContext(serverModule, 51780, Pc), "second application");
+                        AssertSecondApplication(patch, refused, changed);
+                    }
+                }
             }
-            Directory.Delete(copy, true);
+            finally
+            {
+                Directory.Delete(copy, true);
+            }
+        }
+
+        /// <summary>
+        /// A second application is refused for being one, not for an unrelated failure: the message says "already patched" (a
+        /// witness or helper is there; headless: a type already marked [KeepInHeadlessMode]), or it names first a method of the
+        /// patch's assembly whose body the first application changed (a site check: fingerprint, shape or literal).
+        /// </summary>
+        private void AssertSecondApplication(IlPatch patch, PatchException refused, HashSet<string> changed)
+        {
+            string first = refused.Message.Split('\n')[0];
+            output.WriteLine(patch.Id + ": " + first);
+            if (first.Contains("already patched") || first.Contains("already has [KeepInHeadlessMode]")) return;
+            Assert.True(changed.Any(m => m.StartsWith(patch.AssemblyFile + " ", StringComparison.Ordinal) &&
+                                         first.StartsWith(m.Substring(patch.AssemblyFile.Length + 1) + " ", StringComparison.Ordinal)),
+                        patch.Id + ": the second application was refused for another reason: " + first);
+        }
+
+        /// <summary>
+        /// The methods whose body <paramref name="patched"/> changed, as "file name" for both spellings a refusal starts with: the
+        /// full name ("System.Void T::M()") and the short one ("T::M:" without the trailing colon, as the literal checks write it).
+        /// </summary>
+        private static HashSet<string> ChangedMethods(string pc, Dictionary<string, byte[]> patched)
+        {
+            var result = new HashSet<string>(StringComparer.Ordinal);
+            ReaderParameters reader = RealPc.Reader(pc, PcHookServer.WriteToTempFolder());
+            using (reader.AssemblyResolver)
+            {
+                foreach (var kv in patched)
+                {
+                    using (ModuleDefinition before = ModuleDefinition.ReadModule(new MemoryStream(File.ReadAllBytes(Path.Combine(pc, kv.Key))), reader))
+                    using (ModuleDefinition after = ModuleDefinition.ReadModule(new MemoryStream(kv.Value), reader))
+                    {
+                        // By full name and fingerprint: a few full names repeat (methods that differ only in a modreq).
+                        var original = new HashSet<string>(RealPc.AllTypes(before.Types).SelectMany(t => t.Methods).Where(m => m.HasBody)
+                                                                 .Select(m => m.FullName + " " + IlPatch.Fingerprint(m)), StringComparer.Ordinal);
+                        var names = new HashSet<string>(original.Select(o => o.Substring(0, o.LastIndexOf(' '))), StringComparer.Ordinal);
+                        foreach (MethodDefinition m in RealPc.AllTypes(after.Types).SelectMany(t => t.Methods).Where(m => m.HasBody))
+                        {
+                            if (!names.Contains(m.FullName) || original.Contains(m.FullName + " " + IlPatch.Fingerprint(m))) continue;
+                            result.Add(kv.Key + " " + m.FullName);
+                            result.Add(kv.Key + " " + m.DeclaringType.FullName + "::" + m.Name + ":");
+                        }
+                    }
+                }
+            }
+            return result;
         }
 
         [Fact]
