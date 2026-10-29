@@ -676,7 +676,7 @@ namespace McvsOffline.Patcher.Pc
             string data = GameFolder.DataDir(game);
             if (!Directory.Exists(data)) return false;
             string kit = Path.Combine(data, GameFolder.KitDirName) + Path.DirectorySeparatorChar;
-            return Directory.EnumerateFiles(data, "*", SearchOption.AllDirectories).All(f => f.StartsWith(kit, StringComparison.Ordinal));
+            return AllFilesBelow(data, f => f.StartsWith(kit, StringComparison.Ordinal));
         }
 
         /// <summary>
@@ -693,8 +693,20 @@ namespace McvsOffline.Patcher.Pc
                 GameFolder.Resolve(game, GameFolder.SpikeCopyFolder) + Path.DirectorySeparatorChar,
             };
             string manifest = Path.Combine(data, InstallManifest.FileName);
-            return Directory.EnumerateFiles(data, "*", SearchOption.AllDirectories).All(f =>
-                ours.Any(o => f.StartsWith(o, StringComparison.Ordinal)) || f.StartsWith(manifest, StringComparison.Ordinal));
+            return AllFilesBelow(data, f => ours.Any(o => f.StartsWith(o, StringComparison.Ordinal)) || f.StartsWith(manifest, StringComparison.Ordinal));
+        }
+
+        /// <summary>False also when a folder below <paramref name="folder"/> cannot be listed (then it may hold the player's files).</summary>
+        private static bool AllFilesBelow(string folder, Func<string, bool> predicate)
+        {
+            try
+            {
+                return Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories).All(predicate);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                return false;
+            }
         }
 
         private static void Delete(IPcFileOps files, string path, string name, PcInstallReport report, Action<string> log)
