@@ -16,7 +16,8 @@ namespace McvsOffline.Tests.Admin
         private static bool AndroidOnly(string key) =>
             key.StartsWith("hd.", StringComparison.Ordinal) || key.StartsWith("install.", StringComparison.Ordinal)
             || key.StartsWith("notifications.", StringComparison.Ordinal)
-            || key == "diagnostics.publicLogCopy" || key == "diagnostics.threadDump";
+            || key == "diagnostics.publicLogCopy" || key == "diagnostics.threadDump"
+            || key == SettingsSchema.AccountMenuHideDeadButtonsKey; // no effect on PC: no Facebook/Google/Restore entry
 
         private static IEnumerable<string> AllKeys(List<SettingGroupView> views) =>
             views.SelectMany(v => v.Keys.Select(k => k.Key).Concat(v.Advanced.Select(a => a.Key)));
@@ -50,6 +51,7 @@ namespace McvsOffline.Tests.Admin
             }
             Assert.Contains("hd.enabled", AllKeys(views));
             Assert.Contains("install.manageInstaller", AllKeys(views));
+            Assert.Contains(SettingsSchema.AccountMenuHideDeadButtonsKey, AllKeys(views));
             Assert.DoesNotContain("embedded.physics.keepPhysicsLayer", AllKeys(views));
         }
 
@@ -59,6 +61,8 @@ namespace McvsOffline.Tests.Admin
             List<SettingGroupView> views = SettingsSchema.GroupsFor("windows");
             List<string> keys = AllKeys(views).ToList();
             Assert.DoesNotContain(keys, AndroidOnly);
+            Assert.DoesNotContain("admin.accountMenu.hideDeadButtons", keys);
+            Assert.Contains("admin.redeemCode", keys);
             // Everything else is still there, in the same order.
             List<string> android = AllKeys(SettingsSchema.GroupsFor("android")).Where(k => !AndroidOnly(k)).ToList();
             Assert.Equal(android, keys.Where(k => k != "embedded.physics.keepPhysicsLayer").ToList());

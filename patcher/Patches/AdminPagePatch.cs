@@ -101,8 +101,8 @@ namespace McvsOffline.Patcher.Patches
             // ---- change: A1
             ILProcessor il = list.Body.GetILProcessor();
             il.InsertBefore(ret, il.Create(OpCodes.Call, buttons));
-            context.Notes.Add(list.FullName + ": returns " + HooksType + ".AccountMenuButtons(list) (the 'MCVS Offline' button after " +
-                              "\"Recover progress\")");
+            context.Notes.Add(list.FullName + ": returns " + HooksType + ".AccountMenuButtons(list) (the 'MCVS Offline' button last; dead " +
+                              "entries dropped by admin.accountMenu.hideDeadButtons)");
 
             // ---- change: A2 (brfalse.s jumps 17 bytes; the shipped body's own short branches keep their distances)
             il = action.Body.GetILProcessor();

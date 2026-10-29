@@ -14,8 +14,9 @@ namespace McvsOffline.Embedded.Admin
     /// <list type="bullet">
     /// <item>Dropped: <c>snsId</c> 0 (Facebook) and 2 (Google Play Games), whose login can never succeed offline (patch
     /// <c>debloat</c>), and <c>customAction "restore_purchase"</c>, the in-app-purchase restore (no store exists offline).
-    /// Every other entry stays (Redeem code, the PC's GameCenter and link-code entries, anything unknown), and so does an
-    /// entry whose members cannot be read.</item>
+    /// Every other entry stays (Redeem code, the PC's GameCenter entry, the link-code entry of other platforms, anything
+    /// unknown), and so does an entry whose members cannot be read. The Steam build's Win32 list is [Redeem, GameCenter],
+    /// so nothing is dropped or centred on PC.</item>
     /// <item>Centring: Flash (<c>MenuAccountSettings.onPush</c>) puts list key k at <c>x = 77 + floor(k/2)·(w+50)</c>,
     /// <c>y = 320 + (k%2)·(h+45)</c>, so [Redeem, MCVS Offline] would be stacked at the left edge. After the hook returns,
     /// one work item on the game thread (it runs after <c>onPush</c>, when the buttons exist) finds the menu on top of

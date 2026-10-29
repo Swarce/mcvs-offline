@@ -305,7 +305,7 @@ save before saving the change, §4.4).
 | Unlocks & codes | `unlockAll` | Unlock everything | bool | false | live | Grants what UNLOCKALL grants, through the inventory, at the game's next save (~11,400 rewards; the level jumps to ~46 and the game lags while it levels up). `confirmWhen: enable`, `backupBefore: enable`: "This cannot be undone: turning it off later removes nothing. A backup of your save is made now." |
 | Unlocks & codes | `assets.couponsEnabled` | Unlock codes | bool | true | live | Settings › Account › Redeem code accepts the codes listed below. |
 | Unlocks & codes | `crm.redeemCoupons` | Redeem-code button | bool | true | menu | Shows the Redeem code button in Settings › Account. |
-| Unlocks & codes | `admin.accountMenu.hideDeadButtons` | Only Redeem code and MCVS Offline in Settings > Account | bool | true | live | Hides the Facebook, Google Play Games and Restore buttons, which cannot work offline, and centres the buttons that are left. Applies the next time Settings > Account opens. Read by the embedded host (`AdminHost.HideDeadAccountButtons`) in `AdminHooks.AccountMenuButtons`, §9.2. |
+| Unlocks & codes | `admin.accountMenu.hideDeadButtons` | Only Redeem code and MCVS Offline in Settings > Account | bool | true | live | Hides the Facebook, Google Play Games and Restore buttons, which cannot work offline, and centres the buttons that are left. Applies the next time Settings > Account opens. Read by the embedded host (`AdminHost.HideDeadAccountButtons`) in `AdminHooks.AccountMenuButtons`, §9.2. Not shown on PC (no effect there, docs/design/pc-port.md §3.6). |
 | Unlocks & codes | `unlocks.batchSize` | Rewards per batch | int 50–400, step 50 | 400 | live | Unlock-all rewards per batch; keep at most 400 (reward popups). |
 | Unlocks & codes | `admin.redeemCode` | Code that opens this page | string `^([A-Z0-9]{4,20})?$` | `MCVSOFFLINE` | live | Typing it in Redeem code opens this page (the game then says the code does not exist). Empty: off. |
 | Live ops | `liveops.enabled` | Live events | bool | true | menu | Division seasons, daily missions and weekly events. |
@@ -1937,7 +1937,9 @@ Registration (WP6): `new AdminPagePatch()` in `ApkPatcher.AllPatches` (after `Si
   2 (Google Play Games), whose login the `debloat` patch fails one frame later, and `customAction "restore_purchase"`
   (`IapStoreComponent.RestoreTransactions`: in-app purchases, not cloud progress; no store exists offline). The members
   are read by reflection from the game's anonymous objects; an entry that cannot be read, and anything else (Redeem,
-  the PC's GameCenter `snsId 1` and link-code entries, unknown entries), stays. The filter runs before the
+  the PC's GameCenter `snsId 1`, the link-code entry of other platforms, unknown entries), stays. The Steam build's
+  Win32 list is [Redeem, GameCenter] (no Facebook, Google or Restore entry, and `ShowLinkCode` only on platforms other
+  than Android, iOS and Win32), so the setting changes nothing on PC and the Windows page does not show it. The filter runs before the
   `PortalEnabled` check (the MCVS entry is still appended only with the page on), and a list it would empty is returned
   as it was. Flash side effects: none beyond gameswf null-call lines the stock menu already logs
   (`removeButtonListeners` and `resultSNSConnect` look children up by `btnSocial_<k>` / `btnSocial_<sns>`).

@@ -77,11 +77,26 @@ namespace McvsOffline.Embed.Tests.Embedded
         }
 
         [Fact]
+        public void TheRealWin32ListOnlyGainsTheMcvsButton()
+        {
+            using (var env = new MenuEnvironment("acct-win32"))
+            {
+                // The Steam Game.dll's GetAccountMenuButtonList on Win32: Redeem, then GameCenter (snsId 1); no Facebook,
+                // no Google, no Restore (iOS only) and no link-code button (platforms other than Android, iOS and Win32).
+                var game = new List<object> { Redeem(), GameCenter() };
+                AdminHooks.AccountMenuButtons(game);
+                Assert.Equal(new[] { "action:showRedeem", "sns:1", "ours:mcvs_offline" }, game.Select(Describe).ToArray());
+                Assert.Equal(0, env.Game.App.Context.Pending);   // an snsId entry: nothing to centre, nothing posted
+            }
+        }
+
+        [Fact]
         public void ThePcListKeepsGameCenterAndUnknownEntries()
         {
             using (var env = new MenuEnvironment("acct-pc"))
             {
-                // Win32: Redeem, GameCenter (snsId 1), a link-code button, Restore; plus things the filter cannot read.
+                // Robustness, not a real list: Redeem, GameCenter (snsId 1), the link-code button of platforms other than
+                // Android, iOS and Win32, and Restore (iOS only); plus things the filter cannot read.
                 object linkCode = new { customAction = "ShowLinkCode", isClickable = true, label = "setting.LinkCode" };
                 object oddSns = new { snsId = "0", label = "a string snsId" };
                 object throwing = new ThrowingEntry();

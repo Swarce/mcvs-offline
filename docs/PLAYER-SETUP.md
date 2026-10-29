@@ -310,8 +310,9 @@ setting **Only Redeem code and MCVS Offline in Settings › Account** (`admin.ac
 Unlocks & codes, on by default) brings the game's own buttons back when turned off; it applies the next time you open
 Settings › Account. Without Redeem code (setting `crm.redeemCoupons` off) MCVS Offline is alone in the middle; with the
 page turned off (`admin.enabled`) Redeem code is. If the menu cannot be rearranged, the buttons stay where the game puts
-them (stacked on the left) and `server.log` says why in an `[admin] account menu:` line. On a PC the game's own
-GameCenter and link-code buttons stay.
+them (stacked on the left) and `server.log` says why in an `[admin] account menu:` line. On a PC the game's GameCenter
+button stays (the Steam build has no Facebook, Google or Restore button, so nothing changes there), and the setting is
+not on the PC's settings page.
 
 **Chrome is not supported.** Open the page only from the game. In Chrome (or any other browser)
 `http://127.0.0.1:51780/_mcvs/ui/` shows a view-only page at most: Android freezes the game about a minute after it leaves the screen, and the page's

@@ -387,6 +387,7 @@ it keeps under `%APPDATA%` (read through `getenv("APPDATA")`), its crash logs un
 | `embedded.nativeOnlineSdk` | `false` | as on Android (patch `nativeonline`) | existing |
 | `lanMode` | `false` | **no effect on PC**: the host overrides it to false for the host and the server copy (one WARN when the file says true) | LAN is excluded (X) |
 | `install.*`, `hd.*`, `notifications.*`, `diagnostics.publicLogCopy`, `diagnostics.threadDump` | — | not written by the PC host (`AddEmbeddedDefaults` gates them, §6.2), and not shown on the settings page when `AdminHostInfo.Platform == "windows"` (`SettingsSchema` platform filter, §4.6) | |
+| `admin.accountMenu.hideDeadButtons` | `true` | **no effect on PC**: the Steam build's Account list (`GetAccountMenuButtonList` on Win32) is Redeem code and GameCenter (`snsId 1`), with no Facebook, Google or Restore entry to drop, and a list with an `snsId` entry is never centred | not shown on the settings page when `AdminHostInfo.Platform == "windows"` (`SettingsSchema.WindowsHidden`, §4.6) |
 | `pc.finder` | — | reserved for WP6 (D4), not read before WP6 | |
 
 ### 3.7 Environment variables and build outputs

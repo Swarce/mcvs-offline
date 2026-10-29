@@ -196,11 +196,14 @@ namespace McvsOffline.Server.Services.Admin
 
         /// <summary>
         /// Keys the PC host neither writes nor uses (docs/design/pc-port.md §3.6): the Android installer and HD textures,
-        /// notifications, the public log copy and the Mono thread dump. Prefixes end with '.'.
+        /// notifications, the public log copy and the Mono thread dump; and admin.accountMenu.hideDeadButtons, which
+        /// changes nothing on PC (the Steam build's Account list is Redeem code and GameCenter: no Facebook, Google or
+        /// Restore entry to hide, and a GameCenter entry is never centred). Prefixes end with '.'.
         /// </summary>
         private static readonly string[] WindowsHidden =
         {
             "hd.", "install.", "notifications.", "diagnostics.publicLogCopy", "diagnostics.threadDump",
+            AccountMenuHideDeadButtonsKey,
         };
 
         /// <summary>Read-only keys only the PC host has, as key, label, description, inserted after <see cref="WindowsAdvancedAfter"/>.</summary>
@@ -227,8 +230,8 @@ namespace McvsOffline.Server.Services.Admin
         /// <summary>
         /// The page's groups as <paramref name="platform"/> (<c>AdminHostInfo.Platform</c>) shows them (§4.6 of
         /// docs/design/pc-port.md). On <see cref="PlatformWindows"/>: no <c>hd.*</c>, <c>install.*</c>,
-        /// <c>notifications.*</c>, <c>diagnostics.publicLogCopy</c> or <c>diagnostics.threadDump</c> entry (labels and
-        /// settings), the PC wording of <c>graphics.profile</c>, and <c>embedded.physics.keepPhysicsLayer</c> among the
+        /// <c>notifications.*</c>, <c>diagnostics.publicLogCopy</c>, <c>diagnostics.threadDump</c> or
+        /// <c>admin.accountMenu.hideDeadButtons</c> entry (labels and settings), the PC wording of <c>graphics.profile</c>, and <c>embedded.physics.keepPhysicsLayer</c> among the
         /// read-only keys. Any other platform (android, directory, none) gets exactly <see cref="Groups"/>,
         /// <see cref="Keys"/> and <see cref="AdvancedKeys"/>.
         /// </summary>
