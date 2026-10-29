@@ -343,10 +343,11 @@ namespace McvsOffline.Embed.Tests.Embedded
                 System.Reflection.Assembly loaded = sandbox.LoadFromStream(new MemoryStream(image));
                 lock (seen) Assert.Contains(loaded.GetName().Name, seen);
                 stop();
-                int count;
-                lock (seen) count = seen.Count;
-                sandbox.LoadFromStream(new MemoryStream(FixtureCompiler.Compile("WatchMeNot" + Guid.NewGuid().ToString("N"), "public class Y { }")));
-                lock (seen) Assert.Equal(count, seen.Count);
+                // By name, not by count: AssemblyLoad is process-wide, and a load another test class runs in parallel can still
+                // reach the handler from a delegate snapshot taken just before the unsubscribe.
+                string notWatched = "WatchMeNot" + Guid.NewGuid().ToString("N");
+                sandbox.LoadFromStream(new MemoryStream(FixtureCompiler.Compile(notWatched, "public class Y { }")));
+                lock (seen) Assert.DoesNotContain(notWatched, seen);
             }
             Assert.Null(new WindowsPlatform().WatchAssemblyLoads(null));
         }

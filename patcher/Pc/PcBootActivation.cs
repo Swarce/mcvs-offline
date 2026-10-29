@@ -53,9 +53,11 @@ namespace McvsOffline.Patcher.Pc
 
         /// <summary>
         /// The last start in <paramref name="log"/> (from its last "embedded host starting" line, else the whole text), or null when
-        /// the log has no "assemblies:" or "patches:" line at all.
+        /// the log has no "assemblies:" or "patches:" line at all. With <paramref name="applied"/> (install.json <c>options.patches</c>),
+        /// a witness that says NO counts only when its patch was applied: <c>--patch none</c> leaves out the default 'store', and
+        /// an older host still writes "store NO" for it (a current one writes "off (not applied)"); null: every NO counts.
         /// </summary>
-        public static PcBootActivation Read(string log)
+        public static PcBootActivation Read(string log, ICollection<string> applied = null)
         {
             if (string.IsNullOrEmpty(log)) return null;
             string[] lines = log.Replace("\r", "").Split('\n');
@@ -92,7 +94,8 @@ namespace McvsOffline.Patcher.Pc
                 foreach (string item in m.Groups["list"].Value.Split(','))
                 {
                     string[] parts = item.Trim().Split(new[] { ' ' }, 2);
-                    if (parts.Length == 2 && parts[1] == "NO") result.Reasons.Add("the '" + parts[0] + "' patch is missing");
+                    if (parts.Length == 2 && parts[1] == "NO" && (applied == null || applied.Contains(parts[0])))
+                        result.Reasons.Add("the '" + parts[0] + "' patch is missing");
                 }
             }
             return any ? result : null;
@@ -128,7 +131,7 @@ namespace McvsOffline.Patcher.Pc
             string when = Started == null ? "the last start" : "the last start (" + Started + ")";
             if (NotActive) return "NOT ACTIVE at " + when + ": " + Reason;
             if (!GameSeen || Patches == null) return "unknown: " + when + " did not load Game (still starting, or it stopped early)";
-            return "active at " + when + ": every assembly from " + BinFolder + ", every patch witness yes";
+            return "active at " + when + ": every assembly from " + BinFolder + ", every applied patch's witness yes";
         }
 
         /// <summary>Tests and the "status" listing: the assemblies and patches lines of the start.</summary>

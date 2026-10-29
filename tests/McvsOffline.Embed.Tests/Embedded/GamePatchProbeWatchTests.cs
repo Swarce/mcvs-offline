@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using McvsOffline.Embed.Tests.Support;
@@ -245,6 +246,80 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.Equal("patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload NO, store yes", watcher.PatchesLine);
                 Assert.Equal("the 'gameload' patch is missing", target.NotActive);
                 Assert.Single(sink.Snapshot(), e => e.Level == LogLevel.Error && e.Message.Contains("install: installed, NOT ACTIVE (the 'gameload' patch is missing)"));
+            }
+        }
+
+        /// <summary>
+        /// An install without the default 'store' (--patch none): Game from bin without McvsStoreSafety is active. The witness of a
+        /// patch install.json does not list is "off (not applied)", not NO; StorePatch stays false for the collector, as before WR2 F2.
+        /// </summary>
+        [Fact]
+        public void AWitnessOfAPatchNotAppliedIsOffNotNo()
+        {
+            var mandatoryOnly = new HashSet<string> { "hook-pc", "headless", "headless-engine", "physics", "quicklaunch", "headless-diag", "graphics", "gameload" };
+            var (logger, sink, boot) = Logs();
+            using (FixtureCompiler.Sandbox sandbox = Start(EngineSource, "namespace Game { public class X { } }"))
+            {
+                var loads = new Loads();
+                var target = new ClientCapabilities();
+                PatchWatcher watcher = GamePatchProbe.Watch(target, logger.For("game"), loads.Watch, boot, Root, Nothing);
+                watcher.LocationOf = Locations();
+                string askedRoot = null;
+                watcher.AppliedOf = root => { askedRoot = root; return mandatoryOnly; };
+                foreach (string name in new[] { "EngineBridge", "Gameloft.Engine", "Game" }) loads.Callback(sandbox.Get(name));
+                Assert.Equal(Root, askedRoot);
+                Assert.Equal("patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload yes, store off (not applied)", watcher.PatchesLine);
+                Assert.Null(watcher.NotActive);
+                Assert.Null(target.NotActive);
+                Assert.False(target.StorePatch);
+                Assert.DoesNotContain(sink.Snapshot(), e => e.Level >= LogLevel.Error);
+                Assert.Contains(sink.Snapshot(), e => e.Level == LogLevel.Info && e.Message.Contains("store off (not applied)"));
+            }
+
+            // 'store' applied but its witness missing: NO and NOT ACTIVE (a mandatory one too, whatever the list says).
+            var withStore = new HashSet<string>(mandatoryOnly) { "store" };
+            (logger, sink, boot) = Logs();
+            using (FixtureCompiler.Sandbox sandbox = Start(EngineWithoutGameLoadSource, "namespace Game { public class X { } }"))
+            {
+                var loads = new Loads();
+                var target = new ClientCapabilities();
+                PatchWatcher watcher = GamePatchProbe.Watch(target, logger.For("game"), loads.Watch, boot, Root, Nothing);
+                watcher.LocationOf = Locations();
+                watcher.AppliedOf = root => withStore;
+                foreach (string name in new[] { "EngineBridge", "Gameloft.Engine", "Game" }) loads.Callback(sandbox.Get(name));
+                Assert.Equal("patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload NO, store NO", watcher.PatchesLine);
+                Assert.Equal("the 'gameload' patch is missing; the 'store' patch is missing", target.NotActive);
+            }
+        }
+
+        /// <summary>The host reads the applied ids from the install.json the kit writes (options.patches); anything else is unknown (null).</summary>
+        [Fact]
+        public void AppliedPatchesComeFromInstallJson()
+        {
+            string root = TestEnvironment.NewTempDir("applied");
+            try
+            {
+                Assert.Null(GamePatchProbe.AppliedPatches(root));
+                Assert.Null(GamePatchProbe.AppliedPatches(null));
+                Directory.CreateDirectory(Path.Combine(root, "McvsOffline"));
+                string file = Path.Combine(root, "McvsOffline", "install.json");
+                var manifest = new McvsOffline.Patcher.Pc.InstallManifest { Port = 51780, WrittenUtc = "2026-11-02T18:00:00Z" };
+                manifest.Patches.AddRange(new[] { "hook-pc", "headless", "gameload" });
+                File.WriteAllText(file, manifest.ToJson());
+                ICollection<string> applied = GamePatchProbe.AppliedPatches(root);
+                Assert.Equal(new[] { "gameload", "headless", "hook-pc" }, applied.OrderBy(x => x, StringComparer.Ordinal));
+                Assert.DoesNotContain("store", applied);
+
+                File.WriteAllText(file, "{ \"format\": 2, \"options\": { \"patches\": [\"store\"] } }");
+                Assert.Null(GamePatchProbe.AppliedPatches(root));
+                File.WriteAllText(file, "{ \"format\": 1, \"options\": { \"port\": 1 } }");
+                Assert.Null(GamePatchProbe.AppliedPatches(root));
+                File.WriteAllText(file, "not json");
+                Assert.Null(GamePatchProbe.AppliedPatches(root));
+            }
+            finally
+            {
+                Directory.Delete(root, true);
             }
         }
 

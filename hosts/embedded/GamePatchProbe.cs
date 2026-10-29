@@ -6,6 +6,8 @@ using System.IO;
 using System.Reflection;
 using System.Text;
 using McvsOffline.Server.Core;
+using McvsOffline.Server.Core.Json;
+using McvsOffline.Server.Core.Storage;
 
 namespace McvsOffline.Embedded
 {
@@ -143,32 +145,71 @@ namespace McvsOffline.Embedded
             return watcher;
         }
 
+        /// <summary>The value of a missing witness whose patch install.json does not list (an optional patch left out: not an error).</summary>
+        public const string NotApplied = "off (not applied)";
+
         /// <summary>
         /// "patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload yes, store yes" from the loaded assemblies ("NO" for a
-        /// missing witness, "unknown" for an assembly that is not loaded).
+        /// missing witness, "unknown" for an assembly that is not loaded). With <paramref name="applied"/> (install.json
+        /// <c>options.patches</c>), a missing witness of a patch the install did not apply is <see cref="NotApplied"/> instead of
+        /// "NO" (e.g. <c>--patch none</c> leaves out the default 'store'); null: every missing witness is "NO".
         /// </summary>
-        internal static string DescribePatches(Assembly engineBridge, Assembly engine, Assembly game)
+        internal static string DescribePatches(Assembly engineBridge, Assembly engine, Assembly game, ICollection<string> applied = null)
         {
             var sb = new StringBuilder("patches: ");
-            sb.Append("hook-pc ").Append(YesNo(engineBridge, a =>
+            sb.Append("hook-pc ").Append(YesNo(engineBridge, "hook-pc", applied, a =>
             {
                 Type type = a.GetType(HookPcType, false, false);
                 return type != null && type.GetMethod(HookPcMethod, BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static) != null;
             }));
-            sb.Append(", quicklaunch ").Append(YesNo(engine, a => a.GetType(QuickLaunchType, false, false) != null));
-            sb.Append(", headless-diag ").Append(YesNo(engine, a => a.GetType(WorldDiagnosticsType, false, false) != null));
-            sb.Append(", graphics ").Append(YesNo(engine, a => a.GetType(GraphicsType, false, false) != null));
-            sb.Append(", gameload ").Append(YesNo(engine, a => a.GetType(GameLoadType, false, false) != null));
-            sb.Append(", store ").Append(YesNo(game, a => a.GetType(StoreSafetyType, false, false) != null));
+            sb.Append(", quicklaunch ").Append(YesNo(engine, "quicklaunch", applied, a => a.GetType(QuickLaunchType, false, false) != null));
+            sb.Append(", headless-diag ").Append(YesNo(engine, "headless-diag", applied, a => a.GetType(WorldDiagnosticsType, false, false) != null));
+            sb.Append(", graphics ").Append(YesNo(engine, "graphics", applied, a => a.GetType(GraphicsType, false, false) != null));
+            sb.Append(", gameload ").Append(YesNo(engine, "gameload", applied, a => a.GetType(GameLoadType, false, false) != null));
+            sb.Append(", store ").Append(YesNo(game, "store", applied, a => a.GetType(StoreSafetyType, false, false) != null));
             return sb.ToString();
         }
 
-        private static string YesNo(Assembly assembly, Func<Assembly, bool> test)
+        /// <summary>
+        /// install.json's <c>options.patches</c> (every applied id) under <paramref name="gameRoot"/>\McvsOffline, or null when it is
+        /// missing, does not parse, has another format or no list (then every missing witness counts). Never throws.
+        /// </summary>
+        internal static ICollection<string> AppliedPatches(string gameRoot)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(gameRoot)) return null;
+                string path = Path.Combine(Path.Combine(gameRoot, EmbeddedPaths.DataFolderName), "install.json");
+                string text = AtomicFile.ReadAllTextOrNull(path);
+                object parsed;
+                if (text == null || !MiniJson.TryParse(text, out parsed)) return null;
+                var root = parsed as Dictionary<string, object>;
+                object value;
+                if (root == null || !root.TryGetValue("format", out value) || !(value is long) || (long)value != 1) return null;
+                var options = root.TryGetValue("options", out value) ? value as Dictionary<string, object> : null;
+                var list = options != null && options.TryGetValue("patches", out value) ? value as List<object> : null;
+                if (list == null) return null;
+                var ids = new HashSet<string>(StringComparer.Ordinal);
+                foreach (object id in list)
+                {
+                    var s = id as string;
+                    if (s != null) ids.Add(s);
+                }
+                return ids;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        private static string YesNo(Assembly assembly, string id, ICollection<string> applied, Func<Assembly, bool> test)
         {
             if (assembly == null) return "unknown (not loaded)";
             try
             {
-                return test(assembly) ? "yes" : "NO";
+                if (test(assembly)) return "yes";
+                return applied != null && !applied.Contains(id) ? NotApplied : "NO";
             }
             catch (Exception ex)
             {
@@ -222,6 +263,9 @@ namespace McvsOffline.Embedded
 
         /// <summary>The file an assembly came from instead of <c>Assembly.Location</c> (tests: a sandbox assembly has none).</summary>
         internal Func<Assembly, string> LocationOf { get; set; }
+
+        /// <summary>install.json's applied ids for the game root instead of <see cref="GamePatchProbe.AppliedPatches"/> (tests).</summary>
+        internal Func<string, ICollection<string>> AppliedOf { get; set; }
 
         /// <summary>The "patches:" line once written, else null.</summary>
         public string PatchesLine { get; private set; }
@@ -335,7 +379,8 @@ namespace McvsOffline.Embedded
             }
             if (writePatches)
             {
-                string line = GamePatchProbe.DescribePatches(engineBridge, engine, game);
+                Func<string, ICollection<string>> appliedOf = AppliedOf ?? GamePatchProbe.AppliedPatches;
+                string line = GamePatchProbe.DescribePatches(engineBridge, engine, game, appliedOf(gameRoot));
                 PatchesLine = line;
                 if (line.IndexOf(" NO", StringComparison.Ordinal) >= 0)
                 {

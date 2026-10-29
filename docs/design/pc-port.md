@@ -409,7 +409,7 @@ it keeps under `%APPDATA%` (read through `getenv("APPDATA")`), its crash logs un
 |---|---|---|
 | `[boot] runtime: CLR <v>, mscorlib <file version>, Release <n> (<name>), <FrameworkDescription>; process x86, LAA no; OS <build>` | WP2 host | once at start (PC) |
 | `[boot] assemblies: EngineBridge <path> (McvsOffline\bin\|GAME FOLDER), Gameloft.Engine …, Game …, Gameloft.Util …, McvsOffline.Server …` | WP2 host | as each loads (`AppDomain.AssemblyLoad`); `GAME FOLDER` is a WARN (the redirect did not apply, Q1) |
-| `[boot] patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, store yes` | WP2 host (`GamePatchProbe`, witnesses of §3.9) | once `Game` and `Gameloft.Engine` are loaded |
+| `[boot] patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload yes, store yes` | WP2 host (`GamePatchProbe`, witnesses of §3.9) | once `Game` and `Gameloft.Engine` are loaded; a missing witness is `NO`, or `off (not applied)` when `install.json` `options.patches` does not list that patch (`--patch none` leaves out the default `store`) |
 | `[boot] <name>_args.txt present: the engine ignores args.txt` | WP2 host | WARN at start when a `*_args.txt` is in the game folder (also in the status) |
 | `[boot] install: current` / WARN `[boot] install: stale: …` | WP2 host | optional boot check (§6.2) |
 | `[pc] quicklaunch: …` | `PcHooks` | §8.3 |
@@ -1066,7 +1066,8 @@ ours); whether the game runs;
 data folder size, settings `port` versus `install.json` `options.port`; the last `bootstrap.log` line.
 **Activation** (WR2 F2: the files can be current while the game runs its own): the last start in `bootstrap.log` (from its
 last "embedded host starting" line) is judged by its `[boot] assemblies:` and `patches:` lines (`PcBootActivation`). An
-assembly not from `McvsOffline\bin` or a witness that says `NO` makes a `current` install `installed, NOT ACTIVE (Game
+assembly not from `McvsOffline\bin` or a witness that says `NO` (of a patch `install.json` lists as applied, the rule of
+the re-read below; `store NO` after `--patch none` is not a reason) makes a `current` install `installed, NOT ACTIVE (Game
 loaded from the game folder; …)`, with an `ERROR:` line and the start's lines; a start older than `install.json`'s
 `writtenUtc` is not judged ("not started since the install"); a start that did not load Game is "unknown". The
 `activation:` line says which. STALE, DAMAGED and PARTIAL keep their state (the reason is still an error).

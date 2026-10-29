@@ -989,7 +989,9 @@ namespace McvsOffline.Patcher.Pc
         /// </summary>
         private static void Activation(PcStatusReport r, string bootstrap)
         {
-            PcBootActivation boot = PcBootActivation.Read(bootstrap);
+            // Only the witnesses of applied patches count (CheckWritten's rule): --patch none leaves out the default 'store'.
+            List<string> applied = r.Manifest != null && r.Manifest.Patches.Count > 0 ? r.Manifest.Patches : null;
+            PcBootActivation boot = PcBootActivation.Read(bootstrap, applied);
             if (boot == null) return;
             if (r.Manifest != null && boot.StartedBefore(r.Manifest.WrittenUtc))
             {
