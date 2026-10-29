@@ -71,6 +71,14 @@ namespace McvsOffline.Server.Services.Admin
             copy.Help = help ?? "";
             return copy;
         }
+
+        /// <summary>A copy with another help text and confirmation text (a platform's wording of the same key).</summary>
+        internal SettingDefinition WithHelp(string help, string confirm)
+        {
+            SettingDefinition copy = WithHelp(help);
+            copy.Confirm = confirm;
+            return copy;
+        }
     }
 
     /// <summary>
@@ -217,10 +225,27 @@ namespace McvsOffline.Server.Services.Admin
 
         private const string WindowsAdvancedAfter = "embedded.physics.stepGateTimeoutMs";
 
+        // GameOptions_windows.json, profiles.GPU.selection: HighGPU for the listed cards or GPUMEM>=700, CORES>=4 and feature level
+        // above 9.3; MidGPU for the listed cards or GPUMEM>=550, MEM_T>=4000, CORES>=4 and above 9.3; LowGPU930 at 9.3; else LowGPU.
+        // The native GameOptions init then applies MyLocalStorage › Performance (the in-game Graphics quality) on top.
         private const string WindowsGraphicsProfileHelp =
-            "Which of Gameloft's own GPU profiles the game uses. Auto: the game's choice for this PC (MidGPU on graphics cards "
-            + "it does not know). Mid: MidGPU. High: HighGPU (normal maps, full lightmaps, shadows, bloom). Ultra: HighGPU on PC, "
-            + "which has no High_Ultra. Needs a build with the 'graphics' patch.";
+            "Which of Gameloft's own GPU profiles the game uses. Auto: the game's choice for this PC; on graphics cards not in "
+            + "Gameloft's list it picks HighGPU only with at least 700 MB of GPU memory and 4 cores, MidGPU with at least 550 MB "
+            + "of GPU memory, 4 GB of RAM and 4 cores, otherwise LowGPU (most integrated graphics). The in-game Graphics quality "
+            + "(Settings › Graphics) overrides it. Mid: MidGPU. High: HighGPU (normal maps, full lightmaps, shadows, bloom); it "
+            + "costs memory, and the game is a 32-bit process with 2 GB at most. Ultra: HighGPU on PC, which has no High_Ultra. "
+            + "Needs a build with the 'graphics' patch.";
+
+        // No GPU block of GameOptions_windows.json sets excludedLoadingLayers (only MEM LowEnd does, and the MEM rule keeps Physics):
+        // the one world option a High profile moves on PC is reducedAiUpdateFrequency.
+        private const string WindowsFullProfileHelp =
+            "Off: High and Ultra keep the bots' AI update rate at the Mid value, because the match servers in the game share it. "
+            + "On: Gameloft's profile as it is, so bots think twice as often. On PC this is the only difference: the levels' "
+            + "Physics layer follows 'Keep the levels' Physics layer' (Advanced), not this switch.";
+
+        private const string WindowsFullProfileConfirm =
+            "This also changes the match servers inside the game: they run bot AI twice as often. If matches stall or stutter, "
+            + "turn it off again.";
 
         private const string WindowsKeepStartsHelp =
             "At every start the game deletes the logs of older starts: in McvsOffline\\logs and %TEMP%\\McvsOffline\\logs (server, "
@@ -237,7 +262,7 @@ namespace McvsOffline.Server.Services.Admin
         /// The page's groups as <paramref name="platform"/> (<c>AdminHostInfo.Platform</c>) shows them (§4.6 of
         /// docs/design/pc-port.md). On <see cref="PlatformWindows"/>: no <c>hd.*</c>, <c>install.*</c>,
         /// <c>notifications.*</c>, <c>diagnostics.publicLogCopy</c>, <c>diagnostics.threadDump</c> or
-        /// <c>admin.accountMenu.hideDeadButtons</c> entry (labels and settings), the PC wording of <c>graphics.profile</c>
+        /// <c>admin.accountMenu.hideDeadButtons</c> entry (labels and settings), the PC wording of <c>graphics.profile</c>, <c>graphics.fullProfile</c>
         /// and <c>logging.keepStarts</c>, and <c>embedded.physics.keepPhysicsLayer</c> among the
         /// read-only keys. Any other platform (android, directory, none) gets exactly <see cref="Groups"/>,
         /// <see cref="Keys"/> and <see cref="AdvancedKeys"/>.
@@ -281,6 +306,7 @@ namespace McvsOffline.Server.Services.Admin
                         }
                         if (HiddenOnWindows(def.Key)) continue;
                         if (def.Key == "graphics.profile") view.Keys.Add(def.WithHelp(WindowsGraphicsProfileHelp));
+                        else if (def.Key == "graphics.fullProfile") view.Keys.Add(def.WithHelp(WindowsFullProfileHelp, WindowsFullProfileConfirm));
                         else if (def.Key == "logging.keepStarts") view.Keys.Add(def.WithHelp(WindowsKeepStartsHelp));
                         else view.Keys.Add(def);
                     }
