@@ -17,7 +17,8 @@ namespace McvsOffline.Server.Core.Content
     /// Read-only access to the game's downloaded data pack, i.e. the player's own
     /// <c>&lt;GlfRootPath&gt;/Data</c> directory (report 11). Files are addressed by their logical path
     /// ("Config/crmpreconfiguration.json"); the on-disk name is <c>"%x" % crc32(path)</c> with the first hex digit
-    /// as directory ("b/de76cd6.f"). GCBF containers are decoded transparently; raw files are returned as is.
+    /// as directory ("b/de76cd6.f") on Android, and the same crc32 in decimal in one flat folder ("187993782.f") in the
+    /// Steam (PC) install's <c>Data</c>. GCBF containers are decoded transparently; raw files are returned as is.
     /// A directory holding the decoded tree (plain logical paths) works too.
     /// Nothing read from here may be redistributed; it is only used at runtime on the player's device.
     /// </summary>
@@ -49,13 +50,29 @@ namespace McvsOffline.Server.Core.Content
             return hex.Substring(0, 1) + "/" + hex.Substring(1) + ".f";
         }
 
-        /// <summary>Full path of the file backing <paramref name="logicalPath"/>, or null if it is not in the pack.</summary>
+        /// <summary>
+        /// The flat decimal name the PC (Steam) pack uses for a logical path, e.g. "Config/glue.json" → "187993782.f":
+        /// the same crc32 as <see cref="HashedPath"/>, in decimal, without a directory (docs/design/pc-port.md §4.5).
+        /// </summary>
+        public static string DecimalPath(string logicalPath)
+        {
+            uint crc = Crc32.Compute(Encoding.UTF8.GetBytes(logicalPath));
+            return crc.ToString(CultureInfo.InvariantCulture) + ".f";
+        }
+
+        /// <summary>
+        /// Full path of the file backing <paramref name="logicalPath"/>, or null if it is not in the pack. Tried in this
+        /// order: the Android layout (<see cref="HashedPath"/>), the PC layout (<see cref="DecimalPath"/>), the plain name
+        /// (MCVS.game, Config/EngineConfig.json on both, and decoded trees).
+        /// </summary>
         public string Locate(string logicalPath)
         {
             if (string.IsNullOrEmpty(logicalPath)) return null;
             string logical = logicalPath.Replace('\\', '/').TrimStart('/');
             string hashed = Path.Combine(DataDirectory, HashedPath(logical).Replace('/', Path.DirectorySeparatorChar));
             if (File.Exists(hashed)) return hashed;
+            string flat = Path.Combine(DataDirectory, DecimalPath(logical));
+            if (File.Exists(flat)) return flat;
             // Unhashed files (MCVS.game, Config/EngineConfig.json) and decoded trees.
             string plain = Path.Combine(DataDirectory, logical.Replace('/', Path.DirectorySeparatorChar));
             return File.Exists(plain) ? plain : null;

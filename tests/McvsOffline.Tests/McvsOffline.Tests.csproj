@@ -21,5 +21,15 @@
     <!-- The collector conformance tests run the player's Game.dll with the patcher's default 'store' patch applied in
          memory (Conformance/RealTables.cs), as the Embed tests' RealStorePatchTests do. -->
     <ProjectReference Include="../../patcher/McvsOffline.Patcher.csproj" />
+    <!-- Built first, never referenced: PcEmbeddedAssemblyTests checks the PC server DLL of this configuration
+         (docs/design/pc-port.md §12.1). It needs no game file. -->
+    <ProjectReference Include="../../server/McvsOffline.Server.Pc.csproj" ReferenceOutputAssembly="false"
+                      SkipGetTargetFrameworkProperties="true" Private="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The PC client's Newtonsoft.Json 7.0.1 is the net45 build, which needs System.Security.Permissions on net8 (the
+         real-client harness on the Steam DLLs, docs/design/pc-port.md §4.7). Same public key token as the framework's. -->
+    <PackageReference Include="System.Security.Permissions" Version="8.0.0" />
   </ItemGroup>
 </Project>

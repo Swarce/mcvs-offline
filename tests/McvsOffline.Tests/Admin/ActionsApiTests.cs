@@ -229,5 +229,48 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal(501, rig.Client.Post("clipboard", new Dictionary<string, object> { ["text"] = "x" }).StatusCode);
             Assert.Equal(400, rig.Client.Post("clipboard", "{}").StatusCode);
         }
+
+        /// <summary>PC (docs/design/pc-port.md §4.6, §6.5): a fresh page URL with the "browser" trigger goes to the host.</summary>
+        [Fact]
+        public void OpenInBrowserMintsAFreshUrlForTheHost()
+        {
+            using var rig = new Rig();
+            Assert.Equal(501, rig.Client.Post("actions/open-in-browser", "{}").StatusCode); // Android: no such capability
+
+            rig.Host.Info.Platform = "windows";
+            rig.Host.Info.CanOpenInBrowser = true;
+            var ok = rig.Client.Post("actions/open-in-browser", new Dictionary<string, object> { ["screen"] = "saves" });
+            Assert.Equal(200, ok.StatusCode);
+            Assert.Equal(true, AdminTestClient.At(ok, "ok"));
+            Assert.Contains("OpenPage:browser", rig.Host.Calls);
+            string url = rig.Host.OpenedUrls.Last();
+            Assert.StartsWith("http://127.0.0.1:", url);
+            Assert.Contains("/_mcvs/ui/#t=", url);
+            Assert.EndsWith("&s=saves", url);
+
+            // A second call mints another one-time ticket; an unknown screen is left out.
+            Assert.Equal(200, rig.Client.Post("actions/open-in-browser", new Dictionary<string, object> { ["screen"] = "../x" }).StatusCode);
+            string second = rig.Host.OpenedUrls.Last();
+            Assert.NotEqual(url, second);
+            Assert.DoesNotContain("&s=", second);
+
+            rig.Host.OpenPageResult = false;
+            var failed = rig.Client.Post("actions/open-in-browser", "{}");
+            Assert.Equal(200, failed.StatusCode);
+            Assert.Equal(false, AdminTestClient.At(failed, "ok"));
+
+            // The page shows the action from the status capabilities.
+            Assert.Equal(true, AdminTestClient.At(rig.Client.Get("status"), "host.capabilities.openInBrowser"));
+        }
+
+        [Fact]
+        public void OpenInBrowserNeedsTheSession()
+        {
+            using var rig = new Rig();
+            rig.Host.Info.CanOpenInBrowser = true;
+            var anonymous = new AdminTestClient(rig.Server);
+            Assert.Equal(401, anonymous.Post("actions/open-in-browser", "{}").StatusCode);
+            Assert.DoesNotContain("OpenPage:browser", rig.Host.Calls);
+        }
     }
 }

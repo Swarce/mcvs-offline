@@ -34,6 +34,12 @@ Built by `CrmDocumentBuilder`, layers in order (last wins):
    our server starts before the Java installer downloaded `Data/`) it is retried every 10 s; a corrupt file is ignored
    until restart. At load we drop the ~175 KB of empty `_OverrideTables` changers and the iap catalogues we do not use.
    Without it the document is built from our content alone and is still complete.
+   **PC (Steam).** The install's `Data\` is flat: the same crc32 in decimal, no directory (`Data\3186060502.f` for
+   `Config/crmpreconfiguration.json`, `187993782.f` for `Config/glue.json`, `462043511.f` for
+   `GameOptions_windows.json`; 15,922 entries), with `MCVS.game` and `Config/EngineConfig.json` under their own names.
+   `DataPack.Locate` tries the Android hex layout, then the decimal one (`DataPack.DecimalPath`), then the plain name, so
+   the same code reads both packs (docs/design/pc-port.md §4.5). On PC the host hands the server the game folder's
+   `Data\`, which makes the `<data>/../Data` fallback unnecessary there (it stays for the standalone host).
 2. **`crm_overlay.json`**: `13yolimitationpopup.enabled=false`, `ReviewPopupParams.Ignore=true`,
    `CrashlyticsParams.Enable=false`, `_OverrideTables.MCVS_System.GameFeatures["Id@Enabled"]["RedeemCoupons"]="1"`,
    `_ServerConfig.default` with `IsDevelopment:false`, `DisableServerTracking*:true`, `UnsupportedLinkFrom/To:[]`;
@@ -72,8 +78,13 @@ Built by `CrmDocumentBuilder`, layers in order (last wins):
 6. `crm.overlay` from settings.json, deep-merged.
 6b. **Inbox item** (`newsfeeds`, build 9; [../design/settings-page.md](../design/settings-page.md) §9.1): one entry
    `{"news_id": "mcvsoffline_FromMCVS", "title": "MCVS Offline", "body": ..., "redirect": "http://127.0.0.1:<port>/_mcvs/ui/#news",
-   "asset": "", "youtube": "", "timestamp": <Monday 00:00 UTC of this week>}` appended to an overlay's `newsfeeds`
-   (replacing an entry with the same `news_id`). The inbox shows it as the message "MCVS Offline" from "MCVS"; its button
+   "asset": "", "youtube": "", "timestamp": <Monday 00:00 UTC of this week>, "end_date": <that Monday + 37 days, ISO 8601>}`
+   appended to an overlay's `newsfeeds` (replacing an entry with the same `news_id`). `end_date` exists for the PC
+   client: its inbox gives a message whose creation date differs from its item's (ours moves every Monday) the item's
+   `EndDate` as expiry (`PC-GM/InboxComponent.cs:465-491`), and without `end_date` that is `default(DateTime)`, so the
+   message vanished at every week rollover; on Android it only replaces the inbox's own now + 30 days expiry
+   (docs/design/pc-port.md §4.3). On PC, overlay newsfeed items with the same `asset` share the first one's `EndDate`.
+   The inbox shows it as the message "MCVS Offline" from "MCVS"; its button
    opens the page through the `adminlink` patch. `redirect` is a fixed marker, **never a secret**: `configs/users/me`
    answers anyone. With `crm.newsfeedLink` false, `admin.enabled` false or no admin module the list is `"newsfeeds": []`
    (never absent: the inbox removes an old message only when the key is there). `CrmDocumentValidator.Sanitize` keeps

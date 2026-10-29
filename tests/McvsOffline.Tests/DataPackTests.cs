@@ -43,6 +43,107 @@ namespace McvsOffline.Tests
             Assert.Equal(hashed, DataPack.HashedPath(logical));
         }
 
+        [Theory]
+        [InlineData("Config/glue.json", "187993782.f")]                 // the PC (Steam) pack: flat, decimal ([ES-V] claim 11)
+        [InlineData("Config/crmpreconfiguration.json", "3186060502.f")]
+        [InlineData("GameOptions_windows.json", "462043511.f")]
+        [InlineData("Config/Settings.tx", "3390017736.f")]             // 0xca0f90c8, "c/a0f90c8.f" on Android
+        public void LogicalPathsHashToPcNames(string logical, string flat)
+        {
+            Assert.Equal(flat, DataPack.DecimalPath(logical));
+            // One crc32, two spellings: "c/a0f90c8.f" on Android is 0xca0f90c8.
+            string hex = DataPack.HashedPath(logical).Replace("/", "").Replace(".f", "");
+            Assert.Equal(Convert.ToUInt32(hex, 16).ToString(System.Globalization.CultureInfo.InvariantCulture) + ".f", flat);
+        }
+
+        /// <summary>The three layouts on synthetic folders: Android hex directories, PC flat decimal names, plain names.</summary>
+        [Theory]
+        [InlineData("hex")]
+        [InlineData("decimal")]
+        [InlineData("plain")]
+        public void DataPackReadsEveryLayout(string layout)
+        {
+            using var dir = new TempDir();
+            string data = dir.Combine("Data");
+            Directory.CreateDirectory(Path.Combine(data, "Config"));
+            File.WriteAllText(Path.Combine(data, "MCVS.game"), "{}");
+            File.WriteAllText(Path.Combine(data, "Config", "EngineConfig.json"), "{\"plain\":true}");
+            const string logical = "Config/glue.json";
+            byte[] json = Encoding.UTF8.GetBytes("{\"layout\":\"" + layout + "\"}");
+            string file = layout == "hex" ? Path.Combine(data, DataPack.HashedPath(logical))
+                        : layout == "decimal" ? Path.Combine(data, DataPack.DecimalPath(logical))
+                        : Path.Combine(data, "Config", "glue.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(file));
+            File.WriteAllBytes(file, layout == "plain" ? json : BuildGcbf((CodecRaw, json, json)));
+
+            var pack = new DataPack(dir.Path);
+            Assert.True(pack.IsValid);
+            Assert.Equal(Path.GetFullPath(file), pack.Locate(logical));
+            Assert.True(pack.TryReadText(logical, out string text));
+            Assert.Equal("{\"layout\":\"" + layout + "\"}", text);
+            Assert.True(pack.TryReadText("Config/EngineConfig.json", out string engine)); // plain on every platform
+            Assert.Contains("plain", engine);
+            Assert.Null(pack.Locate("Config/missing.json"));
+        }
+
+        [Fact]
+        public void TheHexLayoutWinsThenTheDecimalOneThenThePlainName()
+        {
+            using var dir = new TempDir();
+            string data = dir.Combine("Data");
+            Directory.CreateDirectory(Path.Combine(data, "Config"));
+            File.WriteAllText(Path.Combine(data, "MCVS.game"), "{}");
+            const string logical = "Config/glue.json";
+            string hex = Path.Combine(data, DataPack.HashedPath(logical));
+            string flat = Path.Combine(data, DataPack.DecimalPath(logical));
+            string plain = Path.Combine(data, "Config", "glue.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(hex));
+            File.WriteAllText(plain, "plain");
+            var pack = new DataPack(data);
+            Assert.Equal(plain, pack.Locate(logical));
+            File.WriteAllText(flat, "decimal");
+            Assert.Equal(flat, pack.Locate(logical));
+            File.WriteAllText(hex, "hex");
+            Assert.Equal(hex, pack.Locate(logical));
+        }
+
+        /// <summary>
+        /// The Steam install's own pack (MCVS_PC_REFS, default /home/user/mcvs-work/pc/install, read only): flat decimal
+        /// names. Skips without it, unless MCVS_REQUIRE_PC=1.
+        /// </summary>
+        [Fact]
+        public void RealPcDataPackDecodes()
+        {
+            string install = Environment.GetEnvironmentVariable("MCVS_PC_REFS");
+            if (string.IsNullOrEmpty(install)) install = "/home/user/mcvs-work/pc/install";
+            string data = Path.Combine(install, "Data");
+            if (!File.Exists(Path.Combine(data, "MCVS.game")))
+            {
+                Assert.True(Environment.GetEnvironmentVariable("MCVS_REQUIRE_PC") != "1", "MCVS_REQUIRE_PC=1 but " + data + " has no MCVS.game");
+                output.WriteLine("no PC data pack in " + data + ": skipped");
+                return;
+            }
+            var pack = new DataPack(install); // the install folder, the parent of Data/
+            Assert.True(pack.IsValid);
+            Assert.Equal(Path.Combine(pack.DataDirectory, "187993782.f"), pack.Locate("Config/glue.json"));
+            Assert.Equal(Path.Combine(pack.DataDirectory, "462043511.f"), pack.Locate("GameOptions_windows.json"));
+            // Most PC entries are GCBF containers (SceneComponents.tx, Config/Settings.tx); the CRM preconfiguration is raw JSON.
+            Assert.True(Gcbf.IsGcbf(File.ReadAllBytes(pack.Locate("SceneComponents.tx"))));
+            Assert.True(pack.TryRead("SceneComponents.tx", out byte[] scene));
+            Assert.True(scene.Length > 1000);
+            Assert.True(pack.TryReadText("Config/crmpreconfiguration.json", out string crm));
+            var doc = MiniJson.ParseObject(crm);
+            Assert.True(doc.ContainsKey("game"));
+            Assert.True(doc.ContainsKey("offline_store"));
+            Assert.True(pack.TryReadText("Config/glue.json", out string glue));
+            Assert.NotNull(MiniJson.Parse(glue));
+            Assert.True(pack.TryReadText("GameOptions_windows.json", out string options));
+            Assert.NotNull(MiniJson.Parse(options));
+            Assert.True(pack.TryReadText("Config/EngineConfig.json", out string engine)); // the plain name
+            Assert.NotEmpty(engine);
+            output.WriteLine("crmpreconfiguration.json: " + crm.Length + " chars; GameOptions_windows.json: " + options.Length + " chars");
+        }
+
         [Fact]
         public void Lz4LiteralOnlyBlock()
         {

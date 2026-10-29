@@ -239,6 +239,30 @@ namespace McvsOffline.Tests.Content
             Assert.Equal(0, CrmDocumentValidator.Sanitize(doc, Log.Null));
         }
 
+        /// <summary>
+        /// PC: items sharing an asset inherit the first one's EndDate (pc-port.md §4.3); the validator warns when that first
+        /// item has none, and changes nothing.
+        /// </summary>
+        [Fact]
+        public void SanitizeWarnsWhenItemsShareAnAssetWithoutAnEndDate()
+        {
+            var doc = MiniJson.ParseObject(@"{""newsfeeds"":[
+                {""news_id"":""a"",""asset"":""x"",""timestamp"":1792972800},
+                {""news_id"":""b"",""asset"":""x"",""timestamp"":1792972800},
+                {""news_id"":""c"",""asset"":""y"",""timestamp"":1792972800,""end_date"":""2026-12-02T00:00:00Z""},
+                {""news_id"":""d"",""asset"":""y"",""timestamp"":1792972800},
+                {""news_id"":""e"",""asset"":""z"",""timestamp"":1792972800}]}");
+            string before = MiniJson.Serialize(doc);
+            var logs = new MemoryLogSink();
+            var logger = new Logger();
+            logger.AddSink(logs);
+            Assert.Equal(0, CrmDocumentValidator.Sanitize(doc, logger.For("crm")));
+            Assert.Equal(before, MiniJson.Serialize(doc));
+            LogEntry warning = Assert.Single(logs.Snapshot());
+            Assert.Equal(LogLevel.Warn, warning.Level);
+            Assert.Contains("newsfeed 'b' shares asset \"x\" with 'a', which has no end_date", warning.Message);
+        }
+
         [Theory]
         [InlineData("null")]
         [InlineData("\"x\"")]

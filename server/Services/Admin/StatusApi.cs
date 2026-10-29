@@ -130,6 +130,7 @@ namespace McvsOffline.Server.Services.Admin
             caps["toast"] = info.CanToast;
             caps["save"] = info.CanSave;
             caps["exit"] = info.CanExit;
+            caps["openInBrowser"] = info.CanOpenInBrowser;
             host["capabilities"] = caps;
             return host;
         }
