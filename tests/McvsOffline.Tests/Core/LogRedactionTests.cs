@@ -134,6 +134,21 @@ namespace McvsOffline.Tests.Core
             Assert.Equal(expected, LogRedaction.Redact(input));
         }
 
+        [Theory]
+        // A JSON text inside a JSON string (unknown-endpoints.jsonl stores bodies that way): the quotes arrive as \"
+        [InlineData("{\"body\":\"{\\\"device_id\\\":\\\"04:BF:1B:6C:B9:62\\\"}\"}", "{\"body\":\"{\\\"device_id\\\":\\\"<redacted-mac>\\\"}\"}")]
+        [InlineData("\"{\\\"global_device_id\\\" : \\\"04-bf-1b-6c-b9-62\\\"}\"", "\"{\\\"global_device_id\\\" : \\\"<redacted-mac>\\\"}\"")]
+        [InlineData("\"{\\\"password\\\":\\\"hunter22\\\",\\\"x\\\":1}\"", "\"{\\\"password\\\":\\\"hunt…<redacted>\\\",\\\"x\\\":1}\"")]
+        [InlineData("\"{\\\"ticket\\\":\\\"" + Ticket + "\\\"}\"", "\"{\\\"ticket\\\":\\\"<redacted>\\\"}\"")]
+        // an escaped quote inside the escaped value (\\\" in the outer text) does not end the value
+        [InlineData("\"{\\\"token\\\":\\\"a\\\\\\\"bcdef\\\"}\"", "\"{\\\"token\\\":\\\"a\\\\…<redacted>\\\"}\"")]
+        [InlineData("\"{\\\"device_id\\\":\\\"mcvs0123\\\"}\"", "\"{\\\"device_id\\\":\\\"mcvs0123\\\"}\"")]
+        public void RedactsJsonEscapedIntoAJsonString(string input, string expected)
+        {
+            Assert.Equal(expected, LogRedaction.Redact(input));
+            Assert.Equal(expected, LogRedaction.Redact(expected));
+        }
+
         [Fact]
         public void TheNewRulesAreIdempotentAndKeepTheFastPath()
         {

@@ -82,6 +82,28 @@ namespace McvsOffline.Tests.Core
         }
 
         [Fact]
+        public void AJsonBodyOfAnUnknownEndpointKeepsNoMacInTheJsonlFile()
+        {
+            // unknown-endpoints.jsonl stores a non-form body as a JSON string, so the body's quotes arrive escaped (\").
+            using var dir = new TempDir();
+            string jsonl = dir.Combine("logs", "unknown-endpoints.jsonl");
+            Directory.CreateDirectory(Path.GetDirectoryName(jsonl));
+            using (var requestLogger = new RequestLogger(new Logger(), jsonl, () => 64 * 1024))
+            {
+                HttpRequest request = HttpRequest.Create("POST", "/tracker/json",
+                    "{\"device_id\":\"" + Mac + "\",\"global_device_id\" : \"04-BF-1B-6C-B9-62\",\"password\":\"hunter22\",\"user\":\"" + SteamId + "\"}",
+                    "application/json");
+                requestLogger.LogUnknown(request, "no route");
+            }
+
+            string file = File.ReadAllText(jsonl);
+            Assert.Contains("\\\"device_id\\\":\\\"<redacted-mac>\\\"", file);
+            Assert.Contains("\\\"password\\\":\\\"hunt…<redacted>\\\"", file);
+            AssertClean(file);
+            Assert.DoesNotContain("hunter22", file);
+        }
+
+        [Fact]
         public void TheConnectivityRouteLogsNoMacEither()
         {
             using var server = new MiscServer();

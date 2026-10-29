@@ -21,6 +21,8 @@ namespace McvsOffline.Server.Core.Http
     /// <item>a SteamID64 (exactly 17 digits starting with <c>7656119</c>, no letter or digit around it) → its first and
     /// last 4 digits, <c>7656…8514</c> (the PC client's anonymous user name).</item>
     /// </list>
+    /// The JSON rules also match one level deeper, where a JSON text sits inside a JSON string and its quotes arrive as
+    /// <c>\"</c> (unknown-endpoints.jsonl stores a request body that way).
     /// Redacting twice gives the same text as redacting once (log files are redacted when written and again when read).
     /// Fast path: when none of the trigger substrings occurs (ordinal search) the input instance is returned unchanged;
     /// otherwise one linear scan, no regular expressions (the game's trimmed System.dll). Never throws.
@@ -128,7 +130,8 @@ namespace McvsOffline.Server.Core.Http
                 }
                 return false;
             }
-            if (c == '"') return TryJsonMember(text, i, out replacement, out end) || TryJsonDeviceId(text, i, out replacement, out end);
+            if (c == '"' || c == '\\')
+                return QuoteAt(text, i) > 0 && (TryJsonMember(text, i, out replacement, out end) || TryJsonDeviceId(text, i, out replacement, out end));
             if (c == '7') return TrySteamId(text, i, out replacement, out end);
             if (!IsBoundary(text, i)) return false;
             if ((c == 'd' || c == 'D' || c == 'g' || c == 'G') && TryDeviceIdParameter(text, i, out replacement, out end)) return true;
@@ -180,32 +183,79 @@ namespace McvsOffline.Server.Core.Http
             return true;
         }
 
-        /// <summary><c>"name" : "value"</c> for "ticket" (whole value) or a secret name (first characters kept).</summary>
+        /// <summary>
+        /// <c>"name" : "value"</c> for "ticket" (whole value) or a secret name (first characters kept); also with every
+        /// quote written <c>\"</c>.
+        /// </summary>
         private static bool TryJsonMember(string text, int i, out string replacement, out int end)
         {
             replacement = null;
             end = i;
-            bool ticket = AtIgnoreCase(text, i + 1, "ticket\"");
-            string name = ticket ? "ticket" : SecretNameAt(text, i + 1);
+            int quote = QuoteAt(text, i);
+            int n = i + quote;
+            bool ticket = AtIgnoreCase(text, n, "ticket") && QuoteAt(text, n + 6) == quote;
+            string name = ticket ? "ticket" : SecretNameAt(text, n);
             if (name == null) return false;
-            int p = i + 1 + name.Length;
-            if (p >= text.Length || text[p] != '"') return false;
-            int q = SkipSpaces(text, p + 1);
-            if (q >= text.Length || text[q] != ':') return false;
-            int open = SkipSpaces(text, q + 1);
-            if (open >= text.Length || text[open] != '"') return false;
-            int close = open + 1;
-            while (close < text.Length && text[close] != '"')
-            {
-                if (text[close] == '\\') close++;
-                close++;
-            }
-            if (close >= text.Length) close = text.Length; // unterminated: redact to the end
-            string value = text.Substring(open + 1, Math.Min(close, text.Length) - open - 1);
+            int start = JsonValueStart(text, n + name.Length, quote);
+            if (start < 0) return false;
+            int close = JsonStringEnd(text, start, quote == 2);
+            string value = text.Substring(start, close - start);
             if (value.Length == 0 || value == Marker || value.EndsWith(PartialMarker, StringComparison.Ordinal)) return false;
-            replacement = text.Substring(i, open + 1 - i) + (ticket ? Marker : Partial(value));
-            end = open + 1 + value.Length;
+            replacement = text.Substring(i, start - i) + (ticket ? Marker : Partial(value));
+            end = close;
             return true;
+        }
+
+        /// <summary>The length of a JSON quote at <paramref name="i"/>: 1 for <c>"</c>, 2 for <c>\"</c>, else 0.</summary>
+        private static int QuoteAt(string text, int i)
+        {
+            if (i < 0 || i >= text.Length) return 0;
+            if (text[i] == '"') return 1;
+            return text[i] == '\\' && i + 1 < text.Length && text[i + 1] == '"' ? 2 : 0;
+        }
+
+        /// <summary>
+        /// After a member name that ends at <paramref name="p"/>: its closing quote, ':' and the opening quote of a string
+        /// value, all quotes of length <paramref name="quote"/>; the index of the value's first character, else -1.
+        /// </summary>
+        private static int JsonValueStart(string text, int p, int quote)
+        {
+            if (QuoteAt(text, p) != quote) return -1;
+            int q = SkipSpaces(text, p + quote);
+            if (q >= text.Length || text[q] != ':') return -1;
+            int open = SkipSpaces(text, q + 1);
+            return QuoteAt(text, open) == quote ? open + quote : -1;
+        }
+
+        /// <summary>
+        /// The index of the quote that ends a JSON string value starting at <paramref name="start"/>, or the text's length
+        /// when it is unterminated. <paramref name="escaped"/>: the value sits one level deeper (closed by <c>\"</c>), so
+        /// each <c>\x</c> of the outer text is one character of the inner string, and an inner backslash escapes the inner
+        /// character after it.
+        /// </summary>
+        private static int JsonStringEnd(string text, int start, bool escaped)
+        {
+            int p = start;
+            while (p < text.Length)
+            {
+                char c = text[p];
+                if (!escaped)
+                {
+                    if (c == '"') return p;
+                    p += c == '\\' ? 2 : 1;
+                    continue;
+                }
+                if (c != '\\')
+                {
+                    p++;
+                    continue;
+                }
+                if (p + 1 < text.Length && text[p + 1] == '"') return p;
+                bool innerBackslash = p + 1 < text.Length && text[p + 1] == '\\';
+                p += 2;
+                if (innerBackslash && p < text.Length) p += text[p] == '\\' ? 2 : 1; // the inner character it escapes
+            }
+            return text.Length;
         }
 
         /// <summary><c>device_id=&lt;MAC&gt;</c> or <c>device_id = &lt;MAC&gt;</c> (also <c>global_device_id</c>).</summary>
@@ -227,23 +277,20 @@ namespace McvsOffline.Server.Core.Http
             return true;
         }
 
-        /// <summary><c>"device_id" : "&lt;MAC&gt;"</c> (also <c>global_device_id</c>), the whole string value.</summary>
+        /// <summary><c>"device_id" : "&lt;MAC&gt;"</c> (also <c>global_device_id</c>, also with <c>\"</c> quotes), the whole string value.</summary>
         private static bool TryJsonDeviceId(string text, int i, out string replacement, out int end)
         {
             replacement = null;
             end = i;
-            string name = NameAt(text, i + 1, DeviceIdNames);
+            int quote = QuoteAt(text, i);
+            string name = NameAt(text, i + quote, DeviceIdNames);
             if (name == null) return false;
-            int p = i + 1 + name.Length;
-            if (p >= text.Length || text[p] != '"') return false;
-            int q = SkipSpaces(text, p + 1);
-            if (q >= text.Length || text[q] != ':') return false;
-            int open = SkipSpaces(text, q + 1);
-            if (open >= text.Length || text[open] != '"') return false;
-            int mac = MacLength(text, open + 1);
-            if (mac == 0 || open + 1 + mac >= text.Length || text[open + 1 + mac] != '"') return false;
-            replacement = text.Substring(i, open + 1 - i) + MacMarker;
-            end = open + 1 + mac;
+            int start = JsonValueStart(text, i + quote + name.Length, quote);
+            if (start < 0) return false;
+            int mac = MacLength(text, start);
+            if (mac == 0 || QuoteAt(text, start + mac) != quote) return false;
+            replacement = text.Substring(i, start - i) + MacMarker;
+            end = start + mac;
             return true;
         }
 
@@ -311,7 +358,12 @@ namespace McvsOffline.Server.Core.Http
 
         private static string Partial(string value)
         {
-            return (value.Length <= KeptCharacters ? value : value.Substring(0, KeptCharacters)) + PartialMarker;
+            string kept = value.Length <= KeptCharacters ? value : value.Substring(0, KeptCharacters);
+            // Never keep half of an escape: "ab\…" would turn the marker into an escape sequence of the JSON around it.
+            int backslashes = 0;
+            while (backslashes < kept.Length && kept[kept.Length - 1 - backslashes] == '\\') backslashes++;
+            if (backslashes % 2 == 1) kept = kept.Substring(0, kept.Length - 1);
+            return kept + PartialMarker;
         }
 
         private static string SecretNameAt(string text, int i)
