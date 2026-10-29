@@ -86,6 +86,27 @@ namespace McvsOffline.PcKit.Tests
         }
 
         [Fact]
+        public void ABrokenEventDropsOnlyItselfAndIsKeptAsText()
+        {
+            // A bad character reference in one event, and a cut-off last one: the good events stay, the broken ones that name
+            // the game are kept as text, and one that does not name it is left out like any other.
+            const string bad =
+                "<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Application Error'/>" +
+                "<EventID>1000</EventID></System><EventData><Data Name='AppName'>ModernCombatVersus.exe &#x1;</Data></EventData></Event>";
+            const string otherBad = "<Event><System><EventID>1</EventID></System><EventData><Data>notepad.exe &#x2;</Data></EventData></Event>";
+            const string cut = "<Event><System><EventID>1001</EventID></System><EventData><Data>ModernCombatVersus.exe";
+            List<string> unparsed;
+            List<XElement> events = Collect.MatchingEvents(bad + "\r\n" + EventsXml + "\r\n" + otherBad + "\r\n" + cut, "ModernCombatVersus", out unparsed);
+            Assert.Equal(2, events.Count);
+            Assert.Equal("1000", events[0].Elements().First().Elements().First(x => x.Name.LocalName == "EventID").Value);
+            Assert.Equal(new[] { bad, cut }, unparsed);
+            Assert.Equal(2, Collect.MatchingEvents(EventsXml, "ModernCombatVersus", out unparsed).Count);
+            Assert.Empty(unparsed);
+            Collect.MatchingEvents("\ufeffstray ModernCombatVersus text", "ModernCombatVersus", out unparsed);
+            Assert.Equal(new[] { "stray ModernCombatVersus text" }, unparsed);
+        }
+
+        [Fact]
         public void CollectAsksWevtutilForXmlInTheAnsiCodePage()
         {
             string source = File.ReadAllText(Path.Combine(RepoRoot(), "tools", "pc-kit", "Collect.cs"));
@@ -253,6 +274,35 @@ namespace McvsOffline.PcKit.Tests
             List<string> diff = GameFolder.DiffListings(before, after);
             Assert.Contains("changed\tcore.dmp\tthe game's own crash dump (0 bytes, written 2026-10-29 19:22:25 UTC; not ours, never collected)", diff);
             Assert.Contains("added\tGameVersion\tthe game's own (written by the game, not ours)", diff);
+        }
+
+        [Fact]
+        public void AnUntouchedCrashDumpWithASubSecondTimeIsNotReportedAsChanged()
+        {
+            // The kit diffs a listing read back from its file (whole seconds) against the live folder (sub-second on NTFS).
+            string game = Path.Combine(Path.GetTempPath(), "mcvs-listing-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(game);
+            try
+            {
+                string dump = Path.Combine(game, GameFolder.CrashDumpName);
+                File.WriteAllText(dump, "");
+                var t = new DateTime(2026, 10, 29, 18, 22, 25, DateTimeKind.Utc).AddTicks(7_654_321);
+                File.SetLastWriteTimeUtc(dump, t);
+                File.WriteAllText(Path.Combine(game, "GameVersion"), "6372049");
+                List<GameFolderEntry> live = GameFolder.Listing(game);
+                Assert.NotEqual(0, live.Single(e => e.Name == GameFolder.CrashDumpName).LastWriteUtc.Ticks % TimeSpan.TicksPerSecond);
+
+                List<GameFolderEntry> first = GameFolder.ParseListing(GameFolder.FormatListing(game, live));
+                Assert.Empty(GameFolder.DiffListings(first, GameFolder.Listing(game)));
+
+                // A new crash a second later (the same 0 bytes) still counts.
+                File.SetLastWriteTimeUtc(dump, t.AddSeconds(1));
+                Assert.Single(GameFolder.DiffListings(first, GameFolder.Listing(game)), d => d.StartsWith("changed\tcore.dmp\t", StringComparison.Ordinal));
+            }
+            finally
+            {
+                Directory.Delete(game, true);
+            }
         }
 
         private static string Read(ZipArchive zip, string name)

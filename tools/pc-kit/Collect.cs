@@ -176,7 +176,9 @@ namespace McvsOffline.PcKit
         /// Application Error / .NET Runtime / WER / Hang entries of the last 7 days that name the game (Windows only), as
         /// <c>wevtutil /f:xml</c>: the XML carries <c>TimeCreated/@SystemTime</c> in UTC (the text format prints local times with
         /// a 'Z', WR2), and wevtutil writes ANSI to a pipe, so the output is decoded with the ANSI code page (not the OEM console
-        /// one: "Informaþ§es"). windows-events.txt is <see cref="FormatEvents"/>; windows-events.xml the matching raw events.
+        /// one: "Informaþ§es"). windows-events.txt is <see cref="FormatEvents"/>; windows-events.xml the matching raw events;
+        /// windows-events.raw.txt, only when some exist, the events naming the game that are not readable XML (kept as text, so
+        /// one bad event never hides the others or itself).
         /// </summary>
         private static void WindowsEvents(ZipArchive zip, StringBuilder summary)
         {
@@ -196,10 +198,14 @@ namespace McvsOffline.PcKit
                     output = p.StandardOutput.ReadToEnd();
                     p.WaitForExit(20000);
                 }
-                List<XElement> events = MatchingEvents(output, "ModernCombatVersus");
-                summary.Append("windows events naming the game (7 days): ").Append(events.Count).Append(" (times in UTC)\r\n");
+                List<string> unparsed;
+                List<XElement> events = MatchingEvents(output, "ModernCombatVersus", out unparsed);
+                summary.Append("windows events naming the game (7 days): ").Append(events.Count).Append(" (times in UTC)");
+                if (unparsed.Count > 0) summary.Append(", plus ").Append(unparsed.Count).Append(" unparsed (raw text in windows-events.raw.txt)");
+                summary.Append("\r\n");
                 AddText(zip, "windows-events.txt", FormatEvents(events));
                 AddText(zip, "windows-events.xml", string.Join("\r\n", events.Select(e => e.ToString(SaveOptions.DisableFormatting))));
+                if (unparsed.Count > 0) AddText(zip, "windows-events.raw.txt", string.Join("\r\n", unparsed));
             }
             catch (Exception ex)
             {
@@ -207,28 +213,68 @@ namespace McvsOffline.PcKit
             }
         }
 
-        /// <summary>
-        /// The <c>&lt;Event&gt;</c> elements of wevtutil's XML output (a sequence of events without a root element) whose text
-        /// names <paramref name="token"/>; empty for empty or unreadable output.
-        /// </summary>
+        /// <summary><see cref="MatchingEvents(string, string, out List{string})"/> without the unparsed ones.</summary>
         public static List<XElement> MatchingEvents(string xml, string token)
         {
+            List<string> unparsed;
+            return MatchingEvents(xml, token, out unparsed);
+        }
+
+        /// <summary>
+        /// The <c>&lt;Event&gt;</c> elements of wevtutil's XML output (a sequence of events without a root element) whose text
+        /// names <paramref name="token"/>. Each event is parsed on its own: one that is not readable XML (a bad character
+        /// reference, a cut-off end) goes, when its text names the token, to <paramref name="unparsed"/> as it is, and so does
+        /// text outside any event that names it. Empty lists for empty output.
+        /// </summary>
+        public static List<XElement> MatchingEvents(string xml, string token, out List<string> unparsed)
+        {
             var result = new List<XElement>();
+            unparsed = new List<string>();
             if (string.IsNullOrWhiteSpace(xml)) return result;
-            XElement root;
-            try
+            const string close = "</Event>";
+            int at = 0;
+            while (at < xml.Length)
             {
-                root = XElement.Parse("<Events>" + xml.Trim().TrimStart('﻿') + "</Events>");
-            }
-            catch (System.Xml.XmlException)
-            {
-                return result;
-            }
-            foreach (XElement e in root.Elements().Where(x => x.Name.LocalName == "Event"))
-            {
-                if (e.ToString(SaveOptions.DisableFormatting).IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0) result.Add(e);
+                int start = EventStart(xml, at);
+                string between = xml.Substring(at, (start < 0 ? xml.Length : start) - at);
+                if (Names(between, token)) unparsed.Add(between.Trim().TrimStart('\ufeff'));
+                if (start < 0) break;
+                int end = xml.IndexOf(close, start, StringComparison.Ordinal);
+                end = end < 0 ? xml.Length : end + close.Length;
+                string chunk = xml.Substring(start, end - start);
+                at = end;
+                if (!Names(chunk, token)) continue;
+                try
+                {
+                    XElement e = XElement.Parse(chunk);
+                    // The token in the element's text, not only in a broken tag or a comment.
+                    if (Names(e.ToString(SaveOptions.DisableFormatting), token)) result.Add(e);
+                }
+                catch (System.Xml.XmlException)
+                {
+                    unparsed.Add(chunk);
+                }
             }
             return result;
+        }
+
+        /// <summary>The index of the next "&lt;Event" start tag (not &lt;EventData&gt;, &lt;EventID&gt;…) at or after <paramref name="from"/>, or -1.</summary>
+        private static int EventStart(string xml, int from)
+        {
+            const string open = "<Event";
+            for (int i = xml.IndexOf(open, from, StringComparison.Ordinal); i >= 0; i = xml.IndexOf(open, i + 1, StringComparison.Ordinal))
+            {
+                int next = i + open.Length;
+                if (next >= xml.Length) return i;
+                char c = xml[next];
+                if (c == '>' || c == '/' || char.IsWhiteSpace(c)) return i;
+            }
+            return -1;
+        }
+
+        private static bool Names(string text, string token)
+        {
+            return text.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         /// <summary>

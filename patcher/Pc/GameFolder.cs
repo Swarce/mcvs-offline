@@ -446,9 +446,16 @@ namespace McvsOffline.Patcher.Pc
         {
             if (a.IsDirectory != b.IsDirectory) return true;
             if (a.IsDirectory) return a.FileCount != b.FileCount || a.Size != b.Size;
-            // Not hashed: a new crash can leave a dump of the same size (0 bytes in WR2), so its time counts.
-            if (IsCrashDump(b.Name)) return a.Size != b.Size || a.LastWriteUtc != b.LastWriteUtc;
+            // Not hashed: a new crash can leave a dump of the same size (0 bytes in WR2), so its time counts, at the listing's
+            // resolution: one side is usually read back from a listing file (whole seconds), the other is live (100 ns on NTFS).
+            if (IsCrashDump(b.Name)) return a.Size != b.Size || WholeSeconds(a.LastWriteUtc) != WholeSeconds(b.LastWriteUtc);
             return a.Size != b.Size || !string.Equals(a.Sha256, b.Sha256, StringComparison.Ordinal);
+        }
+
+        /// <summary>The time cut to whole seconds, the resolution <see cref="FormatListing"/> writes.</summary>
+        public static DateTime WholeSeconds(DateTime t)
+        {
+            return new DateTime(t.Ticks - t.Ticks % TimeSpan.TicksPerSecond, t.Kind);
         }
 
         private static string Describe(string what, GameFolderEntry e)
