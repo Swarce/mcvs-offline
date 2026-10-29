@@ -89,7 +89,8 @@ the shop, the MCVS Offline page and the HD textures. A few newer features are bu
 | Target Android 15 | Works (builds 10 to 12 installed and played on a phone) |
 | Graphics profiles | Works (tested on a phone) |
 | HD textures (ASTC and ETC packs) | Works: the ASTC pack on a Galaxy S22, at the same frame rate as the stock textures |
-| PC (Steam) port | In progress: a Windows test kit ([docs/PC-SPIKE.md](docs/PC-SPIKE.md)); the design is on the `wip/pc-port` branch |
+| Game Mode flags (Android 'game' patch) | Built (build 13), waiting for a phone test |
+| PC (Steam) port | Ready for the second Windows test: the kit and [docs/PLAYER-SETUP-PC.md](docs/PLAYER-SETUP-PC.md) on the `wip/pc-port` branch |
 | LAN multiplayer | Experimental: guests use the host's server for everything |
 | Internet multiplayer | Planned (overlay VPN guide first) |
 | Preservation extras | In progress: CDN mirror and backup verifier done; missing maps not started |

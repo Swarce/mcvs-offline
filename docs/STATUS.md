@@ -1,14 +1,16 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-Last updated for build 12 and device test 9 (October 2026, the owner's Galaxy S22, Android 16): the ASTC HD data pack
-and the graphics profiles work, and builds 10 to 12 (target Android 15) install and play; see "Build 12 and device
-test 9". Before that: the build 11 device test (the HD installer could not write in `McvsOffline/hd/`; fixed in build
+Last updated for build 13 (October 2026, on `wip/pc-port`, not yet tested on the phone): the Android 'game' manifest
+flags, a Settings › Account menu with only Redeem code and MCVS Offline, log cleanup at every start, and the PC port
+ready for the second Windows test; see "Build 13". Before that, build 12 and device test 9 (the owner's Galaxy S22,
+Android 16): the ASTC HD data pack and the graphics profiles work, and builds 10 to 12 (target Android 15) install and
+play; see "Build 12 and device test 9". Before that: the build 11 device test (the HD installer could not write in `McvsOffline/hd/`; fixed in build
 12). The build 11 plan put HD textures into `Data/` ("Build 11 (plan)"). On build 10 the HD texture probe showed that
 route B fails and route A works. Build 10 targets Android 15 and adds graphics profiles and the PC test kit ("Build
 10"). Device test 8 tested the MCVS Offline page ("Device test 8", "Build 9"). The Cosmetic crate starts on 2026-11-09
-and is not yet tested on the phone. Not yet merged: the PC port (in progress on `wip/pc-port`) and the Android 'game'
-manifest flags. Earlier: device tests 6 and 7 on the same S22 ("Build 8", "Build 7", "Device test 6").
+and is not yet tested on the phone. Not yet merged into `main-dev`: build 13 (the PC port and the Android 'game'
+manifest flags are on `wip/pc-port`). Earlier: device tests 6 and 7 on the same S22 ("Build 8", "Build 7", "Device test 6").
 
 **Summary:** the Federation server is complete for the offline single-player goals and passes its full test suite, including a
 conformance harness that runs the game's own client libraries against it (the count of the last full run is under
@@ -32,6 +34,89 @@ HD texture probe and a Windows test kit for the Steam version. Build 11 installs
 version into the game's own data. Build 12 accepts a full ASTC data pack with 2,215 PC textures in it: **device test 9:
 the HD textures and the graphics profiles work, at the same frame rate as before**, and builds 10 to 12 (target Android
 15) installed and played fine.
+
+## Build 13 (October 2026): Game Mode flags, a two-button Account menu, log cleanup; the PC port ready for WR2
+
+### What build 13 contains
+
+`f158cb9` on `wip/pc-port` (`McvsVersion.Build` is `13`). APK: `mcvs-offline-f158cb9.apk` (default patch set, the
+same key as every build: certificate SHA-256 `fc0db84e…7d16`, targetSdk 35, both ABIs, zipalign OK); it installs over
+build 12 as usual. Compared entry by entry with build 12 it changes only `AndroidManifest.xml` (the two `game`
+attributes), the server DLL, the signature files and the 16 MVID bytes of `Game.dll`, `Gameloft.Engine.dll`,
+`Gameloft.Util.dll` and `NicePlaySDK.dll` ([design/pc-port.md](design/pc-port.md) §13.1).
+
+**Android**
+
+* **The 'game' manifest flags** (new default patch `game`, [design/pc-port.md](design/pc-port.md) §10,
+  [PLAYER-SETUP.md](PLAYER-SETUP.md) §4 and §6): `<application>` gets `android:isGame="true"` and
+  `android:appCategory="game"`, so Android's Game Mode (Android 12+) and the phone maker's game tools can treat MCVS as
+  a game. Samsung's Gaming Hub and Game Booster go mostly by their own package list, so the APK can only help; adding
+  the game by hand (Gaming Hub › My games › Add game) always works. Side effects, all from Android: GameManager reports a
+  mode, the chip may get a game power hint while the game is in front, and a phone may cap the screen at 60 Hz for it
+  (the game runs at 30 fps). Nothing in the game reads the flags.
+* **Settings › Account shows only Redeem code and MCVS Offline**, side by side in the middle of the screen (patch
+  `adminpage`; `hosts/embedded/Admin/AccountMenuLayout.cs`). Facebook, Google Play Games and Restore (the in-app purchase
+  restore) are hidden, since none of them can work offline. The setting `admin.accountMenu.hideDeadButtons` (Settings ›
+  Unlocks & codes, on by default) brings them back at the next opening of the menu. Every opening writes one
+  `[admin] account menu:` line in `server.log`: `2 buttons centred (vpX=…, vpW=…, x0=…, x1=…)`, or `not centred (<why>)`
+  when the buttons stay where the game puts them ([PLAYER-SETUP.md](PLAYER-SETUP.md) §7).
+* **Log cleanup at every start** (`hosts/embedded/Diagnostics/LogRetention.cs`, [design/settings-page.md](design/settings-page.md)
+  §7.7, [PLAYER-SETUP.md](PLAYER-SETUP.md) §6 and §8): each start begins new `bootstrap.log`, `server.log`, `game.log` and
+  `unknown-endpoints.jsonl` files (the previous start's are usually the `.1` files), records itself in
+  `logs/starts.txt`, and the thread `mcvs-log-retention` deletes the log, crash, exception, thread-dump and exit files
+  of older starts in `McvsOffline/logs/` (at most 5 s, the rest at the next start). The Downloads/MCVS-Offline copies
+  follow the same starts. Setting `logging.keepStarts` (Settings › Diagnostics, 0–10, default 1: this start and the
+  previous one; applies at the next start). Saves, settings and the logs zips are never deleted. Log lines: one
+  `[logs]` line in `bootstrap.log`, e.g. `keeping this start and 1 previous (since 2026-10-28T19:02:11Z): deleted 23
+  files, 41.6 MB (server.log.2-5, game.log.1, crash 1, exit 2; fallback 3)` (WARN when a file could not be deleted; on
+  the first starts of build 13, before enough starts are recorded, `…: only 0 starts recorded so far, nothing deleted
+  this time`), and `[mirror] keeping 2 starts:
+  deleted N copies (… MB)` for Downloads. The share text's "previous start" section now reads the previous start's
+  files.
+* **CRM inbox**: our MCVS Offline item comes first among the newsfeed items of its asset key (items without an asset
+  share the key ""), so an overlay item cannot give it its dates.
+
+**PC (Steam)**
+
+* The port is **ready for the second Windows round (WR2)**: the kit `McvsOffline.PcKit.exe` (win-x64, one file, SHA-256
+  `c608fd1903b83763657646482a0c7aee6ec8282e10f63aa237dcb753b2e8715d`) and the owner's guide with the checklist and the
+  expected `verify` values, [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) (design: [design/pc-port.md](design/pc-port.md)
+  §13). The values were re-recorded for build 13 (the server DLL changed); `ModernCombatVersus.exe.config` is unchanged.
+* New in build 13: `install --port n` also sets `"port"` in `McvsOffline\settings.json` (the port the server listens
+  on), and without `--port` the installer keeps the port already there; the installer retries a `.mcvs-tmp` rename on a
+  file a virus scanner briefly holds; the log cleanup works the same way in `McvsOffline\logs` and
+  `%TEMP%\McvsOffline\logs`. The Account menu setting is not on the PC's settings page (the Steam build has no
+  Facebook, Google or Restore button).
+
+**Checked**: `McvsOffline.sln` (Release), the Android embedded DLL against the APK's assemblies and the PC DLL with
+`Gameloft.Logs`; all four test projects with `MCVS_REFS`, `MCVS_PC_REFS`, `MCVS_APK`, `MCVS_DATAPACK`,
+`MCVS_BUILD_TOOLS`, `MCVS_REQUIRE_REAL_CLIENT=1`, `MCVS_REQUIRE_PC=1`, `MCVS_REQUIRE_PC_E2E=1`, `MCVS_REQUIRE_EMBEDDED=1`,
+`MCVS_REQUIRE_BUILD_TOOLS=1` and `MCVS_REQUIRE_NODE=1`: **McvsOffline.Tests 1501/1501, McvsOffline.Embed.Tests 827/827,
+McvsOffline.PcKit.Tests 40/40, McvsOffline.PcSpike.Tests 62/62, 0 skipped** (2,430). Not checked: the JNI and
+MediaStore side of the log cleanup (`ExitReasons`, the Downloads copies) and the menu layout run only on a phone.
+
+### What to check on the phone (build 13)
+
+1. **Before installing**, with a PC: `adb shell cmd game list-modes com.gameloft.android.ANMP.GloftMVHM` on build 12.
+   Android 16 prints `Package com.gameloft.android.ANMP.GloftMVHM is not of game type, …` (Android 12–15: `current
+   mode: unsupported, available game modes: []`).
+2. Install build 13 over build 12 (no uninstall); the save and settings stay. Run the same command again: expected
+   `current mode: standard, available game modes: [standard,custom]`; `adb shell dumpsys game` lists the game.
+3. Settings › Storage (or Settings › Apps › MCVS › Storage): is the game counted under **Games** instead of **Apps**?
+   (Only on Settings that follow Android's own; One UI may not show it.) Gaming Hub › My games: is MCVS listed without
+   adding it? Does the Game Booster panel appear in a match?
+4. Settings › Account: only **Redeem code** and **MCVS Offline**, side by side in the middle; both work. In `server.log`:
+   `[admin] account menu: 2 buttons centred (…)` once per opening. Then turn off **Only Redeem code and MCVS Offline in
+   Settings › Account** on the page, reopen Settings › Account: the game's own buttons are back (stacked on the left);
+   turn it on again.
+5. Logs: after three starts of build 13, `McvsOffline/logs/` (Files app or `adb shell ls`) holds only the last two starts' files;
+   `bootstrap.log` has one `[logs] keeping this start and 1 previous …` line and no WARN after it; Downloads/MCVS-Offline
+   holds the copies of two starts (`[mirror] keeping 2 starts: …`). Set `logging.keepStarts` to 0, restart twice: only
+   the current start remains. Put it back to 1. The saves, `settings.json` and any saved `mcvs-logs-*.zip` are untouched.
+6. The inbox: the MCVS Offline message is still there and its button opens the page (where it sits in the list was
+   not checked in a running game).
+7. As always: boot to the menu, one bot match, the shop, the page (Status, Settings, Saves › Save now) and the
+   graphics profile; no `AndroidRuntime: FATAL EXCEPTION` and no `[watchdog] STALL` in the log.
 
 ## Build 12 and device test 9 (October 2026): ASTC HD textures and graphics profiles work
 
@@ -83,8 +168,7 @@ Owner's Galaxy S22 (Android 16), October 2026. No logs were sent; the results ar
 * The logcat checks of build-10 items 1 and 6, which need a log: no `AndroidRuntime: FATAL EXCEPTION` in the first hour
   after the install; the `[boot] graphics:` line for each profile, no `[watchdog] STALL` and a bot match with
   `graphics.fullProfile` at `ultra`.
-* Not yet merged: the PC port (in progress on `wip/pc-port`) and the Android 'game' manifest flags (Game Mode and
-  Samsung's Game Booster).
+* The PC port and the Android 'game' manifest flags (Game Mode and Samsung's Game Booster): in build 13 ("Build 13").
 
 ## Build 11 device test: the HD installer could not write in `McvsOffline/hd/` (fixed on `wip/hd-writable`)
 
