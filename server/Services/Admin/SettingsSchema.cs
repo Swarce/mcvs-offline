@@ -682,6 +682,12 @@ namespace McvsOffline.Server.Services.Admin
                 // Gameplay
                 Bool("gameplay", "instantBots", "Instant bot matches", true, Menu,
                      "Matches start at once and bots fill the empty slots. Off: the game waits for other players first."),
+                // CRM cells on MCVS_Meta MainMenuElements row 13 (CrmDocumentBuilder.ApplyPracticeTile), at the next CRM fetch.
+                Bool("gameplay", "crm.practiceTile", "Practice tile in the main menu", false, Menu,
+                     "Shows the game's own hidden PRACTICE tile (a bot match) as the last tile of the main menu. With the "
+                     + "bottile patch (default) it starts the same bot-filled, full-reward match as Battle > Classic multiplayer, "
+                     + "without the mode and group screens; without it, the game's free bot match (5 Credits per win). "
+                     + "Untested: where the tile sits in this menu and how it looks; turn it off again if the menu looks wrong."),
                 Confirmed(Bool("gameplay", "devMenu", "Developer cheat menu", false, Restart,
                                "Gameloft's developer menu (IsDevelopment in the menu server handshake)."),
                           "Cheats can damage your profile. A backup of your save is made now.", "enable", "enable"),

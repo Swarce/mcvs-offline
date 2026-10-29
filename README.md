@@ -38,8 +38,17 @@ The repository contains no game files. You bring your own APK; the project bring
 **Play offline**
 
 - Boots to the menu and plays with no internet connection and no Gameloft servers.
-- Bot-filled PvP matches that start at once, with full rewards and progression. The Bot Match mode in the menu
-  (BOTMATCH) gives the same full rewards as Battle.
+- Bot-filled PvP matches that start at once, with full rewards and progression: **Battle › Classic multiplayer**.
+  The game has no visible bot-match tile: its own "Practice" tile is hidden in the shipped data (the optional
+  `crm.practiceTile` setting shows it; untested).
+- **Special Event** in the Battle menu is the game's Arena mode (Havoc, Blitz, Competitive and other twists). Live
+  ops generates one: a new mode every day at the daily reset, filled with bots like Classic, wins pay a Credits and
+  VersusCoins bonus; the box shows the countdown to the next mode ([LIVEOPS §8a](docs/LIVEOPS.md); not yet checked on
+  a device).
+- Tournaments are the game's private matches: no bots fill them and they give no trophies, currency or agent XP, by
+  the game's design. They need other human players, and LAN play is experimental and does not work end to end yet
+  ([PLAYER-SETUP §9](docs/PLAYER-SETUP.md#9-lan-play-experimental-not-working-end-to-end-yet)); use Classic for bot
+  matches.
 - Live ops generated from the clock: weekly division seasons, daily missions and weekly events.
 - Installs the game data from a backup, a copied `Data/` folder or a mirror, without Gameloft's download servers.
 
@@ -187,6 +196,7 @@ Underneath, everything lives in `settings.json` (in the game:
 | `economy.*Multiplier` | `1.0` | Credits, VersusCoins, XP and store-price multipliers |
 | `graphics.profile` | `auto` | Graphics profile: `auto`, `mid`, `high` or `ultra` (after a restart) |
 | `hd.enabled` | `true` | Install the HD pack in `McvsOffline/hd/`; `false` removes it at the next start |
+| `crm.practiceTile` | `false` | Show the game's hidden PRACTICE bot-match tile in the main menu (untested placement and art) |
 
 All keys: [docs/PLAYER-SETUP.md](docs/PLAYER-SETUP.md) section 8 (the in-game host) and the per-module protocol notes
 in [docs/PROTOCOL.md](docs/PROTOCOL.md).

@@ -128,8 +128,11 @@ request; `--art` is a separate option):
   `settings.json` `embedded.nativeOnlineSdk` is true; with the internet on, the native online SDK froze the boot.
 - `geo`: point the hard-coded `http://ip.ecomapis.gameloft.org/location/` (TS handshake, 100 s timeout vs
   60 s handshake) at our server.
-- `bottile`: route the BOTMATCH tile to the full-progression GS flow (verify-C4: `NativeStartMatchWithBots`
-  lambda `IL_0007 ldc.i4.2 -> ldc.i4.1`).
+- `bottile` (dormant): route `StartMatchWithBots`, the action of the hidden SOLO/"PRACTICE" tile (MCVS_Meta
+  `MainMenuElements` row 13, `Displayed=false`; Flash `LINK_SOLO` -> `PopupSolo_Bot_Match`), to the GS flow (verify-C4
+  §6: `NativeStartMatchWithBots` lambda `IL_0007 ldc.i4.2 -> ldc.i4.1`). No visible UI reaches it with the shipped data;
+  the CRM setting `crm.practiceTile` (off by default) shows the tile. The full-reward bot match is Battle › Classic
+  multiplayer (GS quick match, 7 bots with `instantBots`).
 - `store` (default, device test 3): `KillSignatureRewardItem.GetAvailableId` no longer dereferences its null list for
   sounds (unowned sound -> its id, random/other -> null), and the `GameUnifiedStoreComponent.SelectItems` availability
   filter runs in try/catch (an item that throws is skipped and reported through `GameHooks.StoreItemException`).

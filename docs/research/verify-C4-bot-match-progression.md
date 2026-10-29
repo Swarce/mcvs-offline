@@ -169,8 +169,8 @@ Consequences:
 For "Battle" (`OnlineAndTutorial`), `ShouldPlayAgainstBots` returns `!profile.PVPActivated`
 (`GM/OfflineBotsGameplayComponent.cs:271-283`). The client calls `ConnectGameplayServer(QuickMatchServerLink)`
 (`:3989`) only when the answer is "no bot match". So a fresh profile first plays local onboarding bot matches
-until the league leaves `IsFTUE` and `ActivatePVP` runs (`:603-616`). The BOTMATCH tile always passes
-`OfflineMatchWithBots` (`:3963-3966`), so it **never** reaches the GS.
+until the league leaves `IsFTUE` and `ActivatePVP` runs (`:603-616`). The (hidden) SOLO/PRACTICE tile's
+`StartMatchWithBots` always passes `OfflineMatchWithBots` (`:3963-3966`), so it **never** reaches the GS.
 
 ### 3.2 Where the values come from, and the exact CRM location
 
@@ -332,6 +332,10 @@ The patch is not needed for the GS route. These optional one-site patches would 
   `Game.GameClientComponent::'<NativeStartMatchWithBots>b__354_0'`, change `IL_0007: ldc.i4.2`
   (`OfflineMatchWithBots`) to `ldc.i4.1` (`OnlineAndTutorial`). This is one byte, `0x18` → `0x17`. After the patch
   the tile behaves like "Battle": onboarding before activation, bot-filled PvP on the in-process GS afterwards.
+  **Note (October 2026, match-modes research):** the tile is MCVS_Meta `MainMenuElements` row 13 `SOLO` ("PRACTICE",
+  `LINK_SOLO`), `Displayed=false` in 1.17.32, and no other UI calls `StartMatchWithBots`, so this patch (shipped as
+  `bottile`) has no visible effect unless the tile is shown through CRM (our opt-in `crm.practiceTile`). "BOTMATCH" is
+  only the `MenuMatchInfos` row with the confirm popup's text. The full-reward bot match is Battle › Classic multiplayer.
 * **Hardening.** Make `GameplayComponent.ApplyMatchResult` skip the call when `Room` is null, or catch around
   `GetPendingLosses`. This removes the §4.1 "match played, nothing saved" failure. The alternative is to make sure
   the Lobby never fails.

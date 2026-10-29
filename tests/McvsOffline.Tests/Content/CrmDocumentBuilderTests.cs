@@ -300,6 +300,72 @@ namespace McvsOffline.Tests.Content
             };
         }
 
+        // ------------------------------------------------------------------------------------------ crm.practiceTile
+
+        private const string TileCells = "{\"Id@Displayed\":{\"13\":\"true\"},\"Id@OrderId\":{\"13\":6}}";
+
+        /// <summary>Off (the default): no MainMenuElements changer in either tree, with or without the preconfiguration.</summary>
+        [Fact]
+        public void PracticeTileIsOffByDefaultAndWritesNothing()
+        {
+            Assert.False(new CrmOptions().PracticeTile);
+            Assert.False(CrmOptions.FromSettings(new Settings(), Log.Null).PracticeTile);
+            foreach (Dictionary<string, object> pre in new[] { null, Pre() })
+            {
+                var doc = CrmDocumentBuilder.Build(pre, Content(), new CrmOptions(), Log.Null);
+                Assert.Null(At(doc, "game._OverrideTables.MCVS_Meta.MainMenuElements"));
+                Assert.Null(At(doc, "game._ServerConfig.default._OverrideTables.MCVS_Meta.MainMenuElements"));
+                Assert.DoesNotContain("\"Id@Displayed\"", MiniJson.Serialize(doc));
+            }
+        }
+
+        /// <summary>
+        /// On: exactly the two SET cells of row 13 (Displayed "true", OrderId 6 as an integer), in the TS tree and the GS
+        /// mirror, next to the economy cells of MCVS_Meta; the document stays valid; the fingerprint changes with it.
+        /// </summary>
+        [Fact]
+        public void PracticeTileWritesTwoSetCellsOnRow13InBothTrees()
+        {
+            var settings = new Settings();
+            string off = CrmOptions.FromSettings(settings, Log.Null).Fingerprint;
+            settings.Override("crm.practiceTile", true);
+            CrmOptions on = CrmOptions.FromSettings(settings, Log.Null);
+            Assert.True(on.PracticeTile);
+            Assert.NotEqual(off, on.Fingerprint);
+
+            on.CreditsMultiplier = 2.0;
+            // The shipped preconfiguration declares MainMenuElements with empty changers (Id@Displayed, Id@OrderId, ...: {}).
+            Dictionary<string, object> shipped = Pre();
+            JsonPath.DeepMerge(shipped, MiniJson.ParseObject("{\"game\":{\"_OverrideTables\":{\"MCVS_Meta\":{\"MainMenuElements\":"
+                                                            + "{\"Id@Displayed\":{},\"Id@OrderId\":{},\"Id@Image\":{}}}}}}"));
+            foreach (Dictionary<string, object> pre in new[] { null, Pre(), shipped })
+            {
+                var doc = CrmDocumentBuilder.Build(pre, Content(), on, Log.Null);
+                Assert.Empty(CrmDocumentValidator.Validate(doc));
+                Assert.Equal(TileCells, MiniJson.Serialize(At(doc, "game._OverrideTables.MCVS_Meta.MainMenuElements")));
+                Assert.Equal(TileCells, MiniJson.Serialize(At(doc, "game._ServerConfig.default._OverrideTables.MCVS_Meta.MainMenuElements")));
+                Assert.IsType<long>(At(doc, "game._OverrideTables.MCVS_Meta.MainMenuElements.Id@OrderId.13"));
+                Assert.Equal("*2", At(doc, "game._OverrideTables.MCVS_Meta.CreditsCurrencyMatchRewards.Division@VictoryAmount.1"));
+            }
+            Assert.Equal(6L, CrmDocumentBuilder.PracticeTileOrderId);
+            Assert.Equal("13", CrmDocumentBuilder.PracticeTileRow);
+        }
+
+        /// <summary>crm.overlay is merged after the tile and wins over it (the testers' escape hatch).</summary>
+        [Fact]
+        public void PracticeTileLosesToTheSettingsOverlay()
+        {
+            var o = new CrmOptions
+            {
+                PracticeTile = true,
+                Overlay = MiniJson.ParseObject("{\"game\":{\"_OverrideTables\":{\"MCVS_Meta\":{\"MainMenuElements\":{\"Id@OrderId\":{\"13\":\"7\"}}}}}}"),
+            };
+            var doc = CrmDocumentBuilder.Build(null, Content(), o, Log.Null);
+            Assert.Equal("true", At(doc, "game._OverrideTables.MCVS_Meta.MainMenuElements.Id@Displayed.13"));
+            Assert.Equal("7", At(doc, "game._OverrideTables.MCVS_Meta.MainMenuElements.Id@OrderId.13"));
+            Assert.Equal("7", At(doc, "game._ServerConfig.default._OverrideTables.MCVS_Meta.MainMenuElements.Id@OrderId.13"));
+        }
+
         [Fact]
         public void SetCellWritesOneSetCellWithHashForDots()
         {
