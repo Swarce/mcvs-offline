@@ -196,6 +196,26 @@ namespace McvsOffline.Embedded
         string Open(string url, string mode);
     }
 
+    /// <summary>
+    /// Optional (Windows): host pieces only the PC build has (docs/design/pc-port.md §6.2), which EmbeddedHost cannot reference
+    /// directly because it is compiled into the Android DLL too: the PC hooks' wiring, the "[boot] runtime:" line, the
+    /// watchdog's thread snapshot and the assembly-load subscription of the lazy patch probe. Every member catches everything.
+    /// </summary>
+    public interface IHostExtensions
+    {
+        /// <summary>Right after settings.json is read and the shared hooks are configured (the boot thread, before args.txt).</summary>
+        void Configure(EmbeddedHost host);
+
+        /// <summary>The game-thread watchdog's thread snapshot, or null for the default (/proc).</summary>
+        Diagnostics.IThreadSnapshot ThreadSnapshot();
+
+        /// <summary>
+        /// Calls <paramref name="loaded"/> for every assembly loaded from now on (AppDomain.AssemblyLoad, on the loading thread) and
+        /// returns the action that ends it; null when assembly loads cannot be watched.
+        /// </summary>
+        Action WatchAssemblyLoads(Action<System.Reflection.Assembly> loaded);
+    }
+
     /// <summary>A fixed directory as game root (tests, and running the embedded host on a PC).</summary>
     public sealed class DirectoryPlatform : IEmbeddedPlatform
     {

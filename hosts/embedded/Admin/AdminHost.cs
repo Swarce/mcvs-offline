@@ -58,6 +58,7 @@ namespace McvsOffline.Embedded.Admin
         private int exiting;
         private long freeBytes = -1;
         private int freeBytesTick;
+        private volatile string warnedOpenVia;
 
         public AdminHost(ServerContext context, IAdminPlatform platform, GameReflection game, Log log)
         {
@@ -150,10 +151,30 @@ namespace McvsOffline.Embedded.Admin
             }
         }
 
-        /// <summary>settings admin.openVia (server copy, read per open): auto, game, jni or post.</summary>
+        /// <summary>
+        /// settings admin.openVia (server copy, read per open): auto, game, and the platform's own modes: an
+        /// <see cref="IPagePlatform"/>'s <c>OpenModes</c> (Windows: overlay, system), else jni and post (Android). Anything else is
+        /// auto, with one WARN per value (docs/design/pc-port.md §3.6, §6.5).
+        /// </summary>
         public string OpenVia
         {
-            get { return Choice("admin.openVia", "auto", "auto", "game", "jni", "post"); }
+            get
+            {
+                var page = platform as IPagePlatform;
+                string[] modes = page != null ? (page.OpenModes ?? new string[0]) : new[] { "jni", "post" };
+                var allowed = new string[modes.Length + 2];
+                allowed[0] = "auto";
+                allowed[1] = "game";
+                Array.Copy(modes, 0, allowed, 2, modes.Length);
+                string raw = Raw("admin.openVia");
+                string value = Choice("admin.openVia", "auto", allowed);
+                if (raw != null && raw != value && warnedOpenVia != raw)
+                {
+                    warnedOpenVia = raw;
+                    log.Warn("admin: settings admin.openVia '" + raw + "' is not one of " + string.Join(", ", allowed) + " on this platform; using auto");
+                }
+                return value;
+            }
         }
 
         /// <summary>settings admin.restartVia (server copy, read per exit): game, host or none.</summary>
@@ -438,6 +459,7 @@ namespace McvsOffline.Embedded.Admin
         public void PageAlive()
         {
             Lease(PageLeaseMs, PageLeaseReason);
+            opener.PageAlive();
         }
 
         public List<string> RecentProblems(int max)
@@ -595,6 +617,20 @@ namespace McvsOffline.Embedded.Admin
                 if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-')) return false;
             }
             return true;
+        }
+
+        /// <summary>The setting's text, trimmed and in lower case, or null when it is not set.</summary>
+        private string Raw(string key)
+        {
+            try
+            {
+                string value = context.Settings.GetString(key, null);
+                return value == null ? null : value.Trim().ToLowerInvariant();
+            }
+            catch (Exception)
+            {
+                return null;
+            }
         }
 
         private string Choice(string key, string fallback, params string[] allowed)
