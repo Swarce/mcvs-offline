@@ -2,6 +2,8 @@
   <!--
     Tests of tools/pc-kit (the player's kit for the Steam build, docs/design/pc-port.md §9, §12.3) that run on any OS:
     command parsing, the menu, probe formatting, collect contents, the Steam lookup and the publish-time hook check.
+    It is also the kit's publish check: 'dotnet McvsOffline.PcKit.Tests.dll check-server <McvsOffline.Server.dll>'
+    (ServerHookContract; our own Main below instead of the test SDK's generated one).
   -->
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
@@ -9,6 +11,8 @@
     <IsTestProject>true</IsTestProject>
     <RootNamespace>McvsOffline.PcKit.Tests</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <GenerateProgramFile>false</GenerateProgramFile>
+    <StartupObject>McvsOffline.PcKit.Tests.PublishCheck</StartupObject>
   </PropertyGroup>
 
   <ItemGroup>
@@ -18,9 +22,15 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="../../tools/pc-kit/McvsOffline.PcKit.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The spike's Steam lookup tests run unchanged against the kit's linked SteamLocator (§12.3). -->
+    <Compile Include="../McvsOffline.PcSpike.Tests/SteamLocatorTests.cs" Link="Spike/SteamLocatorTests.cs" />
   </ItemGroup>
 </Project>

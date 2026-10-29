@@ -1,0 +1,96 @@
+using System;
+using System.Globalization;
+using System.IO;
+using System.Reflection;
+
+namespace McvsOffline.PcKit
+{
+    /// <summary>
+    /// The PC McvsOffline.Server.dll the kit carries as an embedded resource (docs/design/pc-port.md §9.1), and the temporary
+    /// folders <c>%TEMP%\mcvs-pckit-&lt;guid&gt;\</c> it is written to for the resolver during 'install'.
+    /// </summary>
+    public static class KitServer
+    {
+        public const string ResourceName = "McvsOffline.Server.dll";
+        public const string TempPrefix = "mcvs-pckit-";
+
+        /// <summary>The kit's server DLL, or null when the kit was built without it (a development build).</summary>
+        public static byte[] Embedded()
+        {
+            using (Stream stream = typeof(KitServer).Assembly.GetManifestResourceStream(ResourceName))
+            {
+                if (stream == null) return null;
+                using (var copy = new MemoryStream())
+                {
+                    stream.CopyTo(copy);
+                    return copy.ToArray();
+                }
+            }
+        }
+
+        /// <summary>A new, empty <c>mcvs-pckit-&lt;guid&gt;</c> folder under <paramref name="tempRoot"/>.</summary>
+        public static string CreateTempFolder(string tempRoot)
+        {
+            string folder = Path.Combine(tempRoot, TempPrefix + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            return folder;
+        }
+
+        /// <summary>Deletes a temp folder; a failure is only logged (it is retried by <see cref="CleanStale"/> on a later start).</summary>
+        public static void DeleteTempFolder(string folder, KitLog log)
+        {
+            if (string.IsNullOrEmpty(folder)) return;
+            try
+            {
+                if (Directory.Exists(folder)) Directory.Delete(folder, true);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                if (log != null) log.Warn("could not delete the temporary folder " + folder + ": " + ex.Message);
+            }
+        }
+
+        /// <summary>Deletes <c>mcvs-pckit-*</c> folders older than <paramref name="age"/> (left by a killed run); returns how many went.</summary>
+        public static int CleanStale(string tempRoot, DateTime nowUtc, TimeSpan age)
+        {
+            if (string.IsNullOrEmpty(tempRoot) || !Directory.Exists(tempRoot)) return 0;
+            int removed = 0;
+            string[] folders;
+            try
+            {
+                folders = Directory.GetDirectories(tempRoot, TempPrefix + "*");
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                return 0;
+            }
+            foreach (string folder in folders)
+            {
+                try
+                {
+                    if (nowUtc - Directory.GetLastWriteTimeUtc(folder) < age) continue;
+                    Directory.Delete(folder, true);
+                    removed++;
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                }
+            }
+            return removed;
+        }
+
+        /// <summary>The kit's version (Directory.Build.props), without a source-revision suffix.</summary>
+        public static string Version()
+        {
+            var attribute = typeof(KitServer).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>();
+            string version = attribute == null ? typeof(KitServer).Assembly.GetName().Version.ToString() : attribute.InformationalVersion;
+            int plus = version.IndexOf('+');
+            return plus < 0 ? version : version.Substring(0, plus);
+        }
+
+        public static string Stamp(DateTime time)
+        {
+            return time.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+        }
+    }
+}

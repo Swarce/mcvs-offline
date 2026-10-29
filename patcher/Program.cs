@@ -3,6 +3,7 @@
 // player's files; never downloads or ships Gameloft binaries.
 using System;
 using System.IO;
+using System.Linq;
 using McvsOffline.Patcher.Patches;
 
 namespace McvsOffline.Patcher
@@ -11,6 +12,9 @@ namespace McvsOffline.Patcher
     {
         public static int Main(string[] args)
         {
+            // The PC (Steam) mode: McvsOffline.Patcher pc install|uninstall|status|verify ... (docs/design/pc-port.md §7.7).
+            if (args.Length > 0 && args[0] == Pc.PcCli.Verb) return Pc.PcCli.Run(args.Skip(1).ToArray(), Console.Out, Console.Error);
+
             PatcherOptions options;
             try
             {
@@ -195,7 +199,7 @@ namespace McvsOffline.Patcher
                 "  --dry-run             verify every patch site and report, write nothing\n" +
                 "  --force               patch an APK that is not the verified " + KnownBuild.Version + " build (sites are still verified)\n" +
                 "  -v, --verbose         more output\n\n" +
-                "See docs/PLAYER-SETUP.md.");
+                "See docs/PLAYER-SETUP.md. The Steam (PC) build: McvsOffline.Patcher pc --help.");
         }
     }
 }
