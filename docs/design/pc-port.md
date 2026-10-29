@@ -369,11 +369,14 @@ The server never writes `McvsOffline\bin\`, `install.json` or `kit\`; the instal
 their target (`McvsOffline\bin\*.mcvs-tmp`, `McvsOffline\install.json.mcvs-tmp`,
 `<install>\ModernCombatVersus.exe.config.mcvs-tmp`); the kit's own temporary folder is `%TEMP%\mcvs-pckit-<guid>\`.
 
-Not ours, never touched: the game's own files in the install folder (`dr0.bin`..`dr3.bin`, `OF_PP.bin`, P1) and the native engine's
-per-user files outside it: `GDID.bin`, `DC.bin`, `HDIDFV.bin` in Documents (`SHGetFolderPathW(CSIDL_PERSONAL)`), whatever
-it keeps under `%APPDATA%` (read through `getenv("APPDATA")`), its crash logs under `%LOCALAPPDATA%\Gameloft`, and
-`app_preferences.json` (location still unknown) ([WH-V] C11, [CR] §3.2). Neither our uninstall nor Steam's removes them
-(§16).
+Not ours, never touched: the game's own files in the install folder (`dr0.bin`..`dr3.bin`, `OF_PP.bin`, P1; `GameVersion`
+and the exe's crash dump `core.dmp`, WR2 F9: `GameFolder.GameWrittenNames`) and the native engine's per-user files outside
+it: `GDID.bin`, `DC.bin`, `HDIDFV.bin` in Documents (`SHGetFolderPathW(CSIDL_PERSONAL)`), its save root under `%APPDATA%`
+(built from `getenv("APPDATA")`, the exe name and `gameloft`) with `MyLocalStorage`, the PC options file (the in-game
+graphics quality `Performance`; the PC has no `app_preferences.json`), and its crash logs under `%LOCALAPPDATA%\Gameloft`
+([WH-V] C11, [CR] §3.2, WR2 F7/F9). Neither our uninstall nor Steam's removes them (§16). `core.dmp` is written by the
+exe's own unhandled-exception filter (full memory, `CREATE_ALWAYS`: only the last crash's survives; 1.5-2 GB when it
+works): the listing records its size and time without hashing it, and `collect` never zips it.
 
 ### 3.6 Settings keys (settings.json)
 
@@ -414,7 +417,9 @@ it keeps under `%APPDATA%` (read through `getenv("APPDATA")`), its crash logs un
 | `[pc] quicklaunch: …` | `PcHooks` | §8.3 |
 | `[McvsOffline] headless world: <Type>.<Event> threw …` | existing H3 hook | unchanged |
 | `[McvsOffline] server world: …`, `[McvsOffline] component <type> was not created: …` | `PcHooks` M1/M4 | §8.5 |
-| `[boot] graphics: …` (PC adds `MEM profile`, `MEM rule on, removed <n>` or `MEM rule off`, `excludedLoadingLayers`) | `GraphicsHooks` | §6.7, §8.6 |
+| `[boot] graphics: …` (PC adds `MEM profile`, `MEM rule on, removed <n>` or `MEM rule off`, `excludedLoadingLayers`, `, overridden by the in-game graphics quality` when the loaded GPU profile is not the optimum and none was forced) | `GraphicsHooks` | §6.7, §8.6 |
+| `[boot] graphics: in-game graphics quality Performance <n> (<Low\|Mid\|High>)` (or `Performance not set (the game's own choice)`)`, RenderScale <f>, FPS <f>, Vsync <b>, FullScreen <b>` | `GraphicsHooks` (PC) | once, when the client World's `GamePreferencesComponent` has loaded; the `[status]` line's `graphics:` part repeats it |
+| `[status] …; memory: private <n> MB, virtual <n> MB (<p> % of 2048 MB), GC heap <n> MB` | `WindowsPlatform.StatusExtras` (PC) | every status line (WR2 F9) |
 | `admin: page opened (trigger …, via overlay\|system\|game\|jni\|post)`; PC adds `, overlay showed no page last time` | `PageOpener` | §6.5 |
 | `connectivity: type=<t> status=<0\|1> details="<text>"` | WP1 route | each tracker post, INFO, never the `device_id` |
 
@@ -840,6 +845,22 @@ New `hosts/embedded/Graphics/GameOptionsWindows.cs` (platform-neutral, tested on
   `MoreMarshal.NativeStringToString/DestroyNativeString`), at most 200 entries. `NativeProfiles()` adds
   `GetLoadedProfileName("MEM")`, `DeviceTotalMemory`, `DeviceGraphicsFeatureLevel`, `DeviceCPUNumCores`. The `[boot]
   graphics:` line then names GPU and MEM profiles and the final `excludedLoadingLayers` (Q6).
+* **The in-game graphics quality** (WR2 F7): the native GameOptions init reads `MyLocalStorage` › `Performance` and, when
+  the member exists, applies it on top of the selection (GPU and MEM). It is the PC options menu's LocalStorage user
+  preference (`GamePreferencesComponent.Performance`, 0/1/2 = Low/Mid/High by the default render scales 0.4/0.6/0.8), not
+  Android's AppPreferences `GameOptions_SelectedProfile`, which the PC line no longer reads. `GraphicsHooks` reads
+  `Performance` (and whether the member exists), `RenderScale`, `FPS`, `Vsync` and `FullScreen` from
+  `Game.GamePreferencesComponent.instance` once its `LoadPreferencesWindows` has finished (`initPerformance` ≠ -1) in a World
+  with a LocalStorage (the client's), logs them once and keeps them in the status line; the applied line adds `, overridden
+  by the in-game graphics quality` when the loaded GPU profile differs from the optimum and nothing was forced
+  (`PcHooksReflectionTests` checks every member against the real Game.dll). Whether a forced `graphics.profile` survives an
+  in-game choice is Q18 (WR3).
+* **Settings page text on PC** (`SettingsSchema.GroupsFor("windows")`): `graphics.profile` states the GPU selection of
+  `GameOptions_windows.json` (catch-all rules: HighGPU with `GPUMEM>=700`, `CORES>=4`; MidGPU with `GPUMEM>=550`,
+  `MEM_T>=4000`, `CORES>=4`; both feature level above 9.3; then LowGPU930 at 9.3, else LowGPU), that the in-game Graphics
+  quality overrides it, and that High costs memory in the 32-bit process; `graphics.fullProfile` says that on PC it only
+  changes the AI update rate (no PC GPU block sets `excludedLoadingLayers`). `GameOptionsWindowsTests` checks the numbers
+  against the player's real file.
 
 ---------------------------------------------------------------------------------------------------
 
@@ -1042,9 +1063,10 @@ config); leftovers: a foreign or spike config, an `args.txt` block while not ins
 `*_args.txt` (the engine reads `<prefix>_args.txt` instead of `args.txt`, `tools/pc-spike/ArgsTxtStep.cs:42-48`; also
 when installed, as an error), the spike's data folder `%LOCALAPPDATA%\McvsOffline\spike`; listed apart, informational and
 never a failure: "written by the game, not ours" (`dr0.bin`..`dr3.bin`, `OF_PP.bin`: the names the WP0 listing shows
-with game-run times, `GameFolder.GameWrittenNames`) and "other files, not ours" (any other top-level entry that is not
-in the read-only install of `MCVS_PC_REFS` as recorded in `GameFolder.DepotTopLevel`, e.g. `GameVersion`, and not
-ours); whether the game runs;
+with game-run times; `GameVersion` and `core.dmp` from the WR2 listings; `GameFolder.GameWrittenNames`), "the game's own
+crash dump: core.dmp, <n> bytes, written <UTC time>" when there is one, and "other files, not ours" (any other top-level
+entry that is not in the read-only install of `MCVS_PC_REFS` as recorded in `GameFolder.DepotTopLevel`, and not ours);
+whether the game runs;
 data folder size, settings `port` versus `install.json` `options.port`; the last `bootstrap.log` line.
 
 **Verify** = status plus the re-read of step 6, and it prints the `written` SHA-256 of every file (so WR2 compares them
@@ -1324,9 +1346,9 @@ DLL to `%TEMP%\mcvs-pckit-<guid>\` and deletes that folder in a `finally`; at st
 | `uninstall [--remove-data --yes]` | `PcInstaller.Uninstall` (the kit log moves to `%TEMP%` first with `--remove-data`, §7.6) |
 | `status [--listing]` | `PcInstaller.Status`; with `--listing` also writes the game-folder listing (every top-level entry with size, time and SHA-256; per folder the file count and total size) to `McvsOffline\kit\listing-<stamp>.txt` (or `%TEMP%\McvsOffline\kit\` when `McvsOffline\` is absent) and, when an earlier listing exists, `listing-diff.txt` against the first one, classifying each difference as ours, the game's own (§7.6) or other |
 | `verify` | `PcInstaller.Verify`, printing the `written` SHA-256 values (WR2 step 3) |
-| `probe` | before the game runs, as the normal user: (1) http.sys: `HttpListener` with prefix `http://localhost:51750/`, `Start`, `Stop` (net8 `HttpListener` on Windows is http.sys too; Q2), reporting success, `HttpListenerException` code and message, or "port in use (is the game running?)"; (2) whether the kit runs elevated (then the probe is not representative: "run it from a normal prompt"); (3) `netsh http show urlacl` lines naming 51750 (read only); (4) bind `127.0.0.1:51780` with a `TcpListener`; `netsh int ipv4 show excludedportrange protocol=tcp` covering 51750/51780; (5) install folder writable (create and delete a probe file in `McvsOffline\`); (6) BCL folder files; (7) .NET `Release` value; (8) Steam running (`steam.exe` process); (9) tools that inject into games (process names of common capture/overlay tools, informational, [QL] §5) |
+| `probe` | before the game runs, as the normal user: (1) http.sys: `HttpListener` with prefix `http://localhost:51750/`, `Start`, `Stop` (net8 `HttpListener` on Windows is http.sys too; Q2), reporting success, `HttpListenerException` code and message, or "port in use (is the game running?)"; (2) whether the kit runs elevated (then the probe is not representative: "run it from a normal prompt"); (3) `netsh http show urlacl` lines naming 51750 (read only); (4) bind `127.0.0.1:51780` with a `TcpListener`; `netsh int ipv4 show excludedportrange protocol=tcp` covering 51750/51780; (5) install folder writable (create and delete a probe file in `McvsOffline\`); (6) BCL folder files; (7) .NET `Release` value; (8) Steam running (`steam.exe` process); (9) tools that inject into games (process names of common capture/overlay tools, informational, [QL] §5); (10) the GPU adapters from the display class registry key (name, `HardwareInformation.qwMemorySize`/`MemorySize`, driver version and date), every display attached to the desktop with its mode and refresh rate (`EnumDisplaySettings`), the physical memory (`GlobalMemoryStatusEx`) (WR2 F7); (11) the Windows Firewall rules naming `ModernCombatVersus.exe` (`netsh advfirewall firewall show rule name=all verbose`, each rule's lines as Windows prints them, Q5) |
 | `watch` | while the game runs (until it exits or Ctrl+C): memory telemetry every 2 s (private bytes, virtual size, % of 2048 MB; the spike's `Telemetry`), `OutputDebugString` capture (`DebugOutputCapture`), the game's TCP/UDP endpoints every 10 s (`netstat -ano` parsed for the PID: 25001+ VDB, Finder 51750, Lobby/Controller, GS UDP), into `McvsOffline\kit\watch-<stamp>\` (Q5, Q6) |
-| `collect` | one zip on the Desktop, `mcvs-offline-pc-<yyyyMMdd-HHmmss>.zip`: `McvsOffline\logs\**`, `%TEMP%\McvsOffline\logs\**`, `McvsOffline\kit\**`, `settings.json`, `install.json`, the config, `args.txt`, a listing of the game folder (names, sizes, SHA-256 of exe and DLLs), the `status` and `probe` output, Application event-log entries for `ModernCombatVersus.exe` of the last 7 days (`wevtutil`), the game's crash logs under `%LOCALAPPDATA%\Gameloft` decoded (`CrashLogDecoder`); a listing (names, sizes, dates, no contents) of `Documents\GDID.bin`, `DC.bin`, `HDIDFV.bin`, of any `Gameloft` folder under `%APPDATA%` and `%LOCALAPPDATA%`, and of every `app_preferences.json` found in those places and the game folder ([WH-V] C11: its location is still open). Never `profiles\`, `accounts\`, `tokens.json`, and never the contents of the Gameloft id files |
+| `collect` | one zip on the Desktop, `mcvs-offline-pc-<yyyyMMdd-HHmmss>.zip`: `McvsOffline\logs\**`, `%TEMP%\McvsOffline\logs\**`, `McvsOffline\kit\**`, `settings.json`, `install.json`, the config, `args.txt`, a listing of the game folder (names, sizes, SHA-256 of exe and DLLs), the `status` and `probe` output, Application event-log entries for `ModernCombatVersus.exe` of the last 7 days (`wevtutil /f:xml`, read in the ANSI code page: `windows-events.txt` with `TimeCreated/@SystemTime` in UTC, `windows-events.xml` raw; WR2 F9), the game's crash logs under `%LOCALAPPDATA%\Gameloft` decoded (`CrashLogDecoder`); a listing (names, sizes, dates, no contents) of `Documents\GDID.bin`, `DC.bin`, `HDIDFV.bin`, of any `Gameloft` folder under `%APPDATA%` and `%LOCALAPPDATA%`, and of every `MyLocalStorage*` file in the game folder, `McvsOffline\` and below the `%APPDATA%`, `%LOCALAPPDATA%` and Documents folders named like `gameloft` or `ModernCombat*` (`local-storage-locations.txt`). `summary.txt` starts with the kit's version and its own SHA-256 (as does every command header in `pc-kit.log`) and names `core.dmp` with size and UTC time. Never `profiles\`, `accounts\`, `tokens.json`, `core.dmp`, and never the contents of the Gameloft id files or of `MyLocalStorage` |
 | `help` | usage |
 
 Exit codes as §7.6. The SmartScreen and antivirus caveat of `docs/PC-SPIKE.md` §2 applies.
@@ -1747,8 +1769,8 @@ overlay, Medal, GeForce Experience and the like, [QL] §5), do not start the gam
 
 | # | step | record | settles |
 |---|---|---|---|
-| 1 | `status --listing` | leftovers of the WP0 spike (config, `McvsOffline\spike\`, args.txt block); the listing **before** install (`McvsOffline\kit\listing-before.txt`: every top-level entry with size, time and SHA-256, and per folder the file count and total size) | — |
-| 2 | `probe` from a normal (non-admin) prompt | http.sys result for `http://localhost:51750/`, urlacl lines, port 51780, excluded ranges, folder writable, .NET Release | **Q2** (D4) |
+| 1 | `status --listing` | leftovers of the WP0 spike (config, `McvsOffline\spike\`, args.txt block); the listing **before** install (`McvsOffline\kit\listing-<stamp>.txt`, or `%TEMP%\McvsOffline\kit\listing-<stamp>.txt` while `McvsOffline\` does not exist, as in WR2: every top-level entry with size, time and SHA-256, `not-hashed` for `core.dmp`, and per folder the file count and total size) | — |
+| 2 | `probe` from a normal (non-admin) prompt | http.sys result for `http://localhost:51750/`, urlacl lines, port 51780, excluded ranges, folder writable, .NET Release; GPU adapters, displays and refresh rates, physical memory, firewall rules for the game (F7, F9) | **Q2** (D4), Q5 |
 | 3 | `install`, then `verify` | notes; `status` says "installed, current"; the `written` SHA-256 values `verify` prints **equal** the expected values WP5a recorded from the Linux run (§12.6). Any difference blocks WP5b until explained (the tested bytes must be the shipped bytes) | R9 |
 | 4 | `watch` in a second window, then start the game from Steam | `[boot] runtime:` with the expected values: `process x86, LAA no`, `Release` ≥ 379893 (4.5.2; Windows 10/11 normally report 4.8.x, ≥ 528040); `[boot] assemblies:` (every assembly from `McvsOffline\bin`), `[boot] patches:` (every witness `yes`) | **Q1**, Q7 |
 | 5 | reach the main menu | `[pc] quicklaunch:` lines (LocalAnubis started, room, thread id equals the game thread), no `headless world:`/`server world:`/`component … not created` lines, `[boot] graphics:` (GPU and MEM profile, `MEM rule on, removed <n>` with the expected count, `excludedLoadingLayers` without `Physics`) | **Q4** (TS), Q6, **Q13** |
@@ -1758,11 +1780,11 @@ overlay, Medal, GeForce Experience and the like, [QL] §5), do not start the gam
 | 9 | during the match: minimise and restore; open the in-game menu; open the Steam overlay (Shift+Tab) | one pause, cursor visible in the menu and on the end screen | H11, M2, H8 |
 | 10 | in options: toggle fullscreen twice | no crash, the setting is kept | H8, [HL-V] §5 |
 | 11 | firewall prompts at boot or at the match; `watch`'s endpoint lists | prompts (when, which), listeners: VDB `0.0.0.0:25001+` (one per physics World), GS UDP `[::]`, Finder 51750 | **Q5** |
-| 12 | `watch` telemetry in menu and match | private bytes and virtual size, % of 2048 MB | **Q6** |
+| 12 | `watch` telemetry in menu and match; the `memory:` part of every `[status]` line (F9) | private bytes and virtual size, % of 2048 MB | **Q6** |
 | 13 | with the defaults (`nativeonline` applied, `embedded.nativeOnlineSdk: false`): open the in-game store, buy one item with soft currency, and open every xpromo/news screen the menu offers; then `server.log`; then once with `embedded.nativeOnlineSdk: true` | store and xpromo screens: any hang, error popup or crash; `server.log`: no `GlWebTools` request, no `connectionstatus`; with the SDK on: the tracker posts get 200 and one INFO line each, no MAC anywhere in the logs | **Q8**, R11 |
 | 14 | Steam achievements: open one crate (or note the first-login-of-the-day progress) and compare the stat on the Steam overlay's achievements page before and after | the progress moved by exactly one step | D3 (H9 + M3) |
 | 15 | Settings page › Restart; then once more with `admin.restartVia=host` | each time the game closes and comes back through Steam within ~10 s; `game.log` present; the log names the exit path (`ExitAppAndroid`, or the host's kill) | **Q9**, **Q14** |
-| 16 | `collect`, then `uninstall`, then `status --listing` | the zip; the listing **after**, diffed against step 1's by the kit (`listing-diff.txt`): expected differences only `McvsOffline\` (with the data) and the game's own files (`dr0.bin`..`dr3.bin`, `OF_PP.bin`, or any other entry whose time is a game-run time, each named); no `args.txt`, no config, no `*.mcvs-tmp`. Anything else is a leftover of ours | F9, P1 |
+| 16 | `collect`, then `uninstall`, then `status --listing` | the zip; the listing **after**, diffed against step 1's by the kit (`listing-diff.txt`): expected differences only `McvsOffline\` (with the data) and the game's own files (`dr0.bin`..`dr3.bin`, `OF_PP.bin`, `GameVersion`, `core.dmp` "the game's own crash dump" with its size and UTC time, or any other entry whose time is a game-run time, each named); no `args.txt`, no config, no `*.mcvs-tmp`. Anything else is a leftover of ours; `summary.txt` and the `pc-kit.log` headers name the kit's SHA-256 | F9, P1 |
 | 17 | optional: `uninstall --remove-data --yes` on a copy of the game folder (or after the save export) | no `McvsOffline\` left; the kit log continued in `%TEMP%\McvsOffline\kit\`; no `%TEMP%\mcvs-pckit-*` folder left | §7.6 |
 | 18 | optional: Steam "Verify integrity of game files" while installed, then `status` | still "installed, current" | [PP] §5.3 [I] |
 | 19 | owner question: had this Steam account played MCVS on PC before (the `SACHI1` marker)? | yes/no | **Q11** |
