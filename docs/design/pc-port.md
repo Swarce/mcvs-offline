@@ -473,7 +473,7 @@ a 3 s timeout make it retry ([CN] §1.2, [CN-V] §3).
 
 ### 4.2 Redaction: MAC addresses and SteamID64
 
-`server/Core/Http/LogRedaction.cs` (one scanner, no regex, idempotent, fast path; `:7-35`) gains two rules:
+`server/Core/Http/LogRedaction.cs` (one scanner, no regex, idempotent, fast path; `:7-35`) gains three rules:
 
 * **MAC.** The value of a form/query parameter or JSON string member named `device_id` or `global_device_id` that is
   MAC-shaped (six pairs of hex digits separated by `:` or `-`, also with `%3A`/`%3a`) becomes `<redacted-mac>`. Any
@@ -482,6 +482,14 @@ a 3 s timeout make it retry ([CN] §1.2, [CN-V] §3).
 * **SteamID64.** A run of exactly 17 ASCII digits starting with `7656119`, not preceded or followed by a letter or
   digit, keeps its first 4 and last 4 digits: `76561198366698514` → `7656…8514` (the form of `Credential.Mask`). It
   appears as the anonymous user name (`username=`, `anonymous:<id>`, [QL] §4.1). New trigger substring `7656119`.
+* **Access tokens** (WR2 F6). `mcvs` + exactly 8 hex digits (the issuer, `ServerContext`'s instance id) + `.` + 32 or
+  more hex digits (the whole hex run is taken), anywhere in a line, also inside a word → `mcvs…<redacted>` (the form
+  the `access_token=` rule writes). The game's `Session.GetAccessToken` prints the token at Debug
+  (`… succeeded: mcvs59915ef0.e681…`), hundreds of lines per start, and game.log goes into collect and share logs.
+  `mcvs` is no trigger substring (every McvsOffline path contains it): the fast path runs a second test besides the
+  case-insensitive trigger list, an ordinal search for `mcvs` followed by the token's shape, so lines that only carry
+  paths stay on the fast path. Shared: `Redact` runs on every log line, so server.log and bootstrap.log on Android
+  change too (the 401 diagnosis line reads `token mcvs…<redacted> is not known here`).
 
 `server/Core/Http/RequestLogger.cs` applies `LogRedaction.Redact` to the INFO summary, the DEBUG dump, the WARN
 "UNKNOWN ENDPOINT" dump **and** each `unknown-endpoints.jsonl` line (all four carried the MAC in the spike, [CN-V] §5).
@@ -1535,8 +1543,10 @@ the server DLL, `--system-module mscorlib`, and the whole-assembly findings befo
   `Config/glue.json` → `187993782.f`, `Config/crmpreconfiguration.json` decodes (GCBF), `GameOptions_windows.json` →
   `462043511.f`; Android unchanged.
 * `LogRedactionTests`: MAC forms (`:`, `-`, `%3A`, JSON, `global_device_id`), `mcvs…` ids untouched; SteamID64 in a
-  form, JSON and `anonymous:<id>`; other 17-digit numbers and longer runs untouched; idempotent; the fast path returns
-  the same instance. `RequestLoggerTests`: the four outputs carry no MAC (a request through `McvsServer.Handle`, a
+  form, JSON and `anonymous:<id>`; other 17-digit numbers and longer runs untouched; access tokens: the game's real
+  `GetAccessToken` line (`RedactsTheAccessTokenOfTheGamesSessionLog`), anywhere in a line and several per line, wrong
+  shapes untouched (`RedactsAccessTokensAnywhere`); idempotent; the fast path returns the same instance, also for paths
+  containing `mcvs` (`PathsWithMcvsKeepTheFastPath`). `AuthorizeTests`: the 401 diagnosis lines carry `mcvs…<redacted>`. `RequestLoggerTests`: the four outputs carry no MAC (a request through `McvsServer.Handle`, a
   `MemoryLogSink`, the jsonl file).
 * `ConnectivityTrackerTests`: the spike's body, a body starting with `&`, no `port`, an unknown `type`, a GET → 200 `{}`;
   a handler fault still 200; one INFO line without `device_id`; pandora locate of `online_connectivity` without warning;

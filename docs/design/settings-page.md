@@ -188,7 +188,9 @@ Main flows:
   button row `#dialog-ok`, `#dialog-cancel` is always visible); never `alert/confirm/prompt` (the plain `WebChromeClient`
   makes them unreliable). Transient messages in `#toast`.
 * **Banners** (stacked, each dismissable except the first three): `#banner-nosession` (no or expired session: "Open this
-  page from the game: Settings › Account › MCVS Offline, or the MCVS Offline message in the inbox."), `#banner-viewmode`
+  page from the game: Settings › Account › MCVS Offline, or the MCVS Offline message in the inbox."; when the fragment's
+  ticket was refused (§2.2 step 4), `#banner-nosession-text` says instead "This tab is from an earlier start of the game:
+  close it and open the page from the game again." (WR2 F8)), `#banner-viewmode`
   (§2.4), `#banner-error` (server unreachable after 3 failed pings: "The game is not answering. Go back to the game."),
   `#banner-staged` (an operation waits for a restart, with "Restart now" and "Cancel"), `#banner-restart` (N settings
   apply after a restart, with "Restart now"), `#banner-probation` (an applied operation waits for the game's first
@@ -259,8 +261,11 @@ re-POSTs it in post mode). The boot sequence tolerates that:
 2. Remove the fragment at once: `history.replaceState(null, '', location.pathname)` (feature-tested; else
    `location.hash = ''`).
 3. `GET status` with whatever cookie the WebView has. 200 → the session is valid: ignore the ticket.
-4. Otherwise, with a ticket: `POST session`; 200 → `GET status`; 401 → `#banner-nosession`. Without a ticket: `#news` →
-   view mode (§2.4), else `#banner-nosession`.
+4. Otherwise, with a ticket: `POST session`; 200 → `GET status`; 401 → `#banner-nosession` with the stale-tab text in
+   `#banner-nosession-text` ("This tab is from an earlier start of the game: close it and open the page from the game
+   again.": tickets live in the game's memory and are used once, so a refused ticket means a tab kept or re-opened from
+   an earlier start, not a link the game just opened; WR2 F8); any other status → `#banner-nosession` with its usual
+   text. Without a ticket: `#news` → view mode (§2.4), else `#banner-nosession`.
 5. Select the screen from `s=` (default Status); `r=nosave` shows the toast "The game did not save."
 
 Unsaved settings and wizard state are lost when Android re-creates the browser; the Settings screen says so in its help
@@ -883,8 +888,14 @@ GET: the browser's Refresh button reloads it with the cookie instead of re-POSTi
   Replaces `#t=<8+ hex>` and its percent-encoded form `%23t%3D<hex>` → `#t=<redacted>`; `mcvs_s=<hex>` →
   `mcvs_s=<redacted>`; `"ticket":"<hex>"` (any spacing) → `"ticket":"<redacted>"`; form/query `t=<32 hex>` →
   `t=<redacted>`; the value of every form/query parameter and JSON string member named `password`, `access_token`,
-  `refresh_token`, `token` or `superPassword` → its first 4 characters + `…<redacted>`. Fast path: the input is returned
-  unchanged when none of the trigger substrings occurs (ordinal `IndexOf`); otherwise a linear scan, no regex engine.
+  `refresh_token`, `token` or `superPassword` → its first 4 characters + `…<redacted>`; an access token of this server
+  anywhere in a line, also inside a word (`mcvs` + exactly 8 hex + `.` + 32 or more hex, the shape `TokenService`
+  issues; the game prints it in game.log, WR2 F6) → `mcvs…<redacted>`. The PC port adds MAC and SteamID64 rules
+  (pc-port.md §4.2). Fast path: the input is returned unchanged when none of the trigger substrings occurs (ordinal
+  `IndexOf`) and no access token occurs (an ordinal, case-sensitive search for `mcvs` followed by the token's shape;
+  `mcvs` cannot be a trigger: every McvsOffline path contains it); otherwise a linear scan, no regex engine. `Redact`
+  runs on every log line (below), so the access token rule applies to server.log, bootstrap.log and game.log on
+  Android too: e.g. the 401 diagnosis line reads `token mcvs…<redacted> is not known here`.
 * **In the logger, for every logger**: `Logger` (server/Core/Logger.cs) gains `Func<string, string> Redactor`, applied in
   `Logger.Write` to the message and in `LogEntry.Format` to the exception text. `McvsServer.Create` sets it on the server
   logger and `EmbeddedHost.Prepare` on the host logger (bootstrap.log, logcat lines, `MemoryLogSink`), so server.log,
@@ -1263,9 +1274,13 @@ Read the last `min(size, 1 MiB)` bytes with `FileShare.ReadWrite`; if the window
 
 * server/bootstrap: `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z (TRACE|DEBUG|INFO |WARN |ERROR|     ) \[([^\]]*)\] `
   (`LogEntry.Format`), or
-* game.log: `^\d{2}:\d{2}:\d{2}\.\d{3} (\w+) \[([^\]]*)\] ` (`GameLogBridge`; levels mapped `Fatal/Error → ERROR`,
-  `Warning → WARN`, `Info → INFO`, `Debug/Verbose → DEBUG`; the entry's `t` is then the game's clock as written,
-  `HH:mm:ss.fff` without a date, which the page shows as it is),
+* game.log, in either of two forms (`GameLogBridge`; levels mapped `Fatal/Error → ERROR`, `Warning → WARN`,
+  `Info → INFO`, `Debug/Verbose → DEBUG`):
+  * build 14 and later: `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z (\w+) \[([^\]]*)\] ` (`GameLogFormat.Line`, UTC
+    like server.log; WR2 F5): the entry's `t` is that ISO time, which the page shows in local time (`fmtClock`, as for
+    server.log);
+  * builds up to 13: `^\d{2}:\d{2}:\d{2}\.\d{3} (\w+) \[([^\]]*)\] `: the entry's `t` is then the game's clock as
+    written, `HH:mm:ss.fff` without a date, which the page shows as it is,
 
 and continues over the following lines that match neither (exceptions, multi-line messages). Lines before the first
 entry form one entry with level `?`. Filter by `min` (level `?` always shown) and `q`, return the last `lines`
@@ -2156,7 +2171,9 @@ allowed; LAN mode, a `0.0.0.0` bind or `security.hostCheck=false` → allowed); 
 `/_mcvs/api/v1/settings` without a cookie → 413 before the body is read: the test feeds headers and checks the parser
 never reads the body bytes; with a valid cookie → accepted up to 64 KiB; chunked bodies stop at the limit);
 redaction of every pattern including percent-encoded, split across `&`/JSON, parameter names (`password=`,
-`access_token=`, `"superPassword":`), the fast path returning the same instance; `Logger.Redactor` applied to messages
+`access_token=`, `"superPassword":`), access tokens anywhere in a line (`RedactsTheAccessTokenOfTheGamesSessionLog`,
+`RedactsAccessTokensAnywhere`), the fast path returning the same instance (also for paths containing `mcvs`,
+`PathsWithMcvsKeepTheFastPath`); `Logger.Redactor` applied to messages
 and exception text for every sink; `Settings` fallback → `LoadError` set, `MoveAsideAndReset` renames, clears the flag,
 saves defaults, refuses when not fallback; `LastDirectAnonymous` ignores on-behalf and `game:` grants and grants not marked
 `playerLogin`, is updated on re-issue, carries client and device id; `RevokeCredential` removes grants of one credential only. HTTP through
