@@ -25,7 +25,7 @@ version has its own guide: [PLAYER-SETUP.md](PLAYER-SETUP.md).
 ## 2. Get the kit
 
 1. Download `McvsOffline.PcKit.exe` into any folder, for example `Downloads`. Its SHA-256 is
-   `c608fd1903b83763657646482a0c7aee6ec8282e10f63aa237dcb753b2e8715d` (PowerShell:
+   `0aa37f249bb57661e49d50af50596e2765052a2f37390e23073156a9d7f6a7be` (PowerShell:
    `Get-FileHash .\McvsOffline.PcKit.exe`).
 2. **SmartScreen warning.** The exe is not code-signed, so Windows may show "Windows protected your PC". Click
    **More info**, then **Run anyway**. Your antivirus may scan it first.
@@ -225,12 +225,12 @@ itself is not listed because it holds the install time):
 
 | file | sha256 |
 |---|---|
-| `McvsOffline/bin/EngineBridge.dll` | `1d669508abc805528e88454338cd1f3ba0dced4f87d0d6e24aaa8aec28652e04` |
-| `McvsOffline/bin/Game.dll` | `f511c72b100d7cd1ea7b98339a4330ea7ae4491c811145ad61206b5ee31ae278` |
-| `McvsOffline/bin/Gameloft.Engine.dll` | `5c21dc66bbbe3d6414ae6910cbf2723ec1345443e09208599a4f63d02e11abf9` |
-| `McvsOffline/bin/Gameloft.Util.dll` | `3d4926d36b27c88b456c6613d1a914c2c9ac7f6bd44dd9a0a72caea34bf8abbd` |
-| `McvsOffline/bin/McvsOffline.Server.dll` | `6303a789f9724c7fb3bcf16f44a4071fb2fb7e52f3f7c9901e41b1f66b243dd5` |
-| `ModernCombatVersus.exe.config` | `3ebe99b3c93a9540cd7f7b03da55fc048a544501c17e8621457884eae456f94c` |
+| `McvsOffline/bin/EngineBridge.dll` | `81fb59b70f3bddba0a7d2802a41225a1ae573ce5bf7982e96fe953fcd94c1e9c` |
+| `McvsOffline/bin/Game.dll` | `9cdd08531949744c26376a9caf72d0861bc091d3dc08e2ec900d1a83b1a8e28d` |
+| `McvsOffline/bin/Gameloft.Engine.dll` | `a203bb06fdfddf2025b480917c676803d8d59cf07b25c83b0477a45bce863ecb` |
+| `McvsOffline/bin/Gameloft.Util.dll` | `af4c521769ac2b655e7bf164ae1984d1c405978b600e15cb8ca153a6d24ff068` |
+| `McvsOffline/bin/McvsOffline.Server.dll` | `6153643ab7017e3a6fa5e573d1ef83d23110caca31da0562667094a6f7ab3a34` |
+| `ModernCombatVersus.exe.config` | `fda12aef617b4cfcd8de0ed0b8ebc3764270a21bbabeaef08113eb09d700c4b6` |
 
 Any difference in this table stops the round until it is explained: the bytes you run must be the bytes we tested.
 (The config changed from build 13: it now also tells .NET the full name of `Game`.)
