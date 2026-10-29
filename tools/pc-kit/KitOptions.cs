@@ -28,6 +28,9 @@ namespace McvsOffline.PcKit
 
         public int Port { get; set; }
 
+        /// <summary>--port was given: install also sets "port" in McvsOffline\settings.json.</summary>
+        public bool PortGiven { get; set; }
+
         /// <summary>--patch; null: the build's defaults.</summary>
         public List<string> Patches { get; set; }
 
@@ -57,7 +60,7 @@ namespace McvsOffline.PcKit
                     case "--game": o.GameDir = Value(args, ref i); break;
                     case "--bcl": o.Bcl = Value(args, ref i); break;
                     case "--server": o.ServerDll = Value(args, ref i); break;
-                    case "--port": o.Port = PcCli.ParsePort(Value(args, ref i)); break;
+                    case "--port": o.Port = PcCli.ParsePort(Value(args, ref i)); o.PortGiven = true; break;
                     case "--patch": o.Patches = PcReportText.ParsePatchList(Value(args, ref i)); break;
                     case "--dry-run": o.DryRun = true; break;
                     case "--force": o.Force = true; break;

@@ -24,6 +24,9 @@ namespace McvsOffline.Patcher.Pc
 
         public int Port { get; set; }
 
+        /// <summary>--port was given: install also sets "port" in McvsOffline\settings.json.</summary>
+        public bool PortGiven { get; set; }
+
         /// <summary>Null: the build's defaults.</summary>
         public List<string> Patches { get; set; }
 
@@ -100,6 +103,7 @@ namespace McvsOffline.Patcher.Pc
                             ServerFolder = Path.GetDirectoryName(Path.GetFullPath(o.ServerDll)),
                             BclDirectory = o.BclDirectory ?? DefaultBcl(),
                             Port = o.Port,
+                            SetSettingsPort = o.PortGiven,
                             OptionalPatches = o.Patches,
                             Force = o.Force,
                             DryRun = o.DryRun,
@@ -148,7 +152,7 @@ namespace McvsOffline.Patcher.Pc
                     case "--game": o.GameFolder = Value(args, ref i); break;
                     case "--server": o.ServerDll = Value(args, ref i); break;
                     case "--bcl": o.BclDirectory = Value(args, ref i); break;
-                    case "--port": o.Port = ParsePort(Value(args, ref i)); break;
+                    case "--port": o.Port = ParsePort(Value(args, ref i)); o.PortGiven = true; break;
                     case "--patch": o.Patches = PcReportText.ParsePatchList(Value(args, ref i)); break;
                     case "--force": o.Force = true; break;
                     case "--dry-run": o.DryRun = true; break;
@@ -197,7 +201,9 @@ namespace McvsOffline.Patcher.Pc
             "  --server <dll>        the PC McvsOffline.Server.dll (artifacts/bin/McvsOffline.Server.Pc/release/), install only\n" +
             "  --bcl <dir>           the .NET Framework 4 assemblies the game's are read with (default: Windows' Framework\\v4.0.30319;\n" +
             "                        elsewhere MCVS_NET452_REFS, else the NuGet net452 reference assemblies)\n" +
-            "  --port <n>            the server port recorded in install.json (default 51780)\n" +
+            "  --port <n>            the server port: set in McvsOffline\\settings.json (only that key), baked into the geo\n" +
+            "                        patch and recorded in install.json (without it settings.json is left alone and its port,\n" +
+            "                        else 51780, is used)\n" +
             "  --patch <list>        default (the default set), none (mandatory only), all, or ids, e.g. default,forum\n" +
             "  --dry-run             verify every patch site and print the SHA-256 of every file, write nothing\n" +
             "  --force               install on a build that is not the verified 6372049 (sites are still verified)\n" +

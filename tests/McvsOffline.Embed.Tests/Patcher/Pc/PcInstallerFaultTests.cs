@@ -255,6 +255,94 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             }
         }
 
+        /// <summary>ERROR_SHARING_VIOLATION as File.Move on Windows reports it (an antivirus scan holding the target).</summary>
+        private static IOException SharingViolation()
+        {
+            return new IOException("The process cannot access the file because it is being used by another process. (injected)", unchecked((int)0x80070020));
+        }
+
+        /// <summary>
+        /// The .mcvs-tmp → target rename retries a briefly locked target (sharing or lock violation; an access denial on Windows only)
+        /// a bounded number of times, then throws the last error unchanged; any other error is thrown at once.
+        /// </summary>
+        [Fact]
+        public void TheRenameRetriesABrieflyLockedTarget()
+        {
+            var sleeps = new List<int>();
+            int calls = 0;
+            var ops = new PcFileOps((s, d) => { if (++calls <= 3) throw SharingViolation(); }, sleeps.Add, false);
+            ops.Rename("a.mcvs-tmp", "a");
+            Assert.Equal(4, calls);
+            Assert.Equal(new[] { PcFileOps.RenameDelayMs, PcFileOps.RenameDelayMs, PcFileOps.RenameDelayMs }, sleeps);
+
+            // Locked for good: RenameAttempts calls, then the last exception as it was.
+            calls = 0;
+            sleeps.Clear();
+            IOException last = null;
+            ops = new PcFileOps((s, d) => { calls++; throw last = SharingViolation(); }, sleeps.Add, false);
+            IOException thrown = Assert.Throws<IOException>(() => ops.Rename("a.mcvs-tmp", "a"));
+            Assert.Same(last, thrown);
+            Assert.Equal(PcFileOps.RenameAttempts, calls);
+            Assert.Equal(PcFileOps.RenameAttempts - 1, sleeps.Count);
+
+            // A lock violation too; an access denial only on Windows; anything else at once.
+            Assert.True(PcFileOps.IsTransient(new IOException("lock", unchecked((int)0x80070021)), false));
+            Assert.True(PcFileOps.IsTransient(new UnauthorizedAccessException("denied"), true));
+            Assert.False(PcFileOps.IsTransient(new UnauthorizedAccessException("denied"), false));
+            Assert.False(PcFileOps.IsTransient(new IOException("disk full", unchecked((int)0x80070070)), true));
+            Assert.False(PcFileOps.IsTransient(new FileNotFoundException("gone"), true));
+            Assert.False(PcFileOps.IsTransient(new InvalidOperationException("no"), true));
+            foreach (Exception permanent in new Exception[] { new FileNotFoundException("gone"), new UnauthorizedAccessException("read-only folder") })
+            {
+                calls = 0;
+                sleeps.Clear();
+                ops = new PcFileOps((s, d) => { calls++; throw permanent; }, sleeps.Add, false);
+                Assert.Same(permanent, Assert.ThrowsAny<Exception>(() => ops.Rename("a.mcvs-tmp", "a")));
+                Assert.Equal(1, calls);
+                Assert.Empty(sleeps);
+            }
+            calls = 0;
+            ops = new PcFileOps((s, d) => { if (++calls == 1) throw new UnauthorizedAccessException("scanner"); }, sleeps.Add, true);
+            ops.Rename("a.mcvs-tmp", "a");
+            Assert.Equal(2, calls);
+        }
+
+        /// <summary>
+        /// A real install whose renames meet a target held for a moment (two sharing violations on install.json, one on the config):
+        /// the retries cure it, the install completes and no *.mcvs-tmp is left.
+        /// </summary>
+        [Fact]
+        public void AnInstallSurvivesABrieflyLockedTarget()
+        {
+            using (PcGameCopy copy = PcGameCopy.Create(output))
+            {
+                if (copy == null) return;
+                var locks = new Dictionary<string, int>(StringComparer.Ordinal)
+                {
+                    [copy.Path_("McvsOffline/install.json")] = 2,
+                    [copy.Path_(PcExeConfig.FileName)] = 1,
+                };
+                var sleeps = new List<int>();
+                var ops = new PcFileOps((source, destination) =>
+                {
+                    int left;
+                    if (locks.TryGetValue(Path.GetFullPath(destination), out left) && left > 0)
+                    {
+                        locks[Path.GetFullPath(destination)] = left - 1;
+                        throw SharingViolation();
+                    }
+                    File.Move(source, destination, true);
+                }, sleeps.Add, false);
+                PcInstallReport report = copy.Install(ops);
+                Assert.True(report.ExitCode == 0, report.Error);
+                Assert.Equal(3, sleeps.Count);
+                Assert.All(locks.Values, v => Assert.Equal(0, v));
+                PcStatusReport status = copy.Status();
+                Assert.Equal(PcInstallState.Current, status.State);
+                Assert.Empty(status.Leftovers);
+            }
+        }
+
         private static void AssertNoConfigPointsAtAMissingFile(PcGameCopy copy)
         {
             string config = copy.Path_(PcExeConfig.FileName);

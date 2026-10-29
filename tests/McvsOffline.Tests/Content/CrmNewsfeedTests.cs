@@ -145,19 +145,54 @@ namespace McvsOffline.Tests.Content
             {""news_id"":""season_FromGameloft"",""title"":""A tester's message"",""body"":""Hello"",""redirect"":"""",""timestamp"":1792972800},
             {""news_id"":""mcvsoffline_FromMCVS"",""title"":""stale"",""redirect"":""http://example.invalid/""}]}";
 
+        /// <summary>
+        /// Ours replaces an overlay entry with our id and goes before the first kept entry with its asset key (a missing
+        /// asset is "", ours): on PC the first item of a key gives every message of that key its dates (pc-port.md §4.3).
+        /// </summary>
         [Fact]
-        public void OursIsAppendedLastAndReplacesAnOverlayEntryWithOurId()
+        public void OursGoesBeforeAssetlessOverlayEntriesAndReplacesOneWithOurId()
         {
             List<object> ours = CrmNewsfeed.Build(new CrmOptions(), new FakeAdminPortal(), Wednesday);
-            var doc = CrmDocumentBuilder.Build(null, new CrmContent(), WithOverlay(OverlayNews), Log.Null, null, ours);
+            var logs = new MemoryLogSink();
+            var logger = new Logger();
+            logger.AddSink(logs);
+            var doc = CrmDocumentBuilder.Build(null, new CrmContent(), WithOverlay(OverlayNews), logger.For("crm"), null, ours);
             List<object> list = Newsfeeds(doc);
             Assert.Equal(2, list.Count);
-            Assert.Equal("season_FromGameloft", JsonPath.Get(list[0], "news_id"));
-            Assert.Equal("A tester's message", JsonPath.Get(list[0], "title"));
-            Assert.Equal(ItemJson, MiniJson.Serialize(list[1]));
+            Assert.Equal(ItemJson, MiniJson.Serialize(list[0]));
+            Assert.Equal("season_FromGameloft", JsonPath.Get(list[1], "news_id"));
+            Assert.Equal("A tester's message", JsonPath.Get(list[1], "title"));
             Assert.Empty(CrmDocumentValidator.Validate(doc));
+            Assert.DoesNotContain(logs.Snapshot(), e => e.Message.Contains("no end_date"));
             // The builder copies: the caller's list is never aliased into the document.
-            Assert.NotSame(ours[0], list[1]);
+            Assert.NotSame(ours[0], list[0]);
+        }
+
+        /// <summary>
+        /// Overlay entries with an asset of their own come first; ours goes before the first one of key "" (asset "",
+        /// missing or null), and the shared-asset warning stays silent because ours, with its end_date, owns that key.
+        /// Without any entry of key "" ours is appended.
+        /// </summary>
+        [Fact]
+        public void OursLeadsTheEntriesOfItsAssetKey()
+        {
+            const string overlay = @"{""newsfeeds"":[
+                {""news_id"":""a"",""asset"":""x"",""timestamp"":1792972800},
+                {""news_id"":""b"",""asset"":null,""timestamp"":1792972800},
+                {""news_id"":""c"",""asset"":"""",""timestamp"":1792972800},
+                {""news_id"":""d"",""timestamp"":1792972800}]}";
+            List<object> ours = CrmNewsfeed.Build(new CrmOptions(), new FakeAdminPortal(), Wednesday);
+            var logs = new MemoryLogSink();
+            var logger = new Logger();
+            logger.AddSink(logs);
+            var doc = CrmDocumentBuilder.Build(null, new CrmContent(), WithOverlay(overlay), logger.For("crm"), null, ours);
+            Assert.Equal(new object[] { "a", CrmNewsfeed.NewsId, "b", "c", "d" }, Newsfeeds(doc).Select(e => JsonPath.Get(e, "news_id")).ToArray());
+            Assert.DoesNotContain(logs.Snapshot(), e => e.Message.Contains("no end_date"));
+
+            doc = CrmDocumentBuilder.Build(null, new CrmContent(), WithOverlay(@"{""newsfeeds"":[
+                {""news_id"":""a"",""asset"":""x"",""timestamp"":1792972800},
+                {""news_id"":""b"",""asset"":""y"",""timestamp"":1792972800}]}"), Log.Null, null, ours);
+            Assert.Equal(new object[] { "a", "b", CrmNewsfeed.NewsId }, Newsfeeds(doc).Select(e => JsonPath.Get(e, "news_id")).ToArray());
         }
 
         [Fact]
@@ -261,6 +296,41 @@ namespace McvsOffline.Tests.Content
             LogEntry warning = Assert.Single(logs.Snapshot());
             Assert.Equal(LogLevel.Warn, warning.Level);
             Assert.Contains("newsfeed 'b' shares asset \"x\" with 'a', which has no end_date", warning.Message);
+        }
+
+        /// <summary>
+        /// A missing asset is the key "" in the PC client's newsfeed table (SafeGetString's default), the key of our own
+        /// item: an earlier item of that key without end_date gives our message a default expiry, and the validator says so
+        /// for ours and for every later item of that key.
+        /// </summary>
+        [Fact]
+        public void SanitizeWarnsWhenAnAssetlessItemWithoutEndDatePrecedesOurs()
+        {
+            var doc = MiniJson.ParseObject(@"{""newsfeeds"":[
+                {""news_id"":""overlay1"",""asset"":"""",""timestamp"":1792972800},
+                " + ItemJson + @",
+                {""news_id"":""overlay2"",""asset"":"""",""timestamp"":1792972800},
+                {""news_id"":""overlay3"",""timestamp"":1792972800}]}");
+            string before = MiniJson.Serialize(doc);
+            var logs = new MemoryLogSink();
+            var logger = new Logger();
+            logger.AddSink(logs);
+            Assert.Equal(0, CrmDocumentValidator.Sanitize(doc, logger.For("crm")));
+            Assert.Equal(before, MiniJson.Serialize(doc));
+            Assert.Equal(3, logs.Snapshot().Count);
+            Assert.All(logs.Snapshot(), e => Assert.Equal(LogLevel.Warn, e.Level));
+            Assert.True(logs.Contains("newsfeed 'mcvsoffline_FromMCVS' shares asset \"\" with 'overlay1', which has no end_date"));
+            Assert.True(logs.Contains("newsfeed 'overlay3' shares asset \"\" with 'overlay1'"));
+
+            // Ours first (what the builder does): it has an end_date, so nothing to say.
+            doc = MiniJson.ParseObject(@"{""newsfeeds"":[" + ItemJson + @",
+                {""news_id"":""overlay1"",""asset"":"""",""timestamp"":1792972800},
+                {""news_id"":""overlay3"",""timestamp"":1792972800}]}");
+            logs = new MemoryLogSink();
+            logger = new Logger();
+            logger.AddSink(logs);
+            Assert.Equal(0, CrmDocumentValidator.Sanitize(doc, logger.For("crm")));
+            Assert.Empty(logs.Snapshot());
         }
 
         [Theory]
@@ -471,8 +541,8 @@ namespace McvsOffline.Tests.Content
             var doc = Doc(server);
             List<object> list = Newsfeeds(doc);
             Assert.Equal(2, list.Count);
-            Assert.Equal("season_FromGameloft", JsonPath.Get(list[0], "news_id"));
-            Assert.Equal(ItemJson, MiniJson.Serialize(list[1]));
+            Assert.Equal(ItemJson, MiniJson.Serialize(list[0])); // ahead of the overlay's item without an asset (§4.3)
+            Assert.Equal("season_FromGameloft", JsonPath.Get(list[1], "news_id"));
             Assert.Empty(CrmDocumentValidator.Validate(doc));
 
             // A broken overlay value cannot break the document for the client.

@@ -48,8 +48,18 @@ namespace McvsOffline.Patcher.Pc
         /// <summary>The .NET Framework 4 BCL directory for <see cref="PcAssemblyResolver"/> (mandatory).</summary>
         public string BclDirectory { get; set; }
 
-        /// <summary>The server port written to install.json (the bootstrap reads settings.json "port").</summary>
+        /// <summary>
+        /// The server port: baked into the 'geo' patch and recorded in install.json; with <see cref="SetSettingsPort"/> also
+        /// written to settings.json "port", which is what the game's server listens on. Without it, a valid "port" already in
+        /// settings.json replaces this one (the server listens there), and this one is the default for a file without it.
+        /// </summary>
         public int Port { get; set; }
+
+        /// <summary>
+        /// --port given: set "port" = <see cref="Port"/> in <c>McvsOffline\settings.json</c> (created when missing; no other key
+        /// is touched; a settings.json that is not a JSON object refuses the install). False: settings.json is left alone.
+        /// </summary>
+        public bool SetSettingsPort { get; set; }
 
         /// <summary>Optional patch ids on top of the mandatory ones (null: the build's defaults).</summary>
         public ICollection<string> OptionalPatches { get; set; }
@@ -154,6 +164,9 @@ namespace McvsOffline.Patcher.Pc
 
         /// <summary>Verify: the status it started from.</summary>
         public PcStatusReport Status { get; set; }
+
+        /// <summary>Install with --port: the port set in <c>McvsOffline\settings.json</c> (or to be set, in a dry run); else null.</summary>
+        public int? SettingsPort { get; set; }
     }
 
     /// <summary>What <see cref="PcInstaller.Status"/> found in the game folder (§7.6).</summary>
@@ -288,6 +301,38 @@ namespace McvsOffline.Patcher.Pc
                 return Fail(report, PcExitCodes.Refused, "a " + PcExeConfig.FileName + " that is not ours exists; move it away and run install again");
             if (configKind == "spike") report.Notes.Add(PcExeConfig.FileName + " is the WP0 spike's redirect test: replaced by ours");
 
+            // 3b. --port: the game listens on settings.json "port"; a settings.json it cannot read is refused before anything is written.
+            string settingsPath = GameFolder.Resolve(game, PcSettingsPort.RelativePath);
+            byte[] settingsBytes = null;
+            if (options.SetSettingsPort)
+            {
+                try
+                {
+                    settingsBytes = PcSettingsPort.Merge(File.Exists(settingsPath) ? File.ReadAllBytes(settingsPath) : null, options.Port);
+                }
+                catch (InvalidDataException ex)
+                {
+                    return Fail(report, PcExitCodes.Refused, ex.Message + "; nothing was written");
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    return Fail(report, PcExitCodes.Io, "cannot read " + PcSettingsPort.RelativePath + " to set the port in it: " + ex.Message + "; nothing was written");
+                }
+            }
+            // Without --port the server keeps listening on settings.json's "port" (an earlier --port, or the player's edit), so the
+            // geo patch and install.json take that one; settings.json is left alone. No valid port there: the server's default.
+            int port = options.Port;
+            if (!options.SetSettingsPort)
+            {
+                int? current = SettingsPort(settingsPath);
+                if (current.HasValue && current.Value >= 1 && current.Value <= 65535 && current.Value != port)
+                {
+                    port = current.Value;
+                    report.Notes.Add("port " + port.ToString(CultureInfo.InvariantCulture) + " from " + PcSettingsPort.RelativePath +
+                                     " (no --port given): the server listens there, so the patches and install.json use it too");
+                }
+            }
+
             // 4. The server DLL.
             try
             {
@@ -336,7 +381,7 @@ namespace McvsOffline.Patcher.Pc
                     ReaderParameters reader = resolver.CreateReaderParameters();
                     using (ModuleDefinition server = ModuleDefinition.ReadModule(new MemoryStream(options.ServerDll), reader))
                     {
-                        var context = new PatchContext(server, options.Port, Build);
+                        var context = new PatchContext(server, port, Build);
                         Version serverVersion = server.Assembly.Name.Version;
                         foreach (string file in GameFolder.PatchedFiles)
                         {
@@ -391,11 +436,16 @@ namespace McvsOffline.Patcher.Pc
             // The config (versions read from the written bytes) and install.json, which records the config's hash.
             var codeBases = outputs.Select(o => new PcCodeBase(GameFolder.ReadAssemblyName(o.Bytes), GameFolder.ReadAssemblyVersion(o.Bytes), o.Path)).ToList();
             byte[] config = PcExeConfig.Encode(PcExeConfig.Build(codeBases));
-            InstallManifest manifest = BuildManifest(options, identity, outputs, config, report.Applied, notes);
+            InstallManifest manifest = BuildManifest(options, port, identity, outputs, config, report.Applied, notes);
             byte[] manifestBytes = manifest.ToBytes();
             foreach (Output o in outputs) Record(report, o.Path, o.Bytes);
             Record(report, GameFolder.DataDirName + "/" + InstallManifest.FileName, manifestBytes);
             Record(report, PcExeConfig.FileName, config);
+            if (settingsBytes != null)
+            {
+                Record(report, PcSettingsPort.RelativePath, settingsBytes);
+                report.SettingsPort = options.Port;
+            }
 
             // 6. Dry run: the report only. Else write (§7.4 order), then read everything back.
             if (options.DryRun)
@@ -418,6 +468,13 @@ namespace McvsOffline.Patcher.Pc
                 step = PcExeConfig.FileName;
                 WriteViaTemp(files, configPath, config);
                 log("wrote " + step);
+                if (settingsBytes != null)
+                {
+                    // Last, and outside the redirect chain: the player's file (uninstall keeps it), only its "port" changed.
+                    step = PcSettingsPort.RelativePath;
+                    WriteViaTemp(files, settingsPath, settingsBytes);
+                    log("wrote " + step + " (\"port\": " + options.Port.ToString(CultureInfo.InvariantCulture) + ", every other setting unchanged)");
+                }
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
             {
@@ -427,6 +484,8 @@ namespace McvsOffline.Patcher.Pc
             if (configKind == "spike") RemoveSpikeCopy(game, files, report, log);
 
             List<string> problems = CheckWritten(game, manifest, options.BclDirectory);
+            if (settingsBytes != null && SettingsPort(settingsPath) != options.Port)
+                problems.Add(PcSettingsPort.RelativePath + ": \"port\" does not read back as " + options.Port.ToString(CultureInfo.InvariantCulture));
             if (problems.Count > 0) return Fail(report, PcExitCodes.Io, "the written files do not read back as written: " + string.Join("; ", problems));
             log("read back: every written file, the witnesses and the config are as written");
             return report;
@@ -455,8 +514,8 @@ namespace McvsOffline.Patcher.Pc
             public bool GameLog { get; set; }
         }
 
-        private static InstallManifest BuildManifest(PcInstallOptions options, List<PcFileIdentity> identity, List<Output> outputs, byte[] config,
-                                                     List<string> applied, List<string> notes)
+        private static InstallManifest BuildManifest(PcInstallOptions options, int port, List<PcFileIdentity> identity, List<Output> outputs,
+                                                     byte[] config, List<string> applied, List<string> notes)
         {
             Output serverOutput = outputs.Single(o => o.Patches == null);
             var m = new InstallManifest
@@ -469,7 +528,7 @@ namespace McvsOffline.Patcher.Pc
                 GameVersion = Build.GameVersion,
                 ClientId = Build.ClientId,
                 ExeSha256 = identity.Single(i => i.File == GameFolder.ExeName).Sha256,
-                Port = options.Port,
+                Port = port,
                 Bcl = options.BclDirectory,
             };
             foreach (string file in GameFolder.PatchedFiles)

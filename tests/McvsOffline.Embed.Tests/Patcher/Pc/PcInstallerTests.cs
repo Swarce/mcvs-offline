@@ -269,15 +269,17 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 SortedDictionary<string, string> once = copy.Tree();
                 foreach (string f in OurFiles) Assert.Equal(planned.WrittenSha256[f], once[f]);
 
-                // A reinstall (the patches always start from the game-folder originals) writes the same bytes again.
-                File.WriteAllText(copy.Path_("McvsOffline/settings.json"), "{\"port\": 51790}");
+                // A reinstall (the patches always start from the game-folder originals) writes the same bytes again, with a
+                // settings.json the game wrote meanwhile (its port is the one installed; another one would go into the geo patch
+                // and install.json, PcSettingsPortTests).
+                File.WriteAllText(copy.Path_("McvsOffline/settings.json"), "{\"port\": 51780, \"lanMode\": false}");
                 PcInstallReport second = copy.Install();
                 Assert.True(second.ExitCode == 0, second.Error);
                 SortedDictionary<string, string> twice = copy.Tree();
                 Assert.Equal(once, new SortedDictionary<string, string>(twice.Where(p => p.Key != "McvsOffline/settings.json").ToDictionary(p => p.Key, p => p.Value), StringComparer.Ordinal));
                 PcStatusReport status = copy.Status();
                 Assert.Equal(PcInstallState.Current, status.State);
-                Assert.Equal(51790, status.SettingsPort);
+                Assert.Equal(51780, status.SettingsPort);
             }
         }
 

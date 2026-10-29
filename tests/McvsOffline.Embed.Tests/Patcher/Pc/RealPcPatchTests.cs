@@ -412,6 +412,51 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 // graphics: OptionsApplied forwards the component itself (no m_options on PC)
                 MethodDefinition applied = RealPc.Method(engine, "Gameloft.Engine.McvsGraphics", "OptionsApplied", 1);
                 Assert.Equal(new[] { "ldarg.0", "call", "leave.s", "pop", "leave.s", "ret" }, applied.Body.Instructions.Select(i => i.OpCode.Name));
+                // graphics: OnCreate is the original plus three instructions: the JSON hook right after AssetStream::ReadAllText,
+                // ldarg.0 + OptionsApplied(this) before the final ret.
+                using (ModuleDefinition originalEngine = ModuleDefinition.ReadModule(Path.Combine(pc, "Gameloft.Engine.dll"), reader))
+                {
+                    const string component = "Gameloft.Engine.GameOptionPerformanceProfileComponent";
+                    MethodDefinition before = RealPc.Method(originalEngine, component, "OnCreate", 0);
+                    MethodDefinition onCreate = RealPc.Method(engine, component, "OnCreate", 0);
+                    int read = IndexOfCall(before, "Gameloft.Engine.AssetStream", "ReadAllText");
+                    const string jsonHook = "call System.String Gameloft.Engine.McvsGraphics::GameOptionsJson(System.String)";
+                    const string appliedHook = "call System.Void Gameloft.Engine.McvsGraphics::OptionsApplied(" + component + ")";
+                    var inserts = new SortedDictionary<int, string[]>
+                    {
+                        [read + 1] = new[] { jsonHook },
+                        [before.Body.Instructions.Count - 1] = new[] { "ldarg.0", appliedHook },
+                    };
+                    Assert.Equal(Expected(before, inserts, null), Shape(onCreate));
+                    List<string> shape = Shape(onCreate);
+                    Assert.Equal(jsonHook, shape[IndexOfCall(onCreate, "Gameloft.Engine.AssetStream", "ReadAllText") + 1]);
+                    Assert.Equal(new[] { "ldarg.0", appliedHook, "ret" }, shape.Skip(shape.Count - 3));
+                    Assert.Equal(before.Body.Instructions.Count + 3, onCreate.Body.Instructions.Count);
+
+                    // waits: in both WaitAndWork overloads the original plus "ldc.i4 100" right before WaitAny, which is now the timed
+                    // WaitAny(WaitHandle[], int) of the PC corlib (mscorlib 4).
+                    const string timed = "call System.Int32 System.Threading.WaitHandle::WaitAny(System.Threading.WaitHandle[],System.Int32)";
+                    foreach (string overload in new[] { "WaitAndWork(System.Threading.Tasks.Task", "WaitAndWork(System.Threading.ManualResetEventSlim" })
+                    {
+                        MethodDefinition stock = RealPc.Method(originalEngine, "Gameloft.Engine.TaskExtension", overload, 2);
+                        MethodDefinition waits = RealPc.Method(engine, "Gameloft.Engine.TaskExtension", overload, 2);
+                        int wait = IndexOfCall(stock, "System.Threading.WaitHandle", "WaitAny");
+                        Assert.Equal("System.Int32 System.Threading.WaitHandle::WaitAny(System.Threading.WaitHandle[])",
+                                     ((MethodReference)stock.Body.Instructions[wait].Operand).FullName);
+                        List<string> expected = Expected(stock, new SortedDictionary<int, string[]> { [wait] = new[] { "ldc.i4 " + WaitsPatch.SliceMs } },
+                                                         s => s.StartsWith("call System.Int32 System.Threading.WaitHandle::WaitAny(", StringComparison.Ordinal) ? timed : s);
+                        Assert.Equal(expected, Shape(waits));
+                        int timedWait = IndexOfCall(waits, "System.Threading.WaitHandle", "WaitAny");
+                        var waitAny = (MethodReference)waits.Body.Instructions[timedWait].Operand;
+                        Assert.Equal(timed, "call " + waitAny.FullName);
+                        Assert.Equal("mscorlib", waitAny.DeclaringType.Scope.Name);
+                        Instruction slice = waits.Body.Instructions[timedWait - 1];
+                        Assert.True(slice.OpCode == OpCodes.Ldc_I4 || slice.OpCode == OpCodes.Ldc_I4_S, overload + ": " + slice);
+                        Assert.Equal(100, Convert.ToInt32(slice.Operand, System.Globalization.CultureInfo.InvariantCulture));
+                        Assert.Equal(OpCodes.Ldloc_3, waits.Body.Instructions[timedWait - 2].OpCode);
+                        Assert.Equal(stock.Body.Instructions.Count + 1, waits.Body.Instructions.Count);
+                    }
+                }
 
                 // adminpage: A1 hook before the single ret (IL_0115 before), A2 prefix with the corlib's String.op_Equality
                 MethodDefinition list = RealPc.Method(game, "Game.PlayerProfileComponent", "GetAccountMenuButtonList", 0);
@@ -427,6 +472,53 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 Assert.Equal("mscorlib", equality.DeclaringType.Scope.Name);
                 Assert.Equal(6 + 9, action.Body.Instructions.Count);
             }
+        }
+
+        /// <summary>The index of the single call to <paramref name="type"/>::<paramref name="name"/> in <paramref name="method"/>.</summary>
+        private static int IndexOfCall(MethodDefinition method, string type, string name)
+        {
+            var code = method.Body.Instructions;
+            return Enumerable.Range(0, code.Count).Single(i => code[i].Operand is MethodReference r && r.DeclaringType.FullName == type && r.Name == name);
+        }
+
+        /// <summary>
+        /// One line per instruction: the opcode (short branch and ldc.i4.s forms written long, so a re-encoding does not count) and
+        /// the operand (members by full name; a branch by its target's index).
+        /// </summary>
+        private static List<string> Shape(MethodDefinition method)
+        {
+            var code = method.Body.Instructions;
+            return code.Select(i => Line(i, target => code.IndexOf(target))).ToList();
+        }
+
+        /// <summary>
+        /// The shape of <paramref name="original"/> with <paramref name="insertBefore"/> (original index → lines) inserted and each
+        /// original line passed through <paramref name="replace"/>; branch targets follow their instruction to its new index.
+        /// </summary>
+        private static List<string> Expected(MethodDefinition original, SortedDictionary<int, string[]> insertBefore, Func<string, string> replace)
+        {
+            var code = original.Body.Instructions;
+            Func<int, int> moved = index => index + insertBefore.Where(p => p.Key <= index).Sum(p => p.Value.Length);
+            var result = new List<string>();
+            for (int i = 0; i < code.Count; i++)
+            {
+                string[] inserted;
+                if (insertBefore.TryGetValue(i, out inserted)) result.AddRange(inserted);
+                string line = Line(code[i], target => moved(code.IndexOf(target)));
+                result.Add(replace == null ? line : replace(line));
+            }
+            return result;
+        }
+
+        private static string Line(Instruction i, Func<Instruction, int> index)
+        {
+            string op = i.OpCode.OperandType == OperandType.ShortInlineBrTarget ? i.OpCode.Name.Substring(0, i.OpCode.Name.Length - 2) : i.OpCode.Name;
+            if (i.OpCode == OpCodes.Ldc_I4_S) return "ldc.i4 " + ((sbyte)i.Operand).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            if (i.Operand == null) return op;
+            if (i.Operand is Instruction target) return op + " -> #" + index(target);
+            if (i.Operand is Instruction[] targets) return op + " -> " + string.Join(",", targets.Select(t => "#" + index(t)));
+            if (i.Operand is MemberReference member) return op + " " + member.FullName;
+            return op + " " + Convert.ToString(i.Operand, System.Globalization.CultureInfo.InvariantCulture);
         }
 
         [Fact]

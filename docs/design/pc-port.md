@@ -493,7 +493,9 @@ PC's `NewsFeedData.Newsfeeds` dictionary makes the inbox message take the item's
 MCVS Offline inbox item expired at every week rollover ([CN-V] §8). `server/Services/Crm/CrmNewsfeed.Item` adds
 `"end_date": TimeFormat.Iso8601(WeekStart(now) + 37 days)` after `"timestamp"` (at least 30 days ahead; on Android the
 expiry becomes this date instead of now + 30 days, the same behaviour). Optional in the same package:
-`CrmDocumentValidator` warns when two newsfeed items share an `asset` and the first has no `end_date`.
+`CrmDocumentValidator` warns when two newsfeed items share an `asset` and the first has no `end_date`. A missing
+asset is the key "" (`SafeGetString`'s default), ours; `CrmDocumentBuilder` puts our item before the first overlay
+item of its key, so an overlay item without asset and `end_date` cannot give our message its dates.
 
 ### 4.4 Client id per platform
 
@@ -1057,6 +1059,15 @@ resolve (nothing written), 4 the game is running.
 [--patch default|<ids>] [--force] [--dry-run] [--remove-data --yes]`. `--bcl` defaults to `MCVS_NET452_REFS` on Linux
 and the framework folder on Windows; no Steam lookup (the kit does that). The APK command line is unchanged (the `pc`
 verb is new; `--apk` stays the default form).
+
+`--port n` (patcher and kit) bakes the port into the `geo` patch, records it in `install.json` and sets `"port"` in
+`McvsOffline\settings.json`, the key the game's server listens on (`EmbeddedHost`; the settings page never changes it):
+only that key, through `settings.json.mcvs-tmp` + rename as the last write, the file created when missing. A
+`settings.json` that is not one JSON object refuses the install before anything is written. Without `--port`
+`settings.json` is left alone, and a valid (1..65535) `"port"` already in it is the port of the `geo` patch and
+`install.json` (the server listens there: a reinstall after a Steam update keeps an earlier `--port`); without one, the
+default 51780. `status` flags a `settings.json` port that differs from `install.json`'s (edited after the install). Every `.mcvs-tmp` → target rename retries a sharing/lock violation (and, on Windows, an
+access denial: a virus scanner holding the file) up to 10 times 100 ms apart (`PcFileOps.Rename`).
 
 ---------------------------------------------------------------------------------------------------
 

@@ -46,7 +46,7 @@ namespace McvsOffline.Patcher.Pc
             {
                 string ports = "port:        settings.json " + (r.SettingsPort.HasValue ? r.SettingsPort.Value.ToString(CultureInfo.InvariantCulture) : "(default)") +
                                ", install.json " + (r.InstalledPort.HasValue ? r.InstalledPort.Value.ToString(CultureInfo.InvariantCulture) : "-");
-                if (r.SettingsPort.HasValue && r.InstalledPort.HasValue && r.SettingsPort != r.InstalledPort) ports += " (they differ: the game uses settings.json's)";
+                if (r.SettingsPort.HasValue && r.InstalledPort.HasValue && r.SettingsPort != r.InstalledPort) ports += " (they differ: the server listens on settings.json's, the geo patch calls install.json's; run install again)";
                 lines.Add(ports);
             }
             if (r.LastBootstrapLine != null) lines.Add("last boot:   " + r.LastBootstrapLine);
@@ -71,6 +71,11 @@ namespace McvsOffline.Patcher.Pc
             foreach (string path in r.Written)
                 lines.Add((dryRun ? "would write " : "wrote    ") + path + "  sha256 " + r.WrittenSha256[path]);
             foreach (string removed in r.Removed) lines.Add("removed  " + removed);
+            if (r.SettingsPort.HasValue)
+            {
+                lines.Add("port     " + r.SettingsPort.Value.ToString(CultureInfo.InvariantCulture) + (dryRun ? " would be" : " is") + " the server port in " +
+                          GameFolder.DataDirName + "\\" + PcSettingsPort.FileName + " (the game reads it there; your other settings are unchanged)");
+            }
             if (dryRun) lines.Add("dry run: every patch site verified, nothing written");
             return lines;
         }
