@@ -216,6 +216,12 @@ namespace McvsOffline.Server.Services.Admin
             + "it does not know). Mid: MidGPU. High: HighGPU (normal maps, full lightmaps, shadows, bloom). Ultra: HighGPU on PC, "
             + "which has no High_Ultra. Needs a build with the 'graphics' patch.";
 
+        private const string WindowsKeepStartsHelp =
+            "At every start the game deletes the logs of older starts: in McvsOffline\\logs and %TEMP%\\McvsOffline\\logs (server, "
+            + "bootstrap and game logs with their numbered files, crash and exception files). 1 keeps the previous start next to the "
+            + "current one; 0 keeps only the current start. The numbered log files also stay within their own file count. Saves, "
+            + "settings and the zips you saved are never deleted.";
+
         public static List<SettingGroup> Groups
         {
             get { return new List<SettingGroup>(GroupList); }
@@ -225,7 +231,7 @@ namespace McvsOffline.Server.Services.Admin
         /// The page's groups as <paramref name="platform"/> (<c>AdminHostInfo.Platform</c>) shows them (§4.6 of
         /// docs/design/pc-port.md). On <see cref="PlatformWindows"/>: no <c>hd.*</c>, <c>install.*</c>,
         /// <c>notifications.*</c>, <c>diagnostics.publicLogCopy</c> or <c>diagnostics.threadDump</c> entry (labels and
-        /// settings), the PC wording of <c>graphics.profile</c>, and <c>embedded.physics.keepPhysicsLayer</c> among the
+        /// settings), the PC wording of <c>graphics.profile</c> and <c>logging.keepStarts</c>, and <c>embedded.physics.keepPhysicsLayer</c> among the
         /// read-only keys. Any other platform (android, directory, none) gets exactly <see cref="Groups"/>,
         /// <see cref="Keys"/> and <see cref="AdvancedKeys"/>.
         /// </summary>
@@ -267,7 +273,9 @@ namespace McvsOffline.Server.Services.Admin
                             continue;
                         }
                         if (HiddenOnWindows(def.Key)) continue;
-                        view.Keys.Add(def.Key == "graphics.profile" ? def.WithHelp(WindowsGraphicsProfileHelp) : def);
+                        if (def.Key == "graphics.profile") view.Keys.Add(def.WithHelp(WindowsGraphicsProfileHelp));
+                        else if (def.Key == "logging.keepStarts") view.Keys.Add(def.WithHelp(WindowsKeepStartsHelp));
+                        else view.Keys.Add(def);
                     }
                 }
                 views.Add(view);

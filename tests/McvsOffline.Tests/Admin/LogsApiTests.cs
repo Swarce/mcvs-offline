@@ -252,7 +252,8 @@ namespace McvsOffline.Tests.Admin
 
         /// <summary>
         /// The embedded host starts new log files at every start: "the game broke, I restarted it and opened the page" finds the
-        /// broken start in the .1 files, so the report has their problems too, after the current files.
+        /// broken start in the numbered files, so the report has their problems too, after the current files. Without the host's
+        /// start time it takes the .1 files and says "previous file".
         /// </summary>
         [Fact]
         public void TheTextReportHasThePreviousStartsProblems()
@@ -261,13 +262,43 @@ namespace McvsOffline.Tests.Admin
             File.WriteAllText(Path.Combine(logs, "bootstrap.log.1"),
                 "2026-10-25T09:00:00.000Z INFO  [boot] started\n2026-10-25T09:05:00.000Z WARN  [watchdog] game thread stalled\n");
             s.Host.Info.CanShareText = false;
+            s.Host.Info.StartedUtc = null;
             string report = (string)J(s.Client.Post("logs/share-text", new Dictionary<string, object>()))["text"];
             int current = report.IndexOf("== server.log (last warnings and errors) ==", StringComparison.Ordinal);
-            int previous = report.IndexOf("== bootstrap.log.1 (previous start, last warnings and errors) ==", StringComparison.Ordinal);
+            int previous = report.IndexOf("== bootstrap.log.1 (previous file, usually the previous start, last warnings and errors) ==", StringComparison.Ordinal);
             Assert.True(current >= 0 && previous > current, report);
             Assert.Contains("WARN [watchdog] game thread stalled", report.Substring(previous));
-            Assert.Contains("== server.log.1 (previous start, last warnings and errors) ==", report);   // listed, nothing above INFO
+            Assert.Contains("== server.log.1 (previous file, usually the previous start, last warnings and errors) ==", report);   // listed, nothing above INFO
             Assert.DoesNotContain("[boot] started", report.Substring(previous));
+        }
+
+        /// <summary>
+        /// A log that also rotated by size during this start: .1 is the earlier part of this start, so the report takes the newest
+        /// numbered file written before the host's start time, and labels only that one "previous start".
+        /// </summary>
+        [Fact]
+        public void TheTextReportFindsThePreviousStartPastASizeRotation()
+        {
+            using var s = Phone(out string logs, out _);
+            DateTime started = DateTime.UtcNow.AddHours(-1);
+            string part = Path.Combine(logs, "game.log.1");
+            File.WriteAllText(part, "2026-10-29T09:00:00.000Z WARN  [game] earlier part of this start\n");
+            File.SetLastWriteTimeUtc(part, started.AddMinutes(20));
+            string broken = Path.Combine(logs, "game.log.2");
+            File.WriteAllText(broken, "2026-10-28T09:00:00.000Z ERROR [game] the start that broke\n");
+            File.SetLastWriteTimeUtc(broken, started.AddMinutes(-5));
+            string older = Path.Combine(logs, "game.log.3");
+            File.WriteAllText(older, "2026-10-27T09:00:00.000Z ERROR [game] an older start\n");
+            File.SetLastWriteTimeUtc(older, started.AddDays(-1));
+            s.Host.Info.CanShareText = false;
+            s.Host.Info.StartedUtc = started;
+            string report = (string)J(s.Client.Post("logs/share-text", new Dictionary<string, object>()))["text"];
+            Assert.Contains("== game.log.2 (previous start, last warnings and errors) ==\n", report);
+            Assert.Contains("ERROR [game] the start that broke", report);
+            Assert.DoesNotContain("game.log.1 (", report);
+            Assert.DoesNotContain("game.log.3", report);
+            Assert.DoesNotContain("an older start", report);
+            Assert.DoesNotContain("previous file", report);
         }
     }
 }

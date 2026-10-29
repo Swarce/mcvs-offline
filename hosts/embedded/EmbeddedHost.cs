@@ -429,6 +429,7 @@ namespace McvsOffline.Embedded
                     GameRoot = Paths.GameRoot,
                     LogsDir = Paths.LogsDir,
                     FallbackLogsDir = fallbackLogDir,
+                    StartedUtc = startedUtc,
                     Watchdog = () => this.Watchdog,
                     Problems = problemSink,
                     MirrorStatus = () =>

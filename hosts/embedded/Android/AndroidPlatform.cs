@@ -227,6 +227,8 @@ namespace McvsOffline.Embedded.Android
                         DownloadsDir = AndroidDiagnostics.DownloadsDir,
                         Scan = ScanFiles,
                         DiagnosticsBeforeUtc = cutoff,
+                        // Session names are local times: after the clock went back their order says nothing; keep them all.
+                        KeepAllSessions = retention != null && retention.ClockWentBackNow,
                     };
                     if (retention != null) mirror.KeepSessions = retention.KeepStarts + 1;
                     host.MirrorStatus = mirror.Describe;
@@ -247,7 +249,7 @@ namespace McvsOffline.Embedded.Android
                 try
                 {
                     Thread.Sleep(3000);   // out of the start-up path
-                    string text = ExitReasons.Describe(5, host.Paths.LogsDir, cutoff);
+                    string text = ExitReasons.Describe(5, host.Paths.LogsDir, retention == null ? null : retention.TraceCutoffUtc);
                     if (!string.IsNullOrEmpty(text)) log.Info(text);
                 }
                 catch (Exception ex)

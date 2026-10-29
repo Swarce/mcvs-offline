@@ -87,6 +87,9 @@ namespace McvsOffline.Embedded.Admin
 
         public string FallbackLogsDir { get; set; }
 
+        /// <summary>When this process started (LogRetention.StartedUtc: every log file of this start is written after it), or null.</summary>
+        public DateTime? StartedUtc { get; set; }
+
         /// <summary>The game-thread watchdog, read at call time (it starts after the server thread); may return null.</summary>
         public Func<GameThreadWatchdog> Watchdog { get; set; }
 
@@ -232,6 +235,7 @@ namespace McvsOffline.Embedded.Admin
                 GameRoot = GameRoot,
                 LogsDir = LogsDir,
                 FallbackLogsDir = FallbackLogsDir,
+                StartedUtc = StartedUtc,
                 BrowserStatus = browserStatus,
                 FreeBytes = -1,
                 RestartVia = RestartVia,

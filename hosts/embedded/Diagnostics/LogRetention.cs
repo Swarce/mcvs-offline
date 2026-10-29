@@ -30,7 +30,8 @@ namespace McvsOffline.Embedded.Diagnostics
     /// <item>At most <see cref="BudgetMs"/> of work, then the next start goes on; one INFO line (WARN when a file could not be
     /// deleted) in bootstrap.log, category <c>logs</c>. Never throws.</item>
     /// </list>
-    /// The Downloads copies (PublicMirror) and the exit traces (ExitReasons) use <see cref="KeepStarts"/> and <see cref="CutoffUtc"/>.
+    /// The Downloads copies (PublicMirror) use <see cref="KeepStarts"/>, <see cref="CutoffUtc"/> and <see cref="ClockWentBackNow"/>; the
+    /// exit traces (ExitReasons) <see cref="TraceCutoffUtc"/>.
     /// </summary>
     internal sealed class LogRetention
     {
@@ -39,6 +40,9 @@ namespace McvsOffline.Embedded.Diagnostics
         public const int MaxKeepStarts = 10;
         public const int StartsKept = 50;
         public const int BudgetMs = 5000;
+
+        /// <summary>The <see cref="NoCutoffReason"/> when a kept start is after this one.</summary>
+        public const string ClockWentBack = "the clock went back";
 
         /// <summary>The rotating logs (each with its numbered files name.1 ... name.N).</summary>
         public static readonly string[] Families = { "bootstrap.log", "server.log", "game.log", "unknown-endpoints.jsonl" };
@@ -52,13 +56,14 @@ namespace McvsOffline.Embedded.Diagnostics
         private readonly ManualResetEvent done = new ManualResetEvent(false);
         private int started;
 
-        private LogRetention(string logsDir, DateTime startedUtc, int keepStarts, DateTime? cutoffUtc, string noCutoffReason)
+        private LogRetention(string logsDir, DateTime startedUtc, int keepStarts, DateTime? cutoffUtc, string noCutoffReason, DateTime? traceCutoffUtc)
         {
             this.logsDir = logsDir;
             StartedUtc = startedUtc;
             KeepStarts = keepStarts;
             CutoffUtc = cutoffUtc;
             NoCutoffReason = noCutoffReason;
+            TraceCutoffUtc = traceCutoffUtc;
         }
 
         public int KeepStarts { get; private set; }
@@ -68,8 +73,20 @@ namespace McvsOffline.Embedded.Diagnostics
         /// <summary>Files last written before this belong to older starts; null: nothing is deleted by age.</summary>
         public DateTime? CutoffUtc { get; private set; }
 
-        /// <summary>Why there is no cutoff ("only 0 starts recorded so far", "the clock went back"), or null.</summary>
+        /// <summary>Why there is no cutoff ("only 0 starts recorded so far", <see cref="ClockWentBack"/>), or null.</summary>
         public string NoCutoffReason { get; private set; }
+
+        /// <summary>A kept start is after this one: the time order of the starts (and of names made from the local time) is not reliable.</summary>
+        public bool ClockWentBackNow
+        {
+            get { return CutoffUtc == null && string.Equals(NoCutoffReason, ClockWentBack, StringComparison.Ordinal); }
+        }
+
+        /// <summary>
+        /// Exit traces (ExitReasons) of processes that ended before this are not saved again; null: all are. Equals
+        /// <see cref="CutoffUtc"/> when N &gt;= 1; with N = 0 the previous start (see <see cref="TraceCutoff"/>).
+        /// </summary>
+        public DateTime? TraceCutoffUtc { get; private set; }
 
         /// <summary>
         /// Reads starts.txt, computes the cutoff from the starts recorded there and appends this start (keeping the last
@@ -110,6 +127,7 @@ namespace McvsOffline.Embedded.Diagnostics
                 string reason = null;
                 DateTime? cutoff = readable ? Cutoff(times, startedUtc, keep, out reason) : null;
                 if (!readable) reason = StartsFile + " could not be read";
+                DateTime? traceCutoff = readable ? TraceCutoff(times, startedUtc, keep, cutoff) : null;
                 lines.Add(FormatStart(startedUtc) + " " + (startLine ?? "").Trim());
                 if (lines.Count > StartsKept) lines.RemoveRange(0, lines.Count - StartsKept);
                 try
@@ -120,18 +138,19 @@ namespace McvsOffline.Embedded.Diagnostics
                 {
                     log.Warn("cannot write " + file + " (the next start keeps more logs)", ex);
                 }
-                return new LogRetention(logsDir, startedUtc, keep, cutoff, reason);
+                return new LogRetention(logsDir, startedUtc, keep, cutoff, reason, traceCutoff);
             }
             catch (Exception ex)
             {
                 try { log.Warn("log retention could not start: no logs are deleted at this start", ex); } catch (Exception) { }
-                return new LogRetention(logsDir, startedUtc, keep, null, "the start could not be recorded");
+                return new LogRetention(logsDir, startedUtc, keep, null, "the start could not be recorded", null);
             }
         }
 
         /// <summary>
         /// previous = start times recorded before this one (file order). N = 0: this start; fewer than N recorded: none; a kept
-        /// start after this one (the clock went back): none; otherwise the oldest of the last N.
+        /// start after this one (the clock went back): none; otherwise the earliest time among the last N (file order is not time
+        /// order once the clock was corrected: a start after a correction is still appended, and its files must stay).
         /// </summary>
         internal static DateTime? Cutoff(List<DateTime> previous, DateTime startedUtc, int keep, out string reason)
         {
@@ -143,15 +162,30 @@ namespace McvsOffline.Embedded.Diagnostics
                          " recorded so far";
                 return null;
             }
+            DateTime earliest = previous[previous.Count - keep];
             for (int i = previous.Count - keep; i < previous.Count; i++)
             {
                 if (previous[i] > startedUtc)
                 {
-                    reason = "the clock went back";
+                    reason = ClockWentBack;
                     return null;
                 }
+                if (previous[i] < earliest) earliest = previous[i];
             }
-            return previous[previous.Count - keep];
+            return earliest;
+        }
+
+        /// <summary>
+        /// The exit traces' cutoff (ExitReasons): <paramref name="cutoff"/> when N &gt;= 1. N = 0: the previous recorded start (the
+        /// process that just ended ran after it, so its trace is saved, and the next start deletes it with this start's files); none
+        /// recorded, or one after this start: null (all saved).
+        /// </summary>
+        internal static DateTime? TraceCutoff(List<DateTime> previous, DateTime startedUtc, int keep, DateTime? cutoff)
+        {
+            if (keep > 0) return cutoff;
+            if (previous == null || previous.Count == 0) return null;
+            DateTime last = previous[previous.Count - 1];
+            return last > startedUtc ? (DateTime?)null : last;
         }
 
         /// <summary>"2026-10-29T08:14:03.020Z".</summary>

@@ -231,12 +231,12 @@ exact item lists: [ECONOMY.md](ECONOMY.md).
 `<date>-<time>-bootstrap.log.txt`, `-server.log.txt`, `-game.log.txt`, plus `crash-*.txt` when the game crashed. The
 copies are refreshed every 30 seconds while the game runs, and this start and the previous one are kept (setting
 `logging.keepStarts`, see §8); older copies are deleted at the next start. Send the files of the newest start with your
-bug report; if the game broke and you restarted it, the `.1` copies and the previous start's files hold the broken
-start. (If the folder is missing, the start-up log says why: look for `[mirror]`.)
+bug report; if the game broke and you restarted it, the previous start's files (and usually the `.1` copies) hold the
+broken start. (If the folder is missing, the start-up log says why: look for `[mirror]`.)
 
 **The logs are cleaned at every start.** `McvsOffline/logs/` keeps the same starts as the copies in Downloads: each
 start begins new `bootstrap.log`, `server.log`, `game.log` and `unknown-endpoints.jsonl` files (the previous start's are
-the `.1` files), and the log files, crash, exception, thread-dump and exit files of older starts are deleted (one
+usually the `.1` files; a log that grew past 5 MB during a start has more numbered files for it), and the log files, crash, exception, thread-dump and exit files of older starts are deleted (one
 `[logs]` line in `bootstrap.log` says what went). So send the logs of a problem before you start the game twice more,
 or raise `logging.keepStarts` first. Saves, settings and the logs zips you saved or shared are never deleted.
 

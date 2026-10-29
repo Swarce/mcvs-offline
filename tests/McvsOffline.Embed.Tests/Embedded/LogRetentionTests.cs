@@ -69,6 +69,61 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.Equal(new[] { "2026-10-28T19:02:11.412Z android 0.13.0", "2026-10-29T08:14:03.020Z windows 0.13.0" }, StartLines(logs));
         }
 
+        /// <summary>
+        /// starts.txt is in file order, not time order, once the clock was corrected (a start after the correction is still
+        /// appended): the cutoff is the earliest kept start, so no kept start's files are older than it.
+        /// </summary>
+        [Fact]
+        public void TheCutoffIsTheEarliestKeptStartWhenTheHistoryIsOutOfOrder()
+        {
+            string root = TestEnvironment.NewTempDir("logret-order");
+            DateTime ahead = S0.AddHours(-1);    // A: the clock was ahead
+            DateTime fixedAt = S0.AddHours(-2);  // B: after the correction, recorded after A
+            LogRetention two = BeginAfter(Path.Combine(root, "n2"), 2, S2, ahead, fixedAt);
+            Assert.Equal(fixedAt, two.CutoffUtc);   // not A: B's files, written before A's time, stay
+            Assert.Null(two.NoCutoffReason);
+            Assert.Equal(fixedAt, LogRetention.Cutoff(new List<DateTime> { ahead, fixedAt }, S0, 2, out string reason));
+            Assert.Null(reason);
+            // N = 1 still keeps the start recorded last.
+            Assert.Equal(fixedAt, BeginAfter(Path.Combine(root, "n1"), 1, S2, ahead, fixedAt).CutoffUtc);
+            // The window only: an earlier entry outside it does not count.
+            Assert.Equal(fixedAt, LogRetention.Cutoff(new List<DateTime> { S2.AddDays(-1), ahead, fixedAt }, S0, 2, out _));
+
+            // Delete with that history: B's last file stays, the start before A goes.
+            string logs = Path.Combine(root, "n2");
+            Plant(Path.Combine(logs, "server.log.1"), fixedAt.AddMinutes(50));   // B
+            Plant(Path.Combine(logs, "server.log.2"), ahead.AddMinutes(30));     // A
+            Plant(Path.Combine(logs, "server.log.3"), S2.AddMinutes(30));        // older
+            two.Clean(logs, null, null, DeleteFile, 5000);
+            Assert.True(File.Exists(Path.Combine(logs, "server.log.1")));
+            Assert.True(File.Exists(Path.Combine(logs, "server.log.2")));
+            Assert.False(File.Exists(Path.Combine(logs, "server.log.3")));
+        }
+
+        /// <summary>
+        /// The exit traces: N &gt;= 1 uses the cutoff; N = 0 the previous start, so the trace of the process that just ended
+        /// (after that start, before this one) is still saved.
+        /// </summary>
+        [Fact]
+        public void TheTraceCutoffKeepsTheLastExitWithZeroStartsKept()
+        {
+            string root = TestEnvironment.NewTempDir("logret-trace");
+            LogRetention zero = BeginAfter(Path.Combine(root, "n0"), 0, S2, S1);
+            Assert.Equal(S0, zero.CutoffUtc);
+            Assert.Equal(S1, zero.TraceCutoffUtc);
+            Assert.True(LogRetention.KeepsExit(S1.AddMinutes(30), zero.TraceCutoffUtc));    // the process that just ended
+            Assert.False(LogRetention.KeepsExit(S1.AddMinutes(-1), zero.TraceCutoffUtc));  // an older one: deleted with its start
+
+            Assert.Equal(S1, BeginAfter(Path.Combine(root, "n1"), 1, S2, S1).TraceCutoffUtc);   // = CutoffUtc
+            Assert.Null(BeginAfter(Path.Combine(root, "first"), 0).TraceCutoffUtc);            // nothing recorded: all saved
+            Assert.Null(BeginAfter(Path.Combine(root, "back"), 0, S0.AddHours(1)).TraceCutoffUtc);   // the clock went back
+            Assert.Null(BeginAfter(Path.Combine(root, "short"), 2, S1).TraceCutoffUtc);          // no cutoff yet
+
+            LogRetention back = BeginAfter(Path.Combine(root, "clock"), 1, S0.AddHours(1));
+            Assert.True(back.ClockWentBackNow);
+            Assert.False(BeginAfter(Path.Combine(root, "few"), 2, S1).ClockWentBackNow);
+        }
+
         [Fact]
         public void TheCutoffFollowsTheNumberOfStartsKept()
         {

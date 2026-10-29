@@ -28,8 +28,9 @@ namespace McvsOffline.Embedded.Android
 
         /// <summary>
         /// One line per previous process (newest first), or null below API 30. Traces are saved only for exits at or after
-        /// <paramref name="keepSinceUtc"/> (the log retention's cutoff, null: all): an older one was deleted with its start and
-        /// must not be written again (SaveTrace only checks that the file exists).
+        /// <paramref name="keepSinceUtc"/> (LogRetention.TraceCutoffUtc, null: all): an older one was deleted with its start and
+        /// must not be written again (SaveTrace only checks that the file exists). With logging.keepStarts 0 that is the previous
+        /// start, so the trace of the process that just ended is still saved (and deleted at the next start).
         /// </summary>
         public static string Describe(int max, string traceDirectory, DateTime? keepSinceUtc)
         {

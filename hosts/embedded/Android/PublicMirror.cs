@@ -80,6 +80,12 @@ namespace McvsOffline.Embedded.Android
         public int KeepSessions { get; set; }
 
         /// <summary>
+        /// The clock went back (LogRetention): no session is deleted at this start, since neither their names nor their write
+        /// times say which ones are the kept starts. Set before <see cref="Start"/>.
+        /// </summary>
+        public bool KeepAllSessions { get; set; }
+
+        /// <summary>
         /// Crash/thread-dump/exception/exit copies last written before this go first (the start of the oldest kept start); null:
         /// only the count cap <see cref="KeepDiagnostics"/>. Set before <see cref="Start"/>.
         /// </summary>
@@ -341,31 +347,60 @@ namespace McvsOffline.Embedded.Android
         }
 
         /// <summary>
-        /// Keeps the newest <see cref="KeepSessions"/> sessions (this one included), then the diagnostics; files from an earlier
-        /// install are not ours any more and stay. One log line when something was deleted or could not be.
+        /// Keeps this session and the <see cref="KeepSessions"/> - 1 newest others, then the diagnostics; files from an earlier
+        /// install are not ours any more and stay. The others are ranked by their newest copy's write time (UTC), not by their
+        /// names (local time: a time-zone change or the DST fall-back hour reorders them), and are all kept after the clock went
+        /// back (<see cref="KeepAllSessions"/>). One log line when something was deleted or could not be.
         /// </summary>
         private void Prune()
         {
             var pruned = new PruneCount();
             var files = new List<string>(System.IO.Directory.GetFiles(directory));
             files.Sort(StringComparer.Ordinal);
-            var sessions = new List<string>();
-            foreach (string f in files)
+            if (!KeepAllSessions)
             {
-                string prefix = SessionPrefixOf(Path.GetFileName(f));
-                if (prefix != null && !sessions.Contains(prefix)) sessions.Add(prefix);
-            }
-            int keep = (KeepSessions < 1 ? 1 : KeepSessions);
-            for (int i = 0; i < sessions.Count - keep; i++)
-            {
+                var times = new Dictionary<string, DateTime>(StringComparer.Ordinal);
                 foreach (string f in files)
                 {
-                    if (!string.Equals(SessionPrefixOf(Path.GetFileName(f)), sessions[i], StringComparison.Ordinal)) continue;
-                    Delete(f, pruned);
+                    string prefix = SessionPrefixOf(Path.GetFileName(f));
+                    if (prefix == null) continue;
+                    DateTime written = DateTime.MinValue;
+                    try { written = File.GetLastWriteTimeUtc(f); } catch (Exception) { }
+                    DateTime known;
+                    if (!times.TryGetValue(prefix, out known) || written > known) times[prefix] = written;
+                }
+                foreach (string prefix in SessionsToDelete(times, sessionPrefix, KeepSessions))
+                {
+                    foreach (string f in files)
+                    {
+                        if (string.Equals(SessionPrefixOf(Path.GetFileName(f)), prefix, StringComparison.Ordinal)) Delete(f, pruned);
+                    }
                 }
             }
             PruneDiagnostics(pruned);
             if (pruned.Deleted > 0 || pruned.NotOurs > 0) LogPruned(pruned);
+        }
+
+        /// <summary>
+        /// The sessions to delete: all but <paramref name="current"/> and the <paramref name="keep"/> - 1 others with the newest
+        /// write time (ties: the higher name).
+        /// </summary>
+        internal static List<string> SessionsToDelete(Dictionary<string, DateTime> newestWriteUtc, string current, int keep)
+        {
+            var others = new List<KeyValuePair<string, DateTime>>();
+            foreach (KeyValuePair<string, DateTime> pair in newestWriteUtc)
+            {
+                if (!string.Equals(pair.Key, current, StringComparison.Ordinal)) others.Add(pair);
+            }
+            others.Sort((a, b) =>
+            {
+                int c = b.Value.CompareTo(a.Value);
+                return c != 0 ? c : string.CompareOrdinal(b.Key, a.Key);
+            });
+            int keepOthers = (keep < 1 ? 1 : keep) - 1;
+            var delete = new List<string>();
+            for (int i = keepOthers; i < others.Count; i++) delete.Add(others[i].Key);
+            return delete;
         }
 
         /// <summary>"yyyyMMdd-HHmmss-" when the name starts with one (8 digits, '-', 6 digits, '-'), else null.</summary>
