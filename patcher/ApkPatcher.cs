@@ -164,6 +164,13 @@ namespace McvsOffline.Patcher
                         replaced[dex.Key] = dex.Value;
                 }
             }
+            // "game" after "targetsdk" (whose input check wants no appCategory yet), at any target: android:isGame and
+            // android:appCategory="game" on <application> (Manifest.ManifestGame; --target-sdk 36 needs it, CheckTargetSdk).
+            if (options.Patches != null && options.Patches.Contains(ManifestGame.PatchId))
+            {
+                log("patch " + ManifestGame.PatchId + ": android:isGame=\"true\" and android:appCategory=\"game\" on <application> (Game Mode / OEM game detection)");
+                manifest = ManifestGame.Edit(manifest ?? manifestEntry.GetData(), report.Notes);
+            }
             CheckDexEdits(options, replaced.Keys);
 
             byte[] rawArgs = RawArgsFor(input, options, report);
@@ -241,7 +248,8 @@ namespace McvsOffline.Patcher
         /// <summary>
         /// --target-sdk other than 29 needs "targetsdk"; a target of 31 or more also needs "debloat", whose removals are what
         /// leaves only the three components ManifestTargetSdk exports (the GCM, ad and boot components it removes would need
-        /// exported values and PendingIntent fixes of their own). Checked before any work.
+        /// exported values and PendingIntent fixes of their own); 36 also needs "game", which writes the appCategory="game"
+        /// that keeps the fixed orientation on large screens there. Checked before any work.
         /// </summary>
         internal static void CheckTargetSdk(PatcherOptions options)
         {
@@ -255,6 +263,8 @@ namespace McvsOffline.Patcher
                                             "declared and are not ready for target " + ManifestTargetSdk.ExportedRequiredFrom + "+): add debloat to --patch, or use --target-sdk " +
                                             ManifestTargetSdk.ShippedTarget);
             }
+            if (target >= 36 && !options.Patches.Contains(ManifestGame.PatchId))
+                throw new ArgumentException("target SDK " + target + " needs the '" + ManifestGame.PatchId + "' patch (appCategory=\"game\" keeps the fixed orientation on large screens)");
         }
 
         /// <summary>
