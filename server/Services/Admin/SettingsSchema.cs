@@ -137,6 +137,9 @@ namespace McvsOffline.Server.Services.Admin
         /// <summary>The Cosmetic crate's kill switch (O7).</summary>
         public const string CollectorEnabledKey = CollectorOptions.SettingsPath + ".enabled";
 
+        /// <summary>Read by the embedded host's AdminHooks.AccountMenuButtons each time Settings › Account opens.</summary>
+        public const string AccountMenuHideDeadButtonsKey = "admin.accountMenu.hideDeadButtons";
+
         private static readonly SettingGroup[] GroupList =
         {
             new SettingGroup("gameplay", "Gameplay"),
@@ -193,11 +196,14 @@ namespace McvsOffline.Server.Services.Admin
 
         /// <summary>
         /// Keys the PC host neither writes nor uses (docs/design/pc-port.md §3.6): the Android installer and HD textures,
-        /// notifications, the public log copy and the Mono thread dump. Prefixes end with '.'.
+        /// notifications, the public log copy and the Mono thread dump; and admin.accountMenu.hideDeadButtons, which
+        /// changes nothing on PC (the Steam build's Account list is Redeem code and GameCenter: no Facebook, Google or
+        /// Restore entry to hide, and a GameCenter entry is never centred). Prefixes end with '.'.
         /// </summary>
         private static readonly string[] WindowsHidden =
         {
             "hd.", "install.", "notifications.", "diagnostics.publicLogCopy", "diagnostics.threadDump",
+            AccountMenuHideDeadButtonsKey,
         };
 
         /// <summary>Read-only keys only the PC host has, as key, label, description, inserted after <see cref="WindowsAdvancedAfter"/>.</summary>
@@ -224,8 +230,8 @@ namespace McvsOffline.Server.Services.Admin
         /// <summary>
         /// The page's groups as <paramref name="platform"/> (<c>AdminHostInfo.Platform</c>) shows them (§4.6 of
         /// docs/design/pc-port.md). On <see cref="PlatformWindows"/>: no <c>hd.*</c>, <c>install.*</c>,
-        /// <c>notifications.*</c>, <c>diagnostics.publicLogCopy</c> or <c>diagnostics.threadDump</c> entry (labels and
-        /// settings), the PC wording of <c>graphics.profile</c>, and <c>embedded.physics.keepPhysicsLayer</c> among the
+        /// <c>notifications.*</c>, <c>diagnostics.publicLogCopy</c>, <c>diagnostics.threadDump</c> or
+        /// <c>admin.accountMenu.hideDeadButtons</c> entry (labels and settings), the PC wording of <c>graphics.profile</c>, and <c>embedded.physics.keepPhysicsLayer</c> among the
         /// read-only keys. Any other platform (android, directory, none) gets exactly <see cref="Groups"/>,
         /// <see cref="Keys"/> and <see cref="AdvancedKeys"/>.
         /// </summary>
@@ -674,6 +680,9 @@ namespace McvsOffline.Server.Services.Admin
                      "Settings > Account > Redeem code accepts the codes listed below."),
                 Bool("unlocks", "crm.redeemCoupons", "Redeem-code button", true, Menu,
                      "Shows the Redeem code button in Settings > Account."),
+                Bool("unlocks", AccountMenuHideDeadButtonsKey, "Only Redeem code and MCVS Offline in Settings > Account", true, Live,
+                     "Hides the Facebook, Google Play Games and Restore buttons, which cannot work offline, and centres the "
+                     + "buttons that are left. Applies the next time Settings > Account opens."),
                 Integer("unlocks", "unlocks.batchSize", "Rewards per batch", 400, 50, 400, 50, Live,
                         "Unlock-all rewards per batch; keep at most 400 (reward popups)."),
                 Text("unlocks", "admin.redeemCode", "Code that opens this page", "MCVSOFFLINE", Live,

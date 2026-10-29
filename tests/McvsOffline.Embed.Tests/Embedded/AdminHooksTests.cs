@@ -25,6 +25,8 @@ namespace McvsOffline.Embed.Tests.Embedded
         {
             using (var env = new HookEnvironment("hooks-buttons"))
             {
+                // The game's list as it is (the filter and the centring: AccountMenuLayoutTests).
+                env.Server.Context.Settings.Set("admin.accountMenu.hideDeadButtons", false);
                 var game = new List<object> { new { snsId = 1, isClickable = true, label = "setting.FacebookButton" }, new { customAction = "restore_purchase", label = "Social.RecoverProgressButton" } };
                 object first = game[0], second = game[1];
                 IEnumerable<object> result = AdminHooks.AccountMenuButtons(game);

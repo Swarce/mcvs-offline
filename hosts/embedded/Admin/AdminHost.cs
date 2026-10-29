@@ -151,6 +151,22 @@ namespace McvsOffline.Embedded.Admin
             }
         }
 
+        /// <summary>settings admin.accountMenu.hideDeadButtons (server copy, read each time Settings › Account opens; default true).</summary>
+        public bool HideDeadAccountButtons
+        {
+            get
+            {
+                try
+                {
+                    return context.Settings.GetBool(SettingsSchema.AccountMenuHideDeadButtonsKey, true);
+                }
+                catch (Exception)
+                {
+                    return true;
+                }
+            }
+        }
+
         /// <summary>
         /// settings admin.openVia (server copy, read per open): auto, game, and the platform's own modes: an
         /// <see cref="IPagePlatform"/>'s <c>OpenModes</c> (Windows: overlay, system), else jni and post (Android). Anything else is
