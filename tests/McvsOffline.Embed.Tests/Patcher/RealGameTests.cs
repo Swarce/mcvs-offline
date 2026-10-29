@@ -38,7 +38,8 @@ namespace McvsOffline.Embed.Tests.Patcher
         /// rewrite (--game-log all), the ABI selection, for "debloat" one per removed manifest element plus one for the
         /// dropped Crashlytics/Fabric files, and for "targetsdk" at <paramref name="target"/> 35 the target, the three exported
         /// components, heap tagging, POST_NOTIFICATIONS, &lt;queries&gt;, the two browser layouts, the four Google Analytics
-        /// components it removes and the 14 classes.dex sites (<see cref="DexNotes"/>; none of them at 29).
+        /// components it removes and the 14 classes.dex sites (<see cref="DexNotes"/>; none of them at 29), and for "game" its
+        /// two manifest flags (at any target).
         /// </summary>
         internal static int ExpectedNotes(IEnumerable<string> optionalPatches, bool gameLogAll = true, int target = ManifestTargetSdk.DefaultTarget)
         {
@@ -46,6 +47,7 @@ namespace McvsOffline.Embed.Tests.Patcher
             int notes = ids.Sum(id => IlPatchNotes.TryGetValue(id, out int n) ? n : 0);
             notes += 1 + (gameLogAll ? 1 : 0) + 1;
             if (ids.Contains(ManifestDebloat.PatchId)) notes += ManifestDebloat.Targets.Count + 1;
+            if (ids.Contains(ManifestGame.PatchId)) notes += 2;
             if (ids.Contains(ManifestTargetSdk.PatchId) && target != ManifestTargetSdk.ShippedTarget) notes += 1 + 3 + 1 + 1 + 1 + BrowserLayoutInsets.Layouts.Count;
             if (ids.Contains(ManifestTargetSdk.PatchId) && target >= DexTargetSdkEdits.MinTargetSdk) notes += ManifestTargetSdk.GoogleAnalyticsComponents.Count + DexNotes;
             return notes;
@@ -81,10 +83,11 @@ namespace McvsOffline.Embed.Tests.Patcher
                          report.Modified.OrderBy(m => m, StringComparer.Ordinal));
             Assert.Equal(new[] { "assemblies/McvsOffline.Server.dll" }, report.Added);
             // 36 IL patch notes, the manifest permission rename, the res/raw/args.txt rewrite, the ABI selection, debloat's
-            // 44 manifest removals and file drop, and targetsdk's 7 manifest, 2 layout, 4 Google Analytics removal and 14
-            // classes.dex edits: 111 (see IlPatchNotes / ExpectedNotes).
+            // 44 manifest removals and file drop, targetsdk's 7 manifest, 2 layout, 4 Google Analytics removal and 14
+            // classes.dex edits, and game's 2 manifest flags: 113 (see IlPatchNotes / ExpectedNotes).
             Assert.Equal(14, DexNotes);
-            Assert.Equal(111, ExpectedNotes(options.Patches, target: 35));
+            Assert.Equal(113, ExpectedNotes(options.Patches, target: 35));
+            Assert.Equal(2, report.Notes.Count(n => n.StartsWith(ManifestGame.NotePrefix, StringComparison.Ordinal)));
             Assert.Equal(ExpectedNotes(options.Patches, target: 35), report.Notes.Count);
             Assert.Equal(ManifestDebloat.Targets.Count, report.Notes.Count(n => n.StartsWith("manifest: removed <", StringComparison.Ordinal)));
             Assert.Contains(report.Notes, n => n.StartsWith("debloat: dropped 8 Crashlytics/Fabric files", StringComparison.Ordinal));   // armeabi-v7a's went with its ABI
@@ -148,11 +151,12 @@ namespace McvsOffline.Embed.Tests.Patcher
             PatchReport report = ApkPatcher.Run(new PatcherOptions { InputApk = apk, ServerDll = server, DryRun = true }, log.Add);
             // 32 IL patch notes (hook, headless 5 + 3, physics 2, nativeonline, waits 2, geo, bottile, finder, store 2,
             // signatures 2, debloat 7, adminpage 2, adminlink, graphics), the manifest rename, res/raw/args.txt, the ABI selection,
-            // debloat's 44 + 1, and targetsdk at its default 35: 7 manifest, 2 layout, 4 Google Analytics removal and 14
-            // classes.dex edits: 107.
-            Assert.Equal(107, ExpectedNotes(PatcherOptions.DefaultPatches));
+            // debloat's 44 + 1, targetsdk at its default 35: 7 manifest, 2 layout, 4 Google Analytics removal and 14
+            // classes.dex edits, and game's 2: 109.
+            Assert.Equal(109, ExpectedNotes(PatcherOptions.DefaultPatches));
             Assert.Equal(ExpectedNotes(PatcherOptions.DefaultPatches), report.Notes.Count);
             Assert.Contains("patch targetsdk: targetSdkVersion 29 -> 35, with what that target needs in the manifest, the settings page's layouts and classes.dex", log);
+            Assert.Contains("patch game: android:isGame=\"true\" and android:appCategory=\"game\" on <application> (Game Mode / OEM game detection)", log);
             Assert.Contains(ManifestTargetSdk.DexEntry, report.Modified);
             Assert.DoesNotContain(report.Notes, n => n.Contains("LocalAnubisManager"));
 

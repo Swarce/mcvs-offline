@@ -174,6 +174,8 @@ namespace McvsOffline.Patcher
                 "                                   version of Android' warning) with what that target needs in the manifest and\n" +
                 "                                   the settings page's layouts, and from 31 on the game's classes.dex\n" +
                 "                                   (PendingIntent and receiver flags, Google Analytics off); needs debloat\n" +
+                "                          game     android:isGame and android:appCategory=\"game\" in the manifest (Android's Game\n" +
+                "                                   Mode and OEM game tools see a game), at any target; --target-sdk 36 needs it\n" +
                 "                          forum    Settings > Forum opens the settings page (not in the default set)\n" +
                 "                          graphics settings.json graphics.profile (auto, mid, high, ultra) picks Gameloft's own GPU\n" +
                 "                                   profile in GameOptions_android.json; the effective options are logged\n" +
