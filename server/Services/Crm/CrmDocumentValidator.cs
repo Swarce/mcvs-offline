@@ -351,7 +351,9 @@ namespace McvsOffline.Server.Services.Crm
         /// Warns (and changes nothing) when two newsfeed items share an <c>asset</c> and the first has no <c>end_date</c>:
         /// the PC client keys its static <c>NewsFeedData.Newsfeeds</c> by asset (first item wins) and gives every inbox
         /// message of that asset whose creation date differs the first item's <c>EndDate</c>, <c>default(DateTime)</c>
-        /// without an <c>end_date</c>, so those messages expire at the next refresh (docs/design/pc-port.md §4.3).
+        /// without an <c>end_date</c>, so those messages expire at the next refresh (docs/design/pc-port.md §4.3). Items
+        /// without an asset (or with an empty one, like our own item) share no key and are ignored. The document is shared by
+        /// both platforms, so the warning shows on Android too; it names the PC client.
         /// </summary>
         private static void WarnSharedAssets(List<object> list, Log log)
         {
@@ -360,7 +362,8 @@ namespace McvsOffline.Server.Services.Crm
             {
                 var entry = e as Dictionary<string, object>;
                 if (entry == null) continue;
-                string asset = JsonValue.GetString(entry, "asset") ?? "";
+                string asset = JsonValue.GetString(entry, "asset");
+                if (string.IsNullOrEmpty(asset)) continue; // no asset is no shared key (our own item has asset "")
                 Dictionary<string, object> earlier;
                 if (!first.TryGetValue(asset, out earlier))
                 {
@@ -369,7 +372,7 @@ namespace McvsOffline.Server.Services.Crm
                 }
                 if (!string.IsNullOrEmpty(JsonValue.GetString(earlier, "end_date"))) continue;
                 log.Warn("CRM: newsfeed '" + (JsonValue.GetString(entry, "news_id") ?? "?") + "' shares asset \"" + asset + "\" with '"
-                         + (JsonValue.GetString(earlier, "news_id") ?? "?") + "', which has no end_date: on PC its inbox message "
+                         + (JsonValue.GetString(earlier, "news_id") ?? "?") + "', which has no end_date: on the PC client its inbox message "
                          + "expires at the next refresh (give each item its own asset, or the first one an end_date)");
             }
         }

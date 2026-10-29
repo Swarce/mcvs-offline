@@ -263,6 +263,28 @@ namespace McvsOffline.Tests.Content
             Assert.Contains("newsfeed 'b' shares asset \"x\" with 'a', which has no end_date", warning.Message);
         }
 
+        /// <summary>
+        /// Items without an asset (missing, or empty like our own item) share no key in the PC client's newsfeed table: an
+        /// overlay item with neither asset nor end_date before ours, and more assetless items after it, warn nothing.
+        /// </summary>
+        [Fact]
+        public void SanitizeIgnoresItemsWithoutAnAssetWhenCheckingSharedAssets()
+        {
+            var doc = MiniJson.ParseObject(@"{""newsfeeds"":[
+                {""news_id"":""overlay1"",""asset"":"""",""timestamp"":1792972800},
+                " + ItemJson + @",
+                {""news_id"":""overlay2"",""asset"":"""",""timestamp"":1792972800},
+                {""news_id"":""overlay3"",""timestamp"":1792972800},
+                {""news_id"":""overlay4"",""timestamp"":1792972800}]}");
+            string before = MiniJson.Serialize(doc);
+            var logs = new MemoryLogSink();
+            var logger = new Logger();
+            logger.AddSink(logs);
+            Assert.Equal(0, CrmDocumentValidator.Sanitize(doc, logger.For("crm")));
+            Assert.Equal(before, MiniJson.Serialize(doc));
+            Assert.Empty(logs.Snapshot());
+        }
+
         [Theory]
         [InlineData("null")]
         [InlineData("\"x\"")]
