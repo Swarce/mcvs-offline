@@ -49,6 +49,7 @@ namespace McvsOffline.Patcher.Patches
 
         public override void Apply(ModuleDefinition module, PatchContext context)
         {
+            PatchSites.RequireBuildCorlib(module, context, Id);
             // ---- locate and verify
             TypeDefinition physics = RequireType(module, "Gameloft.Engine.PhysicsComponent");
             TypeDefinition component = RequireType(module, "Gameloft.Engine.Component");

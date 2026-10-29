@@ -26,6 +26,13 @@ namespace McvsOffline.Patcher.Patches
     /// <c>GameHooks.AllowNativeOnlineInit</c> answers settings.json <c>embedded.nativeOnlineSdk</c> (default false) and
     /// logs the call as a boot milestone, so the player can turn the native SDK back on without re-patching. If
     /// McvsOffline.Server.dll cannot be loaded the helper throws inside the try and the native call is skipped.
+    /// <para>
+    /// PC (docs/design/pc-port.md §8.7): <c>Init_private</c> marshals each argument to UTF-8 bytes first (23 instructions, per
+    /// argument <c>ldarg.N; brfalse.s; call Encoding::get_UTF8; ldarg.N; callvirt GetBytes; br.s; ldnull</c>, then the
+    /// P/Invoke <c>OnlinePlatformComponent_Init_private(byte[], byte[], byte[])</c> and <c>ret</c>); the datacenter is still the
+    /// first argument. Its locator is the PC fingerprint, exactly one call to that P/Invoke, and <c>ret</c> last; the same guard
+    /// branches to that last instruction.
+    /// </para>
     /// </summary>
     public sealed class NativeOnlinePatch : IlPatch
     {
@@ -33,6 +40,9 @@ namespace McvsOffline.Patcher.Patches
         public const string NativeName = "OnlinePlatformComponent_Init_private";
         public const string HelperName = "McvsAllowNativeOnline";
         public const string HooksType = "McvsOffline.GameHooks";
+
+        /// <summary>PC <c>Init_private</c> (UTF-8 marshalling, 23 instructions).</summary>
+        public const string PcInitFingerprint = "645e6647fff83225925e682c2fded343cdc306b8cae7c45037c6257fc6ba6ac0";
 
         public override string Id => "nativeonline";
 
@@ -42,6 +52,7 @@ namespace McvsOffline.Patcher.Patches
 
         public override void Apply(ModuleDefinition module, PatchContext context)
         {
+            PatchSites.RequireBuildCorlib(module, context, Id);
             TypeDefinition type = RequireType(module, TypeName);
             MethodDefinition init = RequireMethod(type, "Init_private",
                 m => m.IsStatic && m.IsFamily && m.Parameters.Count == 3 && m.Parameters.All(p => p.ParameterType.MetadataType == MetadataType.String) &&
@@ -50,7 +61,19 @@ namespace McvsOffline.Patcher.Patches
             if (type.Methods.Any(m => m.Name == HelperName)) throw new PatchException("Gameloft.Engine.dll is already patched: run the patcher on your original APK");
 
             var code = init.Body.Instructions;
-            bool shape = code.Count == 5 &&
+            if (context.Build.IsPc)
+            {
+                RequireFingerprint(init, PcInitFingerprint, "OnlinePlatformComponent.Init_private(string, string, string)");
+                var natives = code.Where(i => i.OpCode == OpCodes.Call && i.Operand is MethodReference r && r.Name == NativeName &&
+                                              r.Resolve() is MethodDefinition d && d.IsPInvokeImpl).ToList();
+                if (natives.Count != 1 || code[code.Count - 1].OpCode != OpCodes.Ret || init.Body.HasExceptionHandlers || init.Body.HasVariables)
+                {
+                    throw new PatchException(init.FullName + " does not match the verified PC code (one call to the P/Invoke " + NativeName +
+                                             "(byte[], byte[], byte[]), ret last):\n" + Dump(init));
+                }
+            }
+            bool shape = context.Build.IsPc ||
+                         code.Count == 5 &&
                          code[0].OpCode == OpCodes.Ldarg_0 && code[1].OpCode == OpCodes.Ldarg_1 && code[2].OpCode == OpCodes.Ldarg_2 &&
                          IsCall(code[3], TypeName, NativeName) && code[3].OpCode == OpCodes.Call &&
                          ((MethodReference)code[3].Operand).Resolve() is MethodDefinition native && native.IsPInvokeImpl &&
@@ -78,7 +101,7 @@ namespace McvsOffline.Patcher.Patches
             init.Body.InitLocals = true;
             ILProcessor il = init.Body.GetILProcessor();
             Instruction first = code[0];
-            Instruction ret = code[4];
+            Instruction ret = code[code.Count - 1];   // Android: code[4]
             Instruction tryStart = il.Create(OpCodes.Ldarg_0);
             Instruction handler = il.Create(OpCodes.Pop);
             Instruction check = il.Create(OpCodes.Ldloc, allowed);

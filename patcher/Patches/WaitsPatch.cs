@@ -31,13 +31,17 @@ namespace McvsOffline.Patcher.Patches
     /// </para>
     /// Device test 2 showed no pumping wait on the game thread during the hang (the watchdog's heartbeat, posted to
     /// GameApplication.Context with WorkItemAdded, never ran), so this is not the fix for that hang.
-    /// Both overloads are checked against the IL fingerprint of the verified 1.17.32 build first.
+    /// Both overloads are checked against the IL fingerprint of the verified 1.17.32 build first. PC (docs/design/pc-port.md §8.7):
+    /// the same loops, only one <c>dup</c> per overload became <c>ldloc.0</c>/<c>ldloc.2</c> (offsets unchanged), so only the
+    /// fingerprints differ; the timed <c>WaitAny</c> comes from the PC corlib (mscorlib 4, the BCL directory on Linux).
     /// </summary>
     public sealed class WaitsPatch : IlPatch
     {
         public const int SliceMs = 100;
         public const string TaskFingerprint = "7287eccfe8a0a2da0cf26353d5f19b30fe51ebc14c8e80502e99ad13a39c7cdd";
         public const string SignalFingerprint = "4c31f3938568f60b8bb253332f98642a1aece843a3a2d1c62d812582c30aaa71";
+        public const string PcTaskFingerprint = "1b4aefd54d00ab434106c87b287e97a2b2487c048d31fdbd28ccd4d22ceb558d";
+        public const string PcSignalFingerprint = "563529838ddb335c54b9db3c4d22be789b1ef1b49e546ee851dc0063d1ffbbcc";
 
         public override string Id => "waits";
 
@@ -47,6 +51,9 @@ namespace McvsOffline.Patcher.Patches
 
         public override void Apply(ModuleDefinition module, PatchContext context)
         {
+            PatchSites.RequireBuildCorlib(module, context, Id);
+            string taskFingerprint = ForBuild(context, TaskFingerprint, PcTaskFingerprint);
+            string signalFingerprint = ForBuild(context, SignalFingerprint, PcSignalFingerprint);
             TypeDefinition extension = RequireType(module, "Gameloft.Engine.TaskExtension");
             MethodDefinition onTask = RequireMethod(extension, "WaitAndWork",
                 m => m.IsStatic && m.Parameters.Count == 2 && m.Parameters[0].ParameterType.FullName == "System.Threading.Tasks.Task",
@@ -54,8 +61,8 @@ namespace McvsOffline.Patcher.Patches
             MethodDefinition onSignal = RequireMethod(extension, "WaitAndWork",
                 m => m.IsStatic && m.Parameters.Count == 2 && m.Parameters[0].ParameterType.FullName == "System.Threading.ManualResetEventSlim",
                 "static WaitAndWork(ManualResetEventSlim, WaitAndWorkOptions)");
-            RequireFingerprint(onTask, TaskFingerprint, "WaitAndWork(Task, WaitAndWorkOptions)");
-            RequireFingerprint(onSignal, SignalFingerprint, "WaitAndWork(ManualResetEventSlim, WaitAndWorkOptions)");
+            RequireFingerprint(onTask, taskFingerprint, "WaitAndWork(Task, WaitAndWorkOptions)");
+            RequireFingerprint(onSignal, signalFingerprint, "WaitAndWork(ManualResetEventSlim, WaitAndWorkOptions)");
             Instruction taskWait = SingleWaitAny(onTask);
             Instruction signalWait = SingleWaitAny(onSignal);
 

@@ -44,6 +44,7 @@ namespace McvsOffline.Patcher.Patches
 
         public override void Apply(ModuleDefinition module, PatchContext context)
         {
+            PatchSites.RequireBuildCorlib(module, context, Id);
             // ---- locate and verify
             TypeDefinition reward = RequireType(module, RewardType);
             TypeDefinition store = RequireType(module, StoreType);
