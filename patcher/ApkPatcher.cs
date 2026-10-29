@@ -53,6 +53,8 @@ namespace McvsOffline.Patcher
     /// (<see cref="ManifestTargetSdk"/>), the settings page's two browser layouts (<see cref="BrowserLayoutInsets"/>) and,
     /// from 31 on, the game's classes.dex (<see cref="DexTargetSdkEdits"/>); the default is 35, and 29 leaves all of them
     /// as shipped;</item>
+    /// <item>with "game" (default, any target, after "targetsdk"): android:isGame and android:appCategory="game" on
+    /// &lt;application&gt; (<see cref="ManifestGame"/>), so Game Mode and OEM game tools see a game; --target-sdk 36 needs it;</item>
     /// <item>with project art (--art, <see cref="ArtPatch"/>): replace the launcher icon PNGs in place and add the launch
     /// screen's theme configurations to resources.arsc; with none (the default today), nothing changes;</item>
     /// <item>keep every other entry byte-identical (same compression method and bytes; lib/ stays DEFLATED, which
