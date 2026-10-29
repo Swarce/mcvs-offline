@@ -25,9 +25,14 @@ TestResults/
 *.pdb
 *.dex
 *.f
-# HD texture packs (tools/hd-textures): converted from the player's own game files
+# HD texture packs (tools/hd-textures): converted from the player's own game files.
+# The ASTC data pack holds Gameloft's whole files/ tree; pack.info and replaced.tsv are its installer index and list.
 mcvs-hd-*.zip
 mcvs-hd-*.zip.partial
+mcvs-astc-hd-*.zip
+mcvs-astc-hd-*.zip.partial
+pack.info
+replaced.tsv
 *.ktx
 *.game
 *.tx
@@ -44,7 +49,7 @@ captures/
 __pycache__/
 *.pyc
 
-# Signing keys: the patcher creates the player's private key wherever --keystore points
+# Signing keys: the patcher creates the player's private key in the user profile (.../McvsOffline/) or at --keystore
 *.p12
 *.pfx
 *.jks

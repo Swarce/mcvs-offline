@@ -1,0 +1,106 @@
+name: Bug report
+description: Something in the offline build does not work as it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing on a real device. Reports from phones are the most useful contribution to this project.
+
+        **Never attach your APK, game data (`Data/`, `.f`, `.ktx` or other game files), an HD pack or your signing
+        key**, not even in a zip with the logs. The repository and its issues must contain no Gameloft files.
+
+        Setup questions: [docs/PLAYER-SETUP.md](https://github.com/Swarce/mcvs-offline/blob/main/docs/PLAYER-SETUP.md).
+  - type: input
+    id: build
+    attributes:
+      label: Player build
+      description: On the MCVS Offline page, under Status (Settings › Account › MCVS Offline).
+      placeholder: "12"
+    validations:
+      required: true
+  - type: input
+    id: phone
+    attributes:
+      label: Phone model
+      placeholder: Samsung Galaxy S22
+    validations:
+      required: true
+  - type: input
+    id: android
+    attributes:
+      label: Android version
+      placeholder: Android 16
+    validations:
+      required: true
+  - type: dropdown
+    id: data
+    attributes:
+      label: Game data source
+      description: Where the game's `Data/` folder came from (docs/INSTALL-OFFLINE.md).
+      options:
+        - Backup of the whole files/ folder
+        - Copied Data/ folder
+        - Mirror made with tools/cdn-mirror
+        - Downloaded by the game
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: hd
+    attributes:
+      label: HD pack
+      options:
+        - None
+        - ETC pack
+        - ASTC data pack
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: patcher
+    attributes:
+      label: Patcher options
+      description: Only if you did not use the defaults, for example `--patch default,forum` or `--target-sdk 29`.
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+      description: For a hang, wait at least 60 seconds before you close the game, so the watchdog can log what it waits for.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start the game.
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Drag the files here. One of these, in this order:
+        - MCVS Offline page › Logs › **Build**, then **Share** (the "Recent" scope stays under 8 MB).
+        - Without the page: Files › Downloads › MCVS-Offline, the files of the newest start.
+        - With a PC: `adb logcat -s McvsOffline mono-stdout`.
+
+        More: docs/PLAYER-SETUP.md section 6. The logs hold no game files; do not add any to the zip.
+    validations:
+      required: false
+  - type: checkboxes
+    id: no-game-files
+    attributes:
+      label: Game files
+      options:
+        - label: I did not attach any game file, APK, HD pack or signing key.
+          required: true

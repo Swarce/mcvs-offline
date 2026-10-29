@@ -1,0 +1,56 @@
+name: Feature request
+description: Suggest a change or an addition.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check [docs/ROADMAP.md](https://github.com/Swarce/mcvs-offline/blob/main/docs/ROADMAP.md) first: the item may
+        already be planned. Never attach game files, an APK, an HD pack or a signing key.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Offline play (server, matches, live ops)
+        - Economy, shop and unlock codes
+        - Saves and the MCVS Offline page
+        - Graphics and HD textures
+        - Patcher and installing
+        - PC (Steam) port
+        - LAN or internet multiplayer
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do, and what stops you today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you propose
+      description: How the game, the page or the tools should behave.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Other ways you considered, or how you work around it now.
+  - type: textarea
+    id: original-game
+    attributes:
+      label: The original game
+      description: If this is about something the game did with Gameloft's servers, what did it do then?
+  - type: checkboxes
+    id: no-game-files
+    attributes:
+      label: Game files
+      options:
+        - label: I did not attach any game file, APK, HD pack or signing key.
+          required: true

@@ -1,11 +1,14 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-Last updated for the build 11 plan (HD textures installed into `Data/`; see "Build 11 (plan)"), after the HD texture
-probe of build 10 on the owner's S22 (route B failed, route A works). Build 10 (October 2026: target Android 15, graphics
-profiles, the HD texture probe, the PC test kit; see "Build 10") came after device test 8 (the MCVS Offline page; see "Device test 8" and "Build 9"
-below); the Cosmetic crate starts on 2026-11-09 and is not yet tested on the phone. Earlier: device tests 6 and 7 on a
-Samsung Galaxy S22, Android 16 ("Build 8", "Build 7", "Device test 6").
+Last updated for build 12 and device test 9 (October 2026, the owner's Galaxy S22, Android 16): the ASTC HD data pack
+and the graphics profiles work, and builds 10 to 12 (target Android 15) install and play; see "Build 12 and device
+test 9". Before that: the build 11 device test (the HD installer could not write in `McvsOffline/hd/`; fixed in build
+12). The build 11 plan put HD textures into `Data/` ("Build 11 (plan)"). On build 10 the HD texture probe showed that
+route B fails and route A works. Build 10 targets Android 15 and adds graphics profiles and the PC test kit ("Build
+10"). Device test 8 tested the MCVS Offline page ("Device test 8", "Build 9"). The Cosmetic crate starts on 2026-11-09
+and is not yet tested on the phone. Not yet merged: the PC port (in progress on `wip/pc-port`) and the Android 'game'
+manifest flags. Earlier: device tests 6 and 7 on the same S22 ("Build 8", "Build 7", "Device test 6").
 
 **Summary:** the Federation server is complete for the offline single-player goals and passes its full test suite, including a
 conformance harness that runs the game's own client libraries against it (the count of the last full run is under
@@ -26,7 +29,62 @@ in-game MCVS Offline page: settings, saves (also from one phone to another) and 
 it works**), and the Cosmetic crate, a play path for the ~600 items that never had a source (from 2026-11-09). Build 10
 targets Android 15 (no Play Protect "older version" warning; the game's Java code adapted), adds graphics profiles, an
 HD texture probe and a Windows test kit for the Steam version. Build 11 installs HD textures converted from the Steam
-version into the game's own data.
+version into the game's own data. Build 12 accepts a full ASTC data pack with 2,215 PC textures in it: **device test 9:
+the HD textures and the graphics profiles work, at the same frame rate as before**, and builds 10 to 12 (target Android
+15) installed and played fine.
+
+## Build 12 and device test 9 (October 2026): ASTC HD textures and graphics profiles work
+
+### What build 12 contains
+
+`7f24f82` (`McvsVersion.Build` is `12`) adds to build 11:
+
+* **The HD installer writes only in folders it owns** (`wip/hd-writable`; see "Build 11 device test" below).
+* **The ASTC HD data pack** (`tools/hd-textures astc-pack`, [design/hd-textures.md](design/hd-textures.md) §6,
+  [INSTALL-OFFLINE.md](INSTALL-OFFLINE.md), "The ASTC HD data pack"): Gameloft's whole 1.17.32 ASTC `files/` tree in
+  which 2,215 textures are the PC textures re-encoded to ASTC at the PC resolution, in 8 parts below 380 MiB, with its
+  own installer index (`McvsOffline/install/pack.info`) and `McvsOffline/install/replaced.tsv` (the replaced files with
+  Gameloft's size and CRC32 of each).
+* **No Clear storage with build 12**: `InstallerData` recognises the pack by `replaced.tsv` and, when the installer still
+  holds the index of the data that was there before (the ETC pack), switches it to the pushed saved index (`installer
+  data: index switched to the saved index (ASTC with 2215 replaced files, ...)`). The switch now runs before the
+  damaged-list recheck, and a `damaged.txt` left by the old data is removed, since it says nothing about the new data.
+  Build 11 and older keep the old ETC index, so with them the pack needs Clear storage and the profile pushed back.
+* **ASTC pack fixes**: originals whose size is not a power of two ("stretched", five in the ASTC pack) are compared with
+  the PC texture at a reduced size, so the 200x200 3D-menu emblem `Data/d/1a57284.f` is replaced too (2,215 files; the
+  first parts of 2026-10-28 replaced 2,214). The `README.txt` of the last part has a step that puts the profile back
+  after Clear storage on build 11 and older; the ETC `files/` for going back are kept on the computer, not moved aside
+  on the phone, where Clear storage would delete them.
+
+**Checked**: `AstcPackTests` (the stretched originals; `TheReadmeStepsInstallThePackAndKeepTheProfile` runs the
+`README.txt` command lines on a stand-in for the phone, for an APK after build 11 and for build 11 with Clear
+storage); `TheRealPackIsACompleteAstcInstallForTheHost` on the rebuilt parts (15,747 files, 2,215 replaced, a fresh install and a
+switch from the ETC index, every CRC). No full `scripts/build.sh` count was recorded for build 12; the last one is under
+"Build 11 device test".
+
+### What the owner saw (device test 9)
+
+Owner's Galaxy S22 (Android 16), October 2026. No logs were sent; the results are the owner's report.
+
+* **Install**: builds 10, 11 and 12 (targetSdk 35) installed and played fine.
+* **ASTC HD data pack**: works. The game "looks crazy good" and runs "at the same framerate as before, zero performance
+  loss". Which parts were installed (the first parts of 2026-10-28 with 2,214 replaced files, or the rebuilt parts with
+  2,215) was not reported.
+* **Graphics profiles**: work.
+
+### What stays open
+
+* The Cosmetic crate (starts on 2026-11-09).
+* The ETC HD packs (`McvsOffline/hd/mcvs-hd-*.zip`) on a phone: the S22 runs the ASTC pack now ("What to check on the
+  phone (build 11)").
+* From build 10: the Restart question (does the game come back by itself on Android 13+?), the page layout at target 35
+  with both navigation modes, the notification prompt, reminders, the share sheet, the logcat greps and the
+  data-download notification ("What to check on the phone (build 10)", items 3-5 and 8-11).
+* The logcat checks of build-10 items 1 and 6, which need a log: no `AndroidRuntime: FATAL EXCEPTION` in the first hour
+  after the install; the `[boot] graphics:` line for each profile, no `[watchdog] STALL` and a bot match with
+  `graphics.fullProfile` at `ultra`.
+* Not yet merged: the PC port (in progress on `wip/pc-port`) and the Android 'game' manifest flags (Game Mode and
+  Samsung's Game Booster).
 
 ## Build 11 device test: the HD installer could not write in `McvsOffline/hd/` (fixed on `wip/hd-writable`)
 
@@ -137,6 +195,11 @@ Gameloft's exact bytes, a pack labelled ASTC refused. page-smoke: the Remove act
 Needs an HD pack from `tools/hd-textures` (the converter branch) for the ETC pack. Keep
 `adb logcat -s McvsOffline mono mono-stdout AndroidRuntime > b11.txt` running.
 
+**Device test 9 (build 12):** the S22 moved to the ASTC HD data pack instead of an ETC HD pack, and the HD textures are
+confirmed with it: item 3 as a whole (the owner: the game "looks crazy good") and the frame rate of item 5 (the same as
+before; no heat or `meminfo` figures were sent). The ASTC install steps (INSTALL-OFFLINE.md) take the place of item 1.
+Items 2, 4, 6 and 7 are for an ETC HD pack and were not run.
+
 1. **Undo the build-10 probe first.** The 13 recoloured probe files are still in `Data/` and `qaTestingConfigs.txt` still
    says `SKIP_VALIDATION=1`. With `SKIP_VALIDATION` gone the installer would delete those 13 files (their size is not the
    index's) and try Gameloft's CDN. Game closed: push the 13 originals back (the same `Data/<h>/<rest>.f` paths from
@@ -158,7 +221,7 @@ Needs an HD pack from `tools/hd-textures` (the converter branch) for the ETC pac
    originals); restoring it on a
    reinstall gives the HD textures back without reinstalling them (`installer data: index restored from the saved index`).
 
-## Build 10 (October 2026): target Android 15, graphics profiles, HD texture probe, PC test kit (not yet on a device)
+## Build 10 (October 2026): target Android 15, graphics profiles, HD texture probe, PC test kit (target 35 and graphics profiles confirmed in device test 9)
 
 `feat/build10`: five reviewed branches in one build (`McvsVersion.Build` is `10`). Player guide:
 [PLAYER-SETUP.md](PLAYER-SETUP.md) sections 4 and 7.
@@ -309,6 +372,9 @@ build 9's (rename and debloat only). With `--art stock`: every entry identical t
 
 ### What to check on the phone (build 10)
 
+**Device test 9 (builds 10 to 12):** items 1, 2 and 6 confirmed by the owner's report as a whole; their logcat checks
+were not run. Item 7 was done on 2026-10-28. The rest stays open ("Build 12 and device test 9", "What stays open").
+
 Install build 10 **over** build 9 (same key; never uninstall: that deletes the saves). Keep
 `adb logcat -s McvsOffline mono mono-stdout AndroidRuntime ActivityManager > b10.txt` running where you can.
 
@@ -317,9 +383,12 @@ Install build 10 **over** build 9 (same key; never uninstall: that deletes the s
    logcat running for the first hour after the install, game open or not: a Google Analytics job or alarm build 9 left
    with Android runs then, and build 10 must drop it without a crash (no `AndroidRuntime: FATAL EXCEPTION` naming
    `com.google.android.gms.analytics` or `PendingIntent`).
+   **Device test 9:** builds 10, 11 and 12 installed and played fine (reported as a whole; no logcat was sent, so the
+   first-hour check is open).
 2. **Target 35 basics**: boot to the menu; menus, a bot match and a Battle; the game saves (close it, start it again, the
    progress is there); Back in the game (pause menu, the quit dialog) and on the MCVS Offline page (Back leaves the page
    or asks first, as in build 9).
+   **Device test 9:** builds 10 to 12 played fine at target 35 (reported as a whole).
 3. **Page layout**: open the page with three-button navigation and again with gesture navigation (Settings › Display ›
    Navigation bar), portrait and landscape: nothing hidden under the navigation or status bar, every button reachable.
    Screenshots of both modes.
@@ -335,6 +404,8 @@ Install build 10 **over** build 9 (same key; never uninstall: that deletes the s
    MidGPU/HighGPU/High_Ultra", a bot match plays through, then 10 minutes of play for frame rate and heat; no `[watchdog]
    STALL`, no `physics step gate: ... without the gate`. Then `graphics.fullProfile` on at `ultra`: one bot match. With a
    forced profile, the game's own Graphic setting should not change the `[boot] graphics:` profile. Back to `auto` at the end.
+   **Device test 9: the profiles work** (reported as a whole); no `[boot] graphics:` lines, `STALL` check, per-profile
+   frame rates or `fullProfile` run were sent.
 7. **HD texture probe**: done on 2026-10-28; route B failed, route A works ("HD texture probe: result" above).
 8. **Reminders**: with notifications allowed, leave the game so it schedules its local reminders and wait for one: it
    arrives. Tapping it only dismisses it on Android 12+ (expected; open the game from the launcher). After a reboot

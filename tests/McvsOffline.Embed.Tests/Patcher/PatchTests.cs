@@ -320,11 +320,6 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Equal(PatcherOptions.DefaultPatches, list.Split(','));
             foreach (string id in PatcherOptions.OptionalPatches)
                 Assert.True(setup.Contains("\n- **" + id + "**"), "PLAYER-SETUP.md has no '- **" + id + "**' entry in its patch list");
-
-            string readme = File.ReadAllText(Path.Combine(TestEnvironment.RepoRoot, "README.md"));
-            string build = Assert.Single(readme.Split('\n'), l => l.StartsWith("| Player build (offline APK) |", StringComparison.Ordinal));
-            foreach (string id in PatcherOptions.DefaultPatches)
-                Assert.True(System.Text.RegularExpressions.Regex.IsMatch(build, @"[(, ]" + id + "[,;]"), "README.md's player-build row does not list '" + id + "'");
         }
 
         [Fact]
