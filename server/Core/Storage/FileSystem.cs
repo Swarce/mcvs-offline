@@ -59,11 +59,19 @@ namespace McvsOffline.Server.Core.Storage
         /// </summary>
         public static int Retry(Func<int> attempt, int attempts, int delayMs)
         {
+            return Retry(attempt, attempts, delayMs, ThreadSleep);
+        }
+
+        private static readonly Action<int> ThreadSleep = Thread.Sleep;
+
+        /// <summary><see cref="Retry(Func{int}, int, int)"/> with the pause made by <paramref name="sleep"/> (tests record it).</summary>
+        internal static int Retry(Func<int> attempt, int attempts, int delayMs, Action<int> sleep)
+        {
             if (attempt == null) throw new ArgumentNullException("attempt");
             int result = 0;
             for (int i = 0; i < attempts || i == 0; i++)
             {
-                if (i > 0 && delayMs > 0) Thread.Sleep(delayMs);
+                if (i > 0 && delayMs > 0) sleep(delayMs);
                 result = attempt();
                 if (result == 0) return 0;
             }

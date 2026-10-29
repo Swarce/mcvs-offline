@@ -126,18 +126,30 @@ namespace McvsOffline.Tests.Storage
         [Fact]
         public void SleepsBetweenAttemptsButNotBeforeTheFirstOrAfterTheLast()
         {
-            var times = new List<long>();
-            var watch = Stopwatch.StartNew();
+            // The pauses are recorded, not timed: a loaded machine must not fail this.
+            var events = new List<string>();
             FileSystem.Retry(() =>
             {
-                times.Add(watch.ElapsedMilliseconds);
+                events.Add("attempt");
                 return 1;
-            }, 3, 30);
-            long total = watch.ElapsedMilliseconds;
-            Assert.Equal(3, times.Count);
-            Assert.True(times[0] < 25, "first call at " + times[0] + " ms");
-            Assert.True(times[1] - times[0] >= 25 && times[2] - times[1] >= 25, string.Join(", ", times));
-            Assert.True(total - times[2] < 25, "no pause after the last attempt: " + (total - times[2]) + " ms");
+            }, 3, 30, ms => events.Add("sleep " + ms));
+            Assert.Equal(new[] { "attempt", "sleep 30", "attempt", "sleep 30", "attempt" }, events);
+
+            events.Clear();
+            FileSystem.Retry(() =>
+            {
+                events.Add("attempt");
+                return 1;
+            }, 2, 0, ms => events.Add("sleep " + ms));
+            Assert.Equal(new[] { "attempt", "attempt" }, events); // no delay: no sleep at all
+        }
+
+        [Fact]
+        public void ThePublicOverloadReallySleeps()
+        {
+            var watch = Stopwatch.StartNew();
+            FileSystem.Retry(() => 1, 2, 30);
+            Assert.True(watch.ElapsedMilliseconds >= 25, "slept " + watch.ElapsedMilliseconds + " ms"); // a lower bound only
         }
 
         [Fact]
