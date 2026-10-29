@@ -56,7 +56,7 @@ namespace McvsOffline.Patcher.Patches
         public override void Apply(ModuleDefinition module, PatchContext context)
         {
             // ---- locate and verify
-            PatchSites.RequireBuildCorlib(module, context, Id);
+            PatchSites.RequireBuildAssembly(module, context, Id);
             string onCreateFingerprint = ForBuild(context, OnCreateFingerprint, OnCreateFingerprint);
             TypeDefinition component = RequireType(module, TypeName);
             if (module.GetType("Gameloft.Engine." + HelperType) != null)

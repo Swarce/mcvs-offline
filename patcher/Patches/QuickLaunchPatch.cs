@@ -27,7 +27,7 @@ namespace McvsOffline.Patcher.Patches
     ///     internal static Task QuickLaunch(ClientComponent c, ClientLink l, CancellationToken ct)
     ///     { Task t; try { t = CallQuickLaunch(c, l, ct); } catch { t = l.QuickLaunch(ct); } return t; }
     ///     [NoInlining] static Task CallQuickLaunch(...) =&gt; McvsOffline.PcHooks.QuickLaunch(c, l, ct);
-    ///     internal static void DefaultAutomatchHost(MatchmakingComponent.AutomatchSettings s) { try { CallDefault(s); } catch { } }
+    ///     internal static void DefaultAutomatchHost(object settings) { try { CallDefault(settings); } catch { } }   // AutomatchSettings is protected
     ///     [NoInlining] static void CallDefault(...) =&gt; McvsOffline.PcHooks.DefaultAutomatchHost(s);
     /// }
     /// </code>
@@ -70,7 +70,7 @@ namespace McvsOffline.Patcher.Patches
             string portFingerprint = ForBuild(context, null, PcPortFingerprint);
             string quickLaunchFingerprint = ForBuild(context, null, PcQuickLaunchFingerprint);
             string automatchFingerprint = ForBuild(context, null, PcAutomatchHostFingerprint);
-            PatchSites.RequireBuildCorlib(module, context, Id);
+            PatchSites.RequireBuildAssembly(module, context, Id);
             if (module.GetType(HelperNamespace + "." + HelperType) != null)
                 throw new PatchException("Gameloft.Engine.dll is already patched (" + HelperNamespace + "." + HelperType + "): install from the game's own file");
 
@@ -153,7 +153,9 @@ namespace McvsOffline.Patcher.Patches
             // ---- the helper type
             TypeDefinition helper = PatchSites.AddHelperType(module, HelperNamespace, HelperType);
             MethodDefinition callQuickLaunch = PatchSites.Forwarder(helper, "CallQuickLaunch", task, hookQuickLaunch, client, link, cancellationToken);
-            MethodDefinition callDefault = PatchSites.Forwarder(helper, "CallDefault", ts.Void, hookDefault, settings);
+            // The settings travel as object: AutomatchSettings is a protected nested type, which an unrelated type's signature
+            // cannot name verifiably (ILVerify: "method is not visible"); the hook takes object anyway.
+            MethodDefinition callDefault = PatchSites.Forwarder(helper, "CallDefault", ts.Void, hookDefault, ts.Object);
 
             // internal static Task QuickLaunch(ClientComponent c, ClientLink l, CancellationToken ct)
             // { Task t; try { t = CallQuickLaunch(c, l, ct); } catch { t = l.QuickLaunch(ct); } return t; }
@@ -189,7 +191,7 @@ namespace McvsOffline.Patcher.Patches
                 });
             }
             helper.Methods.Add(helperQuickLaunch);
-            MethodDefinition helperDefault = PatchSites.GuardedVoid(helper, "DefaultAutomatchHost", callDefault, settings);
+            MethodDefinition helperDefault = PatchSites.GuardedVoid(helper, "DefaultAutomatchHost", callDefault, ts.Object);
             helperDefault.Parameters[0].Name = "settings";
 
             // ---- change: P2, the kick-off becomes one call (no locals; the state-machine type stays, unused)

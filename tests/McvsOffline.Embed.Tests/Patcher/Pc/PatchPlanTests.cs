@@ -84,12 +84,18 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         }
 
         [Fact]
-        public void TheNewPcPatchesRefuseUntilTheyAreWritten()
+        public void EachPatchRefusesABuildItHasNoTableFor()
         {
+            // §8.8: before the module is even looked at (the PC-only patches on Android, the Android-only ones on PC).
             foreach (IlPatch patch in new IlPatch[] { new EngineBridgeHookPatch(), new QuickLaunchPatch(), new HeadlessDiagnosticsPatch() })
             {
+                PatchException refused = Assert.Throws<PatchException>(() => patch.Apply(null, new PatchContext(null, 51780, BuildProfile.Android1_17_32)));
+                Assert.Equal(patch.Id + " is not supported on build android-1.17.32", refused.Message);
+            }
+            foreach (IlPatch patch in new IlPatch[] { new BootstrapHookPatch(), new FinderPatch(), new LanPatch(), new DebloatEnginePatch() })
+            {
                 PatchException refused = Assert.Throws<PatchException>(() => patch.Apply(null, new PatchContext(null, 51780, Pc)));
-                Assert.Contains("not implemented", refused.Message);
+                Assert.Equal(patch.Id + " is not supported on build pc-steam-6372049", refused.Message);
             }
             Assert.Equal(BootstrapHookPatch.HelperName, EngineBridgeHookPatch.HelperName);
         }

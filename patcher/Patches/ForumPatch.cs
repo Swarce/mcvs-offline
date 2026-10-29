@@ -30,7 +30,7 @@ namespace McvsOffline.Patcher.Patches
 
         public override void Apply(ModuleDefinition module, PatchContext context)
         {
-            PatchSites.RequireBuildCorlib(module, context, Id);
+            PatchSites.RequireBuildAssembly(module, context, Id);
             // ---- locate and verify
             TypeDefinition ui = RequireType(module, UiType);
             MethodDefinition forum = RequireMethod(ui, "GoToForum",

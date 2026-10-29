@@ -51,7 +51,7 @@ namespace McvsOffline.Patcher.Patches
 
         public override void Apply(ModuleDefinition module, PatchContext context)
         {
-            PatchSites.RequireBuildCorlib(module, context, Id);
+            PatchSites.RequireBuildAssembly(module, context, Id);
             string taskFingerprint = ForBuild(context, TaskFingerprint, PcTaskFingerprint);
             string signalFingerprint = ForBuild(context, SignalFingerprint, PcSignalFingerprint);
             TypeDefinition extension = RequireType(module, "Gameloft.Engine.TaskExtension");

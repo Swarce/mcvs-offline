@@ -44,7 +44,7 @@ namespace McvsOffline.Patcher.Patches
             // ---- locate and verify
             string startFingerprint = ForBuild(context, null, PcStartFingerprint);
             string ctorFingerprint = ForBuild(context, null, PcCtorFingerprint);
-            PatchSites.RequireBuildCorlib(module, context, Id);
+            PatchSites.RequireBuildAssembly(module, context, Id);
             TypeDefinition type = RequireType(module, TypeName);
             MethodDefinition start = RequireMethod(type, "Start",
                 m => !m.IsStatic && m.IsPublic && !m.HasParameters && m.ReturnType.MetadataType == MetadataType.Void,

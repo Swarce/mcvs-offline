@@ -36,7 +36,7 @@ namespace McvsOffline.Patcher.Patches
 
         public override void Apply(ModuleDefinition module, PatchContext context)
         {
-            PatchSites.RequireBuildCorlib(module, context, Id);
+            PatchSites.RequireBuildAssembly(module, context, Id);
             // ---- locate and verify
             TypeDefinition component = RequireType(module, "Gameloft.Engine.Component");
             TypeDefinition world = RequireType(module, "Gameloft.Engine.World");

@@ -42,7 +42,7 @@ namespace McvsOffline.Patcher.Patches
         public override void Apply(ModuleDefinition module, PatchContext context)
         {
             // ---- locate and verify
-            PatchSites.RequireBuildCorlib(module, context, Id);
+            PatchSites.RequireBuildAssembly(module, context, Id);
             string fingerprint = ForBuild(context, OpenUrlFingerprint, PcOpenUrlFingerprint);
             TypeDefinition browser = RequireType(module, BrowserType);
             MethodDefinition openUrl = RequireMethod(browser, "OpenUrl",

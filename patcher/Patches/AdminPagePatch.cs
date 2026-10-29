@@ -55,7 +55,7 @@ namespace McvsOffline.Patcher.Patches
         public override void Apply(ModuleDefinition module, PatchContext context)
         {
             // ---- locate and verify
-            PatchSites.RequireBuildCorlib(module, context, Id);
+            PatchSites.RequireBuildAssembly(module, context, Id);
             string listFingerprint = ForBuild(context, ButtonListFingerprint, PcButtonListFingerprint);
             string actionFingerprint = ForBuild(context, ButtonActionFingerprint, PcButtonActionFingerprint);
             bool pc = context.Build.IsPc;

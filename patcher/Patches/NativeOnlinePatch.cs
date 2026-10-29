@@ -52,7 +52,7 @@ namespace McvsOffline.Patcher.Patches
 
         public override void Apply(ModuleDefinition module, PatchContext context)
         {
-            PatchSites.RequireBuildCorlib(module, context, Id);
+            PatchSites.RequireBuildAssembly(module, context, Id);
             TypeDefinition type = RequireType(module, TypeName);
             MethodDefinition init = RequireMethod(type, "Init_private",
                 m => m.IsStatic && m.IsFamily && m.Parameters.Count == 3 && m.Parameters.All(p => p.ParameterType.MetadataType == MetadataType.String) &&

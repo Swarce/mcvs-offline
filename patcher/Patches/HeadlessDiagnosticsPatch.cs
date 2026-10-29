@@ -46,7 +46,7 @@ namespace McvsOffline.Patcher.Patches
             // ---- locate and verify
             string addClientFingerprint = ForBuild(context, null, PcAddClientFingerprint);
             string createFingerprint = ForBuild(context, null, PcCreateInstanceFingerprint);
-            PatchSites.RequireBuildCorlib(module, context, Id);
+            PatchSites.RequireBuildAssembly(module, context, Id);
             if (module.GetType(HelperNamespace + "." + HelperType) != null)
                 throw new PatchException("Gameloft.Engine.dll is already patched (" + HelperNamespace + "." + HelperType + "): install from the game's own file");
 

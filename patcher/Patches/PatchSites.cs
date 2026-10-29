@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using McvsOffline.Patcher.Core;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
@@ -14,22 +15,26 @@ namespace McvsOffline.Patcher.Patches
     internal static class PatchSites
     {
         /// <summary>
-        /// Refuses a module that references another build's mscorlib (Android 2.0.5.0/7cec85d7bea7798e, PC
-        /// 4.0.0.0/b77a5c561934e089), so a patch whose sites are identical on both builds still refuses the other build's file
-        /// (§8.8). Modules without an mscorlib reference (the tests' net8 look-alikes) are not judged by it.
+        /// Refuses a module that is the shipped original of another build (its MVID is one of that build's
+        /// <see cref="BuildProfile.PatchedOriginals"/> or <see cref="BuildProfile.UnchangedWitnesses"/>), so a patch whose sites are
+        /// identical on both builds still refuses the other build's file before changing anything (§8.8). The corlib reference
+        /// cannot tell the builds apart: the Android game assemblies reference mscorlib 4.0.0.0 (b77a5c561934e089) as the PC ones
+        /// do (2.0.5.0 is the version of the APK's own BCL, which the embedded server is compiled against). Any other module
+        /// (this build's original, a copy the tests changed, a look-alike) is judged by the patch's own checks.
         /// </summary>
-        internal static void RequireBuildCorlib(ModuleDefinition module, PatchContext context, string patchId)
+        internal static void RequireBuildAssembly(ModuleDefinition module, PatchContext context, string patchId)
         {
             if (module == null) throw new ArgumentNullException(nameof(module));
             if (context == null) throw new ArgumentNullException(nameof(context));
-            AssemblyNameReference corlib = module.AssemblyReferences.FirstOrDefault(r => r.Name == "mscorlib");
-            if (corlib == null) return;
-            string token = string.Concat((corlib.PublicKeyToken ?? new byte[0]).Select(b => b.ToString("x2")));
-            if (corlib.Version != context.Build.CorlibVersion || token != context.Build.CorlibPublicKeyToken)
+            foreach (BuildProfile other in new[] { BuildProfile.Android1_17_32, BuildProfile.PcSteam6372049 })
             {
-                throw new PatchException(patchId + ": " + module.Name + " references mscorlib " + corlib.Version + " (" + token + "), not the corlib of build " +
-                                         context.Build.Id + " (" + context.Build.CorlibVersion + ", " + context.Build.CorlibPublicKeyToken +
-                                         "): it is not an assembly of that build");
+                if (other == context.Build) continue;
+                foreach (var original in other.PatchedOriginals.Concat(other.UnchangedWitnesses))
+                {
+                    if (original.Value != module.Mvid) continue;
+                    throw new PatchException(patchId + ": " + module.Name + " is the " + original.Key + " of build " + other.Id + " (MVID " + module.Mvid +
+                                             "), not an assembly of build " + context.Build.Id);
+                }
             }
         }
 
@@ -201,10 +206,25 @@ namespace McvsOffline.Patcher.Patches
             }
         }
 
-        /// <summary>A type of the module's own corlib (mscorlib), as a reference in <paramref name="module"/>.</summary>
+        /// <summary>
+        /// A type of the module's own corlib (mscorlib), as a reference in <paramref name="module"/>, resolved so that a value type
+        /// (CancellationToken) is encoded as one; a type the corlib does not have is a <see cref="PatchException"/>.
+        /// </summary>
         internal static TypeReference CorlibType(ModuleDefinition module, string ns, string name)
         {
-            return module.ImportReference(new TypeReference(ns, name, module, module.TypeSystem.CoreLibrary));
+            var reference = new TypeReference(ns, name, module, module.TypeSystem.CoreLibrary);
+            TypeDefinition resolved;
+            try
+            {
+                resolved = reference.Resolve();
+            }
+            catch (AssemblyResolutionException ex)
+            {
+                throw new PatchException("cannot resolve the game's mscorlib for " + ns + "." + name + ": " + ex.Message);
+            }
+            if (resolved == null) throw new PatchException("the game's mscorlib has no " + ns + "." + name);
+            reference.IsValueType = resolved.IsValueType;
+            return module.ImportReference(reference);
         }
     }
 }
