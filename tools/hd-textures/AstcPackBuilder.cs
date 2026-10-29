@@ -585,10 +585,15 @@ namespace McvsOffline.Tools.HdTextures
                         string pcFile = Path.Combine(options.PcData, e.PcPath);
                         if (!File.Exists(pcFile)) throw new FileNotFoundException("no " + e.PcPath + " in the PC Data folder");
                         AstcResult r = AstcConverter.Convert(original, File.ReadAllBytes(pcFile), s, encoder);
-                        // The table has the ETC pack's sizes: a stretched original (its own size kept in the ASTC pack) differs.
+                        // The table has the ETC pack's sizes: a stretched original (its own size kept in the ASTC pack) differs, so
+                        // its replacement is checked against the table's PC side instead (the size and levels the plan counted).
                         if (!r.Stretched && (r.OriginalWidth != e.AndroidWidth || r.OriginalHeight != e.AndroidHeight || r.OriginalMipLevels != e.AndroidMips))
                             throw new InvalidDataException("the ASTC original is " + r.OriginalWidth + "x" + r.OriginalHeight + " with " + r.OriginalMipLevels + " levels, the table says " +
                                                            e.AndroidWidth + "x" + e.AndroidHeight + " with " + e.AndroidMips);
+                        int planned = TextureConverter.LevelCount(e.AndroidMips, e.Doublings);
+                        if (r.Stretched && (r.Width != e.PcWidth || r.Height != e.PcHeight || r.MipLevels != planned))
+                            throw new InvalidDataException("the stretched original " + r.OriginalWidth + "x" + r.OriginalHeight + " gives " + r.Width + "x" + r.Height + " with " + r.MipLevels +
+                                                           " levels, the table says " + e.PcWidth + "x" + e.PcHeight + " with " + planned);
                         string target = Path.Combine(doneDir, e.Hash + ".f");
                         File.WriteAllBytes(target + ".tmp", r.File);
                         File.Move(target + ".tmp", target, true);

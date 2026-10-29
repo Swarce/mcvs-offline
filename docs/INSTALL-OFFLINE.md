@@ -190,7 +190,8 @@ index, `McvsOffline/install/pack.info`, that lists every file as it is in this p
 What the offline build does with it at start-up (`hosts/embedded/Install/InstallerData.cs`):
 
 * the pack is recognised by Gameloft's sizes in `replaced.tsv` (a listed file counts with Gameloft's size only while it
-  has the listed size): the log says `ASTC with 2215 replaced files`, `DATA_TYPE` becomes `ASTC`;
+  has the listed size): the log says `ASTC with 2215 replaced files` (2214 with the parts built on 2026-10-28, in which
+  one 3D-menu emblem, `Data/d/1a57284.f`, stayed Gameloft's file: design/hd-textures.md §6), `DATA_TYPE` becomes `ASTC`;
 * on a fresh install (no installer index), the index is given to the installer as any saved index: `installer data:
   index restored from the saved index (ASTC with 2215 replaced files, 15747 files, ... entries)`;
 * when the installer still has the index of the data that was there before (the ETC pack), which would make it delete

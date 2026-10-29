@@ -156,6 +156,7 @@ namespace McvsOffline.Embed.Tests.HdTextures
             Assert.Equal(8, ktx.MipLevels);   // the chain ends at 1x1 as the original's does
             for (int i = 0; i < 8; i++) Assert.Equal(Astcenc.DataSize(Ktx.MipSize(128, i), Ktx.MipSize(128, i), 5, 5), ktx.Levels[i].Length);
             Assert.False(r.Opaque);
+            Assert.False(r.Stretched);
             Assert.True(r.Psnr > 30, "PSNR " + r.Psnr);
             Assert.True(r.AlphaPsnr > 30, "alpha PSNR " + r.AlphaPsnr);
             Assert.Equal(ktx.Levels.Sum(l => (long)l.Length), r.GpuBytes);
@@ -172,21 +173,105 @@ namespace McvsOffline.Embed.Tests.HdTextures
             RgbaImage decoded = encoder.Decompress(k1.Levels[0], 128, 128, 6, 6, false);
             Assert.True(decoded.IsOpaque());
 
-            // An original whose size is not a power of two (the ASTC pack keeps a few at the artist's size where the PC has
-            // them stretched to one): taken when it is the same picture, with a full chain at the PC size; another picture is not.
-            RgbaImage pcSquare = HdFixtures.Pattern(128, 128, 5, true);
-            byte[] npot = AstcOriginal(encoder, pcSquare.Bilinear(48, 40), 6);
-            AstcResult st = AstcConverter.Convert(npot, HdFixtures.Dds(pcSquare, false), new AstcSetting(5, 5, "fastest"), encoder);
-            Assert.Equal(128, st.Width);
-            Assert.Equal(8, st.MipLevels);
-            Assert.True(st.OriginalPsnr >= AstcConverter.MinStretchedPsnr, "stretched original PSNR " + st.OriginalPsnr);
-            byte[] other = AstcOriginal(encoder, HdFixtures.Pattern(48, 40, 99, true), 6);
-            Assert.Contains("stretched", Assert.Throws<InvalidDataException>(() =>
-                AstcConverter.Convert(other, HdFixtures.Dds(HdFixtures.Pattern(128, 128, 1, true).Bilinear(128, 128), false), new AstcSetting(5, 5, "fastest"), encoder)).Message);
-
             // Not the ASTC pack: refused.
             Assert.Throws<InvalidDataException>(() => AstcConverter.Convert(HdFixtures.AndroidKtxFile(pc.HalfSize(), 7), HdFixtures.Dds(pc, true),
                                                                              new AstcSetting(5, 5, "fastest"), encoder));
+        }
+
+        /// <summary>The top level of an <see cref="AstcOriginal"/> file, decoded.</summary>
+        private static RgbaImage OriginalTop(Astcenc encoder, byte[] file)
+        {
+            Ktx ktx = Ktx.Parse(Gcbf.Decode(file, true));
+            return encoder.Decompress(ktx.Levels[0], ktx.Width, ktx.Height, 6, 6, false);
+        }
+
+        /// <summary>Part of an image (x, y, width, height).</summary>
+        private static RgbaImage Crop(RgbaImage image, int x, int y, int width, int height)
+        {
+            var part = new RgbaImage(width, height);
+            for (int row = 0; row < height; row++) Array.Copy(image.Pixels, ((y + row) * image.Width + x) * 4, part.Pixels, row * width * 4, width * 4);
+            return part;
+        }
+
+        /// <summary>A white emblem on black, edges antialiased (4x4 samples), alpha the same shape: like the 3D menus' icons.</summary>
+        private static RgbaImage Emblem(int size)
+        {
+            var image = new RgbaImage(size, size);
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    int covered = 0;
+                    for (int sy = 0; sy < 4; sy++)
+                    {
+                        for (int sx = 0; sx < 4; sx++)
+                        {
+                            double u = (x + (sx + 0.5) / 4) / size - 0.5, v = (y + (sy + 0.5) / 4) / size - 0.5, r = u * u + v * v;
+                            if ((r < 0.16 && r > 0.09) || (Math.Abs(u) < 0.06 && Math.Abs(v) < 0.3) || (v > 0.1 && v < 0.3 && Math.Abs(u) < 0.3 - v)) covered++;
+                        }
+                    }
+                    int o = (y * size + x) * 4;
+                    byte c = (byte)(covered * 255 / 16);
+                    image.Pixels[o] = c;
+                    image.Pixels[o + 1] = c;
+                    image.Pixels[o + 2] = c;
+                    image.Pixels[o + 3] = c;
+                }
+            }
+            return image;
+        }
+
+        [Fact]
+        public void AnOriginalWhoseSizeIsNotAPowerOfTwoTakesThePcTextureOfTheSamePicture()
+        {
+            Astcenc encoder = Encoder();
+            if (encoder == null) return;
+            var s = new AstcSetting(5, 5, "fastest");
+
+            // The ASTC pack keeps a few textures at the artist's size (85x85, 1024x778) where the ETC pack and the PC have
+            // them stretched to a power of two: taken, with a full chain at the PC size, checked against the plan's levels.
+            RgbaImage pc = HdFixtures.Pattern(128, 128, 5, true);
+            byte[] npot = AstcOriginal(encoder, pc.Bilinear(48, 40), 6);
+            AstcResult st = AstcConverter.Convert(npot, HdFixtures.Dds(pc, false), s, encoder);
+            output.WriteLine("stretched: PSNR " + st.Psnr + " Gameloft " + st.OriginalUpscaledPsnr + " / " + st.OriginalPsnr);
+            Assert.True(st.Stretched);
+            Assert.Equal(48, st.OriginalWidth);
+            Ktx ktx = Ktx.Parse(Gcbf.Decode(st.File, true));
+            Assert.Equal(new uint[] { 0x04030201, 0, 0, 0, 0x93B2, 0x1908, 128, 128, 0, 0, 1, 8, 0 }, ktx.Header);
+            for (int i = 0; i < 8; i++) Assert.Equal(Astcenc.DataSize(Ktx.MipSize(128, i), Ktx.MipSize(128, i), 5, 5), ktx.Levels[i].Length);
+            Assert.True(st.Psnr > 30, "PSNR " + st.Psnr);
+            Assert.True(st.OriginalPsnr > 30, "PSNR of the original at its size " + st.OriginalPsnr);
+            Assert.Equal(TextureConverter.LevelCount(7, 1), st.MipLevels);   // what the plan counts for the ETC pack's 64x64 with 7 levels
+
+            // A chain that stops early stops as early at the PC size; one level stays one level.
+            Assert.Equal(6, AstcConverter.Convert(AstcOriginal(encoder, pc.Bilinear(48, 40), 4), HdFixtures.Dds(pc, false), s, encoder).MipLevels);
+            Assert.Equal(1, AstcConverter.Convert(AstcOriginal(encoder, pc.Bilinear(48, 40), 1), HdFixtures.Dds(pc, false), s, encoder).MipLevels);
+
+            // Hard edges at a factor that is not a power of two (the 200x200 menu emblem whose PC texture is 512x512): far
+            // below 30 dB at the original's size although it is the same picture; the check at the reduced size takes it.
+            RgbaImage emblem = Emblem(256);
+            byte[] small = AstcOriginal(encoder, Emblem(50), 6);   // the same shape drawn at the artist's size
+            AstcResult em = AstcConverter.Convert(small, HdFixtures.Dds(emblem, true), s, encoder);
+            output.WriteLine("emblem: at its size " + em.OriginalPsnr + " dB, reduced " + AstcConverter.StretchedPsnr(OriginalTop(encoder, small), Dds.Parse(HdFixtures.Dds(emblem, true))) + " dB");
+            Assert.True(em.Stretched);
+            Assert.True(em.OriginalPsnr < 30, "emblem PSNR at its size " + em.OriginalPsnr);
+            Assert.Equal(9, em.MipLevels);
+
+            // Another picture, or the same picture moved by a fifth, is refused: Gameloft's file stays.
+            byte[] other = AstcOriginal(encoder, HdFixtures.Pattern(48, 40, 99, true), 6);
+            Assert.Contains("not the original 48x40 stretched", Assert.Throws<InvalidDataException>(() =>
+                AstcConverter.Convert(other, HdFixtures.Dds(HdFixtures.Pattern(128, 128, 1, true), false), s, encoder)).Message);
+            byte[] moved = AstcOriginal(encoder, Crop(emblem, 51, 51, 205, 205).Bilinear(50, 50), 6);
+            output.WriteLine("emblem moved by a fifth: " + AstcConverter.StretchedPsnr(OriginalTop(encoder, moved), Dds.Parse(HdFixtures.Dds(emblem, true))) + " dB");
+            Assert.Contains("stretched", Assert.Throws<InvalidDataException>(() => AstcConverter.Convert(moved, HdFixtures.Dds(emblem, true), s, encoder)).Message);
+
+            // Only an original that is not a power of two: a power-of-two original keeps the power-of-two rule.
+            byte[] square = AstcOriginal(encoder, pc.HalfSize(), 7);
+            Assert.Contains("power-of-two multiple", Assert.Throws<InvalidDataException>(() =>
+                AstcConverter.Convert(square, HdFixtures.Dds(HdFixtures.Pattern(256, 128, 5, true), false), s, encoder)).Message);
+            // A PC texture not larger in both directions is not taken either.
+            Assert.Contains("not larger", Assert.Throws<InvalidDataException>(() =>
+                AstcConverter.Convert(npot, HdFixtures.Dds(HdFixtures.Pattern(64, 32, 5, true), false), s, encoder)).Message);
         }
 
         /// <summary>A synthetic ASTC pack (files/ with Data/ and Gameloft's kind of index) and a PC install holding two of its textures larger.</summary>

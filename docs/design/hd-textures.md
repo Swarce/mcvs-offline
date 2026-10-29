@@ -165,6 +165,41 @@ blocks around a KTX 1.1 with glType 0, glTypeSize 0, glFormat 0, glInternalForma
   alpha; alpha 255 everywhere when the original's decoded alpha is opaque (at least 250 everywhere), else the PC alpha;
 * wrapped in GCBF with eight equal LZ4 blocks, as the original.
 
+**Stretched originals.** Five originals of the ASTC pack are not a power of two: the ASTC pack keeps the artist's size
+where the ETC pack (the table's Android size) and the PC have the picture stretched to a power of two. Texture
+coordinates are normalised, so the PC texture fits them as it is:
+
+| file | category | ASTC original | ETC pack | PC | same picture (dB, below) |
+|---|---|---|---|---|---|
+| `Data/8/75f83a9.f` | menus3d | 105x120, 7 levels | 128x128 | 256x256 | 50.5 |
+| `Data/b/9f7d635.f` | vfx | 85x85, 7 levels | 128x128 | 256x256 | 46.5 |
+| `Data/f/6c56989.f` | vfx | 73x66, 7 levels | 128x128 | 256x256 | 41.9 |
+| `Data/a/78f90f.f` | surfaces | 1024x778, 11 levels | 1024x1024 | 2048x2048 | 51.7 |
+| `Data/d/1a57284.f` | menus3d | 200x200, 8 levels | 256x256 | 512x512 | 28.5 |
+
+Only an original whose width or height is not a power of two is treated so (a power-of-two original still needs the PC
+size to be a power-of-two multiple of it, unchanged). The PC texture must be larger in both directions and the same
+picture: the PC level nearest above the original's size, stretched bilinearly to it, and the decoded original are both
+halved alike until no side is above 64, and the PSNR of RGB there must be at least 24 dB (`AstcConverter.StretchedPsnr`,
+`MinStretchedPsnr`); otherwise Gameloft's file stays. On the real pack an original scores 1.9-11.4 dB against another
+texture's PC file and 6-21 dB against its own PC texture moved by a tenth of its size (the almost white 105x120 aside).
+At full size the comparison does not work for hard edges: the 200x200 emblem (white on black, alpha the same shape)
+scores 23.2 dB against its own PC texture at 200x200, because every edge texel differs after a resampling by 2.56; the
+ETC pack's 256x256 of it scores only 26.9 dB against the PC's 256x256 level. The replacement is a chain at the PC size
+with as many levels fewer than a full chain as the original has fewer than a full chain at its size (all five: full
+chains), which is the level count the plan counts from the table (`astc-pack` checks the PC size and levels against it).
+
+**The run of 2026-10-28** (the parts in `out/astc-hd`, astc-hd-report.txt): 2,214 files replaced, not 2,215. The
+check above then compared at full size with a 30 dB limit and refused `Data/d/1a57284.f` (`failed ... the PC texture
+512x512 is not the original 200x200 stretched (PSNR 23.2 dB)`, astc-hd-build.log), so Gameloft's 200x200 file is in
+part 07 (14,094 bytes, CRC32 `dad435a4`). The other four stretched originals are in the parts as this code writes them
+(re-encoded with it: byte for byte the journal's files, as are 15 power-of-two textures of every category). A rebuild
+with this code (only the missing texture is encoded; `--keep-work` kept the work folder) replaces it by the PC
+texture, 512x512, 10 levels, 5x5 (60,977 bytes, CRC32 `632fc7ce`, PSNR 45.6 dB, alpha 39.9 dB; Gameloft's 6x6
+enlarged: 20.9 dB): 2,215 replaced, menus3d 32 files; part 07 grows by 46,883 bytes (still below the limit, so no file
+moves to another part) and part 08 gets the new `pack.info`, `replaced.tsv`, `astc-hd.json`, `pack.info.txt` and
+`README.txt`; parts 01-06 stay byte for byte.
+
 **Default block sizes** (measured with `astc-measure`, tools/hd-textures/README.md "Block sizes"): 5x5 for surfaces,
 lightmaps, characters, vfx and menus3d; 4x4 for equipment, props and minimaps; all `-thorough`. Every one beats
 Gameloft's 6x6 file at the phone's size by 10-20 dB of PSNR against the PC texture.
