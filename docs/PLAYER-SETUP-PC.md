@@ -113,6 +113,9 @@ game's Steam stats (stock behaviour).
   logs. It never takes your saves, accounts or the contents of Gameloft's id files.
 * Logs: `McvsOffline\logs\` (`bootstrap.log`, `server.log`, `game.log`); when the game folder is not writable,
   `%TEMP%\McvsOffline\logs\`. Debug output also goes to `OutputDebugString` (DebugView, or the kit's `watch`).
+  Both folders are cleaned at every start: each start begins new log files (the previous start's are the `.1` files)
+  and the logs of older starts are deleted (setting `logging.keepStarts`, default 1: this start and the previous one).
+  So run `collect` before you start the game twice more.
 * If the game misbehaves, close capture and overlay tools and try again.
 
 ## 7. WR2 checklist (what to record)

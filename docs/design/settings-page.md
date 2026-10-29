@@ -322,6 +322,7 @@ save before saving the change, §4.4).
 | Diagnostics | `storage.backups.intervalMinutes` | Minutes between automatic backups | int 5–1440 | 30 | live | |
 | Diagnostics | `storage.autoRestoreCorrupt` | Repair unreadable saves | bool | true | live | An unreadable save file is replaced by its newest readable backup (the broken file is kept). |
 | Diagnostics | `logging.fileLevel` | server.log detail | enum `trace`, `debug`, `info`, `warn`, `error` | `debug` | restart | |
+| Diagnostics | `logging.keepStarts` | Starts whose logs are kept | int 0–10 | 1 | restart | Host key (Android and PC; the standalone server ignores it). "At every start the game deletes the logs of older starts: in logs/ (server, bootstrap and game logs with their numbered files, crash, exception, thread dump and exit files) and their copies in Downloads/MCVS-Offline. 1 keeps the previous start next to the current one; 0 keeps only the current start. The numbered log files also stay within their own file count. Saves, settings and the zips you saved are never deleted." (§7.7) |
 | Diagnostics | `gameLog.levels` | Game log levels | tokens of `error`, `warning`, `info`, `debug` | `error warning` | restart | A build patched with `--game-log all` logs every level anyway. |
 | Diagnostics | `gameLog.mute` | Muted game log categories | string `^([A-Za-z]+:(all|debug|info|warning|error))?( [A-Za-z]+:(all|debug|info|warning|error))*$`, ≤ 512 | `profile:debug` | restart | |
 | Diagnostics | `gameLog.file` | Copy the game's log to logs/game.log | bool | true | restart | |
@@ -757,7 +758,8 @@ into `<data>/admin/share/`; 200 `{"file": "mcvs-logs-20261026-101500.zip", "size
 `POST logs/share` `{"file": "<name from logs/zip>", "target": "share"|"downloads"}` →
 `IAdminHost.ShareFile(zip, "application/zip", name, "MCVS Offline logs", note)`; 200 `{"share": {...}}`.
 `GET logs/bundle?scope=` → a fresh zip as `application/zip` attachment. `POST logs/share-text` `{"note": "..."}` → a
-plain-text report (status summary, last 300 WARN+ entries of server.log, bootstrap.log and game.log, the newest crash
+plain-text report (status summary, last 300 WARN+ entries of server.log, bootstrap.log and game.log, then of their `.1`
+files as "previous start" (§7.7), the newest crash
 file's first 200 lines; total ≤ 100,000 characters) through `IAdminHost.ShareText`; 501 when unavailable, in which case
 the page shows the same text in a read-only box for copying (returned in `text`).
 
@@ -1280,7 +1282,8 @@ Every message goes through `LogRedaction.Redact` (files written by older builds)
   data; central directory at the end; no data descriptors, no zip64. Peak memory about twice the largest entry (≤ 8 MiB).
   `File.Copy` and `ZipArchive` are not used.
 * **Scope `recent`** (default), in priority order: `server.log`, `bootstrap.log`, `game.log` (tails ≤ 4 MiB each);
-  their newest rotation `.1` (tails ≤ 2 MiB: usually the end of the previous session, where a crash happened);
+  their newest rotation `.1` (tails ≤ 2 MiB: the end of the previous start, where a crash happened; the host begins
+  new log files at every start, §7.7);
   `crash-*`, `exception-*`, `exit-*` and `threaddump-*` files of the last 72 h (newest 10 per kind, ≤ 1 MiB each);
   `unknown-endpoints.jsonl` (tail ≤ 512 KiB). **Hard cap 8 MiB compressed**: entries are added in priority order and the
   build stops adding when the next entry would cross the cap (listed as `skipped`). Expected 1–3 MiB.
@@ -1325,8 +1328,12 @@ scan during the rewrite records 0. Change, Android 11+ only (the mirror's existi
    (as `.txt` copies; crash and exception copies are redacted, §5.4); `unknown-endpoints.jsonl` as `.jsonl.txt`. Like the
    logs, each is copied again while its size or time changes: a thread dump is written for up to 10 s, an ANR trace (up to
    8 MB) streams in on the exit-reasons thread, so a copy taken by an early cycle would stay truncated.
-4. Pruning: keep 5 sessions as today, and additionally at most 20 `crash-*`/`threaddump-*`/`exception-*` copies (oldest
-   by name; today crash copies are never pruned because `Prune` only groups names with `name[8] == '-'`).
+4. Pruning (at `Open`, and the diagnostics after a copy cycle that copied something): keep `logging.keepStarts` + 1
+   sessions (this one included; a session prefix is 8 digits, `-`, 6 digits, `-`); `crash-*`/`threaddump-*`/
+   `exception-*`/`exit-*` copies made before the oldest kept start go (§7.7), then at most 20 of them (oldest by time,
+   then name). A copy left by an earlier install cannot be deleted (not ours): counted, never a prompt. One `[mirror]`
+   line when something was deleted (`keeping 2 starts: deleted 9 copies (12.1 MB); 3 from an earlier install are not
+   ours`).
 5. Leftover `*.tmp` from a killed copy are deleted at the next start.
 
 Confirm on the device before and after (§12, C13):
@@ -1338,6 +1345,40 @@ Confirm on the device before and after (§12, C13):
 The host records each inserted content URI with its kind and time in `<data>/admin/mediastore.json` and, after each
 insert, deletes the rows of that kind beyond the newest 5 with `ContentResolver.delete(uri, null, null)` (the game owns
 them; no permission needed on Android 10+). Rows that no longer exist are dropped from the ledger.
+
+### 7.7 Log retention at start (`LogRetention.cs`, build 13)
+
+At every start the host keeps this start's logs and those of the previous N starts (`logging.keepStarts`, 0–10,
+default 1) and deletes older log files in `<logs>` (`McvsOffline/logs`), the fallback log folder (`getFilesDir()/
+McvsOffline/logs`; PC `%TEMP%\McvsOffline\logs`) and, through the mirror, `Download/MCVS-Offline` (§7.5). Same code on
+Android and PC (EmbeddedHost); the PC has no mirror and no exit or thread-dump files.
+
+* **A start** is one host process. `logs/starts.txt` gets one line per start (`<ISO UTC start> <platform> <version>`,
+  the last 50 kept); the time is taken at the top of `EmbeddedHost.Start`, before anything of the process writes in
+  `<logs>`. The page lists the file as kind "other"; the `all` zip includes it.
+* **The cutoff** is the recorded start time of the oldest start kept (N = 0: this start's own time). A file whose last
+  write time is before it belongs to an older start and is deleted. Fewer than N starts recorded (the first start after
+  the update), an unreadable `starts.txt`, or a kept start later than this one (the clock went back): no cutoff, nothing
+  is deleted by age.
+* **New files at every start**: `bootstrap.log`, `server.log`, `game.log` and `unknown-endpoints.jsonl` rotate a
+  non-empty earlier file to `.1` before this start's first line (`SafeLogFileOptions.NewFileAtStart`; a failed rotation
+  is one warning and the lines go on into the existing file). So `.1` is the previous start, `game.log` (no dates) is
+  split by start, and the rule works on whole files. The rotating logs still keep at most their own file count.
+* **Deleted** (an allowlist of names, never recursive): in `<logs>` the four logs' `.<digits>` files and, when no log of
+  this process owns them, their current names; `crash-*.txt`, `exception-*.txt`, `threaddump-*.txt`, `exit-*-anr.txt`,
+  `exit-*-tombstone.pb`; in the fallback folder `bootstrap.log`, `server.log`, `game.log` and their `.<digits>` files.
+  A log that is open deletes its own older files under its I/O lock (`SafeLogFile.DeleteFilesBefore`: no race with its
+  rotation), never the file it writes. Exit traces older than the cutoff are not saved again (`ExitReasons`).
+* **Never deleted**: `starts.txt`, `restart-requested.txt` (taken before), `*.tmp`, sub-folders, any other name, the
+  fallback folder's parent (`hd-install/`), saves and settings, the logs zips the player saved or shared
+  (`mcvs-logs-*.zip` in Downloads and `admin/share/`), `mcvs-save-*` exports.
+* **Order**: Prepare reads the setting and records the start (`LogRetention.Begin`, milliseconds, UI thread) after
+  `settings.json` and before `game.log` opens; the thread `mcvs-log-retention` starts right after `McvsServer.Create`
+  (every log of this start is open then) and works for at most 5 s (the rest at the next start). One `[logs]` line in
+  `bootstrap.log`, e.g. `keeping this start and 1 previous (since 2026-10-28T19:02:11Z): deleted 23 files, 41.6 MB
+  (server.log.2-5, game.log.1, crash 1, exit 2; fallback 3)`; WARN when a file could not be deleted.
+* **Share-text report** (§4.7): after the three current logs, the WARN+ entries of their `.1` files ("previous start"):
+  a player who restarted a broken game before opening the page still sends the broken start.
 
 ## 8. Host integration (`hosts/embedded`, Android)
 

@@ -229,8 +229,16 @@ exact item lists: [ECONOMY.md](ECONOMY.md).
 **On the phone, without a PC** (Android 11 and later): open the **Files** app (or Samsung **My Files**) > **Downloads** >
 **MCVS-Offline**. Every game start writes its own copies there, named after the start time:
 `<date>-<time>-bootstrap.log.txt`, `-server.log.txt`, `-game.log.txt`, plus `crash-*.txt` when the game crashed. The
-copies are refreshed every 30 seconds while the game runs, and the last five starts are kept. Send the files of the
-newest start with your bug report. (If the folder is missing, the start-up log says why: look for `[mirror]`.)
+copies are refreshed every 30 seconds while the game runs, and this start and the previous one are kept (setting
+`logging.keepStarts`, see §8); older copies are deleted at the next start. Send the files of the newest start with your
+bug report; if the game broke and you restarted it, the `.1` copies and the previous start's files hold the broken
+start. (If the folder is missing, the start-up log says why: look for `[mirror]`.)
+
+**The logs are cleaned at every start.** `McvsOffline/logs/` keeps the same starts as the copies in Downloads: each
+start begins new `bootstrap.log`, `server.log`, `game.log` and `unknown-endpoints.jsonl` files (the previous start's are
+the `.1` files), and the log files, crash, exception, thread-dump and exit files of older starts are deleted (one
+`[logs]` line in `bootstrap.log` says what went). So send the logs of a problem before you start the game twice more,
+or raise `logging.keepStarts` first. Saves, settings and the logs zips you saved or shared are never deleted.
 
 **The full system log with LogFox** (no PC; LogFox needs the `READ_LOGS` permission, granted once with adb or Shizuku,
 see its own instructions):
@@ -463,6 +471,7 @@ in-game host:
 | `gameLog.levels` | `"error warning"` | Levels of the game's own log (`error warning info debug`). A build patched with `--game-log all` logs every level anyway. |
 | `gameLog.mute` | `"profile:debug"` | `category:level` pairs to silence, e.g. `online:debug`; `category:all` silences a category. |
 | `gameLog.file` | `true` | Copy the game's log to `logs/game.log`. |
+| `logging.keepStarts` | `1` | Starts whose logs are kept besides the current one (0–10). Older logs are deleted at the next start. |
 | `embedded.physics.serverMultithreaded` | `false` | `true` gives the in-process server worlds the game's multithreaded physics again (the suspected cause of the device-test-2 freeze; for testing only). |
 | `embedded.physics.clientMultithreaded` | `true` | `false` makes the game's own physics single-threaded too. |
 | `embedded.physics.stepGate` | `true` | `false` lets several worlds step their physics at the same time again (for testing only). |
