@@ -91,7 +91,7 @@ namespace McvsOffline.Patcher
             CheckBuildIdentity(input, options, report, log);
 
             byte[] serverBytes = File.ReadAllBytes(options.ServerDll);
-            if (!options.SkipServerReferenceCheck) CheckServerAssembly(serverBytes, options.ServerDll);
+            if (!options.SkipServerReferenceCheck) ServerAssemblyCheck.Check(serverBytes, options.ServerDll, BuildProfile.Android1_17_32);
 
             List<IlPatch> patches = SelectPatches(options.Patches, !options.TestOnlyHookIsMandatory);
             if (options.TestOnlyDebloatWithoutIl) patches.RemoveAll(p => p is DebloatEnginePatch);
@@ -118,7 +118,7 @@ namespace McvsOffline.Patcher
                             if (KnownBuild.TypemapPinned.ContainsKey(file))
                                 throw new InvalidOperationException("refusing to modify " + file + ": its MVID is pinned in libxamarin-app.so (verify-C7 §4)");
                             ZipEntry entry = input.Find(KnownBuild.AssembliesDir + file) ?? throw new InvalidDataException("assemblies/" + file + " missing");
-                            modifiedAssemblies[file] = PatchAssembly(entry.GetData(), group.ToList(), context, reader, server.Mvid, log);
+                            modifiedAssemblies[file] = AssemblyPatcher.Patch(entry.GetData(), group.ToList(), context, reader, server.Mvid, log);
                         }
                         report.Notes.AddRange(context.Notes);
                     }
@@ -535,29 +535,6 @@ namespace McvsOffline.Patcher
                              string.Join("; ", problems);
             if (!options.Force) throw new InvalidDataException(message + " (use --force to try anyway)");
             report.Warnings.Add(message);
-        }
-
-        private static void CheckServerAssembly(byte[] bytes, string path)
-        {
-            using (var pe = new PEReader(new MemoryStream(bytes)))
-            {
-                if (!pe.HasMetadata) throw new InvalidDataException(path + " is not a .NET assembly");
-                MetadataReader md = pe.GetMetadataReader();
-                string name = md.GetString(md.GetAssemblyDefinition().Name);
-                if (name != "McvsOffline.Server") throw new InvalidDataException(path + " is " + name + ", expected McvsOffline.Server");
-                foreach (AssemblyReferenceHandle h in md.AssemblyReferences)
-                {
-                    AssemblyReference r = md.GetAssemblyReference(h);
-                    string refName = md.GetString(r.Name);
-                    if (!KnownBuild.ServerAllowedReferences.Contains(refName))
-                    {
-                        throw new InvalidDataException(path + " references " + refName + ": that is not the embedded build. Build " +
-                                                       "server/McvsOffline.Server.Embedded.csproj against your APK's assemblies (scripts/build.sh).");
-                    }
-                    if (refName == "mscorlib" && r.Version != KnownBuild.MonoProfileVersion)
-                        throw new InvalidDataException(path + " references mscorlib " + r.Version + ", expected the game's " + KnownBuild.MonoProfileVersion);
-                }
-            }
         }
 
         private static void Sign(PatcherOptions options, List<ZipEntry> entries, byte[] unsigned, PatchReport report, Action<string> log)
