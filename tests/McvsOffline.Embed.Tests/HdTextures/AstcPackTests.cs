@@ -424,6 +424,235 @@ namespace McvsOffline.Embed.Tests.HdTextures
             Assert.Equal(0, InstallerData.VerifyContent(loc, result.IndexToVerify, logger.For("install"), null, 0));
         }
 
+        /// <summary>
+        /// README.txt of the last part, run as written (its command lines, with an adb that works on a folder standing for the
+        /// phone's storage) on a phone with the ETC data, an ETC HD install and a profile: with an APK after build 11 (steps 3
+        /// and 6 left out; the installer still has the old index) and with build 11 or older (Clear storage in step 3, which
+        /// deletes all of files/ and the installer's index). Either way the phone ends with exactly the pack's files/, the pack's
+        /// installer files, no ETC index or HD installer state, and the profile; the host then accepts the data as the ASTC pack.
+        /// </summary>
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void TheReadmeStepsInstallThePackAndKeepTheProfile(bool build11)
+        {
+            if (OperatingSystem.IsWindows() || !OnPath("bash") || !OnPath("unzip") || !OnPath("sha256sum"))
+            {
+                output.WriteLine("bash, unzip and sha256sum are needed to run the README's commands: skipped");
+                return;
+            }
+            Astcenc encoder = Encoder();
+            if (encoder == null) return;
+            string dir = TestEnvironment.NewTempDir("astc-readme");
+            try
+            {
+                Mirror m = MakeMirror(encoder, dir);
+                string outDir = Path.Combine(dir, "computer");
+                var options = new AstcOptions
+                {
+                    AstcFiles = m.Files, PcData = m.Pc, Output = outDir, Encoder = encoder, Index = m.Index, Categories = new[] { HdIndex.Surfaces },
+                    Settings = AstcPackBuilder.ParseSettings("surfaces=4x4", "fastest", AstcPackBuilder.DefaultSettings()),
+                    PartLimit = 8L * 1024 * 1024, Threads = 2,
+                };
+                AstcPackSummary summary = AstcPackBuilder.Build(options, new StringWriter());
+                string readme;
+                using (ZipArchive last = ZipFile.OpenRead(summary.Parts[summary.Parts.Count - 1]))
+                using (var r = new StreamReader(last.GetEntry("README.txt").Open())) readme = r.ReadToEnd();
+                string expected = Path.Combine(dir, "expected");
+                foreach (string part in summary.Parts) ZipFile.ExtractToDirectory(part, expected, true);
+                expected = Path.Combine(expected, "files");
+
+                // The phone before: the ETC data (the mirror stands for it; its index is the installer's and the saved one), the
+                // journal, the test switch, an ETC HD install and its installer state, and the profile.
+                string storage = Path.Combine(dir, "sdcard");
+                string phone = Path.Combine(storage, "Android", "data", "com.gameloft.android.ANMP.GloftMVHM", "files");
+                CopyTree(m.Files, phone);
+                byte[] oldIndex = File.ReadAllBytes(Path.Combine(m.Files, "McvsOffline", "install", "pack.info"));
+                var before = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["Data/e/7c0001.f"] = "an ETC-only file",
+                    ["d_o_w_n_l_o_a_d_e_d.txt"] = ".\\Data\\a4309cd.f.split_0001\n",
+                    ["qaTestingConfigs.txt"] = "SKIP_VALIDATION=1\n",
+                    ["McvsOffline/install/pack.info.txt"] = "the ETC index",
+                    ["McvsOffline/install/verify-pending"] = "x",
+                    ["McvsOffline/install/damaged.txt"] = "Data/a/4309cd.f\n",
+                    ["McvsOffline/hd/mcvs-hd-surfaces.zip"] = "an ETC HD pack",
+                    ["McvsOffline/hd-install/state.json"] = "{}",
+                };
+                var profile = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["McvsOffline/settings.json"] = "{\"graphics\":{\"profile\":\"ultra\"}}",
+                    ["McvsOffline/device-id.txt"] = "device-1234",
+                    ["McvsOffline/profiles/abc/profile.json"] = "{\"level\":42}",
+                    ["McvsOffline/logs/server.log"] = "old log",
+                };
+                foreach (KeyValuePair<string, string> f in before.Concat(profile))
+                {
+                    string path = Path.Combine(phone, f.Key.Replace('/', Path.DirectorySeparatorChar));
+                    Directory.CreateDirectory(Path.GetDirectoryName(path));
+                    File.WriteAllText(path, f.Value);
+                }
+
+                // The README's steps up to "Start the game", as one script; Clear storage is done by the script too.
+                List<(string text, List<string> commands)> steps = ReadmeSteps(readme);
+                var script = new StringBuilder("set -e\n");
+                script.Append("clear_storage() { rm -rf \"$FAKE_STORAGE/Android/data/com.gameloft.android.ANMP.GloftMVHM\"; }\n");
+                bool cleared = false;
+                foreach ((string text, List<string> commands) in steps)
+                {
+                    if (text.StartsWith("Start the game", StringComparison.Ordinal)) break;
+                    bool onlyOld = text.StartsWith("BUILD 11 AND OLDER ONLY", StringComparison.Ordinal);
+                    if (onlyOld && !build11) continue;
+                    if (onlyOld && text.Contains("Clear storage", StringComparison.Ordinal))
+                    {
+                        script.Append("clear_storage\n");
+                        cleared = true;
+                    }
+                    foreach (string c in commands) script.Append(c).Append('\n');
+                }
+                Assert.Equal(build11, cleared);
+                string bin = Path.Combine(dir, "bin");
+                Directory.CreateDirectory(bin);
+                File.WriteAllText(Path.Combine(bin, "adb"), FakeAdb);
+                File.SetUnixFileMode(Path.Combine(bin, "adb"), UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                File.WriteAllText(Path.Combine(dir, "steps.sh"), script.ToString());
+                output.WriteLine(script.ToString());
+                RunBash(Path.Combine(dir, "steps.sh"), outDir, bin, storage);
+
+                // The phone after: exactly the pack's files (no ETC file, journal, test switch, ETC index or HD state left)...
+                var want = new SortedSet<string>(Directory.GetFiles(expected, "*", SearchOption.AllDirectories)
+                    .Select(f => Path.GetRelativePath(expected, f).Replace(Path.DirectorySeparatorChar, '/')), StringComparer.Ordinal);
+                foreach (string f in profile.Keys) want.Add(f);
+                var have = new SortedSet<string>(Directory.GetFiles(phone, "*", SearchOption.AllDirectories)
+                    .Select(f => Path.GetRelativePath(phone, f).Replace(Path.DirectorySeparatorChar, '/')), StringComparer.Ordinal);
+                Assert.Equal(string.Join("\n", want), string.Join("\n", have));
+                foreach (string f in want)
+                {
+                    string at = Path.Combine(phone, f.Replace('/', Path.DirectorySeparatorChar));
+                    if (profile.TryGetValue(f, out string text)) Assert.Equal(text, File.ReadAllText(at));
+                    else Assert.True(File.ReadAllBytes(Path.Combine(expected, f.Replace('/', Path.DirectorySeparatorChar))).AsSpan().SequenceEqual(File.ReadAllBytes(at)), f);
+                }
+
+                // ... and the host gives the installer the pack's index: restored after Clear storage, switched over the old one.
+                string internalDir = Path.Combine(dir, "internal");
+                Directory.CreateDirectory(Path.Combine(internalDir, "prefs"));
+                var loc = new InstallerDataLocations(internalDir, phone);
+                if (!build11)
+                {
+                    File.WriteAllBytes(loc.PackInfo, oldIndex);
+                    File.WriteAllText(loc.GlVer, InstallerData.ApkVersionCode);
+                }
+                var known = new[] { new InstallerData.KnownPack("ASTC", m.Count, m.Bytes), new InstallerData.KnownPack("ETC", m.Count, m.Bytes + 1) };
+                var prefs = new MapPrefs();
+                InstallerDataResult result = InstallerData.Prepare(loc, prefs, new InstallerDataOptions { KnownPacks = known }, new Logger().For("install"), 1);
+                byte[] shipped = File.ReadAllBytes(Path.Combine(expected, "McvsOffline", "install", "pack.info"));
+                Assert.Equal("installer data: index " + (build11 ? "restored from" : "switched to") + " the saved index (ASTC with 2 replaced files, " + m.Count +
+                             " files, " + PackIndex.Parse(shipped).Entries.Count + " entries)", result.Summary);
+                Assert.Equal(shipped, File.ReadAllBytes(loc.PackInfo));
+                Assert.Equal("ASTC", prefs.GetString(InstallerData.DataTypeKey));
+            }
+            finally
+            {
+                HdFixtures.DeleteDir(dir);
+            }
+        }
+
+        /// <summary>
+        /// adb on a folder ($FAKE_STORAGE) standing for /sdcard: pull and push copy as adb does (a source ending in /. copies the
+        /// folder's content; a folder pushed to an existing folder or a target ending in / goes inside it), shell runs rm and mv.
+        /// </summary>
+        private const string FakeAdb = @"#!/usr/bin/env bash
+set -e
+map() { case ""$1"" in /sdcard/*) printf '%s' ""$FAKE_STORAGE/${1#/sdcard/}"" ;; *) printf '%s' ""$1"" ;; esac; }
+cmd=""$1""; shift
+case ""$cmd"" in
+  pull)
+    src=$(map ""$1""); [ -e ""$src"" ] || { echo ""adb: error: remote object '$1' does not exist"" >&2; exit 1; }
+    if [ -d ""$2"" ]; then cp -a ""$src"" ""$2/""; else cp -a ""$src"" ""$2""; fi ;;
+  push)
+    [ -e ""$1"" ] || { echo ""adb: error: cannot stat '$1'"" >&2; exit 1; }
+    dst=$(map ""$2"")
+    case ""$1"" in
+      */.) mkdir -p ""$dst""; cp -a ""$1"" ""$dst"" ;;
+      *) case ""$2"" in
+           */) mkdir -p ""$dst""; cp -a ""$1"" ""$dst"" ;;
+           *) if [ -d ""$dst"" ]; then cp -a ""$1"" ""$dst/""; else mkdir -p ""$(dirname ""$dst"")""; cp -a ""$1"" ""$dst""; fi ;;
+         esac ;;
+    esac ;;
+  shell)
+    words=(); for w in ""$@""; do words+=(""$(map ""$w"")""); done
+    case ""${words[0]}"" in
+      rm|mv) ""${words[@]}"" ;;
+      am) ;;
+      *) echo ""fake adb: shell ${words[0]} is not supported"" >&2; exit 1 ;;
+    esac ;;
+  *) echo ""fake adb: $cmd is not supported"" >&2; exit 1 ;;
+esac
+";
+
+        /// <summary>The numbered steps of README.txt's INSTALL section: each step's first line and its command lines (indented by 5).</summary>
+        private static List<(string text, List<string> commands)> ReadmeSteps(string readme)
+        {
+            var steps = new List<(string text, List<string> commands)>();
+            bool inInstall = false;
+            foreach (string line in readme.Split('\n'))
+            {
+                if (line.StartsWith("INSTALL", StringComparison.Ordinal)) { inInstall = true; continue; }
+                if (!inInstall) continue;
+                if (line.StartsWith("GOING BACK", StringComparison.Ordinal)) break;
+                System.Text.RegularExpressions.Match step = System.Text.RegularExpressions.Regex.Match(line, @"^(\d+)\. (.*)$");
+                if (step.Success)
+                {
+                    Assert.Equal(steps.Count + 1, int.Parse(step.Groups[1].Value, CultureInfo.InvariantCulture));
+                    steps.Add((step.Groups[2].Value, new List<string>()));
+                }
+                else if (steps.Count > 0 && line.StartsWith("     ", StringComparison.Ordinal))
+                {
+                    steps[steps.Count - 1].commands.Add(line.Substring(5));
+                }
+            }
+            Assert.True(steps.Count >= 5, "README.txt has no numbered INSTALL steps");
+            return steps;
+        }
+
+        private void RunBash(string script, string workDir, string bin, string storage)
+        {
+            var start = new System.Diagnostics.ProcessStartInfo("bash", "\"" + script + "\"")
+            {
+                WorkingDirectory = workDir, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false,
+            };
+            start.Environment["PATH"] = bin + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH");
+            start.Environment["FAKE_STORAGE"] = storage;
+            using (System.Diagnostics.Process p = System.Diagnostics.Process.Start(start))
+            {
+                System.Threading.Tasks.Task<string> err = p.StandardError.ReadToEndAsync();
+                string stdout = p.StandardOutput.ReadToEnd();
+                p.WaitForExit();
+                output.WriteLine(stdout.Length > 4000 ? stdout.Substring(stdout.Length - 4000) : stdout);
+                output.WriteLine(err.Result);
+                Assert.True(p.ExitCode == 0, "the README's commands failed (" + p.ExitCode + "): " + err.Result);
+            }
+        }
+
+        private static bool OnPath(string tool)
+        {
+            foreach (string d in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator))
+            {
+                if (d.Length > 0 && File.Exists(Path.Combine(d, tool))) return true;
+            }
+            return false;
+        }
+
+        private static void CopyTree(string from, string to)
+        {
+            foreach (string f in Directory.GetFiles(from, "*", SearchOption.AllDirectories))
+            {
+                string target = Path.Combine(to, Path.GetRelativePath(from, f));
+                Directory.CreateDirectory(Path.GetDirectoryName(target));
+                File.Copy(f, target, true);
+            }
+        }
+
         private sealed class MapPrefs : IInstallerPrefs
         {
             private readonly Dictionary<string, object> values = new Dictionary<string, object>();

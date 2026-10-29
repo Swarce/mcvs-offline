@@ -189,16 +189,18 @@ ETC pack's 256x256 of it scores only 26.9 dB against the PC's 256x256 level. The
 with as many levels fewer than a full chain as the original has fewer than a full chain at its size (all five: full
 chains), which is the level count the plan counts from the table (`astc-pack` checks the PC size and levels against it).
 
-**The run of 2026-10-28** (the parts in `out/astc-hd`, astc-hd-report.txt): 2,214 files replaced, not 2,215. The
-check above then compared at full size with a 30 dB limit and refused `Data/d/1a57284.f` (`failed ... the PC texture
-512x512 is not the original 200x200 stretched (PSNR 23.2 dB)`, astc-hd-build.log), so Gameloft's 200x200 file is in
-part 07 (14,094 bytes, CRC32 `dad435a4`). The other four stretched originals are in the parts as this code writes them
-(re-encoded with it: byte for byte the journal's files, as are 15 power-of-two textures of every category). A rebuild
-with this code (only the missing texture is encoded; `--keep-work` kept the work folder) replaces it by the PC
-texture, 512x512, 10 levels, 5x5 (60,977 bytes, CRC32 `632fc7ce`, PSNR 45.6 dB, alpha 39.9 dB; Gameloft's 6x6
-enlarged: 20.9 dB): 2,215 replaced, menus3d 32 files; part 07 grows by 46,883 bytes (still below the limit, so no file
-moves to another part) and part 08 gets the new `pack.info`, `replaced.tsv`, `astc-hd.json`, `pack.info.txt` and
-`README.txt`; parts 01-06 stay byte for byte.
+**The parts in `out/astc-hd`** (rebuilt 2026-10-29, astc-hd-report.txt): 2,215 files replaced. The first run
+(2026-10-28) compared stretched originals at full size with a 30 dB limit and refused `Data/d/1a57284.f` (`failed ...
+the PC texture 512x512 is not the original 200x200 stretched (PSNR 23.2 dB)`), so its parts replaced 2,214 files and kept
+Gameloft's 200x200 file (14,094 bytes, CRC32 `dad435a4`) in part 07; the other four stretched originals were already in
+them as this code writes them (re-encoded with it: byte for byte the journal's files, as are 15 power-of-two textures of
+every category). The rebuild with this code (the work folder kept with `--keep-work`, so only the emblem was encoded)
+replaced the emblem by the PC texture, 512x512, 10 levels, 5x5 (60,977 bytes, CRC32 `632fc7ce`, PSNR 45.6 dB, alpha
+39.9 dB against the PC texture; Gameloft's 6x6 enlarged: 20.9 dB, the same picture the right way up, 4-8 dB flipped or
+turned; each level against the PC's own level: RGB 31-60 dB): menus3d 32 files, part 07 grew by 46,883 bytes (still below the
+limit, so no file moved to another part), part 08 got the new `pack.info`, `replaced.tsv`, `astc-hd.json`,
+`pack.info.txt` and `README.txt` (with the install steps for build 11 and older: Clear storage, then the profile put
+back without its `install/`, `hd/` and `hd-install/` folders), and parts 01-06 stayed byte for byte (same SHA-256).
 
 **Default block sizes** (measured with `astc-measure`, tools/hd-textures/README.md "Block sizes"): 5x5 for surfaces,
 lightmaps, characters, vfx and menus3d; 4x4 for equipment, props and minimaps; all `-thorough`. Every one beats

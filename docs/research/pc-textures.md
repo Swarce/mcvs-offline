@@ -692,8 +692,8 @@ enlarged bilinearly to the PC size, i.e. what the phone shows today: **[V]**
   chosen sizes (5x5 for the large categories, 4x4 for equipment, props and minimaps).
 * Five of the 2,215 ASTC originals are not a power of two (105x120, 85x85, 73x66, 200x200, 1024x778) where the ETC
   pack has 128x128, 256x256 and 1024x1024: the ASTC pack keeps the artist's size, the ETC pack and the PC stretch it.
-  They are taken when the PC texture is the same picture (design/hd-textures.md §6, "Stretched originals"); the run of
-  2026-10-28 still refused the 200x200 3D-menu emblem (a full-size comparison, 23.2 dB for the same picture), so its
-  parts replace 2,214 files.
+  They are taken when the PC texture is the same picture (design/hd-textures.md §6, "Stretched originals"). The first
+  run (2026-10-28) still refused the 200x200 3D-menu emblem (a full-size comparison, 23.2 dB for the same picture) and
+  replaced 2,214 files; the parts rebuilt on 2026-10-29 with the reduced-size comparison replace all 2,215.
 * The owner's phone ran the ETC pack (section above), so the full ASTC pack replaces the whole `Data/`; the host
   switches the installer to the pack's own index (INSTALL-OFFLINE.md, "The ASTC HD data pack").
