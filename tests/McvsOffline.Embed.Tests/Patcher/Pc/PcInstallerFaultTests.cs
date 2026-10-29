@@ -203,6 +203,58 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             }
         }
 
+        /// <summary>
+        /// A config that cannot be deleted (read-only attribute, an antivirus lock) stops the uninstall: bin\ and install.json stay, so
+        /// the redirect never points at deleted files and the game still starts; the next uninstall finishes.
+        /// </summary>
+        [Fact]
+        public void AConfigThatCannotBeDeletedKeepsWhatItPointsAt()
+        {
+            using (PcGameCopy copy = PcGameCopy.Create(output))
+            {
+                if (copy == null) return;
+                SortedDictionary<string, string> original = copy.Tree();
+                Assert.Equal(0, copy.Install().ExitCode);
+                SortedDictionary<string, string> installed = copy.Tree();
+                var files = new FaultyFileOps { OpenFile = copy.Path_(PcExeConfig.FileName) };
+                PcInstallReport report = copy.Uninstall(files: files);
+                Assert.Equal(PcExitCodes.Io, report.ExitCode);
+                Assert.Contains(PcExeConfig.FileName, report.Error);
+                Assert.Contains(report.LeftBehind, l => l.StartsWith(PcExeConfig.FileName, StringComparison.Ordinal));
+                Assert.Equal(installed, copy.Tree());   // every bin file and install.json still there
+                AssertNoConfigPointsAtAMissingFile(copy);
+                Assert.Equal(PcInstallState.Current, copy.Status().State);
+                Assert.Equal(0, copy.Uninstall().ExitCode);
+                Assert.Equal(original, copy.Tree());
+            }
+        }
+
+        /// <summary>args.txt with the player's lines is rewritten through args.txt.mcvs-tmp: a failed write leaves it as it was.</summary>
+        [Fact]
+        public void TheArgsFileIsRewrittenThroughATempFile()
+        {
+            using (PcGameCopy copy = PcGameCopy.Create(output))
+            {
+                if (copy == null) return;
+                Assert.Equal(0, copy.Install().ExitCode);
+                string args = copy.Path_(GameFolder.ArgsFileName);
+                File.WriteAllBytes(args, McvsOffline.Embedded.ArgsFile.Merge(System.Text.Encoding.UTF8.GetBytes("-Foo bar\n"),
+                    new List<McvsOffline.Embedded.ArgEntry> { new McvsOffline.Embedded.ArgEntry("ServerLocation", "Embedded") }).Content);
+                byte[] withBlock = File.ReadAllBytes(args);
+
+                var files = new FaultyFileOps { FailWriteOf = args + GameFolder.TempSuffix };
+                PcInstallReport report = copy.Uninstall(files: files);
+                Assert.Equal(PcExitCodes.Io, report.ExitCode);
+                Assert.Contains(report.LeftBehind, l => l.StartsWith("args.txt still has the MCVS Offline block", StringComparison.Ordinal));
+                Assert.Equal(withBlock, File.ReadAllBytes(args));
+                Assert.DoesNotContain("write " + args, files.Calls);
+
+                Assert.Equal(0, copy.Uninstall().ExitCode);
+                Assert.Equal("-Foo bar\n", File.ReadAllText(args));
+                Assert.False(File.Exists(args + GameFolder.TempSuffix));
+            }
+        }
+
         private static void AssertNoConfigPointsAtAMissingFile(PcGameCopy copy)
         {
             string config = copy.Path_(PcExeConfig.FileName);

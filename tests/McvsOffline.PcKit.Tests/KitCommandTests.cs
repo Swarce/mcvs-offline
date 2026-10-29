@@ -227,6 +227,68 @@ namespace McvsOffline.PcKit.Tests
             }
         }
 
+        /// <summary>
+        /// An install that was never started leaves nothing of the player's in McvsOffline\, only the kit's log: the kit moves its log
+        /// to %TEMP% first (the log is "open" wherever it writes), and uninstall removes the folder.
+        /// </summary>
+        [Fact]
+        public void UninstallAfterAnInstallThatWasNeverStartedLeavesNoDataFolder()
+        {
+            using (var box = new KitSandbox())
+            {
+                string data = GameFolder.DataDir(box.Game);
+                box.Env.Install = o =>
+                {
+                    Directory.CreateDirectory(GameFolder.BinDir(o.GameFolder));
+                    foreach (string f in GameFolder.PatchedFiles) File.WriteAllText(Path.Combine(GameFolder.BinDir(o.GameFolder), f), "patched " + f);
+                    File.WriteAllText(Path.Combine(data, InstallManifest.FileName), "{}");
+                    return new PcInstallReport();
+                };
+                Assert.Equal(PcExitCodes.Ok, Program.Run(box.Env, box.Options("install")));
+                string dataLog = Path.Combine(data, "kit", KitLog.FileName);
+                string tempLog = Path.Combine(box.Temp, "McvsOffline", "kit", KitLog.FileName);
+                Assert.True(File.Exists(dataLog));
+                File.Delete(tempLog);   // the install's start, before McvsOffline\ existed
+                box.Env.Files = new OpenFileOps(() => File.Exists(tempLog) ? tempLog : dataLog);
+
+                Assert.Equal(PcExitCodes.Ok, Program.Run(box.Env, box.Options("uninstall")));
+                Assert.False(Directory.Exists(data));
+                Assert.DoesNotContain("your data stays", box.Out.ToString());
+                Assert.Contains("log continued from " + dataLog, File.ReadAllText(tempLog));
+            }
+        }
+
+        /// <summary>With the player's own files in McvsOffline\ the folder and the kit's log there stay.</summary>
+        [Fact]
+        public void UninstallKeepsADataFolderWithThePlayersFiles()
+        {
+            using (var box = new KitSandbox())
+            {
+                string data = GameFolder.DataDir(box.Game);
+                Directory.CreateDirectory(Path.Combine(data, "kit"));
+                File.WriteAllText(Path.Combine(data, "settings.json"), "{}");
+                Assert.Equal(PcExitCodes.Ok, Program.Run(box.Env, box.Options("uninstall")));
+                Assert.True(File.Exists(Path.Combine(data, "settings.json")));
+                Assert.Contains("your data stays", box.Out.ToString());
+                Assert.Contains("== uninstall", File.ReadAllText(Path.Combine(data, "kit", KitLog.FileName)));
+            }
+        }
+
+        /// <summary>A game file the kit cannot read (an antivirus scan holding it) is exit code 1 with a message, never a crash.</summary>
+        [Fact]
+        public void AnUnreadableGameFileIsIoForStatusVerifyAndCollect()
+        {
+            using (var box = new KitSandbox())
+            using (new FileStream(Path.Combine(box.Game, GameFolder.ExeName), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                Assert.Equal(PcExitCodes.Io, Program.Run(box.Env, box.Options("status")));
+                Assert.Contains("could not be read", box.Err.ToString());
+                Assert.Equal(PcExitCodes.Io, Program.Run(box.Env, box.Options("verify")));
+                Assert.Equal(PcExitCodes.Ok, Program.Run(box.Env, box.Options("collect")));
+                Assert.Contains("Send this file", box.Out.ToString());
+            }
+        }
+
         [Fact]
         public void StatusPrintsTheStateAndTheListingIsDiffedAgainstTheFirstOne()
         {

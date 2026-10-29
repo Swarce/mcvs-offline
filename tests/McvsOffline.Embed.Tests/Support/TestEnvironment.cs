@@ -107,6 +107,15 @@ namespace McvsOffline.Embed.Tests.Support
         }
 
         /// <summary>
+        /// MCVS_REQUIRE_PC_E2E=1 (the WP5a run, docs/design/pc-port.md §12.6): the end-to-end PC install with every real patch must
+        /// succeed; without it, it skips while a Day-0 skeleton patch still refuses.
+        /// </summary>
+        public static bool RequirePcEndToEnd
+        {
+            get { return Environment.GetEnvironmentVariable("MCVS_REQUIRE_PC_E2E") == "1"; }
+        }
+
+        /// <summary>
         /// The .NET Framework 4.5.2 reference assemblies (MCVS_NET452_REFS, default the NuGet package
         /// microsoft.netframework.referenceassemblies.net452 1.0.3): the BCL directory of every Linux PC patch run, or null.
         /// </summary>

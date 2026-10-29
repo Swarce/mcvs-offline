@@ -526,9 +526,64 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         }
 
         /// <summary>
+        /// A game file that cannot be read (held by an antivirus scan; on Linux a FileShare.None handle refuses the installer's
+        /// shared read the same way) is exit code 1 with a message, for every pc command that reads the folder, never a crash.
+        /// </summary>
+        [Fact]
+        public void TheCliReportsAnUnreadableGameFileAsIo()
+        {
+            string root = TestEnvironment.NewTempDir("pc-cli-io");
+            try
+            {
+                string game = Path.Combine(root, "Modern Combat Versus");
+                Directory.CreateDirectory(Path.Combine(game, "Data"));
+                File.WriteAllText(Path.Combine(game, GameFolder.ExeName), "exe");
+                foreach (string f in GameFolder.PatchedFiles) File.WriteAllText(Path.Combine(game, f), "dll " + f);
+                File.WriteAllText(GameFolder.Resolve(game, GameFolder.GameMarker), "game");
+                string server = Path.Combine(root, GameFolder.ServerFile);
+                File.WriteAllBytes(server, PcHookServer.Compile());
+                using (new FileStream(Path.Combine(game, GameFolder.ExeName), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                {
+                    foreach (string[] args in new[]
+                    {
+                        new[] { "status", "--game", game },
+                        new[] { "verify", "--game", game, "--bcl", root },
+                        new[] { "install", "--game", game, "--server", server, "--bcl", root },
+                    })
+                    {
+                        var o = new StringWriter();
+                        var e = new StringWriter();
+                        Assert.Equal(PcExitCodes.Io, PcCli.Run(args, o, e));
+                        Assert.StartsWith("error: ", e.ToString());
+                    }
+                }
+            }
+            finally
+            {
+                Directory.Delete(root, true);
+            }
+        }
+
+        [Fact]
+        public void OnlyASkeletonRefusalCountsAsTheUnfinishedPatchSet()
+        {
+            Assert.Equal("quicklaunch", SkeletonRefusal(new PcInstallReport
+            {
+                ExitCode = PcExitCodes.Refused, Error = "a patch site does not match the verified game code, nothing was written: quicklaunch: not implemented",
+            }));
+            Assert.Null(SkeletonRefusal(new PcInstallReport { ExitCode = PcExitCodes.Refused, Error = "geo: the site is not implemented here" }));
+            Assert.Null(SkeletonRefusal(new PcInstallReport { ExitCode = PcExitCodes.Io, Error = "hook-pc: not implemented" }));
+            Assert.Null(SkeletonRefusal(new PcInstallReport()));
+            // Every skeleton id is in the PC plan's defaults (a renamed id would silently stop matching).
+            PatchIds ids = PatchPlan.Ids(BuildProfile.PcSteam6372049);
+            foreach (string id in SkeletonPatchIds) Assert.True(ids.Mandatory.Contains(id) || ids.Default.Contains(id), id);
+        }
+
+        /// <summary>
         /// Every real PC patch (PatchPlan defaults) with the real PC server DLL, end to end (WP5a on, §11.4, §12.6): the outputs pass the
         /// reference-set check (inside the installer) and ILVerify (findings equal to the originals'), and the written SHA-256 values are
-        /// printed for the WR2 record. Before WP4's patches exist it skips (their skeletons say "not implemented").
+        /// printed for the WR2 record. Until MCVS_REQUIRE_PC_E2E=1 (WP5a) it skips while one of the Day-0 skeleton patches
+        /// (<see cref="SkeletonPatchIds"/>) refuses; under it any refusal fails.
         /// </summary>
         [Fact]
         public void RealFolderEndToEnd()
@@ -548,9 +603,10 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 o.ServerDll = File.ReadAllBytes(serverDll);
                 o.ServerFolder = Path.GetDirectoryName(serverDll);
                 PcInstallReport report = PcInstaller.Install(o);
-                if (report.ExitCode == PcExitCodes.Refused && report.Error != null && report.Error.Contains("not implemented"))
+                string skeleton = SkeletonRefusal(report);
+                if (skeleton != null && !TestEnvironment.RequirePcEndToEnd)
                 {
-                    output.WriteLine("the PC patch set is not complete yet (WP4 skeletons): skipped until WP5a; " + report.Error);
+                    output.WriteLine("the Day-0 skeleton of " + skeleton + " still refuses (WP4): skipped until MCVS_REQUIRE_PC_E2E=1 (WP5a); " + report.Error);
                     return;
                 }
                 Assert.True(report.ExitCode == 0, report.Error);
@@ -564,12 +620,23 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             }
         }
 
+        /// <summary>The PC patches D0-d added as skeletons that throw "&lt;id&gt;: not implemented" (§11.4); WP4 implements them.</summary>
+        public static readonly string[] SkeletonPatchIds = { "hook-pc", "headless-diag", "quicklaunch" };
+
+        /// <summary>The id of the skeleton patch whose refusal <paramref name="report"/> is, or null for any other outcome.</summary>
+        public static string SkeletonRefusal(PcInstallReport report)
+        {
+            if (report.ExitCode != PcExitCodes.Refused || report.Error == null) return null;
+            return SkeletonPatchIds.FirstOrDefault(id => report.Error.Contains(id + ": not implemented"));
+        }
+
         /// <summary>ILVerify each patched copy against the 12 net452 assemblies, the other PC DLLs and the server (§12): findings as the original's.</summary>
         private void IlVerifyOutputs(PcGameCopy copy, string serverDll)
         {
             string tool = RealAdminPagePatchTests.IlVerifyTool();
             if (tool == null)
             {
+                Assert.False(TestEnvironment.RequirePc, "MCVS_REQUIRE_PC=1 but ilverify was not found (MCVS_ILVERIFY or ~/.dotnet/tools/ilverify)");
                 output.WriteLine("ilverify not found: ILVerify part skipped");
                 return;
             }

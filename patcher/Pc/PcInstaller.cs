@@ -576,7 +576,16 @@ namespace McvsOffline.Patcher.Pc
             // The config first: from here on nothing redirects to a file we are about to delete.
             string configPath = Path.Combine(game, PcExeConfig.FileName);
             string kind = ConfigKind(configPath);
-            if (kind == "ours" || kind == "spike") Delete(files, configPath, PcExeConfig.FileName, report, log);
+            if (kind == "ours" || kind == "spike")
+            {
+                Delete(files, configPath, PcExeConfig.FileName, report, log);
+                if (File.Exists(configPath))
+                {
+                    // The config still redirects into McvsOffline\bin: deleting what it points at would stop the game from starting.
+                    return Fail(report, PcExitCodes.Io, PcExeConfig.FileName + " could not be removed, so nothing else was: " +
+                                                        "quit the game, clear its read-only attribute and run uninstall again");
+                }
+            }
             else if (kind == "foreign") report.Notes.Add(PcExeConfig.FileName + " is not ours: left as it is");
 
             string bin = GameFolder.BinDir(game);
@@ -616,7 +625,7 @@ namespace McvsOffline.Patcher.Pc
                         }
                         else
                         {
-                            files.WriteAllBytes(args, rest);
+                            WriteViaTemp(files, args, rest);
                             report.Removed.Add(GameFolder.ArgsFileName + " (our block; your own lines are kept)");
                             log("args.txt: removed our block, kept your own lines");
                         }
@@ -641,10 +650,10 @@ namespace McvsOffline.Patcher.Pc
             {
                 DeleteDir(files, data, GameFolder.DataDirName + "/ (saves, settings, logs)", report, log);
             }
-            else if (Directory.Exists(data) && !Directory.EnumerateFiles(data, "*", SearchOption.AllDirectories).Any())
+            else if (Directory.Exists(data) && HoldsOnlyKitFiles(game))
             {
-                // Installed but never started: nothing of the player's is in it.
-                DeleteDir(files, data, GameFolder.DataDirName + "/ (empty)", report, log);
+                // Installed but never started: nothing of the player's is in it (the kit's own logs at most; the kit has moved its log to %TEMP%).
+                DeleteDir(files, data, GameFolder.DataDirName + "/ (nothing of yours in it)", report, log);
             }
             else if (Directory.Exists(data))
             {
@@ -656,6 +665,36 @@ namespace McvsOffline.Patcher.Pc
                 report.Error = "some files could not be removed: quit the game and run uninstall again";
             }
             return report;
+        }
+
+        /// <summary>
+        /// True when <c>McvsOffline\</c> exists and every file below it is in <c>McvsOffline\kit\</c> (the kit's logs and listings):
+        /// an install that was never started, which uninstall removes without --remove-data.
+        /// </summary>
+        public static bool HoldsOnlyKitFiles(string game)
+        {
+            string data = GameFolder.DataDir(game);
+            if (!Directory.Exists(data)) return false;
+            string kit = Path.Combine(data, GameFolder.KitDirName) + Path.DirectorySeparatorChar;
+            return Directory.EnumerateFiles(data, "*", SearchOption.AllDirectories).All(f => f.StartsWith(kit, StringComparison.Ordinal));
+        }
+
+        /// <summary>
+        /// True when nothing below <c>McvsOffline\</c> is the player's: only the kit's files and the install's own (bin\, install.json,
+        /// the spike's copy, *.mcvs-tmp). After an uninstall such a folder is <see cref="HoldsOnlyKitFiles"/>, and goes.
+        /// </summary>
+        public static bool HoldsNothingOfThePlayers(string game)
+        {
+            string data = GameFolder.DataDir(game);
+            if (!Directory.Exists(data)) return false;
+            string[] ours =
+            {
+                Path.Combine(data, GameFolder.KitDirName) + Path.DirectorySeparatorChar, GameFolder.BinDir(game) + Path.DirectorySeparatorChar,
+                GameFolder.Resolve(game, GameFolder.SpikeCopyFolder) + Path.DirectorySeparatorChar,
+            };
+            string manifest = Path.Combine(data, InstallManifest.FileName);
+            return Directory.EnumerateFiles(data, "*", SearchOption.AllDirectories).All(f =>
+                ours.Any(o => f.StartsWith(o, StringComparison.Ordinal)) || f.StartsWith(manifest, StringComparison.Ordinal));
         }
 
         private static void Delete(IPcFileOps files, string path, string name, PcInstallReport report, Action<string> log)

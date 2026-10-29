@@ -395,6 +395,7 @@ it keeps under `%APPDATA%` (read through `getenv("APPDATA")`), its crash logs un
 |---|---|
 | `MCVS_PC_REFS` | the Steam install folder (default `/home/user/mcvs-work/pc/install`, exported by `scripts/build.sh` when it exists): `Gameloft.Logs.dll` for the PC build, the real PC assemblies and `Data\` for every PC test |
 | `MCVS_REQUIRE_PC=1` | PC real-file tests fail instead of skipping when `MCVS_PC_REFS` lacks a file (set by `build.sh` when `$MCVS_PC_REFS/Gameloft.Engine.dll` exists) |
+| `MCVS_REQUIRE_PC_E2E=1` | `PcInstallerTests.RealFolderEndToEnd` must install with every real patch (any refusal fails); without it the test skips while a Day-0 skeleton (`hook-pc`, `headless-diag`, `quicklaunch`) still refuses. Set by the WP5a run (§12.6), not by `build.sh` |
 | `MCVS_NET452_REFS` | the .NET Framework 4.5.2 reference assemblies (default `~/.nuget/packages/microsoft.netframework.referenceassemblies.net452/1.0.3/build/.NETFramework/v4.5.2/`): the BCL directory of every Linux PC patch run and ILVerify |
 | `MCVS_ILVERIFY` | ilverify path (default `~/.dotnet/tools/ilverify`) |
 | `artifacts/bin/McvsOffline.Server.Pc/<config>/McvsOffline.Server.dll` | the PC server DLL |
@@ -1014,15 +1015,18 @@ and Windows semantics), log):
 7. `args.txt` is not written (the bootstrap writes it at the first start). A reinstall overwrites `bin\` files, then
    `install.json`, then the config.
 
-**Uninstall**: refuse while the game runs (exit 4); delete the config when ours (or the spike's); delete `bin\*` and
-`bin\`, then `install.json`; strip the managed block from `args.txt` with `PcArgsBlock.Remove`, deleting the file when
-nothing but whitespace is left (the depot has no `args.txt`, F9); delete every `*.mcvs-tmp` of §7.4; report anything
-left behind (a DLL that cannot be deleted: "quit the game and run uninstall again"). Uninstall works from every state
+**Uninstall**: refuse while the game runs (exit 4); delete the config when ours (or the spike's), and stop there (exit 1,
+nothing else touched) when it cannot be deleted, so it never redirects to deleted files; delete `bin\*` and
+`bin\`, then `install.json`; strip the managed block from `args.txt` with `PcArgsBlock.Remove` (rewritten through
+`args.txt.mcvs-tmp`), deleting the file when nothing but whitespace is left (the depot has no `args.txt`, F9); delete
+every `*.mcvs-tmp` of §7.4; report anything left behind (a DLL that cannot be deleted: "quit the game and run uninstall again"). Uninstall works from every state
 (`installed`, `STALE`, `DAMAGED`, `PARTIAL`): it removes what of ours is there and skips what is missing. **The data
 stays** (`settings.json`, accounts, profiles, logs, exports); `--remove-data` deletes all of `McvsOffline\` after the
 confirmation `DELETE` (interactive) or `--yes`. Before that deletion the kit closes its log in `McvsOffline\kit\` and
 continues it in `%TEMP%\McvsOffline\kit\pc-kit.log` (a file open for writing cannot be deleted on Windows, and the
-logger must not recreate the folder); a file that still cannot be deleted is reported, never retried in a loop.
+logger must not recreate the folder); a file that still cannot be deleted is reported, never retried in a loop. An install
+that was never started (nothing below `McvsOffline\` but the install's own files and the kit's `kit\`) loses the folder
+without `--remove-data`; the kit moves its log to `%TEMP%` first in that case too.
 
 **Status** (also the kit's): game folder and how it was found; build known/unknown per file; state `not installed` |
 `installed, current` | `installed, STALE` (originals differ from `install.json`: "Steam updated the game: run uninstall,
@@ -1476,7 +1480,8 @@ D0-a → D0-b → D0-c → D0-d → { WP1, WP2, WP3, WP4, WP-G } (parallel) → 
 
 WR3 (only after WP6) repeats WR2 steps 2, 3, 4, 5, 8 and 16 with the new kit and `pc.finder: server`. Merge order after
 day 0: WP1, WP2, WP4, WP3, WP-G, WP5a; WP5b last. WP3's end-to-end test with every real patch and the real PC DLL
-(`PcInstallerTests.RealFolderEndToEnd`) is required only from WP5a on (`MCVS_REQUIRE_PC=1` plus the artifact).
+(`PcInstallerTests.RealFolderEndToEnd`) is required only from WP5a on (`MCVS_REQUIRE_PC=1` plus the artifact, and
+`MCVS_REQUIRE_PC_E2E=1`, §3.7: before it the test skips while a Day-0 skeleton patch still refuses).
 
 ---------------------------------------------------------------------------------------------------
 
@@ -1704,7 +1709,7 @@ manifest half: rename → debloat → targetsdk 35 **without** `game`, on the re
 
 ### 12.6 WP5a
 
-* `scripts/build.sh` with `MCVS_REFS`, `MCVS_PC_REFS`, `MCVS_REQUIRE_PC=1`, `MCVS_REQUIRE_REAL_CLIENT=1`,
+* `scripts/build.sh` with `MCVS_REFS`, `MCVS_PC_REFS`, `MCVS_REQUIRE_PC=1`, `MCVS_REQUIRE_PC_E2E=1`, `MCVS_REQUIRE_REAL_CLIENT=1`,
   `MCVS_BUILD_TOOLS` and `MCVS_REQUIRE_BUILD_TOOLS=1` (the aapt2 dump of the real patched APK's manifest is mandatory
   once before release): everything green.
 * `McvsOffline.Patcher pc install` (not only `--dry-run`) on a temp copy of the real folder with the DLL the kit embeds;

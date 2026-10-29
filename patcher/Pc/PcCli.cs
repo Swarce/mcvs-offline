@@ -64,6 +64,20 @@ namespace McvsOffline.Patcher.Pc
                 output.WriteLine(Usage);
                 return PcExitCodes.Ok;
             }
+            try
+            {
+                return RunCommand(o, output, error);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                // A game file that cannot be read (an antivirus scan holding it, no read permission): I/O, not a crash.
+                error.WriteLine("error: " + ex.Message);
+                return PcExitCodes.Io;
+            }
+        }
+
+        private static int RunCommand(PcCliOptions o, TextWriter output, TextWriter error)
+        {
             switch (o.Command)
             {
                 case "install":

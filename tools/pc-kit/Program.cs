@@ -146,9 +146,10 @@ namespace McvsOffline.PcKit
                     return PcExitCodes.Usage;
                 }
             }
-            if (options.RemoveData)
+            if (options.RemoveData || PcInstaller.HoldsNothingOfThePlayers(game.Directory))
             {
-                // A file open for writing cannot be deleted on Windows, and the log must not recreate the folder.
+                // McvsOffline\ goes (--remove-data, or an install that was never started): a file open for writing cannot be
+                // deleted on Windows, and the log must not recreate the folder.
                 log.ContinueIn(Path.Combine(env.TempRoot, GameFolder.DataDirName, GameFolder.KitDirName));
             }
             PcInstallReport report = env.Uninstall(new PcUninstallOptions
@@ -162,8 +163,15 @@ namespace McvsOffline.PcKit
         private static int Status(KitEnvironment env, KitOptions options, GameLocation game, string problem, KitLog log)
         {
             if (game == null) return NoGame(problem, log);
-            PcStatusReport status = PcInstaller.Status(game.Directory, env.GameRunning, SpikeDataFolder(env));
-            Print(log, PcReportText.Status(status), true);
+            try
+            {
+                PcStatusReport status = PcInstaller.Status(game.Directory, env.GameRunning, SpikeDataFolder(env));
+                Print(log, PcReportText.Status(status), true);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                return CannotRead(ex, log);
+            }
             if (!options.Listing) return PcExitCodes.Ok;
             try
             {
@@ -180,14 +188,35 @@ namespace McvsOffline.PcKit
         private static int Verify(KitEnvironment env, KitOptions options, GameLocation game, string problem, KitLog log)
         {
             if (game == null) return NoGame(problem, log);
-            PcInstallReport report = PcInstaller.Verify(game.Directory, options.Bcl ?? env.DefaultBcl(), env.GameRunning);
+            PcInstallReport report;
+            try
+            {
+                report = PcInstaller.Verify(game.Directory, options.Bcl ?? env.DefaultBcl(), env.GameRunning);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                return CannotRead(ex, log);
+            }
             Print(log, PcReportText.Verify(report), report.ExitCode == PcExitCodes.Ok);
             return report.ExitCode;
         }
 
         private static int CollectCommand(KitEnvironment env, KitOptions options, GameLocation game, KitLog log)
         {
-            List<string> status = game == null ? null : PcReportText.Status(PcInstaller.Status(game.Directory, env.GameRunning, SpikeDataFolder(env)));
+            List<string> status = null;
+            if (game != null)
+            {
+                try
+                {
+                    status = PcReportText.Status(PcInstaller.Status(game.Directory, env.GameRunning, SpikeDataFolder(env)));
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    // The zip is still worth having: the status part says why it is missing.
+                    status = new List<string> { "error: the game folder could not be read: " + ex.Message };
+                    log.Warn("the status could not be read: " + ex.Message);
+                }
+            }
             List<string> probe = Probe.Run(env.Probe, game == null ? null : game.Directory, options.Bcl ?? env.DefaultBcl());
             try
             {
@@ -233,6 +262,12 @@ namespace McvsOffline.PcKit
                 problem = ex.Message;
                 return null;
             }
+        }
+
+        private static int CannotRead(Exception ex, KitLog log)
+        {
+            log.Error("the game folder could not be read: " + ex.Message + " (an antivirus scan holding a file? try again in a minute)");
+            return PcExitCodes.Io;
         }
 
         private static int NoGame(string problem, KitLog log)
