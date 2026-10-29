@@ -202,7 +202,8 @@ namespace McvsOffline.Patcher.Pc
             "  --bcl <dir>           the .NET Framework 4 assemblies the game's are read with (default: Windows' Framework\\v4.0.30319;\n" +
             "                        elsewhere MCVS_NET452_REFS, else the NuGet net452 reference assemblies)\n" +
             "  --port <n>            the server port: set in McvsOffline\\settings.json (only that key), baked into the geo\n" +
-            "                        patch and recorded in install.json (default 51780; settings.json is left alone without it)\n" +
+            "                        patch and recorded in install.json (without it settings.json is left alone and its port,\n" +
+            "                        else 51780, is used)\n" +
             "  --patch <list>        default (the default set), none (mandatory only), all, or ids, e.g. default,forum\n" +
             "  --dry-run             verify every patch site and print the SHA-256 of every file, write nothing\n" +
             "  --force               install on a build that is not the verified 6372049 (sites are still verified)\n" +

@@ -128,13 +128,31 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 // What the host reads at boot.
                 Assert.Equal(51790, Settings.Load(settings, null).Port);
 
-                // A reinstall without --port leaves settings.json byte for byte.
+                // A reinstall without --port (status's "run install again", a Steam update) leaves settings.json byte for byte
+                // and keeps its port in the geo patch and install.json: the server still listens there.
                 byte[] kept = File.ReadAllBytes(settings);
                 PcInstallReport again = copy.Install();
                 Assert.True(again.ExitCode == 0, again.Error);
                 Assert.Null(again.SettingsPort);
                 Assert.DoesNotContain(PcSettingsPort.RelativePath, again.Written);
                 Assert.Equal(kept, File.ReadAllBytes(settings));
+                Assert.Contains(again.Notes, n => n.Contains("http://127.0.0.1:51790/location/"));
+                Assert.Contains(again.Notes, n => n.StartsWith("port 51790 from McvsOffline/settings.json (no --port given)", StringComparison.Ordinal));
+                status = copy.Status();
+                Assert.Equal(PcInstallState.Current, status.State);
+                Assert.Equal(51790, status.InstalledPort);
+                Assert.DoesNotContain(PcReportText.Status(status), l => l.Contains("they differ"));
+
+                // A port the player wrote into settings.json after the install: status says the two differ, and a plain
+                // reinstall takes it.
+                File.WriteAllText(settings, mine.Replace("51780", "51795"));
+                kept = File.ReadAllBytes(settings);
+                Assert.Contains(PcReportText.Status(copy.Status()), l => l.Contains("settings.json 51795, install.json 51790 (they differ"));
+                again = copy.Install();
+                Assert.True(again.ExitCode == 0, again.Error);
+                Assert.Contains(again.Notes, n => n.Contains("http://127.0.0.1:51795/location/"));
+                Assert.Equal(kept, File.ReadAllBytes(settings));
+                Assert.Equal(51795, copy.Status().InstalledPort);
 
                 // Uninstall keeps it (the player's data).
                 Assert.Equal(0, copy.Uninstall().ExitCode);
@@ -189,8 +207,10 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 Assert.EndsWith("nothing was written", report.Error);
                 Assert.Equal(before, copy.Tree());
 
-                // Without --port the same file does not matter to the installer.
-                Assert.Equal(0, copy.Install().ExitCode);
+                // Without --port the same file does not matter to the installer: no port in it, the default one.
+                PcInstallReport plain = copy.Install();
+                Assert.Equal(0, plain.ExitCode);
+                Assert.Contains(plain.Notes, n => n.Contains("http://127.0.0.1:51780/location/"));
                 Assert.Equal("{ \"lanMode\": false, ", File.ReadAllText(settings));
             }
         }

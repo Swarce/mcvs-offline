@@ -50,7 +50,8 @@ namespace McvsOffline.Patcher.Pc
 
         /// <summary>
         /// The server port: baked into the 'geo' patch and recorded in install.json; with <see cref="SetSettingsPort"/> also
-        /// written to settings.json "port", which is what the game's server listens on.
+        /// written to settings.json "port", which is what the game's server listens on. Without it, a valid "port" already in
+        /// settings.json replaces this one (the server listens there), and this one is the default for a file without it.
         /// </summary>
         public int Port { get; set; }
 
@@ -318,6 +319,19 @@ namespace McvsOffline.Patcher.Pc
                     return Fail(report, PcExitCodes.Io, "cannot read " + PcSettingsPort.RelativePath + " to set the port in it: " + ex.Message + "; nothing was written");
                 }
             }
+            // Without --port the server keeps listening on settings.json's "port" (an earlier --port, or the player's edit), so the
+            // geo patch and install.json take that one; settings.json is left alone. No valid port there: the server's default.
+            int port = options.Port;
+            if (!options.SetSettingsPort)
+            {
+                int? current = SettingsPort(settingsPath);
+                if (current.HasValue && current.Value >= 1 && current.Value <= 65535 && current.Value != port)
+                {
+                    port = current.Value;
+                    report.Notes.Add("port " + port.ToString(CultureInfo.InvariantCulture) + " from " + PcSettingsPort.RelativePath +
+                                     " (no --port given): the server listens there, so the patches and install.json use it too");
+                }
+            }
 
             // 4. The server DLL.
             try
@@ -367,7 +381,7 @@ namespace McvsOffline.Patcher.Pc
                     ReaderParameters reader = resolver.CreateReaderParameters();
                     using (ModuleDefinition server = ModuleDefinition.ReadModule(new MemoryStream(options.ServerDll), reader))
                     {
-                        var context = new PatchContext(server, options.Port, Build);
+                        var context = new PatchContext(server, port, Build);
                         Version serverVersion = server.Assembly.Name.Version;
                         foreach (string file in GameFolder.PatchedFiles)
                         {
@@ -422,7 +436,7 @@ namespace McvsOffline.Patcher.Pc
             // The config (versions read from the written bytes) and install.json, which records the config's hash.
             var codeBases = outputs.Select(o => new PcCodeBase(GameFolder.ReadAssemblyName(o.Bytes), GameFolder.ReadAssemblyVersion(o.Bytes), o.Path)).ToList();
             byte[] config = PcExeConfig.Encode(PcExeConfig.Build(codeBases));
-            InstallManifest manifest = BuildManifest(options, identity, outputs, config, report.Applied, notes);
+            InstallManifest manifest = BuildManifest(options, port, identity, outputs, config, report.Applied, notes);
             byte[] manifestBytes = manifest.ToBytes();
             foreach (Output o in outputs) Record(report, o.Path, o.Bytes);
             Record(report, GameFolder.DataDirName + "/" + InstallManifest.FileName, manifestBytes);
@@ -500,8 +514,8 @@ namespace McvsOffline.Patcher.Pc
             public bool GameLog { get; set; }
         }
 
-        private static InstallManifest BuildManifest(PcInstallOptions options, List<PcFileIdentity> identity, List<Output> outputs, byte[] config,
-                                                     List<string> applied, List<string> notes)
+        private static InstallManifest BuildManifest(PcInstallOptions options, int port, List<PcFileIdentity> identity, List<Output> outputs,
+                                                     byte[] config, List<string> applied, List<string> notes)
         {
             Output serverOutput = outputs.Single(o => o.Patches == null);
             var m = new InstallManifest
@@ -514,7 +528,7 @@ namespace McvsOffline.Patcher.Pc
                 GameVersion = Build.GameVersion,
                 ClientId = Build.ClientId,
                 ExeSha256 = identity.Single(i => i.File == GameFolder.ExeName).Sha256,
-                Port = options.Port,
+                Port = port,
                 Bcl = options.BclDirectory,
             };
             foreach (string file in GameFolder.PatchedFiles)

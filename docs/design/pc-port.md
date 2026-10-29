@@ -1063,7 +1063,9 @@ verb is new; `--apk` stays the default form).
 `McvsOffline\settings.json`, the key the game's server listens on (`EmbeddedHost`; the settings page never changes it):
 only that key, through `settings.json.mcvs-tmp` + rename as the last write, the file created when missing. A
 `settings.json` that is not one JSON object refuses the install before anything is written. Without `--port`
-`settings.json` is left alone. Every `.mcvs-tmp` → target rename retries a sharing/lock violation (and, on Windows, an
+`settings.json` is left alone, and a valid (1..65535) `"port"` already in it is the port of the `geo` patch and
+`install.json` (the server listens there: a reinstall after a Steam update keeps an earlier `--port`); without one, the
+default 51780. `status` flags a `settings.json` port that differs from `install.json`'s (edited after the install). Every `.mcvs-tmp` → target rename retries a sharing/lock violation (and, on Windows, an
 access denial: a virus scanner holding the file) up to 10 times 100 ms apart (`PcFileOps.Rename`).
 
 ---------------------------------------------------------------------------------------------------
