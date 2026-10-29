@@ -59,6 +59,9 @@ namespace McvsOffline.PcKit
         /// <summary>Free bytes on the drive of a folder, -1 when unknown.</summary>
         public Func<string, long> FreeBytes { get; set; }
 
+        /// <summary>The kit's own file, hashed for the log headers and summary.txt (<see cref="KitServer.Identity"/>); null: unknown.</summary>
+        public Func<string> KitPath { get; set; }
+
         public static KitEnvironment Real()
         {
             return new KitEnvironment
@@ -88,6 +91,7 @@ namespace McvsOffline.PcKit
                 DefaultBcl = PcCli.DefaultBcl,
                 WriteDump = MiniDump.Write,
                 FreeBytes = MiniDump.FreeBytes,
+                KitPath = KitServer.OwnPath,
             };
         }
     }

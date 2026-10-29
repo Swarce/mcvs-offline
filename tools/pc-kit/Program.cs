@@ -51,7 +51,7 @@ namespace McvsOffline.PcKit
             string problem;
             GameLocation game = TryLocate(env, options, out problem);
             var log = new KitLog(KitFolder(env, game == null ? null : game.Directory), env.Out, env.Error, env.Now);
-            log.Detail("== " + options.Command + " (kit " + KitServer.Version() + ")");
+            log.Detail("== " + options.Command + " (" + KitServer.Identity(env) + ")");
             if (game != null) log.Info("game folder: " + game.Directory + " (" + game.How + ")");
             switch (options.Command)
             {

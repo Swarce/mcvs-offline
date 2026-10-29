@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 
 namespace McvsOffline.PcKit
@@ -26,6 +27,38 @@ namespace McvsOffline.PcKit
 
         /// <summary>A Win32 error code where one exists (HttpListenerException.ErrorCode).</summary>
         public int? Code { get; }
+    }
+
+    /// <summary>One display adapter as the registry's display class records it.</summary>
+    public sealed class GpuAdapter
+    {
+        public string Name { get; set; }
+
+        /// <summary>HardwareInformation.qwMemorySize (or MemorySize): the dedicated video memory in bytes; null when absent.</summary>
+        public long? DedicatedBytes { get; set; }
+
+        public string DriverVersion { get; set; }
+
+        public string DriverDate { get; set; }
+    }
+
+    /// <summary>One display attached to the desktop and its current mode.</summary>
+    public sealed class DisplayMode
+    {
+        /// <summary>\\.\DISPLAY1 and so on.</summary>
+        public string Device { get; set; }
+
+        /// <summary>The adapter that drives it (DISPLAY_DEVICE.DeviceString).</summary>
+        public string Adapter { get; set; }
+
+        public bool Primary { get; set; }
+
+        public int Width { get; set; }
+
+        public int Height { get; set; }
+
+        /// <summary>Hz; 0 or 1 is the hardware default.</summary>
+        public int RefreshHz { get; set; }
     }
 
     /// <summary>The machine actions 'probe' takes (real: <see cref="RealProbeActions"/>; tests inject answers).</summary>
@@ -50,13 +83,24 @@ namespace McvsOffline.PcKit
 
         /// <summary>Names of the running processes (without .exe).</summary>
         IList<string> ProcessNames();
+
+        /// <summary>The display adapters (registry display class), or null when they cannot be read (not Windows).</summary>
+        IList<GpuAdapter> GpuAdapters();
+
+        /// <summary>The displays attached to the desktop with their current mode, or null when they cannot be read.</summary>
+        IList<DisplayMode> Displays();
+
+        /// <summary>The installed physical memory in bytes (GlobalMemoryStatusEx), or null.</summary>
+        long? PhysicalMemoryBytes();
     }
 
     /// <summary>
     /// 'probe' (docs/design/pc-port.md §9.2, WR2 step 2, Q2): run before the game, as the normal user. Whether http.sys accepts
     /// the LocalAnubis Finder's <c>http://localhost:51750/</c>, whether the kit runs elevated (then the result is not
     /// representative), URL reservations and excluded port ranges naming 51750/51780, the server port, the install folder, the
-    /// .NET Framework files and version, Steam, and tools that inject into games.
+    /// .NET Framework files and version, Steam, and tools that inject into games; and for the graphics and memory questions
+    /// (WR2 F7, F9, Q5) the GPU adapters, the displays' refresh rates, the physical memory and the Windows Firewall rules that
+    /// name the game.
     /// </summary>
     public static class Probe
     {
@@ -146,7 +190,82 @@ namespace McvsOffline.PcKit
             lines.Add("Steam running: " + (processes.Any(p => string.Equals(p, "steam", StringComparison.OrdinalIgnoreCase)) ? "yes" : "no (start Steam before the game)"));
             List<string> injectors = InjectingTools.Where(t => processes.Any(p => string.Equals(p, t, StringComparison.OrdinalIgnoreCase))).ToList();
             lines.Add("tools that hook into games: " + (injectors.Count == 0 ? "none seen" : string.Join(", ", injectors) + " (close them if the game misbehaves)"));
+
+            // (10) graphics and memory: which GPU the engine may be looking at (GameOptions_windows.json picks by GPU name and memory).
+            IList<GpuAdapter> gpus = actions.GpuAdapters();
+            if (gpus == null) lines.Add("GPU adapters: unknown");
+            else if (gpus.Count == 0) lines.Add("GPU adapters: none found");
+            foreach (GpuAdapter gpu in gpus ?? new List<GpuAdapter>()) lines.Add("GPU adapter: " + DescribeGpu(gpu));
+            IList<DisplayMode> displays = actions.Displays();
+            if (displays == null) lines.Add("displays: unknown");
+            else if (displays.Count == 0) lines.Add("displays: none attached");
+            foreach (DisplayMode d in displays ?? new List<DisplayMode>()) lines.Add("display: " + DescribeDisplay(d));
+            long? memory = actions.PhysicalMemoryBytes();
+            lines.Add("physical memory: " + (memory.HasValue ? Megabytes(memory.Value) + " MB (the game is a 32-bit process: 2 GB of address space whatever the RAM)" : "unknown"));
+
+            // (11) Windows Firewall rules for the game (Q5: the prompt for its listeners).
+            string rules = actions.RunTool("netsh", FirewallArguments);
+            if (rules == null)
+            {
+                lines.Add("firewall rules naming " + GameExe + ": netsh not available");
+            }
+            else
+            {
+                List<string> blocks = FirewallRulesNaming(rules, GameExe);
+                lines.Add("firewall rules naming " + GameExe + ": " + (blocks.Count == 0 ? "none" : blocks.Count.ToString(CultureInfo.InvariantCulture)));
+                foreach (string b in blocks) lines.Add("  " + b);
+            }
             return lines;
+        }
+
+        public const string GameExe = "ModernCombatVersus.exe";
+
+        /// <summary>Every rule with its program (read-only; works as a normal user).</summary>
+        public const string FirewallArguments = "advfirewall firewall show rule name=all verbose";
+
+        /// <summary>"Intel(R) HD Graphics 630, dedicated memory 128 MB, driver 27.20.100.8681 (2020-09-22)".</summary>
+        public static string DescribeGpu(GpuAdapter gpu)
+        {
+            return (string.IsNullOrEmpty(gpu.Name) ? "(no name)" : gpu.Name) +
+                   ", dedicated memory " + (gpu.DedicatedBytes.HasValue ? Megabytes(gpu.DedicatedBytes.Value) + " MB" : "unknown") +
+                   ", driver " + (gpu.DriverVersion ?? "?") + (string.IsNullOrEmpty(gpu.DriverDate) ? "" : " (" + gpu.DriverDate + ")");
+        }
+
+        /// <summary>"\\.\DISPLAY1 (primary) 1920x1080 at 60 Hz on NVIDIA GeForce GTX 1060".</summary>
+        public static string DescribeDisplay(DisplayMode d)
+        {
+            return (d.Device ?? "?") + (d.Primary ? " (primary)" : "") + " " + d.Width.ToString(CultureInfo.InvariantCulture) + "x" +
+                   d.Height.ToString(CultureInfo.InvariantCulture) + " at " +
+                   (d.RefreshHz > 1 ? d.RefreshHz.ToString(CultureInfo.InvariantCulture) + " Hz" : "the hardware default rate") +
+                   (string.IsNullOrEmpty(d.Adapter) ? "" : " on " + d.Adapter);
+        }
+
+        private static string Megabytes(long bytes)
+        {
+            return (bytes / (1024 * 1024)).ToString(CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>
+        /// The rules of <c>netsh advfirewall firewall show rule name=all verbose</c> whose text names <paramref name="exe"/>, one line
+        /// each (the rule's non-empty lines joined with " | "). The rules are the blank-line separated blocks; the labels are
+        /// in Windows' language, so they are kept as they are.
+        /// </summary>
+        public static List<string> FirewallRulesNaming(string output, string exe)
+        {
+            var result = new List<string>();
+            var block = new List<string>();
+            foreach (string raw in (output ?? "").Replace("\r\n", "\n").Split('\n').Concat(new[] { "" }))
+            {
+                string line = raw.Trim();
+                if (line.Length > 0)
+                {
+                    if (!line.All(c => c == '-')) block.Add(Regex.Replace(line, @"\s{2,}", " "));
+                    continue;
+                }
+                if (block.Any(l => l.IndexOf(exe, StringComparison.OrdinalIgnoreCase) >= 0)) result.Add(string.Join(" | ", block));
+                block.Clear();
+            }
+            return result;
         }
 
         public static string HttpSysText(ProbeOutcome http)
@@ -248,6 +367,8 @@ namespace McvsOffline.PcKit
             if (!OperatingSystem.IsWindows()) return null;
             try
             {
+                // netsh writes in the console's OEM code page, which Process uses by default: make that code page decodable.
+                McvsOffline.PcSpike.AnsiCodePage.RegisterCodePages();
                 var info = new ProcessStartInfo(file, arguments) { RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true };
                 using (Process p = Process.Start(info))
                 {
@@ -343,5 +464,185 @@ namespace McvsOffline.PcKit
             }
             return names;
         }
+
+        /// <summary>HKLM\SYSTEM\CurrentControlSet\Control\Class\{display class}\NNNN: what Device Manager and dxdiag show.</summary>
+        public const string DisplayClassKey = @"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}";
+
+        public IList<GpuAdapter> GpuAdapters()
+        {
+            if (!OperatingSystem.IsWindows()) return null;
+            try
+            {
+                var adapters = new List<GpuAdapter>();
+                using (var root = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(DisplayClassKey))
+                {
+                    if (root == null) return null;
+                    foreach (string sub in root.GetSubKeyNames().Where(n => n.Length == 4 && n.All(char.IsDigit)).OrderBy(n => n, StringComparer.Ordinal))
+                    {
+                        try
+                        {
+                            using (var key = root.OpenSubKey(sub))
+                            {
+                                string name = key == null ? null : key.GetValue("DriverDesc") as string;
+                                if (name == null) continue;
+                                adapters.Add(new GpuAdapter
+                                {
+                                    Name = name,
+                                    DedicatedBytes = MemorySize(key.GetValue("HardwareInformation.qwMemorySize")) ?? MemorySize(key.GetValue("HardwareInformation.MemorySize")),
+                                    DriverVersion = key.GetValue("DriverVersion") as string,
+                                    DriverDate = key.GetValue("DriverDate") as string,
+                                });
+                            }
+                        }
+                        catch (Exception ex) when (ex is System.Security.SecurityException || ex is UnauthorizedAccessException || ex is IOException)
+                        {
+                            // "Properties" and some driver keys are not readable as a normal user.
+                        }
+                    }
+                }
+                return adapters;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>A REG_QWORD, REG_DWORD or 4/8-byte REG_BINARY memory size in bytes.</summary>
+        internal static long? MemorySize(object value)
+        {
+            if (value is long) return (long)value;
+            if (value is int) return (long)(uint)(int)value;
+            var bytes = value as byte[];
+            if (bytes != null && bytes.Length == 8) return BitConverter.ToInt64(bytes, 0);
+            if (bytes != null && bytes.Length == 4) return BitConverter.ToUInt32(bytes, 0);
+            return null;
+        }
+
+        public IList<DisplayMode> Displays()
+        {
+            if (!OperatingSystem.IsWindows()) return null;
+            try
+            {
+                var displays = new List<DisplayMode>();
+                for (uint i = 0; i < 16; i++)
+                {
+                    var device = new NativeDisplay.DISPLAY_DEVICE { cb = System.Runtime.InteropServices.Marshal.SizeOf<NativeDisplay.DISPLAY_DEVICE>() };
+                    if (!NativeDisplay.EnumDisplayDevices(null, i, ref device, 0)) break;
+                    if ((device.StateFlags & NativeDisplay.AttachedToDesktop) == 0) continue;
+                    var mode = new NativeDisplay.DEVMODE { dmSize = (short)System.Runtime.InteropServices.Marshal.SizeOf<NativeDisplay.DEVMODE>() };
+                    if (!NativeDisplay.EnumDisplaySettings(device.DeviceName, NativeDisplay.EnumCurrentSettings, ref mode)) continue;
+                    displays.Add(new DisplayMode
+                    {
+                        Device = device.DeviceName,
+                        Adapter = device.DeviceString,
+                        Primary = (device.StateFlags & NativeDisplay.PrimaryDevice) != 0,
+                        Width = mode.dmPelsWidth,
+                        Height = mode.dmPelsHeight,
+                        RefreshHz = mode.dmDisplayFrequency,
+                    });
+                }
+                return displays;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        public long? PhysicalMemoryBytes()
+        {
+            if (!OperatingSystem.IsWindows()) return null;
+            try
+            {
+                var status = new NativeDisplay.MEMORYSTATUSEX { dwLength = (uint)System.Runtime.InteropServices.Marshal.SizeOf<NativeDisplay.MEMORYSTATUSEX>() };
+                return NativeDisplay.GlobalMemoryStatusEx(ref status) ? (long)status.ullTotalPhys : (long?)null;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+    }
+
+    /// <summary>user32/kernel32 declarations for the display modes and the physical memory (Windows only).</summary>
+    internal static class NativeDisplay
+    {
+        public const int EnumCurrentSettings = -1;
+        public const int AttachedToDesktop = 0x1;
+        public const int PrimaryDevice = 0x4;
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct DISPLAY_DEVICE
+        {
+            public int cb;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string DeviceName;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceString;
+            public int StateFlags;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceID;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceKey;
+        }
+
+        /// <summary>DEVMODEW, display variant of the union.</summary>
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct DEVMODE
+        {
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmDeviceName;
+            public short dmSpecVersion;
+            public short dmDriverVersion;
+            public short dmSize;
+            public short dmDriverExtra;
+            public int dmFields;
+            public int dmPositionX;
+            public int dmPositionY;
+            public int dmDisplayOrientation;
+            public int dmDisplayFixedOutput;
+            public short dmColor;
+            public short dmDuplex;
+            public short dmYResolution;
+            public short dmTTOption;
+            public short dmCollate;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmFormName;
+            public short dmLogPixels;
+            public int dmBitsPerPel;
+            public int dmPelsWidth;
+            public int dmPelsHeight;
+            public int dmDisplayFlags;
+            public int dmDisplayFrequency;
+            public int dmICMMethod;
+            public int dmICMIntent;
+            public int dmMediaType;
+            public int dmDitherType;
+            public int dmReserved1;
+            public int dmReserved2;
+            public int dmPanningWidth;
+            public int dmPanningHeight;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct MEMORYSTATUSEX
+        {
+            public uint dwLength;
+            public uint dwMemoryLoad;
+            public ulong ullTotalPhys;
+            public ulong ullAvailPhys;
+            public ulong ullTotalPageFile;
+            public ulong ullAvailPageFile;
+            public ulong ullTotalVirtual;
+            public ulong ullAvailVirtual;
+            public ulong ullAvailExtendedVirtual;
+        }
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "EnumDisplayDevicesW")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool EnumDisplayDevices(string device, uint index, ref DISPLAY_DEVICE displayDevice, uint flags);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "EnumDisplaySettingsW")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool EnumDisplaySettings(string deviceName, int modeNum, ref DEVMODE devMode);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX buffer);
     }
 }

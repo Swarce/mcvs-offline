@@ -224,6 +224,179 @@ namespace McvsOffline.Embed.Tests.Embedded
             }
         }
 
+        /// <summary>
+        /// The PC help text of graphics.profile (SettingsSchema, WR2 F7) states the shipped file's GPU selection: the catch-all
+        /// rules of HighGPU (GPUMEM>=700, CORES>=4) and MidGPU (GPUMEM>=550, MEM_T>=4000, CORES>=4), then LowGPU930 / LowGPU; and
+        /// no GPU block sets excludedLoadingLayers while every one but HighGPU reduces the AI rate (the fullProfile text).
+        /// </summary>
+        [Fact]
+        public void ThePcHelpTextMatchesTheRealGpuSelection()
+        {
+            string json = RealJson();
+            if (json == null) return;
+            Dictionary<string, object> gpu = At(Parse(json), "profiles", "GPU");
+            var rules = new Dictionary<string, List<List<string>>>(StringComparer.Ordinal);
+            var order = new List<string>();
+            foreach (Dictionary<string, object> entry in ((List<object>)gpu["selection"]).Cast<Dictionary<string, object>>())
+            {
+                foreach (KeyValuePair<string, object> kv in entry)
+                {
+                    order.Add(kv.Key);
+                    rules[kv.Key] = ((List<object>)kv.Value).Cast<List<object>>()
+                        .Select(rule => rule.Cast<List<object>>().Select(c => (string)c[0]).ToList()).ToList();
+                }
+            }
+            Assert.Equal(new[] { "HighGPU", "MidGPU", "LowGPU930", "LowGPU" }, order);
+            Func<string, List<string>> catchAll = p => rules[p].Single(r => !r[0].StartsWith("GPU=", StringComparison.Ordinal));
+            Assert.Equal(new[] { "GPUMEM>=700", "CORES>=4", "GRAPHICS_FEATURE_LEVEL>930" }, catchAll("HighGPU"));
+            Assert.Equal(new[] { "GPUMEM>=550", "MEM_T>=4000", "CORES>=4", "GRAPHICS_FEATURE_LEVEL>930" }, catchAll("MidGPU"));
+            Assert.Empty(rules["LowGPU"]);
+            Dictionary<string, object> overrides = At(gpu, "overrides");
+            foreach (KeyValuePair<string, object> block in overrides)
+            {
+                var values = (Dictionary<string, object>)block.Value;
+                Assert.False(values.ContainsKey(GameOptionsWindows.LayersOption), block.Key + " sets excludedLoadingLayers");
+                Assert.Equal(block.Key != "HighGPU", values.ContainsKey("reducedAiUpdateFrequency"));
+            }
+
+            string help = McvsOffline.Server.Services.Admin.SettingsSchema.GroupsFor("windows").SelectMany(v => v.Keys).Single(k => k.Key == "graphics.profile").Help;
+            Assert.Contains("HighGPU only with at least 700 MB of GPU memory and 4 cores", help);
+            Assert.Contains("MidGPU with at least 550 MB of GPU memory, 4 GB of RAM and 4 cores, otherwise LowGPU", help);
+        }
+
+        // ------------------------------------------------------------------ the PC in-game graphics options (LocalStorage)
+
+        private const string GameLookAlike = @"
+namespace Game
+{
+    public class LocalStorageComponent
+    {
+        public bool HasPerformance;
+        public bool HasMember(string key) { return HasPerformance && key == ""Performance""; }
+    }
+    public class World { public LocalStorageComponent LocalStorage { get; set; } }
+    public class Component { public World World { get; set; } }
+    public class GamePreferencesComponent : Component
+    {
+        public static GamePreferencesComponent instance;
+        private int initPerformance = -1;
+        private float initRenderScale;
+        public int Performance { get; set; }
+        public float RenderScale { get; set; }
+        public float FPS { get; set; }
+        public bool Vsync { get; set; }
+        public bool FullScreen { get; set; }
+        public void Loaded() { initPerformance = Performance; initRenderScale = RenderScale; }
+    }
+}";
+
+        [Fact]
+        public void TheInGameOptionsAreReadOnceTheClientPreferencesAreLoaded()
+        {
+            using (var sandbox = new FixtureCompiler.Sandbox().With("Game", FixtureCompiler.Compile("Game", GameLookAlike)))
+            {
+                System.Reflection.Assembly game = sandbox.Get("Game");
+                Type prefs = game.GetType("Game.GamePreferencesComponent", true);
+                Type world = game.GetType("Game.World", true);
+                Type storage = game.GetType("Game.LocalStorageComponent", true);
+                var logger = new Logger();
+                var sink = new MemoryLogSink(LogLevel.Debug, 100);
+                logger.AddSink(sink);
+                GraphicsHooks.ResetForTests();
+                try
+                {
+                    GraphicsHooks.Configure("auto", false, logger.For("game"), new BootTrace(logger.For("boot")));
+                    GraphicsHooks.ConfigureWindows(true);
+                    Assert.Null(GraphicsHooks.ReadInGamePreferences(null));
+                    Assert.Null(GraphicsHooks.CaptureInGame(prefs));                     // no instance yet
+                    GraphicsHooks.GameOptionsJson(LookAlike);
+                    Assert.Contains("; in-game graphics options not read yet", GraphicsHooks.Describe());
+
+                    object component = Activator.CreateInstance(prefs);
+                    prefs.GetField("instance").SetValue(null, component);
+                    prefs.GetProperty("Performance").SetValue(component, 2);
+                    prefs.GetProperty("RenderScale").SetValue(component, 0.8f);
+                    prefs.GetProperty("FPS").SetValue(component, 60f);
+                    prefs.GetProperty("Vsync").SetValue(component, true);
+                    prefs.GetProperty("FullScreen").SetValue(component, false);
+                    Assert.Null(GraphicsHooks.CaptureInGame(prefs));                     // LoadPreferencesWindows has not finished
+                    prefs.GetMethod("Loaded").Invoke(component, null);
+                    object w = Activator.CreateInstance(world);
+                    prefs.GetProperty("World").SetValue(component, w);
+                    Assert.Null(GraphicsHooks.CaptureInGame(prefs));                     // a server World: no LocalStorage
+                    object s = Activator.CreateInstance(storage);
+                    world.GetProperty("LocalStorage").SetValue(w, s);
+                    Assert.Equal("in-game graphics quality Performance not set (the game's own choice), RenderScale 0.8, FPS 60, Vsync true, FullScreen false",
+                                 GraphicsHooks.DescribeInGame(GraphicsHooks.ReadInGamePreferences(prefs)));
+                    storage.GetField("HasPerformance").SetValue(s, true);
+                    Assert.Equal("in-game graphics quality Performance 2 (High), RenderScale 0.8, FPS 60, Vsync true, FullScreen false",
+                                 GraphicsHooks.DescribeInGame(GraphicsHooks.ReadInGamePreferences(prefs)));
+
+                    // Settings › Graphics changed before the first capture (WR2 boot 1): the line keeps the start values this
+                    // run's profiles came from. The menu's write makes HasMember true; a start value other than 0 was stored.
+                    prefs.GetProperty("Performance").SetValue(component, 0);
+                    prefs.GetProperty("RenderScale").SetValue(component, 0.4f);
+                    storage.GetField("HasPerformance").SetValue(s, true);
+                    const string expected = "in-game graphics quality Performance 2 (High), changed in-game to 0 (Low) (applies at the next start), " +
+                                            "RenderScale 0.8, changed in-game to 0.4 (applied at once), FPS 60, Vsync true, FullScreen false";
+                    Assert.Equal(expected, GraphicsHooks.CaptureInGame(prefs));
+                    Assert.Equal(expected, GraphicsHooks.InGame);
+                    prefs.GetProperty("Performance").SetValue(component, 1);
+                    Assert.Equal(expected, GraphicsHooks.CaptureInGame(prefs));           // read once
+                    Assert.EndsWith("; " + expected, GraphicsHooks.Describe());
+                    Assert.Single(sink.Snapshot(), e => e.Message.Contains("graphics: " + expected));
+                    Assert.DoesNotContain(sink.Snapshot(), e => e.Message.Contains("GameOptions_SelectedProfile"));
+                }
+                finally
+                {
+                    prefs.GetField("instance").SetValue(null, null);
+                    GraphicsHooks.ResetForTests();
+                }
+            }
+        }
+
+        [Fact]
+        public void AStartPerformanceOf0ChangedInGameMayHaveBeenUnset()
+        {
+            // An absent member loads as 0; once the menu has written Performance, HasMember no longer tells the start.
+            var prefs = new Dictionary<string, string>
+            {
+                ["Performance"] = "2", ["Performance.start"] = "0", ["Performance.set"] = "unknown",
+                ["RenderScale"] = "0.4", ["RenderScale.start"] = "0.4", ["FPS"] = "60",
+            };
+            Assert.Equal("in-game graphics quality Performance 0 (Low) or not set (the game's own choice), changed in-game to 2 (High) (applies at the next start), " +
+                         "RenderScale 0.4, FPS 60", GraphicsHooks.DescribeInGame(prefs));
+            // Without start values (an older look-alike) the current ones are shown as before.
+            Assert.Equal("in-game graphics quality Performance 1 (Mid), RenderScale 0.6",
+                         GraphicsHooks.DescribeInGame(new Dictionary<string, string> { ["Performance"] = "1", ["RenderScale"] = "0.6", ["Performance.set"] = "true" }));
+        }
+
+        [Theory]
+        [InlineData(true, null, "HighGPU", "LowGPU", true)]     // WR2 boots 2-8: auto, in-game High
+        [InlineData(true, null, "LowGPU", "LowGPU", false)]
+        [InlineData(true, "high", "HighGPU", "LowGPU", false)]  // forced by graphics.profile
+        [InlineData(false, null, "HighGPU", "MidGPU", false)]   // Android keeps its line
+        public void ALoadedProfileOtherThanTheOptimumIsTheInGameChoiceOnPc(bool windows, string choice, string loaded, string optimal, bool overridden)
+        {
+            GraphicsHooks.ResetForTests();
+            try
+            {
+                GraphicsHooks.Configure(choice ?? "auto", false, null, null);
+                if (windows) GraphicsHooks.ConfigureWindows(true);
+                GraphicsHooks.GameOptionsJson(windows ? LookAlike : "{}");
+                var native = new Dictionary<string, string> { ["loaded"] = loaded, ["optimal"] = optimal, ["inGame"] = windows ? "in-game graphics quality Performance 2 (High)" : null };
+                string line = GraphicsHooks.DescribeApplied(new Dictionary<string, object>(), native);
+                output.WriteLine(line);
+                Assert.Equal(overridden, line.Contains("GPU profile " + loaded + " (device optimum " + optimal + "), overridden by the in-game graphics quality"));
+                Assert.Equal(overridden, GraphicsHooks.NativeSummary.Contains("overridden"));
+                Assert.Equal(windows, line.Contains("; in-game graphics quality Performance 2 (High)"));
+            }
+            finally
+            {
+                GraphicsHooks.ResetForTests();
+            }
+        }
+
         [Fact]
         public void TheGraphicsLineOnPcNamesTheMemRule()
         {

@@ -330,9 +330,10 @@ namespace McvsOffline.PcKit.Tests
                 Assert.Single(Directory.GetFiles(tempKit, "listing-*.txt"));
                 Assert.Contains("no earlier listing", box.Out.ToString());
 
-                // The game writes its own files, we write ours (McvsOffline\, args.txt), something else adds GameVersion.
+                // The game writes its own files (GameVersion too, WR2), we write ours (McvsOffline\, args.txt), something else adds dxgi.dll.
                 File.WriteAllText(Path.Combine(box.Game, "dr0.bin"), "x");
                 File.WriteAllText(Path.Combine(box.Game, "GameVersion"), "x");
+                File.WriteAllText(Path.Combine(box.Game, "dxgi.dll"), "x");
                 Directory.CreateDirectory(Path.Combine(box.Game, "McvsOffline", "logs"));
                 File.WriteAllText(Path.Combine(box.Game, "McvsOffline", "logs", "server.log"), "x");
                 box.Env.Now = () => new DateTime(2026, 11, 2, 19, 0, 0);
@@ -340,10 +341,11 @@ namespace McvsOffline.PcKit.Tests
                 string kit = Path.Combine(box.Game, "McvsOffline", "kit");
                 string diff = File.ReadAllText(Path.Combine(kit, KitListing.DiffName));
                 Assert.Contains("added\tdr0.bin\tthe game's own", diff);
-                Assert.Contains("added\tGameVersion\tother (not ours)", diff);
+                Assert.Contains("added\tGameVersion\tthe game's own", diff);
+                Assert.Contains("added\tdxgi.dll\tother (not ours)", diff);
                 Assert.Contains("added\tMcvsOffline\\\tours", diff);
-                Assert.Contains("written by the game, not ours: dr0.bin", box.Out.ToString());
-                Assert.Contains("other files, not ours: GameVersion", box.Out.ToString());
+                Assert.Contains("written by the game, not ours: dr0.bin, GameVersion", box.Out.ToString());
+                Assert.Contains("other files, not ours: dxgi.dll", box.Out.ToString());
             }
         }
 

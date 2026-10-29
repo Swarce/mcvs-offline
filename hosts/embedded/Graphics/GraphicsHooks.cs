@@ -43,6 +43,14 @@ namespace McvsOffline
         private static volatile bool windows;
         private static volatile bool keepPhysicsLayer = true;
         private static volatile string memRule;
+        private static volatile string inGame;
+        private static int inGameMarked;
+
+        /// <summary>The PC in-game graphics options' type (<c>Game.dll</c>, <c>PC-EN/Game/GamePreferencesComponent.cs</c>), looked up only among the loaded assemblies.</summary>
+        internal const string PreferencesTypeName = PreferencesType + ", " + PreferencesAssembly;
+
+        /// <summary>The PC options-menu preferences the graphics lines show, in this order (LocalStorage member names).</summary>
+        internal static readonly string[] InGameOptions = { "Performance", "RenderScale", "FPS", "Vsync", "FullScreen" };
 
         /// <summary>The most options the PC applied line lists (GameOptionManager has a few hundred).</summary>
         internal const int MaxNativeOptions = 200;
@@ -116,6 +124,7 @@ namespace McvsOffline
                 string line = DescribeApplied(resolved, NativeProfiles());
                 effective = line;
                 Mark(line);
+                if (windows) CaptureInGame();
             }
             catch (Exception)
             {
@@ -130,8 +139,188 @@ namespace McvsOffline
                 return "graphics: graphics.profile " + c + "; the game has not read " + OptionsFile + " through patch 'graphics' (yet)";
             string forced = forcedProfile;
             string mem = memRule;
+            string game = windows ? CaptureInGame() : null;
             return "graphics: graphics.profile " + c + (forced == null ? " (the game's own choice)" : ", forced " + forced) +
-                   (fullProfile ? ", fullProfile" : "") + (mem != null ? ", MEM rule " + mem : "") + "; " + (NativeSummary ?? "native profile unknown");
+                   (fullProfile ? ", fullProfile" : "") + (mem != null ? ", MEM rule " + mem : "") + "; " + (NativeSummary ?? "native profile unknown") +
+                   (windows ? "; " + (game ?? "in-game graphics options not read yet") : "");
+        }
+
+        /// <summary>
+        /// PC: "in-game graphics quality Performance 2 (High), RenderScale 0.8, FPS 60, Vsync true, FullScreen true", or null until
+        /// the client World's <c>GamePreferencesComponent</c> has loaded them. Performance and RenderScale are the start values the
+        /// component keeps (<c>initPerformance</c>, <c>initRenderScale</c>): the native GameOptions init reads <c>Performance</c>
+        /// once per process, so those are the ones this run's profiles came from, even when the line is first read after the
+        /// player changed Settings › Graphics (then ", changed in-game to N (applies at the next start)" follows). FPS, Vsync and
+        /// FullScreen apply at once and are the values when the line was first read. Read once.
+        /// </summary>
+        public static string InGame { get { return inGame; } }
+
+        /// <summary>
+        /// PC: reads <see cref="InGame"/> the first time <c>GamePreferencesComponent</c> is ready (from <see cref="Describe"/>, i.e.
+        /// the status line and the settings page, or from <see cref="GameOptionsApplied"/>) and writes it once as a
+        /// "[boot] graphics:" line. Never throws.
+        /// </summary>
+        private static string CaptureInGame()
+        {
+            string known = inGame;
+            if (known != null) return known;
+            try
+            {
+                return CaptureInGame(LoadedType(PreferencesAssembly, PreferencesType));
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        private const string PreferencesAssembly = "Game";
+        private const string PreferencesType = "Game.GamePreferencesComponent";
+
+        /// <summary>
+        /// <paramref name="typeName"/> from an assembly named <paramref name="assemblyName"/> that is already loaded, or null: the
+        /// status thread must never be the one that makes the runtime load Game.dll (its load and redirect belong to the game).
+        /// </summary>
+        private static Type LoadedType(string assemblyName, string typeName)
+        {
+            foreach (Assembly a in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                if (!string.Equals(a.GetName().Name, assemblyName, StringComparison.Ordinal)) continue;
+                Type t = a.GetType(typeName, false, false);
+                if (t != null) return t;
+            }
+            return null;
+        }
+
+        /// <summary><see cref="CaptureInGame()"/> with the preferences type given (tests pass a look-alike).</summary>
+        internal static string CaptureInGame(Type preferences)
+        {
+            string known = inGame;
+            if (known != null) return known;
+            try
+            {
+                string line = DescribeInGame(ReadInGamePreferences(preferences));
+                if (line == null) return null;
+                inGame = line;
+                if (Interlocked.Exchange(ref inGameMarked, 1) == 0) Mark("graphics: " + line);
+                return line;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// The PC options-menu preferences (<see cref="InGameOptions"/>) of <c>GamePreferencesComponent.instance</c>
+        /// (<c>PC-EN/Game/GamePreferencesComponent.cs:101-145</c>) as name → text (the current values), plus the start values
+        /// "Performance.start" and "RenderScale.start" (<c>initPerformance</c>, <c>initRenderScale</c>, set at the end of
+        /// <c>LoadPreferencesWindows</c>) and "Performance.set": whether the World's LocalStorage (<c>MyLocalStorage</c>) had the
+        /// member at start (the native GameOptions init applies it only then, docs/design/pc-port.md §6.7). "true"/"false" from
+        /// <c>HasMember</c> while Performance is still the start value; once the menu has changed it (which writes the member)
+        /// "true" for a start value other than 0 (an absent member loads as 0) and "unknown" for 0. Null while <paramref name="preferences"/> or the instance is null, before its
+        /// <c>LoadPreferencesWindows</c> has finished (<c>initPerformance</c> is still -1), and for a World without a LocalStorage
+        /// (the server Worlds). Never throws.
+        /// </summary>
+        internal static IDictionary<string, string> ReadInGamePreferences(Type preferences)
+        {
+            if (preferences == null) return null;
+            try
+            {
+                FieldInfo instance = preferences.GetField("instance", BindingFlags.Public | BindingFlags.Static);
+                object component = instance == null ? null : instance.GetValue(null);
+                if (component == null) return null;
+                FieldInfo init = preferences.GetField("initPerformance", BindingFlags.NonPublic | BindingFlags.Instance);
+                object started = init == null ? null : init.GetValue(component);
+                if (!(started is int) || (int)started == -1) return null;
+                object storage = LocalStorageOf(component);
+                if (storage == null) return null;
+                var result = new Dictionary<string, string>(StringComparer.Ordinal);
+                foreach (string name in InGameOptions)
+                {
+                    PropertyInfo p = preferences.GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
+                    object value = p == null || p.GetIndexParameters().Length != 0 ? null : p.GetValue(component, null);
+                    if (value != null) result[name] = Show(value);
+                }
+                result["Performance.start"] = Show(started);
+                FieldInfo initScale = preferences.GetField("initRenderScale", BindingFlags.NonPublic | BindingFlags.Instance);
+                object startScale = initScale == null ? null : initScale.GetValue(component);
+                if (startScale != null) result["RenderScale.start"] = Show(startScale);
+                bool changed = !string.Equals(Get(result, "Performance"), result["Performance.start"], StringComparison.Ordinal);
+                MethodInfo has = storage.GetType().GetMethod("HasMember", BindingFlags.Public | BindingFlags.Instance, null, new[] { typeof(string) }, null);
+                object set = has == null ? null : has.Invoke(storage, new object[] { "Performance" });
+                if (changed) result["Performance.set"] = (int)started != 0 ? "true" : "unknown";
+                else if (set is bool) result["Performance.set"] = (bool)set ? "true" : "false";
+                return result;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary><c>component.World.LocalStorage</c> (a <c>LocalStorageComponent</c>), or null.</summary>
+        private static object LocalStorageOf(object component)
+        {
+            PropertyInfo world = component.GetType().GetProperty("World", BindingFlags.Public | BindingFlags.Instance);
+            object w = world == null ? null : world.GetValue(component, null);
+            if (w == null) return null;
+            PropertyInfo storage = w.GetType().GetProperty("LocalStorage", BindingFlags.Public | BindingFlags.Instance);
+            return storage == null ? null : storage.GetValue(w, null);
+        }
+
+        /// <summary>
+        /// "in-game graphics quality Performance 2 (High), RenderScale 0.8, FPS 60, Vsync true, FullScreen true" with the start
+        /// Performance and RenderScale (the current ones when no start value is given), "Performance not set (the game's own
+        /// choice)" when the LocalStorage had no such member at start, "Performance 0 (Low) or not set (the game's own choice)"
+        /// when that cannot be told any more, and ", changed in-game to N (applies at the next start)" (RenderScale: "(applied at
+        /// once)") after a value the menu changed since; null for null.
+        /// </summary>
+        internal static string DescribeInGame(IDictionary<string, string> prefs)
+        {
+            if (prefs == null) return null;
+            var sb = new StringBuilder("in-game graphics quality ");
+            string now = Get(prefs, "Performance");
+            string performance = Get(prefs, "Performance.start") ?? now;
+            string set = Get(prefs, "Performance.set");
+            if (set == "false") sb.Append("Performance not set (the game's own choice)");
+            else
+            {
+                sb.Append("Performance ").Append(performance ?? "?").Append(QualityName(performance));
+                if (set == "unknown") sb.Append(" or not set (the game's own choice)");
+            }
+            if (now != null && performance != null && now != performance)
+                sb.Append(", changed in-game to ").Append(now).Append(QualityName(now)).Append(" (applies at the next start)");
+            for (int i = 1; i < InGameOptions.Length; i++)
+            {
+                string value = Get(prefs, InGameOptions[i]);
+                string start = Get(prefs, InGameOptions[i] + ".start");
+                if (start != null && value != null && !SameScale(start, value))
+                    sb.Append(", ").Append(InGameOptions[i]).Append(' ').Append(start).Append(", changed in-game to ").Append(value).Append(" (applied at once)");
+                else if (start != null || value != null) sb.Append(", ").Append(InGameOptions[i]).Append(' ').Append(start ?? value);
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>Two RenderScale texts compared as the game does (<c>OnPreferencesSavedWindows</c>: <c>ToString("0.00")</c>).</summary>
+        private static bool SameScale(string a, string b)
+        {
+            float x, y;
+            if (float.TryParse(a, NumberStyles.Float, CultureInfo.InvariantCulture, out x) && float.TryParse(b, NumberStyles.Float, CultureInfo.InvariantCulture, out y))
+                return x.ToString("0.00", CultureInfo.InvariantCulture) == y.ToString("0.00", CultureInfo.InvariantCulture);
+            return a == b;
+        }
+
+        /// <summary>Settings › Graphics quality as the menu stores it: 0 Low, 1 Mid, 2 High (default render scales 0.4/0.6/0.8).</summary>
+        private static string QualityName(string performance)
+        {
+            switch (performance)
+            {
+                case "0": return " (Low)";
+                case "1": return " (Mid)";
+                case "2": return " (High)";
+                default: return "";
+            }
         }
 
         /// <summary>The summary of the last rewrite (null before the hook ran).</summary>
@@ -155,6 +344,10 @@ namespace McvsOffline
             string loaded = Get(native, "loaded");
             string optimal = Get(native, "optimal");
             string summary = "GPU profile " + (loaded ?? "unknown") + (optimal != null ? " (device optimum " + optimal + ")" : "");
+            // PC: the native GameOptions init applies MyLocalStorage › Performance (the in-game Graphics quality) on top of the
+            // selection; without a forced profile only that makes the loaded profile differ from the optimum (WR2 boots 2-8).
+            if (windows && loaded != null && optimal != null && loaded != optimal && forcedProfile == null)
+                summary += ", overridden by the in-game graphics quality";
             string memProfile = Get(native, "memLoaded");
             if (memProfile != null) summary += ", MEM profile " + memProfile;
             nativeSummary = summary;
@@ -167,6 +360,8 @@ namespace McvsOffline
             if (gpu != null || model != null) sb.Append("; device GPU '").Append(gpu ?? "?").Append("', model '").Append(model ?? "?").Append('\'');
             string selected = Get(native, "selectedProfile");
             if (selected != null) sb.Append("; in-game graphic setting GameOptions_SelectedProfile ").Append(selected);
+            string game = Get(native, "inGame");
+            if (game != null) sb.Append("; ").Append(game);
             string memory = Get(native, "memory");
             string level = Get(native, "featureLevel");
             string cores = Get(native, "cores");
@@ -219,8 +414,9 @@ namespace McvsOffline
         /// <summary>
         /// What the engine reports, by reflection on Gameloft.Engine (absent in tests): GameOptionManager.GetLoadedProfileName("GPU")
         /// and GetOptimalProfileName("GPU") (native strings made with MoreMarshal_CreateNativeString, released with
-        /// DestroyNativeString as the game does for GetOptionString), DeviceGPU, DeviceModel, and the in-game graphic setting
-        /// (AppPreferences "GameOptions_SelectedProfile", GamePreferencesComponent.NativeChangeGraphicSetting). Never throws.
+        /// DestroyNativeString as the game does for GetOptionString), DeviceGPU, DeviceModel, and the in-game graphic setting: on
+        /// Android AppPreferences "GameOptions_SelectedProfile" (GamePreferencesComponent.NativeChangeGraphicSetting); on PC, which
+        /// keeps it in LocalStorage "Performance" instead, <see cref="InGame"/> when it is already readable. Never throws.
         /// </summary>
         private static Dictionary<string, string> NativeProfiles()
         {
@@ -240,6 +436,9 @@ namespace McvsOffline
                     result["memory"] = StaticString(manager, "DeviceTotalMemory");
                     result["featureLevel"] = StaticString(manager, "DeviceGraphicsFeatureLevel");
                     result["cores"] = StaticString(manager, "DeviceCPUNumCores");
+                    string game = CaptureInGame();
+                    if (game != null) result["inGame"] = game;
+                    return result;
                 }
                 Type prefs = Type.GetType("Gameloft.Engine.AppPreferences, Gameloft.Engine", false);
                 MethodInfo getInt = prefs == null ? null
@@ -391,6 +590,8 @@ namespace McvsOffline
             windows = false;
             keepPhysicsLayer = true;
             memRule = null;
+            inGame = null;
+            inGameMarked = 0;
         }
     }
 }

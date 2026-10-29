@@ -169,7 +169,7 @@ namespace McvsOffline.Embedded.Windows
         {
         }
 
-        /// <summary>"steam running yes, overlay enabled yes" and the install check's line once it ran ("installed, NOT ACTIVE" first, WR2 F2).</summary>
+        /// <summary>"steam running yes, overlay enabled yes", the install check's line once it ran ("installed, NOT ACTIVE" first, WR2 F2), and the process memory (RuntimeInfo.FormatMemory).</summary>
         public string StatusExtras()
         {
             try
@@ -180,6 +180,8 @@ namespace McvsOffline.Embedded.Windows
                 PatchWatcher patches = h == null ? null : h.Patches;
                 string install = InstallCheck.Describe(installLine, patches == null ? null : patches.NotActive);
                 if (install != null) text += "; " + install;
+                string memory = RuntimeInfo.DescribeMemory();
+                if (memory != null) text += "; " + memory;
                 return text;
             }
             catch (Exception)

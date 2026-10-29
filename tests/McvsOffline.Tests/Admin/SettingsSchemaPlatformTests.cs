@@ -79,6 +79,12 @@ namespace McvsOffline.Tests.Admin
             SettingDefinition android = SettingsSchema.Find("graphics.profile");
             Assert.Contains("the game's choice for this PC", pc.Help);
             Assert.Contains("Ultra: HighGPU on PC, which has no High_Ultra", pc.Help);
+            // GameOptions_windows.json's GPU selection (WR2 verify #18): no "MidGPU on cards it does not know" on PC.
+            Assert.DoesNotContain("MidGPU on", pc.Help);
+            Assert.Contains("HighGPU only with at least 700 MB of GPU memory and 4 cores", pc.Help);
+            Assert.Contains("MidGPU with at least 550 MB of GPU memory, 4 GB of RAM and 4 cores, otherwise LowGPU", pc.Help);
+            Assert.Contains("The in-game Graphics quality (Settings › Graphics) overrides it.", pc.Help);
+            Assert.Contains("32-bit process", pc.Help);
             Assert.DoesNotContain("phone", pc.Help);
             Assert.Contains("phone", android.Help); // the catalogue itself is unchanged
             // Only the text differs: type, options, default and apply are the same key.
@@ -88,6 +94,31 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal(android.Default, pc.Default);
             Assert.Equal(android.Apply, pc.Apply);
             Assert.Equal(android.Label, pc.Label);
+        }
+
+        /// <summary>No PC GPU block sets excludedLoadingLayers: on PC fullProfile only moves reducedAiUpdateFrequency.</summary>
+        [Fact]
+        public void WindowsHasThePcWordingOfFullProfile()
+        {
+            SettingDefinition pc = SettingsSchema.GroupsFor("windows").SelectMany(v => v.Keys).Single(k => k.Key == "graphics.fullProfile");
+            SettingDefinition android = SettingsSchema.Find("graphics.fullProfile");
+            Assert.Contains("AI update rate", pc.Help);
+            Assert.Contains("On PC this is the only difference", pc.Help);
+            Assert.DoesNotContain("stays unloaded", pc.Help);
+            Assert.DoesNotContain("Physics", pc.Confirm);
+            Assert.Contains("bot AI twice as often", pc.Confirm);
+            Assert.Contains("stays unloaded", android.Help);      // the catalogue itself is unchanged
+            Assert.Contains("Physics layer", android.Confirm);
+            Assert.Same(android, SettingsSchema.GroupsFor("android").SelectMany(v => v.Keys).Single(k => k.Key == "graphics.fullProfile"));
+            Assert.Equal(android.Type, pc.Type);
+            Assert.Equal(android.Default, pc.Default);
+            Assert.Equal(android.Apply, pc.Apply);
+            Assert.Equal("High profiles change world loading too", android.Label);
+            Assert.NotEqual(android.Label, pc.Label);
+            Assert.DoesNotContain("world loading", pc.Label);
+            Assert.Contains("AI rate", pc.Label);
+            Assert.Equal(android.ConfirmWhen, pc.ConfirmWhen);
+            Assert.Equal(android.BackupBefore, pc.BackupBefore);
         }
 
         /// <summary>The PC has no Downloads copies, thread dumps or exit files, and cleans %TEMP%\McvsOffline\logs too.</summary>

@@ -107,7 +107,7 @@ namespace McvsOffline.PcSpike
                     int length = Array.IndexOf(bytes, (byte)0);
                     if (length < 0) length = bytes.Length;
                     if (!IsGame(pid) || written > MaxBytes) continue;
-                    string text = Encoding.UTF8.GetString(bytes, 0, length).TrimEnd('\r', '\n');
+                    string text = AnsiCodePage.Current.GetString(bytes, 0, length).TrimEnd('\r', '\n');
                     string line = DateTime.Now.ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture) + " [" + pid.ToString(CultureInfo.InvariantCulture) + "] " + text;
                     writer.WriteLine(line);
                     written += line.Length + 2;

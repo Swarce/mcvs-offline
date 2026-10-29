@@ -150,6 +150,25 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Method(p, marshal, "DestroyNativeString", PublicStatic, new[] { typeof(IntPtr) });
                 p.Check(engine.GetType("Gameloft.Engine.GameOptionPerformanceProfileComponent", false) != null, "GameOptionPerformanceProfileComponent (the component the hook gets)");
 
+                // GraphicsHooks.ReadInGamePreferences (WR2 F7): the PC options menu's LocalStorage preferences.
+                p.Check(McvsOffline.GraphicsHooks.PreferencesTypeName == "Game.GamePreferencesComponent, Game", "PreferencesTypeName names Game.dll");
+                Type preferences = type(game, "Game.GamePreferencesComponent");
+                FieldInfo instance = preferences?.GetField("instance", PublicStatic);
+                p.Check(instance != null && instance.FieldType == preferences, "GamePreferencesComponent.instance");
+                p.Check(preferences?.GetField("initPerformance", BindingFlags.NonPublic | BindingFlags.Instance)?.FieldType == typeof(int),
+                        "GamePreferencesComponent.initPerformance (int)");
+                p.Check(preferences?.GetField("initRenderScale", BindingFlags.NonPublic | BindingFlags.Instance)?.FieldType == typeof(float),
+                        "GamePreferencesComponent.initRenderScale (float)");
+                var expectedTypes = new Dictionary<string, Type>
+                {
+                    ["Performance"] = typeof(int), ["RenderScale"] = typeof(float), ["FPS"] = typeof(float), ["Vsync"] = typeof(bool), ["FullScreen"] = typeof(bool),
+                };
+                Assert.Equal(expectedTypes.Keys, McvsOffline.GraphicsHooks.InGameOptions);
+                foreach (string option in McvsOffline.GraphicsHooks.InGameOptions) Prop(p, preferences, option, PublicInstance, expectedTypes[option]);
+                Type worldType = Prop(p, preferences, "World", PublicInstance)?.PropertyType;
+                Type storageType = Prop(p, worldType, "LocalStorage", PublicInstance)?.PropertyType;
+                Method(p, storageType, "HasMember", PublicInstance, new[] { typeof(string) }, typeof(bool));
+
                 // WindowsExit (§6.6) and the watchdog.
                 Method(p, type(engine, "Gameloft.Engine.MenuManager"), McvsOffline.Embedded.Windows.WindowsExit.ExitMethod, PublicStatic, Type.EmptyTypes, typeof(void));
                 Type application = type(engine, "Gameloft.Engine.GameApplication");

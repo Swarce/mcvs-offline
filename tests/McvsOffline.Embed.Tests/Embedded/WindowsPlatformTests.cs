@@ -179,6 +179,19 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.StartsWith("runtime: CLR ", RuntimeInfo.Format(RuntimeInfo.Read()));   // this machine: never throws
         }
 
+        /// <summary>WR2 F9: the [status] line carries the host's memory against the 32-bit game's 2 GB (no 'watch' needed).</summary>
+        [Fact]
+        public void TheStatusLineCarriesTheProcessMemory()
+        {
+            const long mb = 1024 * 1024;
+            Assert.Equal("memory: private 1001 MB, virtual 1727 MB (84 % of 2048 MB), GC heap 85 MB",
+                         RuntimeInfo.FormatMemory(1001 * mb + 5, 1727 * mb + 400 * 1024, 85 * mb));
+            Assert.Equal("memory: private 0 MB, virtual 0 MB (0 % of 2048 MB), GC heap 0 MB", RuntimeInfo.FormatMemory(0, 0, 0));
+            Assert.StartsWith("memory: private ", RuntimeInfo.DescribeMemory());
+            var platform = new WindowsPlatform { Steam = new SteamOverlayTests.FakeSteam() };
+            Assert.Matches(@"; memory: private \d+ MB, virtual \d+ MB \(\d+ % of 2048 MB\), GC heap \d+ MB$", platform.StatusExtras());
+        }
+
         [Fact]
         public void LargeAddressAwareIsReadFromThePeHeader()
         {

@@ -42,6 +42,7 @@
     <Compile Include="../pc-spike/SteamLocator.cs" Link="Spike/SteamLocator.cs" />
     <Compile Include="../pc-spike/Vdf.cs" Link="Spike/Vdf.cs" />
     <Compile Include="../pc-spike/DebugOutputCapture.cs" Link="Spike/DebugOutputCapture.cs" />
+    <Compile Include="../pc-spike/AnsiCodePage.cs" Link="Spike/AnsiCodePage.cs" />
     <Compile Include="../pc-spike/CrashLogDecoder.cs" Link="Spike/CrashLogDecoder.cs" />
     <Compile Include="../pc-spike/ConsoleLines.cs" Link="Spike/ConsoleLines.cs" />
     <Compile Include="../pc-spike/StopSignal.cs" Link="Spike/StopSignal.cs" />

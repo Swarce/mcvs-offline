@@ -2,6 +2,7 @@ using System;
 using System.Globalization;
 using System.IO;
 using System.Reflection;
+using McvsOffline.Patcher.Pc;
 
 namespace McvsOffline.PcKit
 {
@@ -86,6 +87,53 @@ namespace McvsOffline.PcKit
             string version = attribute == null ? typeof(KitServer).Assembly.GetName().Version.ToString() : attribute.InformationalVersion;
             int plus = version.IndexOf('+');
             return plus < 0 ? version : version.Substring(0, plus);
+        }
+
+        /// <summary>
+        /// The kit's own file: the single-file exe the player runs (<see cref="Environment.ProcessPath"/>), or this assembly when it
+        /// runs under the dotnet host (a development build). Null when neither is known.
+        /// </summary>
+        public static string OwnPath()
+        {
+            string process = Environment.ProcessPath;
+            if (!string.IsNullOrEmpty(process) && !string.Equals(Path.GetFileNameWithoutExtension(process), "dotnet", StringComparison.OrdinalIgnoreCase))
+                return process;
+            string assembly = typeof(KitServer).Assembly.Location;
+            return string.IsNullOrEmpty(assembly) ? null : assembly;
+        }
+
+        private static readonly object hashGate = new object();
+        private static string hashedPath;
+        private static string hashedValue;
+
+        /// <summary>
+        /// "kit 0.1.0, sha256 0ca7d218…" (the whole hash) for the header of every pc-kit.log command and summary.txt (WR2 F9:
+        /// a report names exactly which kit wrote it); "sha256 unknown" when the file cannot be read. Hashed once per path.
+        /// </summary>
+        public static string Identity(KitEnvironment env)
+        {
+            string path = null;
+            try
+            {
+                path = env == null || env.KitPath == null ? null : env.KitPath();
+            }
+            catch (Exception)
+            {
+            }
+            return "kit " + Version() + ", sha256 " + (Sha256Of(path) ?? "unknown");
+        }
+
+        private static string Sha256Of(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return null;
+            lock (hashGate)
+            {
+                if (string.Equals(hashedPath, path, StringComparison.Ordinal)) return hashedValue;
+                string value = GameFolder.TrySha256(path);
+                hashedPath = path;
+                hashedValue = value;
+                return value;
+            }
         }
 
         public static string Stamp(DateTime time)

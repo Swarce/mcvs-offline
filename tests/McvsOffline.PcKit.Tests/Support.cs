@@ -74,8 +74,16 @@ namespace McvsOffline.PcKit.Tests
                     return found;
                 },
                 DefaultBcl = () => Path.Combine(Root, "bcl"),
+                KitPath = () => KitFile,
             };
+            File.WriteAllText(KitFile, KitFileText);
         }
+
+        /// <summary>What the sandbox's kit file holds (its SHA-256 is in every log header and summary.txt).</summary>
+        public const string KitFileText = "the kit exe";
+
+        /// <summary>The kit's own file in this sandbox.</summary>
+        public string KitFile { get { return Path.Combine(Root, "McvsOffline.PcKit.exe"); } }
 
         public string Root { get; }
 
@@ -142,5 +150,15 @@ namespace McvsOffline.PcKit.Tests
         public int? NetFrameworkRelease() { return Release; }
 
         public IList<string> ProcessNames() { return Processes; }
+
+        public List<GpuAdapter> Gpus;
+        public List<DisplayMode> Screens;
+        public long? Memory;
+
+        public IList<GpuAdapter> GpuAdapters() { return Gpus; }
+
+        public IList<DisplayMode> Displays() { return Screens; }
+
+        public long? PhysicalMemoryBytes() { return Memory; }
     }
 }
