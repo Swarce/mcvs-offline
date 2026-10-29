@@ -233,12 +233,13 @@ exact item lists: [ECONOMY.md](ECONOMY.md).
   an online match. During the tutorial Battle starts the game's scripted onboarding matches instead.
 - **Special Event** (the second box after Battle) is the game's Arena mode: a time-limited event with a twist (Havoc,
   Blitz, Competitive best-of-3, Grand Bounty and others) that sets the mode, the map, the allowed agents and reward
-  multipliers. Live ops generates these events; the box is locked while none is running.
+  multipliers. The box is locked while no event is running, and offline it stays locked until live ops generates
+  Arena events.
 - **Tournaments** are the game's private matches. The game never fills a private match with bots (no setting changes
   that), and a tournament gives no trophies, division progress, Credits, VersusCoins, MVP bonus, agent XP or stats, by
   the game's design: only the prize crate when you win (its gem cost is paid when you press Start, refunded on a
   draw), the crate-track win count, tournament achievements and probably daily and weekly mission progress. Play them
-  with other players over LAN (experimental, section 9); for bot matches use Classic.
+  with other players over LAN (experimental, not working end to end yet: section 9); for bot matches use Classic.
 - **The Practice tile** (optional, off by default). The game has its own bot-match tile, "PRACTICE", but Gameloft's
   data hides it. Setting **Practice tile in the main menu** (`crm.practiceTile`, page: Settings › Gameplay) shows it as
   the sixth tile of the main menu: tap it, confirm, and with the default `bottile` patch you get the same bot-filled,

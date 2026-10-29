@@ -1507,9 +1507,9 @@ modules' open issues.
     PvP is activated; it starts at once, filled with 7 bots (`instantBots`) (verify-C4). There is no visible
     bot-match tile: `bottile` only affects the hidden PRACTICE tile (MainMenuElements row 13, `Displayed=false`), which
     the opt-in `crm.practiceTile` shows (placement and art untested). Tournaments (custom matches) are private matches:
-    the GS never fills them with bots and they give no trophies, currency, MVP, agent XP or stats, by design; play
-    them with other humans on LAN, or Classic for bots. Special Event is the game's Arena mode; live ops generates
-    its events in this release.
+    the GS never fills them with bots and they give no trophies, currency, MVP, agent XP or stats, by design; they
+    need other human players (LAN is experimental and does not work end to end yet, PLAYER-SETUP §9), so use Classic
+    for bots. Special Event is the game's Arena mode; it is locked offline until Arena events are generated.
 12. **The GS's Lobby round-trips** (`encrypt_token`/`verify` for its own super session, `GetRoomInfo`) never fail: a
     failure there plays the match and grants nothing (verify-C4 §4.1). Fed ids must match on both paths (§4.3).
 13. **Matchmaking after a network change** (Wi-Fi or airplane mode toggled while the game runs), fixed by the default

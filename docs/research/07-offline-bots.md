@@ -401,7 +401,7 @@ trophies), but skips achievements and `OnMatchOver`.
 
 | Effect | Onboarding bot match | Bot match after PvP activation | GS PvP match (incl. bot-filled) |
 |---|---|---|---|
-| Currency/items | onboarding table (Battle) or BotMatchesInfo (bot tile) | BotMatchesInfo table | division Credits + VersusCoins (daily caps), MVP |
+| Currency/items | onboarding table (Battle) or BotMatchesInfo (hidden PRACTICE tile) | BotMatchesInfo table | division Credits + VersusCoins (daily caps), MVP |
 | MVP bonus | yes | **no** | yes |
 | Merc mastery XP | yes (from `agentScores`) | **no** (client sends `{}`, server gated) | yes (`BuildAgentsMasteryRewards`, `GM/PlayerProfileComponent.cs:5609-5614, 5634-5680`) |
 | Career trophies (GentleTrophies) | yes | **no** | yes |
@@ -578,7 +578,8 @@ lists it in `MatchTypeProbability`.
 | Meta | `AIOnboardingSpecs` | onboarding rewards, squads, UI flags | `GM/MetagameComponent.cs:103, 1031, 1518-1527`, `GM/AIOnboardingSpecs.cs` |
 | Meta | `CreditsCurrencyMatchRewards`, `VersusCoinsMatchRewards` | PvP currency and daily caps (also caps offline Credits) | `GM/MetagameComponent.cs:97-99`, `GM/RewardComponent.cs:346-430` |
 | Meta | `MatchmakingBotAddingTime` | GS lobby time before bots | `GM/GameMatchmakingComponent.cs:145, 644-650` |
-| Meta | `MenuMatchInfos` | menu match tiles (`Type`, `Displayed`, `Locked`, `IsPVP`) | `GM/MainMenuComponent.cs:73, 360, 722-770` |
+| Meta | `MenuMatchInfos` | title and text of the `PopupSolo_Bot_Match` confirm popup (row 2 `BOTMATCH`); `Displayed` is never read, the tiles are `MainMenuElements` | `GM/MainMenuComponent.cs:73, 360, 722-770` |
+| Meta | `MainMenuElements` | main-menu tiles; row 13 `SOLO` (`LINK_SOLO`, "PRACTICE") is the bot-match tile, `Displayed=false` in the shipped data (shown by `crm.practiceTile`) | `GM/MainMenuComponent.cs:436-480, 642-660` |
 | Meta | `FTUE_Rewards_List`, `FTUETapReminder`, `FTUE_Conditions` | FTUE gates and rewards | `GM/MetagameComponent.cs:73-79, 864-893` |
 | Meta | map table (`MapsComponent.Table`) | map list and modes | `GM/MapsComponent.cs:22-30` |
 | Gameplay | `MatchTypeProbability`, `MatchTypeSpecs` | mode pick, mode list | `GM/GameplayComponent.cs:656-705`, `GM/MapsComponent.cs:27-28` |

@@ -229,7 +229,7 @@ What the game offers for "season modifiers":
   (`GameClientComponent IsArenaSelected` → `filters._arena`), carried in the matchmaker room kwargs
   (`default_room_kwargs._arenaParams`). The in-process LocalAnubis already copies `default_room_kwargs` into the room
   (`LA/Lobby.cs:338-350`), so **no LocalAnubis change is needed**; regular quick matches never see it. Without an
-  `ArenaModeEvent` the Special Event box stays locked; live ops generates them in this release. Client traps: `img`
+  `ArenaModeEvent` the Special Event box stays locked; it is locked offline until Arena events are generated. Client traps: `img`
   is mandatory (a missing one aborts the whole event list), the agent list must be non-empty and without "Any", and
   the windows must be contiguous (a gap leaves the GS without `_arenaParams`).
 * **`BonusMultiplierEvent`** (not used): only the texts of the ad-reward "boost" banner; ads do not exist offline.
