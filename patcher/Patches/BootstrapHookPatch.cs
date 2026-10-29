@@ -33,6 +33,8 @@ namespace McvsOffline.Patcher.Patches
 
         public override void Apply(ModuleDefinition module, PatchContext context)
         {
+            ForBuild(context, Id, null);   // Android only: excluded on PC (docs/design/pc-port.md §8.8)
+            PatchSites.RequireBuildAssembly(module, context, Id);
             TypeDefinition type = RequireType(module, TypeName);
             MethodDefinition onInitialize = RequireMethod(type, "OnInitialize",
                 m => m.IsStatic && m.IsPublic && !m.HasParameters && m.ReturnType.MetadataType == MetadataType.Void,

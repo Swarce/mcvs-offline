@@ -138,6 +138,8 @@ namespace McvsOffline.Patcher.Patches
 
         public override void Apply(ModuleDefinition module, PatchContext context)
         {
+            ForBuild(context, Id, null);   // Android only: excluded on PC (docs/design/pc-port.md §8.8)
+            PatchSites.RequireBuildAssembly(module, context, Id);
             if (module.GetType("Gameloft.Engine." + HelperType) != null)
                 throw new PatchException("Gameloft.Engine.dll is already patched: run the patcher on your original APK");
 

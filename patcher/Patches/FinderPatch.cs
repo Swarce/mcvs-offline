@@ -27,6 +27,8 @@ namespace McvsOffline.Patcher.Patches
 
         public override void Apply(ModuleDefinition module, PatchContext context)
         {
+            ForBuild(context, Id, null);   // Android only: excluded on PC (docs/design/pc-port.md §8.8)
+            PatchSites.RequireBuildAssembly(module, context, Id);
             TypeDefinition type = RequireType(module, TypeName);
             MethodDefinition ctor = RequireMethod(type, ".ctor", m => m.Parameters.Count == 3 && m.Parameters[2].ParameterType.MetadataType == MetadataType.Int32,
                                                   "constructor (Session, Lobby, int)");

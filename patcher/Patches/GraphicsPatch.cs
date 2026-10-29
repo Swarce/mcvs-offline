@@ -34,6 +34,11 @@ namespace McvsOffline.Patcher.Patches
     /// keeps at the MidGPU values) is documented in hosts/embedded/Graphics/GameOptionsProfile.cs; with <c>auto</c> (the
     /// default) the text is passed through unchanged. Checked against the IL fingerprint of the verified 1.17.32 build first;
     /// a second run fails it.
+    /// <para>
+    /// PC (docs/design/pc-port.md §8.6, mandatory there): the same <c>OnCreate</c> (identical fingerprint) reads
+    /// GameOptions_windows.json; the PC component has no <c>m_options</c> field (<c>ApplyGameOptions</c> builds a local
+    /// dictionary), so <c>OptionsApplied</c> forwards the component itself and the host reads the options from it.
+    /// </para>
     /// </summary>
     public sealed class GraphicsPatch : IlPatch
     {
@@ -46,18 +51,21 @@ namespace McvsOffline.Patcher.Patches
 
         public override string AssemblyFile => "Gameloft.Engine.dll";
 
-        public override string Description => "graphics profile: settings graphics.profile picks Gameloft's own GPU block in GameOptions_android.json, effective options logged (Gameloft.Engine.dll)";
+        public override string Description => "graphics profile: settings graphics.profile picks Gameloft's own GPU block in the game options JSON, effective options logged (Gameloft.Engine.dll)";
 
         public override void Apply(ModuleDefinition module, PatchContext context)
         {
             // ---- locate and verify
+            PatchSites.RequireBuildAssembly(module, context, Id);
+            string onCreateFingerprint = ForBuild(context, OnCreateFingerprint, OnCreateFingerprint);
             TypeDefinition component = RequireType(module, TypeName);
             if (module.GetType("Gameloft.Engine." + HelperType) != null)
                 throw new PatchException("Gameloft.Engine.dll is already patched: run the patcher on your original APK");
             MethodDefinition onCreate = RequireMethod(component, "OnCreate",
                 m => !m.IsStatic && !m.HasParameters && m.IsVirtual && m.ReturnType.MetadataType == MetadataType.Void, "protected override void OnCreate()");
-            RequireFingerprint(onCreate, OnCreateFingerprint, "GameOptionPerformanceProfileComponent.OnCreate()");
-            FieldDefinition options = RequireField(component, "m_options",
+            RequireFingerprint(onCreate, onCreateFingerprint, "GameOptionPerformanceProfileComponent.OnCreate()");
+            // Android forwards the options dictionary the component keeps; PC has none and forwards the component (§8.6).
+            FieldDefinition options = context.Build.IsPc ? null : RequireField(component, "m_options",
                 "System.Collections.Generic.Dictionary`2<System.String,System.Object>");
 
             var code = onCreate.Body.Instructions;
@@ -128,7 +136,8 @@ namespace McvsOffline.Patcher.Patches
 
             // internal static void OptionsApplied(GameOptionPerformanceProfileComponent component)
             // {
-            //     try { ForwardApplied(component == null ? null : component.m_options); } catch { }
+            //     try { ForwardApplied(component == null ? null : component.m_options); } catch { }   // Android
+            //     try { ForwardApplied(component); } catch { }                                          // PC
             // }
             var optionsApplied = new MethodDefinition("OptionsApplied", MethodAttributes.Assembly | MethodAttributes.Static | MethodAttributes.HideBySig, ts.Void);
             optionsApplied.Parameters.Add(new ParameterDefinition("component", ParameterAttributes.None, component));
@@ -136,14 +145,17 @@ namespace McvsOffline.Patcher.Patches
                 ILProcessor il = optionsApplied.Body.GetILProcessor();
                 Instruction ret = il.Create(OpCodes.Ret);
                 Instruction call = il.Create(OpCodes.Call, forwardApplied);
-                Instruction isNull = il.Create(OpCodes.Ldnull);
                 Instruction tryStart = il.Create(OpCodes.Ldarg_0);
                 il.Append(tryStart);
-                il.Emit(OpCodes.Brfalse, isNull);
-                il.Emit(OpCodes.Ldarg_0);
-                il.Emit(OpCodes.Ldfld, options);
-                il.Emit(OpCodes.Br, call);
-                il.Append(isNull);
+                if (options != null)
+                {
+                    Instruction isNull = il.Create(OpCodes.Ldnull);
+                    il.Emit(OpCodes.Brfalse, isNull);
+                    il.Emit(OpCodes.Ldarg_0);
+                    il.Emit(OpCodes.Ldfld, options);
+                    il.Emit(OpCodes.Br, call);
+                    il.Append(isNull);
+                }
                 il.Append(call);
                 il.Emit(OpCodes.Leave, ret);
                 Instruction handler = il.Create(OpCodes.Pop);
@@ -158,16 +170,16 @@ namespace McvsOffline.Patcher.Patches
             }
             helper.Methods.Add(optionsApplied);
 
-            // ---- change: the text read from GameOptions_android.json goes through McvsGraphics.GameOptionsJson (string -> string,
+            // ---- change: the text read from the game options JSON goes through McvsGraphics.GameOptionsJson (string -> string,
             // the stack shape stays the same) and McvsGraphics.OptionsApplied(this) runs after ApplyGameOptions. Five bytes each:
             // the body's short branches (brtrue.s IL_0060, the farthest) stay in range.
             ILProcessor body = onCreate.Body.GetILProcessor();
             body.InsertAfter(code[read], body.Create(OpCodes.Call, gameOptionsJson));
             body.InsertBefore(last, body.Create(OpCodes.Ldarg_0));
             body.InsertBefore(last, body.Create(OpCodes.Call, optionsApplied));
-            context.Notes.Add(onCreate.FullName + ": GameOptions_android.json goes through " + HooksType + ".GameOptionsJson before " +
+            context.Notes.Add(onCreate.FullName + ": " + context.Build.GameOptionsFile + " goes through " + HooksType + ".GameOptionsJson before " +
                               "InitializeGameOption (settings graphics.profile: auto, mid, high, ultra), and " + HooksType +
-                              ".GameOptionsApplied logs the effective options");
+                              ".GameOptionsApplied logs the effective options" + (context.Build.IsPc ? " (it gets the component itself)" : ""));
         }
 
         private static MethodDefinition Forwarder(TypeDefinition owner, string name, TypeReference returnType, MethodReference target, params TypeReference[] parameters)

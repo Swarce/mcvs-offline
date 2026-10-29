@@ -28,6 +28,9 @@ namespace McvsOffline.Patcher.Patches
     {
         public const string BrowserType = "Gameloft.Engine.BrowserComponent";
         public const string OpenUrlFingerprint = "7585cdc7e72ffbe58c2a11dbc768aa94cfad044bea81a0330aaee6291db456cb";
+
+        /// <summary>PC <c>OpenUrl</c> (86 instructions: no Facebook hit, the survey branch; it opens the Steam overlay after login).</summary>
+        public const string PcOpenUrlFingerprint = "7ff1c8c2e34c2619e262ce8c4c1ffced5134409db7106559d8eb5e4ed032ea29";
         public const string HooksType = AdminPagePatch.HooksType;
 
         public override string Id => "adminlink";
@@ -39,12 +42,14 @@ namespace McvsOffline.Patcher.Patches
         public override void Apply(ModuleDefinition module, PatchContext context)
         {
             // ---- locate and verify
+            PatchSites.RequireBuildAssembly(module, context, Id);
+            string fingerprint = ForBuild(context, OpenUrlFingerprint, PcOpenUrlFingerprint);
             TypeDefinition browser = RequireType(module, BrowserType);
             MethodDefinition openUrl = RequireMethod(browser, "OpenUrl",
                 m => !m.IsStatic && m.IsPublic && m.Parameters.Count == 2 && m.Parameters[0].ParameterType.MetadataType == MetadataType.String &&
                      m.Parameters[1].ParameterType.MetadataType == MetadataType.Boolean && m.ReturnType.MetadataType == MetadataType.Void,
                 "public instance void OpenUrl(string, bool)");
-            RequireFingerprint(openUrl, OpenUrlFingerprint, "BrowserComponent.OpenUrl(string, bool)");
+            RequireFingerprint(openUrl, fingerprint, "BrowserComponent.OpenUrl(string, bool)");
             var code = openUrl.Body.Instructions;
             if (code[0].OpCode != OpCodes.Ldarg_0 || code[1].OpCode != OpCodes.Call || !IsCall(code[1], "Gameloft.Engine.Component", "get_World"))
                 throw new PatchException(openUrl.FullName + ": the verified sites moved:\n" + Dump(openUrl));
