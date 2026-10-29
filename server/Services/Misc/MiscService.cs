@@ -23,6 +23,8 @@ namespace McvsOffline.Server.Services.Misc
     /// <item><b>Marketing hits</b> and the <b>in-game browser</b> (eve "marketing_site": <c>redir/iphoneloading.php</c>,
     /// <c>redir/?...</c>, <c>EN/TrackingHitsComponent.cs</c>, <c>EN/BrowserComponent.cs</c>): hits only check the status;
     /// the browser shows a short "not available offline" page.</item>
+    /// <item><b>Browser icons</b>: <c>/favicon.ico</c> (the Steam client and the overlay's browser on the offline page,
+    /// WR2 F11) answers 204, logged at DEBUG; our own pages carry <see cref="EmptyIcon"/> so they do not ask.</item>
     /// <item><b>Game portal</b> (<c>ios/1916/public/gamePortal/gamePortal.wsgi</c>, no caller in the game) and the chat
     /// <b>abuse report</b> (<c>https://cmt.gameloft.com/api/index.php</c>, reached only if that host is redirected): 200 {}.</item>
     /// <item><b>Unknown endpoints</b> still go to the core fallback (logged in full, also to
@@ -42,9 +44,12 @@ namespace McvsOffline.Server.Services.Misc
             "game_stats_by_time", "matches", "backups",
         };
 
+        /// <summary>An empty icon in the page itself: a browser that shows the page does not ask for /favicon.ico.</summary>
+        public const string EmptyIcon = "<link rel=\"icon\" href=\"data:,\">";
+
         public const string OfflinePage =
             "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-            + "<title>MCVS Offline</title></head><body style=\"background:#111;color:#ddd;font-family:sans-serif;text-align:center;padding:2em\">"
+            + "<title>MCVS Offline</title>" + EmptyIcon + "</head><body style=\"background:#111;color:#ddd;font-family:sans-serif;text-align:center;padding:2em\">"
             + "<h2>Not available offline</h2><p>This page came from Gameloft's servers, which are gone. "
             + "MCVS Offline runs the game without them.</p></body></html>";
 
@@ -66,6 +71,9 @@ namespace McvsOffline.Server.Services.Misc
             router.Any("redir/{*rest}", "misc.marketing", request =>
                 HttpResponse.Text(OfflinePage, HttpStatus.Ok, "text/html; charset=utf-8"), Router.CatchAllOrder);
 
+            // Browser icons: nothing to show, nothing worth an INFO line (GET and HEAD).
+            router.Get("favicon.ico", "misc.favicon", request => Favicon(), Router.CatchAllOrder);
+
             // Game portal (no caller in the game) and the chat abuse report (cmt.gameloft.com/api/index.php).
             router.Any("ios/{*rest}", "misc.gameportal", request => HttpResponse.EmptyObject(), Router.CatchAllOrder);
             router.Post("api/index.php", "misc.chat.report", request =>
@@ -77,6 +85,14 @@ namespace McvsOffline.Server.Services.Misc
             ConnectivityTracker.Register(router, log);
 
             InstallArrayAwareFallback(router, log);
+        }
+
+        /// <summary>204 No Content, logged at DEBUG.</summary>
+        public static HttpResponse Favicon()
+        {
+            HttpResponse response = HttpResponse.Empty(HttpStatus.NoContent);
+            response.LogAtDebug = true;
+            return response;
         }
 
         private static HttpResponse Tracking(ServerContext context, Log log, HttpRequest request)

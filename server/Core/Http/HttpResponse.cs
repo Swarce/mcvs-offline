@@ -51,6 +51,12 @@ namespace McvsOffline.Server.Core.Http
         /// <summary>Close the connection after this response.</summary>
         public bool CloseConnection { get; set; }
 
+        /// <summary>
+        /// The request log writes this exchange at DEBUG instead of INFO (an expected request nobody needs to read, such as
+        /// a browser's <c>/favicon.ico</c>); a status of 400 or more is still INFO, 500 or more WARN.
+        /// </summary>
+        public bool LogAtDebug { get; set; }
+
         /// <summary>The body decoded as UTF-8 (tests, logs).</summary>
         public string BodyText { get { return Body == null || Body.Length == 0 ? "" : Encoding.UTF8.GetString(Body); } }
 

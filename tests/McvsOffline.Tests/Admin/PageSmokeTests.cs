@@ -81,6 +81,9 @@ namespace McvsOffline.Tests.Admin
 
         internal static string Style => Regex.Match(Page, @"<style>(.*?)</style>", RegexOptions.Singleline).Groups[1].Value;
 
+        /// <summary>The page's icon element (= MiscService.EmptyIcon).</summary>
+        internal const string EmptyIcon = "<link rel=\"icon\" href=\"data:,\">";
+
         /// <summary>The page without the contents of its script, style and comments.</summary>
         internal static string Markup
         {
@@ -112,8 +115,11 @@ namespace McvsOffline.Tests.Admin
             Assert.StartsWith("<!DOCTYPE html>", page);
             Assert.Contains("<meta charset=\"utf-8\">", page);
             Assert.Contains("<title>MCVS Offline</title>", page);
+            // The one allowed <link>: an empty icon in the page itself (img-src data: of the CSP), so no browser asks for
+            // /favicon.ico (WR2 F11: the Steam overlay did).
+            Assert.Single(Regex.Matches(page, Regex.Escape(EmptyIcon)));
 
-            string markup = Markup;
+            string markup = Markup.Replace(EmptyIcon, "");
             Assert.Single(Regex.Matches(markup, @"<script\b", RegexOptions.IgnoreCase));
             Assert.Single(Regex.Matches(markup, @"<style\b", RegexOptions.IgnoreCase));
             Assert.Contains("<script>", markup);

@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MCVS Offline</title>
+<link rel="icon" href="data:,">
 <!--
   The MCVS Offline settings and diagnostics page (docs/design/settings-page.md §2). Hand-written, not generated:
   one self-contained ES5 page for the game's own in-game browser (a WebView without localStorage, file chooser,
@@ -917,6 +918,7 @@ p { margin: 4px 0 8px; }
       if (st === 200) { sessionReady(d, h); return; }
       if (st === 401 && h.t) {
         api('POST', 'session', { ticket: h.t }, function (st2) {
+          if (st2 === 401) { staleTab(); return; }
           if (st2 !== 200) { noSession(); return; }
           api('GET', 'status', null, function (st3, d3) {
             if (st3 === 200) sessionReady(d3, h);
@@ -955,6 +957,13 @@ p { margin: 4px 0 8px; }
     banner('banner-nosession', true);
     lock(true);
     go('about');
+  }
+
+  // No cookie and the fragment's ticket refused: a tab the overlay or a browser kept or re-opened from an earlier start
+  // (tickets live in the game's memory and are used once), not a link the game just opened (WR2 F8).
+  function staleTab() {
+    noSession();
+    banner('banner-nosession', true, 'This tab is from an earlier start of the game: close it and open the page from the game again.');
   }
 
   function lostSession() {
