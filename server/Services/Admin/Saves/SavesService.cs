@@ -576,11 +576,8 @@ namespace McvsOffline.Server.Services.Admin.Saves
             if (!OptionalString(call, "file", out name, out error)) return error;
             if ((error = NotIdle()) != null) return error;
             string folder = AdminFiles.Folder(context, "import");
-            FileInfo file = null;
-            foreach (FileInfo f in ImportFileList(folder))
-            {
-                if (string.Equals(f.Name, name, StringComparison.Ordinal)) file = f;
-            }
+            // The exact name, else the one that differs only in case (one file on Windows, pc-port.md §4.6).
+            FileInfo file = AdminFiles.FindByName(ImportFileList(folder), name);
             string path = file == null ? null : AdminFiles.FileIn(folder, file.Name);
             if (path == null) return NotFound("There is no such file in the import folder.");
             byte[] bytes = AdminFiles.ReadAtMost(path, MaxImportFileBytes);

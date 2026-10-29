@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -22,47 +23,85 @@ namespace McvsOffline.Tests.Conformance
     /// engine's GameObjects, JNI) is never called: where the game builds an object through native state, the harness
     /// supplies the equivalent (documented at each use).
     /// </para>
+    /// <para>
+    /// One client per folder (<see cref="For"/>): the Android APK's (MCVS_REFS) and the Steam install's (MCVS_PC_REFS,
+    /// docs/design/pc-port.md §4.7), whose assemblies reference mscorlib 4.0.0.0 and bind to the same facades. The PC
+    /// Newtonsoft.Json 7.0.1 is the net45 build and needs System.Security.Permissions, which this project references.
+    /// </para>
     /// Helpers return <c>dynamic</c> so calls bind on the runtime types.
     /// </summary>
     public sealed class GameClient
     {
-        public const string DefaultRefs = "/home/user/mcvs-work/extracted/assemblies";
+        public const string DefaultRefs = TestFolders.DefaultAndroidRefs;
 
-        private static readonly Lazy<GameClient> Shared = new Lazy<GameClient>(() => new GameClient(RefsDirectory));
+        /// <summary>One client per folder (one load context each): the Android APK's and the Steam install's (§4.7).</summary>
+        private static readonly ConcurrentDictionary<string, Lazy<GameClient>> Clients =
+            new ConcurrentDictionary<string, Lazy<GameClient>>(StringComparer.Ordinal);
 
         private readonly GameLoadContext context;
 
         private GameClient(string directory)
         {
+            Directory = directory;
             context = new GameLoadContext(directory);
             OnlinePlatform = context.LoadFromAssemblyName(new AssemblyName("Gameloft.OnlinePlatform"));
         }
 
-        public static string RefsDirectory
+        /// <summary>The folder this client's assemblies come from.</summary>
+        public string Directory { get; }
+
+        /// <summary>The Android folder (MCVS_REFS).</summary>
+        public static string RefsDirectory => TestFolders.AndroidRefs;
+
+        /// <summary>MCVS_REQUIRE_REAL_CLIENT=1: the Android client's files are mandatory.</summary>
+        public static bool Required => TestFolders.Required(TestFolders.Android);
+
+        /// <summary>The client loaded from <paramref name="folder"/> (created once per folder).</summary>
+        public static GameClient For(string folder)
         {
-            get
-            {
-                string dir = Environment.GetEnvironmentVariable("MCVS_REFS");
-                return string.IsNullOrEmpty(dir) ? DefaultRefs : dir;
-            }
+            string key = Path.GetFullPath(folder);
+            return Clients.GetOrAdd(key, k => new Lazy<GameClient>(() => new GameClient(k))).Value;
         }
 
-        public static bool Required => Environment.GetEnvironmentVariable("MCVS_REQUIRE_REAL_CLIENT") == "1";
-
-        /// <summary>The loaded client, or null (after a note) when the assemblies are absent and not required.</summary>
+        /// <summary>The Android client (MCVS_REFS), or null (after a note) when the assemblies are absent and not required.</summary>
         public static GameClient TryGet(ITestOutputHelper output, params string[] assemblies)
+        {
+            return TryGetFrom(output, TestFolders.Android, RefsDirectory, assemblies);
+        }
+
+        /// <summary>
+        /// The client of <paramref name="platform"/> in <paramref name="folder"/> (a row of
+        /// <see cref="TestFolders.RealClientFolders"/>), or null (after a note) when an assembly is absent and the
+        /// platform's files are not required (MCVS_REQUIRE_REAL_CLIENT, MCVS_REQUIRE_PC).
+        /// </summary>
+        public static GameClient TryGetFrom(ITestOutputHelper output, string platform, string folder, params string[] assemblies)
+        {
+            return HasAssemblies(output, platform, folder, assemblies) ? For(folder) : null;
+        }
+
+        /// <summary>
+        /// Like <see cref="TryGetFrom"/>, but a new client with its own load context, so the game's static fields are the
+        /// caller's alone (the shared client's are written by every test class that runs in parallel).
+        /// </summary>
+        public static GameClient TryGetPrivate(ITestOutputHelper output, string platform, string folder, params string[] assemblies)
+        {
+            return HasAssemblies(output, platform, folder, assemblies) ? new GameClient(Path.GetFullPath(folder)) : null;
+        }
+
+        private static bool HasAssemblies(ITestOutputHelper output, string platform, string folder, string[] assemblies)
         {
             var needed = new List<string> { "Gameloft.OnlinePlatform" };
             needed.AddRange(assemblies);
             foreach (string name in needed)
             {
-                string path = Path.Combine(RefsDirectory, name + ".dll");
+                string path = Path.Combine(folder, name + ".dll");
                 if (File.Exists(path)) continue;
-                if (Required) throw new InvalidOperationException("MCVS_REQUIRE_REAL_CLIENT=1 but " + path + " is missing");
-                output?.WriteLine(name + ".dll not found in MCVS_REFS (" + RefsDirectory + "): skipped");
-                return null;
+                if (TestFolders.Required(platform))
+                    throw new InvalidOperationException("the " + platform + " client is required but " + path + " is missing");
+                output?.WriteLine(name + ".dll not found in " + TestFolders.VariableOf(platform) + " (" + folder + "): skipped");
+                return false;
             }
-            return Shared.Value;
+            return true;
         }
 
         public Assembly OnlinePlatform { get; }

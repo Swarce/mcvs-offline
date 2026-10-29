@@ -39,12 +39,21 @@ namespace McvsOffline.Tests.Misc
             this.output = output;
         }
 
-        [Theory]
-        [InlineData(7)]
-        [InlineData(1)]   // liveops.seasonDays 1: a season (and its weekly event) a day, bare "yyyyMMddHH" keys
-        public void EveryGeneratedEventInitializesInTheRealClient(int seasonDays)
+        /// <summary>Every real-client folder (Android, PC) with seasonDays 7 and 1.</summary>
+        public static IEnumerable<object[]> FoldersAndSeasonDays()
         {
-            GameClient game = GameClient.TryGet(output, "Gameloft.Engine", "Game", "Gameloft.Util");
+            foreach (object[] folder in TestFolders.RealClientFolders())
+            {
+                yield return new[] { folder[0], folder[1], (object)7 };
+                yield return new[] { folder[0], folder[1], (object)1 };   // a season (and its weekly event) a day, bare "yyyyMMddHH" keys
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(FoldersAndSeasonDays))]
+        public void EveryGeneratedEventInitializesInTheRealClient(string platform, string folder, int seasonDays)
+        {
+            GameClient game = GameClient.TryGetFrom(output, platform, folder, "Gameloft.Engine", "Game", "Gameloft.Util");
             if (game == null) return;
             game.RegisterGameAssemblies();
             // TimeLimitedAchievementEvent.Initialize tags every reward with GameTrackingComponent.GetTleInfo, whose
@@ -53,7 +62,7 @@ namespace McvsOffline.Tests.Misc
             string stub = NativeTrackingStub.Install(game.Assembly("Gameloft.Engine"), output);
             if (stub == null)
             {
-                Assert.False(GameClient.Required, "no C compiler for the native tracking stub; the achievement events cannot be initialized");
+                Assert.False(TestFolders.Required(platform), "no C compiler for the native tracking stub; the achievement events cannot be initialized");
                 return;
             }
 
@@ -174,10 +183,11 @@ namespace McvsOffline.Tests.Misc
         /// Why the dates have no ISO 'T' (LiveOpsSchedule.WireDate): with one, Newtonsoft turns the value into a DateTime
         /// token and SocialEvent re-reads it through the current culture.
         /// </summary>
-        [Fact]
-        public void IsoDatesWouldDependOnThePhonesCulture()
+        [Theory]
+        [MemberData(nameof(TestFolders.RealClientFolders), MemberType = typeof(TestFolders))]
+        public void IsoDatesWouldDependOnThePhonesCulture(string platform, string folder)
         {
-            GameClient game = GameClient.TryGet(output, "Gameloft.Util");
+            GameClient game = GameClient.TryGetFrom(output, platform, folder, "Gameloft.Util");
             if (game == null) return;
             CultureInfo dayFirst = TryCulture("de-DE");
             Type json = game.Type("Gameloft.Util", "Gameloft.Util.Json");
@@ -330,13 +340,20 @@ namespace McvsOffline.Tests.Misc
         internal static class NativeTrackingStub
         {
             private static readonly object Gate = new object();
+            private static readonly HashSet<Assembly> Resolved = new HashSet<Assembly>();
             private static string installed;
 
+            /// <summary>Builds the stub once per process and answers "nativeengine" with it for each engine assembly
+            /// (one per real-client folder: Android and PC load their own Gameloft.Engine).</summary>
             public static string Install(Assembly engine, ITestOutputHelper output)
             {
                 lock (Gate)
                 {
-                    if (installed != null) return installed;
+                    if (installed != null)
+                    {
+                        Resolve(engine, installed);
+                        return installed;
+                    }
                     string dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "mcvs-nativeengine-stub-" + Environment.ProcessId);
                     System.IO.Directory.CreateDirectory(dir);
                     string source = System.IO.Path.Combine(dir, "stub.c");
@@ -366,17 +383,23 @@ namespace McvsOffline.Tests.Misc
                         output.WriteLine("no C compiler: native tracking stub not built");
                         return null;
                     }
-                    try
-                    {
-                        System.Runtime.InteropServices.NativeLibrary.SetDllImportResolver(engine, (name, asm, path) =>
-                            name == "nativeengine" ? System.Runtime.InteropServices.NativeLibrary.Load(library) : IntPtr.Zero);
-                    }
-                    catch (InvalidOperationException)
-                    {
-                        // A resolver is already set for this assembly in this process.
-                    }
+                    Resolve(engine, library);
                     installed = library;
                     return installed;
+                }
+            }
+
+            private static void Resolve(Assembly engine, string library)
+            {
+                if (!Resolved.Add(engine)) return;
+                try
+                {
+                    System.Runtime.InteropServices.NativeLibrary.SetDllImportResolver(engine, (name, asm, path) =>
+                        name == "nativeengine" ? System.Runtime.InteropServices.NativeLibrary.Load(library) : IntPtr.Zero);
+                }
+                catch (InvalidOperationException)
+                {
+                    // A resolver is already set for this assembly in this process.
                 }
             }
         }

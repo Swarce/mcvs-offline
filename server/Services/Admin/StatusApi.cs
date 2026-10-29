@@ -130,6 +130,8 @@ namespace McvsOffline.Server.Services.Admin
             caps["toast"] = info.CanToast;
             caps["save"] = info.CanSave;
             caps["exit"] = info.CanExit;
+            // Windows only: sent only when on, so the status card of other hosts does not list "openInBrowser (off)".
+            if (info.CanOpenInBrowser) caps["openInBrowser"] = true;
             host["capabilities"] = caps;
             return host;
         }

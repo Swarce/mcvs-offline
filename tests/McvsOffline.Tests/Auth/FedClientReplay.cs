@@ -150,9 +150,10 @@ namespace McvsOffline.Tests.Auth
             if (parsed.ContainsKey("status") || parsed.ContainsKey("code"))
             {
                 // OP/Configuration.cs: status (or code) is removed and parsed; anything but these throws FormatException.
+                // "critical" is left out: the PC client's Configuration.ParseStatus no longer knows it (pc-port.md §4.4).
                 string status = JsonValue.GetString(parsed, parsed.ContainsKey("status") ? "status" : "code");
                 var known = new[] { "none", "maintenance", "maintenance_block", "maintenance_notice", "optional", "optional_with_wifi",
-                                    "required", "critical", "upgrade_required", "upgrade_required_with_wifi" };
+                                    "required", "upgrade_required", "upgrade_required_with_wifi" };
                 if (!known.Contains(status)) throw new FormatException("Invalid status format : " + status);
                 parsed.Remove("status");
                 parsed.Remove("code");

@@ -77,6 +77,8 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal(new List<object> { "android/os/StatFs.getAvailableBytes()J" }, JsonPath.Get(body, "host.missingJni"));
             Assert.Equal(false, JsonPath.Get(body, "host.capabilities.exit"));
             Assert.Equal(true, JsonPath.Get(body, "host.capabilities.clipboard"));
+            // A Windows-only capability is left out where it is off, so the Android status card does not list it.
+            Assert.False(((Dictionary<string, object>)JsonPath.Get(body, "host.capabilities")).ContainsKey("openInBrowser"));
 
             Assert.Equal(account.Id, JsonPath.Get(body, "player.account"));
             Assert.Equal("fed_id:" + account.Id, JsonPath.Get(body, "player.fedId"));

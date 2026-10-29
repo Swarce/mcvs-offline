@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using McvsOffline.Server;
+using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Http;
 using McvsOffline.Server.Services.Admin;
 using McvsOffline.Server.Services.Storage;
@@ -173,6 +174,39 @@ namespace McvsOffline.Tests.Admin
             rig.Authorize("intruder", "device-9");
             Assert.NotEqual("session", rig.Current.Source);
             Assert.NotEqual(rig.Server.Context.Accounts.Find("anonymous:intruder").Id, rig.Current.AccountId);
+        }
+
+        /// <summary>The Steam build's own login counts like Android's (docs/design/pc-port.md §4.4).</summary>
+        [Fact]
+        public void TheSteamClientsLoginIsTheSession()
+        {
+            using var rig = new Rig();
+            string account = rig.Authorize("76561198000000001", "device-1", McvsConstants.ClientIdSteam);
+            CurrentPlayer current = rig.Current;
+            Assert.Equal("session", current.Source);
+            Assert.Equal(account, current.AccountId);
+            Assert.Equal("anonymous:76561198000000001", current.Credential);
+        }
+
+        [Theory]
+        [InlineData("2620:70425:1.17.30:ios:appstore")]   // a platform we do not serve
+        [InlineData("2620:70425:1.17.30:Steam:steam")]    // platforms compare exactly
+        [InlineData("steam")]                              // not a client id at all
+        public void AnUnknownPlatformIsRefused(string clientId)
+        {
+            Assert.False(McvsConstants.IsGameClientId(clientId));
+            using var rig = new Rig();
+            rig.Authorize("tool", "device-1", clientId);
+            Assert.NotEqual("session", rig.Current.Source);
+        }
+
+        [Fact]
+        public void BothKnownClientIdsAreGameClientIds()
+        {
+            Assert.True(McvsConstants.IsGameClientId(McvsConstants.ClientId));
+            Assert.True(McvsConstants.IsGameClientId(McvsConstants.ClientIdSteam));
+            Assert.True(McvsConstants.IsGameClientId("2620:66102:1.17.40:android:googleplay")); // any version
+            Assert.False(McvsConstants.IsGameClientId(null));
         }
 
         [Fact]

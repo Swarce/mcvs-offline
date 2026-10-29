@@ -63,6 +63,32 @@ namespace McvsOffline.Server.Services.Admin
         internal Func<string, bool> Check { get; set; }
 
         internal string CheckMessage { get; set; }
+
+        /// <summary>A copy with another help text (a platform's wording of the same key).</summary>
+        internal SettingDefinition WithHelp(string help)
+        {
+            var copy = (SettingDefinition)MemberwiseClone();
+            copy.Help = help ?? "";
+            return copy;
+        }
+    }
+
+    /// <summary>
+    /// One group of the page as a platform shows it (<see cref="SettingsSchema.GroupsFor"/>): the editable keys, or for
+    /// the "advanced" group the read-only keys with their labels and, where there is one, a description.
+    /// </summary>
+    public sealed class SettingGroupView
+    {
+        public SettingGroup Group { get; internal set; }
+
+        /// <summary>The group's editable keys in page order (empty for "advanced").</summary>
+        public List<SettingDefinition> Keys { get; internal set; }
+
+        /// <summary>The read-only keys (key, label) of "advanced", in page order; empty for the other groups.</summary>
+        public List<KeyValuePair<string, string>> Advanced { get; internal set; }
+
+        /// <summary>Descriptions of some read-only keys (key → text); keys without one are absent.</summary>
+        public Dictionary<string, string> AdvancedHelp { get; internal set; }
     }
 
     /// <summary>The value a module uses for a key, and a note for the page when it is not what settings.json holds.</summary>
@@ -162,9 +188,101 @@ namespace McvsOffline.Server.Services.Admin
             "assets.coupons", "admin.enabled", "admin.openVia", "admin.restartVia", "security.", "install.",
         };
 
+        /// <summary><c>AdminHostInfo.Platform</c> of the PC (Steam) host.</summary>
+        public const string PlatformWindows = "windows";
+
+        /// <summary>
+        /// Keys the PC host neither writes nor uses (docs/design/pc-port.md §3.6): the Android installer and HD textures,
+        /// notifications, the public log copy and the Mono thread dump. Prefixes end with '.'.
+        /// </summary>
+        private static readonly string[] WindowsHidden =
+        {
+            "hd.", "install.", "notifications.", "diagnostics.publicLogCopy", "diagnostics.threadDump",
+        };
+
+        /// <summary>Read-only keys only the PC host has, as key, label, description, inserted after <see cref="WindowsAdvancedAfter"/>.</summary>
+        private static readonly string[] WindowsAdvanced =
+        {
+            "embedded.physics.keepPhysicsLayer", "Keep the levels' Physics layer",
+            "On: the 'graphics' patch removes Physics from every excludedLoadingLayers list of GameOptions_windows.json, so "
+            + "the match servers inside the game always load the levels' collision layer (the PC's low-memory fallback would "
+            + "drop it). Read at the next start.",
+        };
+
+        private const string WindowsAdvancedAfter = "embedded.physics.stepGateTimeoutMs";
+
+        private const string WindowsGraphicsProfileHelp =
+            "Which of Gameloft's own GPU profiles the game uses. Auto: the game's choice for this PC (MidGPU on graphics cards "
+            + "it does not know). Mid: MidGPU. High: HighGPU (normal maps, full lightmaps, shadows, bloom). Ultra: HighGPU on PC, "
+            + "which has no High_Ultra. Needs a build with the 'graphics' patch.";
+
         public static List<SettingGroup> Groups
         {
             get { return new List<SettingGroup>(GroupList); }
+        }
+
+        /// <summary>
+        /// The page's groups as <paramref name="platform"/> (<c>AdminHostInfo.Platform</c>) shows them (§4.6 of
+        /// docs/design/pc-port.md). On <see cref="PlatformWindows"/>: no <c>hd.*</c>, <c>install.*</c>,
+        /// <c>notifications.*</c>, <c>diagnostics.publicLogCopy</c> or <c>diagnostics.threadDump</c> entry (labels and
+        /// settings), the PC wording of <c>graphics.profile</c>, and <c>embedded.physics.keepPhysicsLayer</c> among the
+        /// read-only keys. Any other platform (android, directory, none) gets exactly <see cref="Groups"/>,
+        /// <see cref="Keys"/> and <see cref="AdvancedKeys"/>.
+        /// </summary>
+        public static List<SettingGroupView> GroupsFor(string platform)
+        {
+            bool windows = string.Equals(platform, PlatformWindows, StringComparison.Ordinal);
+            var views = new List<SettingGroupView>();
+            foreach (SettingGroup group in GroupList)
+            {
+                var view = new SettingGroupView
+                {
+                    Group = group,
+                    Keys = new List<SettingDefinition>(),
+                    Advanced = new List<KeyValuePair<string, string>>(),
+                    AdvancedHelp = new Dictionary<string, string>(StringComparer.Ordinal),
+                };
+                if (group.Id == "advanced")
+                {
+                    foreach (KeyValuePair<string, string> kv in AdvancedKeys)
+                    {
+                        if (windows && HiddenOnWindows(kv.Key)) continue;
+                        view.Advanced.Add(kv);
+                        if (!windows || kv.Key != WindowsAdvancedAfter) continue;
+                        for (int i = 0; i + 2 < WindowsAdvanced.Length; i += 3)
+                        {
+                            view.Advanced.Add(new KeyValuePair<string, string>(WindowsAdvanced[i], WindowsAdvanced[i + 1]));
+                            view.AdvancedHelp[WindowsAdvanced[i]] = WindowsAdvanced[i + 2];
+                        }
+                    }
+                }
+                else
+                {
+                    foreach (SettingDefinition def in KeyList)
+                    {
+                        if (def.Group != group.Id) continue;
+                        if (!windows)
+                        {
+                            view.Keys.Add(def);
+                            continue;
+                        }
+                        if (HiddenOnWindows(def.Key)) continue;
+                        view.Keys.Add(def.Key == "graphics.profile" ? def.WithHelp(WindowsGraphicsProfileHelp) : def);
+                    }
+                }
+                views.Add(view);
+            }
+            return views;
+        }
+
+        private static bool HiddenOnWindows(string key)
+        {
+            foreach (string hidden in WindowsHidden)
+            {
+                if (hidden.EndsWith(".", StringComparison.Ordinal) ? key.StartsWith(hidden, StringComparison.Ordinal) : key == hidden)
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>Every editable key of §3.1, in page order.</summary>

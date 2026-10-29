@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 namespace McvsOffline.Server.Core.Storage
 {
@@ -47,6 +48,34 @@ namespace McvsOffline.Server.Core.Storage
 #else
             File.Move(source, destination, true);
 #endif
+        }
+
+        /// <summary>
+        /// Calls <paramref name="attempt"/> until it returns 0 (done), at most <paramref name="attempts"/> times, sleeping
+        /// <paramref name="delayMs"/> ms between two calls. A non-zero result is a transient error worth another try (e.g. a
+        /// Win32 sharing violation, <see cref="WindowsFiles"/>); a permanent failure is an exception from
+        /// <paramref name="attempt"/>, which propagates at once, unchanged. Returns 0, or the last transient error when the
+        /// attempts ran out.
+        /// </summary>
+        public static int Retry(Func<int> attempt, int attempts, int delayMs)
+        {
+            return Retry(attempt, attempts, delayMs, ThreadSleep);
+        }
+
+        private static readonly Action<int> ThreadSleep = Thread.Sleep;
+
+        /// <summary><see cref="Retry(Func{int}, int, int)"/> with the pause made by <paramref name="sleep"/> (tests record it).</summary>
+        internal static int Retry(Func<int> attempt, int attempts, int delayMs, Action<int> sleep)
+        {
+            if (attempt == null) throw new ArgumentNullException("attempt");
+            int result = 0;
+            for (int i = 0; i < attempts || i == 0; i++)
+            {
+                if (i > 0 && delayMs > 0) sleep(delayMs);
+                result = attempt();
+                if (result == 0) return 0;
+            }
+            return result;
         }
 
         /// <summary>Flushes <paramref name="stream"/> and asks the OS to commit it to storage (best effort).</summary>

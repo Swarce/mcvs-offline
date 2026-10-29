@@ -1065,6 +1065,27 @@ async function repairRun(fx) {
   return p;
 }
 
+// The Windows host's wording: "this PC", the McvsOffline\exports folder, no adb (fixtures).
+async function windowsRun(fx) {
+  fx.state.platform = 'windows';
+  const p = await new Page('run 4b (windows)', fx.origin, new CookieJar()).load(fx.origin + '/_mcvs/ui/#t=' + fx.mintTicket());
+  log('run 4b: the Windows wording');
+  check(p.text('export-downloads') === 'Save to McvsOffline\\exports', 'run 4b: export button says ' + p.text('export-downloads'));
+  check(p.text('logs-downloads') === 'Save to McvsOffline\\exports', 'run 4b: logs button says ' + p.text('logs-downloads'));
+  check(p.text('saves-accounts-title') === 'Other accounts on this PC', 'run 4b: accounts title says ' + p.text('saves-accounts-title'));
+  check(/on this PC\. Nothing leaves the PC/.test(p.text('about-local')), 'run 4b: About says ' + p.text('about-local'));
+  check(!/adb/.test(p.text('action-files-help')), 'run 4b: the files help mentions adb');
+  await p.tap('nav-saves');
+  check(/Play this account on this PC/.test(p.text('saves-accounts')) && !/phone/.test(p.text('saves-accounts')),
+        'run 4b: the accounts list says ' + p.text('saves-accounts').slice(0, 200));
+  await p.tap('nav-actions');
+  await p.tap('action-files');
+  check(p.isShown('action-files-body') && !/adb /.test(p.text('action-files-body')), 'run 4b: "Where are my files" shows adb commands');
+  check(p.pageErrorsShown() === null, 'run 4b: page errors: ' + p.pageErrorsShown());
+  p.close();
+  fx.state.platform = 'android';
+}
+
 // A used ticket without a cookie: "open from the game", and "the game did not save" after save-now (fixtures).
 async function edgeRuns(fx) {
   const ticket = fx.mintTicket();
@@ -1139,6 +1160,7 @@ async function main() {
       const [p] = await fullRun(fx.origin + '/_mcvs/ui/#t=' + fx.mintTicket(), jar, 'fixtures', fx);
       acornCheck(p.html);
       await repairRun(fx);
+      await windowsRun(fx);
       await edgeRuns(fx);
       for (const v of fx.state.violations) fail('contract: ' + v);
     } finally {
@@ -1224,7 +1246,7 @@ function startFixtures(html) {
   const keys = {};
   for (const g of groups) for (const k of g.keys) keys[k.key] = k;
   const state = {
-    values: {}, boot: {}, fallback: false, down: false, tickets: new Set(), sessions: new Set(), violations: [],
+    values: {}, boot: {}, fallback: false, down: false, platform: 'android', tickets: new Set(), sessions: new Set(), violations: [],
     clipboard: [], restarts: [], staged: null, last: { id: '20261020T080000000Z-import', kind: 'import', result: 'applied', at: ISO(Date.now() - 86400000 * 6), message: 'Imported Player4711.', undoable: true },
     backups: {
       [ACCOUNT]: [
@@ -1264,7 +1286,7 @@ function startFixtures(html) {
   const statusBody = (storage) => ({
     version: '0.1.0-dev', build: '9',
     server: { started: ISO(started), uptimeSeconds: Math.round((Date.now() - started) / 1000) + 3600, instance: 'mcvs1a2b3c4d', port, bind: '127.0.0.1', lanMode: false, hostCheck: true, dataDir: '/storage/emulated/0/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline', dataPack: '/storage/emulated/0/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/Data' },
-    host: { platform: 'android', sdkInt: 36, deviceId: 'dev', logsDir: '/storage/emulated/0/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/logs', fallbackLogsDir: null, publicLogsDir: '/storage/emulated/0/Download/MCVS-Offline', mirror: 'active, 3 files, last copy 12 s ago', watchdog: 'game thread tid 1234, paused for the page', browser: 'initialized', browserOpen: true, freeBytes: 12345678901, gameCredential: 'anonymous:a1b2…f9e8', restartVia: 'game', missingJni: [], capabilities: caps,
+    host: { platform: state.platform, sdkInt: state.platform === 'android' ? 36 : null, deviceId: 'dev', logsDir: '/storage/emulated/0/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/logs', fallbackLogsDir: null, publicLogsDir: '/storage/emulated/0/Download/MCVS-Offline', mirror: 'active, 3 files, last copy 12 s ago', watchdog: 'game thread tid 1234, paused for the page', browser: 'initialized', browserOpen: true, freeBytes: 12345678901, gameCredential: 'anonymous:a1b2…f9e8', restartVia: 'game', missingJni: [], capabilities: caps,
             relaunchUnconfirmed: true, notifications: 'not allowed yet; the game asks once at the main menu',
             graphics: 'graphics: graphics.profile high, forced HighGPU; GPU profile HighGPU (device optimum MidGPU)',
             hdTextures: 'hd textures: PC textures (tiers 1-2), 1750 files installed (612.0 MiB)', hdInstalled: true },

@@ -20,8 +20,9 @@ namespace McvsOffline.Server.Core.Http
     /// Requests under <c>/_mcvs/</c> (the settings page and the diagnostics routes) carry tickets and settings, so their
     /// summary line is DEBUG (INFO from status 400 on) and shows the path and the body size only, never parameters or a
     /// body; the DEBUG full request, handler errors and unknown-endpoint entries leave out their query, form and body.
-    /// The values of Cookie and Set-Cookie headers are never logged (design §5.4); everything else goes through the
-    /// logger's redactor (<see cref="LogRedaction"/>).
+    /// The values of Cookie and Set-Cookie headers are never logged (design §5.4); every line and every jsonl entry goes
+    /// through <see cref="LogRedaction.Redact"/> here (also when the logger has no redactor: the PC tracker's MAC address,
+    /// SteamID64 user names, docs/design/pc-port.md §4.2), and again through the logger's redactor (idempotent).
     /// </summary>
     public sealed class RequestLogger : IDisposable
     {
@@ -74,22 +75,23 @@ namespace McvsOffline.Server.Core.Http
               .Append(elapsedMs.ToString("0.0", CultureInfo.InvariantCulture)).Append(" ms");
             if (admin && request.Body.Length > 0)
                 sb.Append(" (request body ").Append(request.Body.Length.ToString(CultureInfo.InvariantCulture)).Append(" B)");
-            log.Write(level, sb.ToString(), null);
+            log.Write(level, LogRedaction.Redact(sb.ToString()), null);
 
             if (!admin)
             {
                 string parameters = DescribeParameters(request, Num.Min(bodyLimit(), SummaryValueLimit));
-                if (parameters.Length > 0) log.Write(level, "#" + request.Id.ToString(CultureInfo.InvariantCulture) + "   " + parameters, null);
+                if (parameters.Length > 0)
+                    log.Write(level, LogRedaction.Redact("#" + request.Id.ToString(CultureInfo.InvariantCulture) + "   " + parameters), null);
             }
 
             if (log.IsEnabled(LogLevel.Debug))
-                log.Debug("#" + request.Id.ToString(CultureInfo.InvariantCulture) + " full request:\n" + Describe(request, bodyLimit()));
+                log.Debug(LogRedaction.Redact("#" + request.Id.ToString(CultureInfo.InvariantCulture) + " full request:\n" + Describe(request, bodyLimit())));
         }
 
         public void LogUnknown(HttpRequest request, string reason)
         {
-            log.Warn("UNKNOWN ENDPOINT #" + request.Id.ToString(CultureInfo.InvariantCulture) + " (" + (reason ?? "no route") + ")\n"
-                     + Describe(request, UnknownBodyLimit));
+            log.Warn(LogRedaction.Redact("UNKNOWN ENDPOINT #" + request.Id.ToString(CultureInfo.InvariantCulture) + " (" + (reason ?? "no route") + ")\n"
+                                         + Describe(request, UnknownBodyLimit)));
             if (unknownFile == null) return;
             bool admin = LocalAccessGate.IsAdminPath(request);
             var entry = new Dictionary<string, object>(StringComparer.Ordinal);
@@ -114,8 +116,8 @@ namespace McvsOffline.Server.Core.Http
 
         public void LogHandlerError(HttpRequest request, Exception ex)
         {
-            log.Error("handler '" + (request.RouteName ?? "?") + "' threw for #" + request.Id.ToString(CultureInfo.InvariantCulture) + "\n"
-                      + Describe(request, bodyLimit()), ex);
+            log.Error(LogRedaction.Redact("handler '" + (request.RouteName ?? "?") + "' threw for #" + request.Id.ToString(CultureInfo.InvariantCulture) + "\n"
+                                          + Describe(request, bodyLimit())), ex);
         }
 
         /// <summary>

@@ -82,18 +82,26 @@ namespace McvsOffline.Server.Services.Admin
             body["restartPending"] = ToObjects(RestartPending());
 
             var groups = new List<object>();
-            foreach (SettingGroup group in SettingsSchema.Groups)
+            // The platform's view (docs/design/pc-port.md §4.6): the PC host leaves out the Android-only keys.
+            AdminHostInfo host = api.DescribeHost();
+            foreach (SettingGroupView view in SettingsSchema.GroupsFor(host == null ? null : host.Platform))
             {
+                SettingGroup group = view.Group;
                 var keys = new List<object>();
                 if (group.Id == "advanced")
                 {
-                    foreach (var kv in SettingsSchema.AdvancedKeys) keys.Add(DescribeAdvanced(kv.Key, kv.Value));
+                    foreach (var kv in view.Advanced)
+                    {
+                        Dictionary<string, object> entry = DescribeAdvanced(kv.Key, kv.Value);
+                        string help;
+                        if (view.AdvancedHelp.TryGetValue(kv.Key, out help)) entry["help"] = help;
+                        keys.Add(entry);
+                    }
                 }
                 else
                 {
-                    foreach (SettingDefinition def in SettingsSchema.Keys)
+                    foreach (SettingDefinition def in view.Keys)
                     {
-                        if (def.Group != group.Id) continue;
                         Dictionary<string, object> entry = SettingsSchema.Describe(def);
                         string invalidNote;
                         entry["value"] = SettingsSchema.Read(def, Settings, out invalidNote);

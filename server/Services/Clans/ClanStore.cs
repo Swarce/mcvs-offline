@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using McvsOffline.Server.Core;
+using McvsOffline.Server.Core.Http;
 using McvsOffline.Server.Core.Json;
 using McvsOffline.Server.Core.Storage;
 using McvsOffline.Server.Services.Alerts;
@@ -312,9 +313,14 @@ namespace McvsOffline.Server.Services.Clans
             return owners ?? new List<object>();
         }
 
-        /// <summary>The clan as Osiris returned it (<c>OP/Clan.cs</c>): properties, owner(s), members, custom fields.</summary>
-        public Dictionary<string, object> Render(Dictionary<string, object> clan)
+        /// <summary>
+        /// The clan as Osiris returned it (<c>OP/Clan.cs</c>): properties, owner(s), members, custom fields. The members'
+        /// <c>game</c> is the client id of <paramref name="request"/>'s caller (<see cref="Fed.GameClientId"/>: Android or
+        /// Steam), else the Android client id.
+        /// </summary>
+        public Dictionary<string, object> Render(Dictionary<string, object> clan, HttpRequest request = null)
         {
+            string game = Fed.GameClientId(context, request);
             var o = Fed.Obj();
             o["id"] = JsonValue.GetString(clan, "id");
             foreach (string p in StringProperties) o[p] = JsonValue.GetString(clan, p) ?? "";
@@ -330,7 +336,7 @@ namespace McvsOffline.Server.Services.Clans
             {
                 var member = m as Dictionary<string, object>;
                 if (member == null) continue;
-                Dictionary<string, object> rendered = RenderMember(clan, member);
+                Dictionary<string, object> rendered = RenderMember(clan, member, game);
                 members.Add(rendered);
                 if (ownerIds.Contains(JsonValue.GetString(member, "account"))) owners.Add(JsonValue.DeepClone(rendered));
             }
@@ -345,8 +351,13 @@ namespace McvsOffline.Server.Services.Clans
             return o;
         }
 
-        /// <summary>A member as Osiris returned it (<c>OP/ClanMember.cs</c>).</summary>
-        public Dictionary<string, object> RenderMember(Dictionary<string, object> clan, Dictionary<string, object> member)
+        /// <summary>A member as Osiris returned it (<c>OP/ClanMember.cs</c>); <c>game</c> as in <see cref="Render"/>.</summary>
+        public Dictionary<string, object> RenderMember(Dictionary<string, object> clan, Dictionary<string, object> member, HttpRequest request)
+        {
+            return RenderMember(clan, member, Fed.GameClientId(context, request));
+        }
+
+        private Dictionary<string, object> RenderMember(Dictionary<string, object> clan, Dictionary<string, object> member, string game)
         {
             string account = JsonValue.GetString(member, "account");
             Dictionary<string, object> profile = SocialProfiles.For(context).Get(account);
@@ -356,7 +367,7 @@ namespace McvsOffline.Server.Services.Clans
             o["name"] = JsonValue.GetString(profile, "name") ?? "";
             o["online"] = AlertHub.For(context).ListenerCount(Fed.FedIdOf(account)) > 0;
             o["status_line"] = JsonValue.GetString(profile, "status_line") ?? "";
-            o["game"] = McvsConstants.ClientId;
+            o["game"] = game;
             o["avatar"] = "";
             o["seconds_since_last_status_change"] = SocialProfiles.For(context).SecondsSinceStatusChange(profile);
             Dictionary<string, object> fields = JsonValue.GetObject(member, "fields");
