@@ -60,6 +60,36 @@ namespace McvsOffline.Embedded.Windows
                    "; OS " + (facts.OsBuild ?? "?");
         }
 
+        /// <summary>The address space of the 32-bit game without LAA, the yardstick of the WR2 memory figures.</summary>
+        public const long AddressSpaceMb = 2048;
+
+        /// <summary>
+        /// "memory: private 1001 MB, virtual 1592 MB (77 % of 2048 MB), GC heap 85 MB" (WR2 F9: the [status] line says how close
+        /// the process is to its 2 GB without a 'watch' running).
+        /// </summary>
+        public static string FormatMemory(long privateBytes, long virtualBytes, long gcBytes)
+        {
+            long mb = 1024 * 1024;
+            long percent = virtualBytes * 100 / (AddressSpaceMb * mb);
+            return "memory: private " + (privateBytes / mb).ToString(CultureInfo.InvariantCulture) + " MB, virtual " +
+                   (virtualBytes / mb).ToString(CultureInfo.InvariantCulture) + " MB (" + percent.ToString(CultureInfo.InvariantCulture) + " % of " +
+                   AddressSpaceMb.ToString(CultureInfo.InvariantCulture) + " MB), GC heap " + (gcBytes / mb).ToString(CultureInfo.InvariantCulture) + " MB";
+        }
+
+        /// <summary><see cref="FormatMemory"/> of this process now, or null. Never throws.</summary>
+        public static string DescribeMemory()
+        {
+            try
+            {
+                using (Process process = Process.GetCurrentProcess())
+                    return FormatMemory(process.PrivateMemorySize64, process.VirtualMemorySize64, GC.GetTotalMemory(false));
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
         /// <summary>The facts of this process. Never throws.</summary>
         public static RuntimeFacts Read()
         {

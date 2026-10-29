@@ -136,7 +136,7 @@ namespace McvsOffline.Embedded.Windows
         {
         }
 
-        /// <summary>"steam running yes, overlay enabled yes" and the install check's line once it ran.</summary>
+        /// <summary>"steam running yes, overlay enabled yes", the install check's line once it ran, and the process memory (RuntimeInfo.FormatMemory).</summary>
         public string StatusExtras()
         {
             try
@@ -145,6 +145,8 @@ namespace McvsOffline.Embedded.Windows
                 string text = "steam running " + YesNo(o.IsSteamRunning()) + ", overlay enabled " + YesNo(o.IsEnabled()) + "; " + PcHooks.Describe();
                 string install = installLine;
                 if (install != null) text += "; " + install;
+                string memory = RuntimeInfo.DescribeMemory();
+                if (memory != null) text += "; " + memory;
                 return text;
             }
             catch (Exception)

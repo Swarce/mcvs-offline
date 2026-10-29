@@ -205,8 +205,11 @@ namespace McvsOffline.Patcher.Pc
         /// <summary>E.g. a *_args.txt in the game folder (the engine reads it instead of args.txt).</summary>
         public List<string> Errors { get; private set; }
 
-        /// <summary>Informational: written by the game, not ours (dr0.bin..dr3.bin, OF_PP.bin).</summary>
+        /// <summary>Informational: written by the game, not ours (dr0.bin..dr3.bin, OF_PP.bin, GameVersion, core.dmp).</summary>
         public List<string> GameWritten { get; private set; }
+
+        /// <summary>The game's crash dump (<see cref="GameFolder.DescribeCrashDump"/>: name, size, UTC time), or null when there is none.</summary>
+        public string CrashDump { get; set; }
 
         /// <summary>Informational: other top-level entries that are neither the depot's nor ours.</summary>
         public List<string> OtherFiles { get; private set; }
@@ -930,6 +933,7 @@ namespace McvsOffline.Patcher.Pc
                 if (owner == GameFolderOwner.Game) r.GameWritten.Add(entry);
                 else if (owner == GameFolderOwner.Other && !entry.EndsWith("_args.txt", StringComparison.OrdinalIgnoreCase)) r.OtherFiles.Add(entry);
             }
+            r.CrashDump = GameFolder.DescribeCrashDump(game);
 
             string data = GameFolder.DataDir(game);
             if (Directory.Exists(data))

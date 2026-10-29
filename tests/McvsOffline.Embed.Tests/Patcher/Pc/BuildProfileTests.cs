@@ -75,7 +75,9 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             Assert.All(GameFolder.DepotTopLevel, n => Assert.Equal(GameFolderOwner.Depot, GameFolder.Classify(n)));
             Assert.All(GameFolder.GameWrittenNames, n => Assert.Equal(GameFolderOwner.Game, GameFolder.Classify(n)));
             Assert.Equal(GameFolderOwner.Ours, GameFolder.Classify("mcvsoffline"));
-            Assert.Equal(GameFolderOwner.Other, GameFolder.Classify("GameVersion"));
+            Assert.Equal(GameFolderOwner.Game, GameFolder.Classify("GameVersion"));   // WR2: the game writes it (and core.dmp)
+            Assert.Equal(GameFolderOwner.Game, GameFolder.Classify(GameFolder.CrashDumpName));
+            Assert.Equal(GameFolderOwner.Other, GameFolder.Classify("dxgi.dll"));
             // Every file the build identity hashes is in the depot.
             Assert.All(BuildProfile.PcSteam6372049.OriginalSha256.Keys, f => Assert.Contains(f, GameFolder.DepotTopLevel));
         }

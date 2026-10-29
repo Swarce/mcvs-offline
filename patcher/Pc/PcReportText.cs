@@ -53,6 +53,7 @@ namespace McvsOffline.Patcher.Pc
             foreach (string e in r.Errors) lines.Add("ERROR: " + e);
             foreach (string l in r.Leftovers) lines.Add("leftover: " + l);
             if (r.GameWritten.Count > 0) lines.Add("written by the game, not ours: " + string.Join(", ", r.GameWritten));
+            if (r.CrashDump != null) lines.Add("the game's own crash dump: " + r.CrashDump + " (from its last crash; collect reports it, never includes it)");
             if (r.OtherFiles.Count > 0) lines.Add("other files, not ours: " + string.Join(", ", r.OtherFiles));
             return lines;
         }

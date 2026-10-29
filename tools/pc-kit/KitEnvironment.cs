@@ -53,6 +53,9 @@ namespace McvsOffline.PcKit
         /// <summary>The .NET Framework 4 folder the game runs on (Windows: %WINDIR%\Microsoft.NET\Framework\v4.0.30319).</summary>
         public Func<string> DefaultBcl { get; set; }
 
+        /// <summary>The kit's own file, hashed for the log headers and summary.txt (<see cref="KitServer.Identity"/>); null: unknown.</summary>
+        public Func<string> KitPath { get; set; }
+
         public static KitEnvironment Real()
         {
             return new KitEnvironment
@@ -80,6 +83,7 @@ namespace McvsOffline.PcKit
                     return found;
                 },
                 DefaultBcl = PcCli.DefaultBcl,
+                KitPath = KitServer.OwnPath,
             };
         }
     }

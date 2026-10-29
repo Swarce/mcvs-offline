@@ -76,10 +76,10 @@ namespace McvsOffline.Patcher.Pc
         /// <summary>Ours: McvsOffline\, the config (and its temporary file), args.txt.</summary>
         Ours,
 
-        /// <summary>Written by the game itself (dr0.bin..dr3.bin, OF_PP.bin), not ours.</summary>
+        /// <summary>Written by the game itself (dr0.bin..dr3.bin, OF_PP.bin, GameVersion, core.dmp), not ours.</summary>
         Game,
 
-        /// <summary>Anything else (e.g. a GameVersion file from another tool): informational, not ours.</summary>
+        /// <summary>Anything else (e.g. a file from another tool): informational, not ours.</summary>
         Other,
     }
 
@@ -108,8 +108,45 @@ namespace McvsOffline.Patcher.Pc
 
         public const string ServerFile = "McvsOffline.Server.dll";
 
-        /// <summary>Files the game itself writes into its folder at run time ([ES-V] claim 9, the WP0 listing): not ours.</summary>
-        public static readonly IReadOnlyList<string> GameWrittenNames = new[] { "dr0.bin", "dr1.bin", "dr2.bin", "dr3.bin", "OF_PP.bin" };
+        /// <summary>
+        /// The game's crash dump: ModernCombatVersus.exe's own unhandled-exception filter writes it (MiniDumpWriteDump with full
+        /// memory, CREATE_ALWAYS, so only the last crash's survives; WR2 F9). A working one is 1.5-2 GB: the listing does not hash
+        /// it and 'collect' never zips it, only reports its size and time.
+        /// </summary>
+        public const string CrashDumpName = "core.dmp";
+
+        /// <summary>
+        /// Files the game itself writes into its folder at run time ([ES-V] claim 9, the WP0 listing; GameVersion and
+        /// <see cref="CrashDumpName"/> from the WR2 listings): not ours.
+        /// </summary>
+        public static readonly IReadOnlyList<string> GameWrittenNames = new[] { "dr0.bin", "dr1.bin", "dr2.bin", "dr3.bin", "OF_PP.bin", "GameVersion", CrashDumpName };
+
+        /// <summary>What the listing writes instead of a SHA-256 for <see cref="CrashDumpName"/>.</summary>
+        public const string NotHashed = "not-hashed";
+
+        public static bool IsCrashDump(string name)
+        {
+            return string.Equals(name, CrashDumpName, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// "core.dmp, 0 bytes, written 2026-10-29 18:22:25 UTC" for the game's crash dump in <paramref name="game"/>, or null when
+        /// there is none (or it cannot be read).
+        /// </summary>
+        public static string DescribeCrashDump(string game)
+        {
+            try
+            {
+                var dump = new FileInfo(Path.Combine(game, CrashDumpName));
+                if (!dump.Exists) return null;
+                return CrashDumpName + ", " + dump.Length.ToString(CultureInfo.InvariantCulture) + " bytes, written " +
+                       dump.LastWriteTimeUtc.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) + " UTC";
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException)
+            {
+                return null;
+            }
+        }
 
         /// <summary>The top-level entries of the read-only Steam install of build 6372049 (MCVS_PC_REFS; BuildProfileTests checks it).</summary>
         public static readonly IReadOnlyList<string> DepotTopLevel = new[]
@@ -323,14 +360,18 @@ namespace McvsOffline.Patcher.Pc
                 else
                 {
                     entry.Size = ((FileInfo)info).Length;
-                    entry.Sha256 = TrySha256(info.FullName);
+                    // The crash dump can be 2 GB: its size and time say enough.
+                    if (!IsCrashDump(info.Name)) entry.Sha256 = TrySha256(info.FullName);
                 }
                 entries.Add(entry);
             }
             return entries;
         }
 
-        /// <summary>The listing as text: one line per entry, tab-separated (name, kind, size, UTC time, SHA-256 or file count).</summary>
+        /// <summary>
+        /// The listing as text: one line per entry, tab-separated (name, kind, size, UTC time, SHA-256 or file count; <see cref="NotHashed"/>
+        /// for the crash dump).
+        /// </summary>
         public static string FormatListing(string game, IEnumerable<GameFolderEntry> entries)
         {
             var sb = new StringBuilder();
@@ -341,7 +382,8 @@ namespace McvsOffline.Patcher.Pc
                 sb.Append(e.Name).Append('\t').Append(e.IsDirectory ? "dir" : "file").Append('\t')
                   .Append(e.Size.ToString(CultureInfo.InvariantCulture)).Append('\t')
                   .Append(e.LastWriteUtc.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)).Append('\t')
-                  .Append(e.IsDirectory ? e.FileCount.ToString(CultureInfo.InvariantCulture) + " files" : e.Sha256 ?? "unreadable").Append('\n');
+                  .Append(e.IsDirectory ? e.FileCount.ToString(CultureInfo.InvariantCulture) + " files" : e.Sha256 ?? (IsCrashDump(e.Name) ? NotHashed : "unreadable"))
+                  .Append('\n');
             }
             return sb.ToString();
         }
@@ -370,7 +412,7 @@ namespace McvsOffline.Patcher.Pc
                 }
                 else
                 {
-                    e.Sha256 = f[4] == "unreadable" ? null : f[4];
+                    e.Sha256 = f[4] == "unreadable" || f[4] == NotHashed ? null : f[4];
                 }
                 entries.Add(e);
             }
@@ -404,6 +446,8 @@ namespace McvsOffline.Patcher.Pc
         {
             if (a.IsDirectory != b.IsDirectory) return true;
             if (a.IsDirectory) return a.FileCount != b.FileCount || a.Size != b.Size;
+            // Not hashed: a new crash can leave a dump of the same size (0 bytes in WR2), so its time counts.
+            if (IsCrashDump(b.Name)) return a.Size != b.Size || a.LastWriteUtc != b.LastWriteUtc;
             return a.Size != b.Size || !string.Equals(a.Sha256, b.Sha256, StringComparison.Ordinal);
         }
 
@@ -413,7 +457,12 @@ namespace McvsOffline.Patcher.Pc
             switch (Classify(e.Name))
             {
                 case GameFolderOwner.Ours: owner = "ours"; break;
-                case GameFolderOwner.Game: owner = "the game's own (written by the game, not ours)"; break;
+                case GameFolderOwner.Game:
+                    owner = IsCrashDump(e.Name)
+                        ? "the game's own crash dump (" + e.Size.ToString(CultureInfo.InvariantCulture) + " bytes, written " +
+                          e.LastWriteUtc.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) + " UTC; not ours, never collected)"
+                        : "the game's own (written by the game, not ours)";
+                    break;
                 case GameFolderOwner.Depot: owner = "a Steam file"; break;
                 default: owner = "other (not ours)"; break;
             }
