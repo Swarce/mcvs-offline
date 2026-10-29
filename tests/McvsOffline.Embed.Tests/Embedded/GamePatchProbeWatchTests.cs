@@ -23,7 +23,7 @@ namespace McvsOffline.Embed.Tests.Embedded
         private const string GameSource = @"namespace Game { internal static class McvsStoreSafety { } }";
 
         /// <summary>Nothing loaded yet (the test process's own list could hold another test's sandboxed "Game").</summary>
-        private static readonly Assembly[] Nothing = new Assembly[0];
+        private static IEnumerable<Assembly> Nothing() { return new Assembly[0]; }
 
         /// <summary>A subscription the test fires by hand.</summary>
         private sealed class Loads
@@ -99,6 +99,37 @@ namespace McvsOffline.Embed.Tests.Embedded
         }
 
         [Fact]
+        public void AnAssemblyLoadedWhileSubscribingIsSeen()
+        {
+            // Game loads on the game thread while the server thread subscribes: the list of loaded assemblies is taken after
+            // the subscription is in place, so a load in between is in the list even though the callback never saw it.
+            var (logger, _, boot) = Logs();
+            using (var sandbox = new FixtureCompiler.Sandbox().With("Game", FixtureCompiler.Compile("Game", GameSource)))
+            {
+                var loads = new Loads();
+                var loadedNow = new List<Assembly>();
+                Func<Action<Assembly>, Action> subscribe = callback =>
+                {
+                    Action stop = loads.Watch(callback);
+                    loadedNow.Add(sandbox.Get("Game"));   // loaded just before the handler was attached: no callback
+                    return stop;
+                };
+                var target = new ClientCapabilities();
+                int asked = 0;
+                PatchWatcher watcher = GamePatchProbe.Watch(target, logger.For("game"), subscribe, boot, null, () =>
+                {
+                    asked++;
+                    Assert.Equal(1, loads.Subscribed);     // asked only once subscribed
+                    return loadedNow.ToArray();
+                });
+                Assert.Equal(1, asked);
+                Assert.True(target.StorePatch);
+                loads.Callback(sandbox.Get("Game"));       // seen both ways: counted once
+                Assert.True(watcher.Watching);
+            }
+        }
+
+        [Fact]
         public void AStockEngineSaysNo()
         {
             var (logger, sink, boot) = Logs();
@@ -140,7 +171,7 @@ namespace McvsOffline.Embed.Tests.Embedded
         {
             var (logger, sink, _) = Logs();
             var target = new ClientCapabilities();
-            PatchWatcher watcher = GamePatchProbe.Watch(target, logger.For("game"), null, null, null, new[] { typeof(object).Assembly });
+            PatchWatcher watcher = GamePatchProbe.Watch(target, logger.For("game"), null, null, null, () => new[] { typeof(object).Assembly });
             Assert.False(watcher.Watching);
             Assert.Null(target.StorePatch);   // no Game assembly in the test process
             Assert.Contains(sink.Snapshot(), e => e.Message == "no Game assembly is loaded: the client's patches are unknown");

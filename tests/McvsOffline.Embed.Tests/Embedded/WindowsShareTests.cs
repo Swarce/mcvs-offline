@@ -38,13 +38,29 @@ namespace McvsOffline.Embed.Tests.Embedded
             var env = new Env();
             string source = Path.Combine(TestEnvironment.NewTempDir("winshare-src"), "x.json");
             File.WriteAllText(source, "{\"save\":1}");
-            AdminShareResult result = env.Share().ShareFile(source, "mcvs-save-1.json");
+            AdminShareResult result = env.Share().ShareFile(source, "mcvs-save-1.json", "MCVS Offline save");
             Assert.True(result.Ok);
             Assert.Equal("explorer", result.Method);
             Assert.Equal("McvsOffline\\exports\\mcvs-save-1.json", result.PublicPath);
             string target = Path.Combine(env.Exports, "mcvs-save-1.json");
             Assert.Equal("{\"save\":1}", File.ReadAllText(target));
             Assert.Equal(new[] { "explorer.exe /select,\"" + target + "\"" }, env.Started);
+        }
+
+        [Fact]
+        public void SaveWithoutASubjectOnlyCopies()
+        {
+            // The page's "Save" (IAdminHost.ShareFile with a null subject): the file lands in exports, Explorer stays closed.
+            var env = new Env();
+            string source = Path.Combine(TestEnvironment.NewTempDir("winshare-src"), "x.zip");
+            File.WriteAllText(source, "zip");
+            AdminShareResult result = env.Share().ShareFile(source, "mcvs-logs-1.zip", null);
+            Assert.True(result.Ok);
+            Assert.Equal("file", result.Method);
+            Assert.Equal("McvsOffline\\exports\\mcvs-logs-1.zip", result.PublicPath);
+            Assert.Equal("zip", File.ReadAllText(Path.Combine(env.Exports, "mcvs-logs-1.zip")));
+            Assert.Empty(env.Started);
+            Assert.Empty(env.Warnings);
         }
 
         [Fact]
@@ -56,7 +72,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             File.WriteAllText(Path.Combine(env.Exports, "mcvs-save (2).JSON"), "old");
             string source = Path.Combine(TestEnvironment.NewTempDir("winshare-src"), "x.json");
             File.WriteAllText(source, "new");
-            AdminShareResult result = env.Share().ShareFile(source, "mcvs-save.json");
+            AdminShareResult result = env.Share().ShareFile(source, "mcvs-save.json", "MCVS Offline save");
             Assert.Equal("McvsOffline\\exports\\mcvs-save (3).json", result.PublicPath);
             Assert.Equal("old", File.ReadAllText(Path.Combine(env.Exports, "MCVS-Save.json")));
             Assert.Equal("new", File.ReadAllText(Path.Combine(env.Exports, "mcvs-save (3).json")));
@@ -91,7 +107,7 @@ namespace McvsOffline.Embed.Tests.Embedded
         public void FailuresAnswerNone()
         {
             var env = new Env();
-            Assert.Equal("none", env.Share().ShareFile(Path.Combine(env.Exports, "missing.json"), "a.json").Method);
+            Assert.Equal("none", env.Share().ShareFile(Path.Combine(env.Exports, "missing.json"), "a.json", "s").Method);
             Assert.Equal("none", new WindowsShare(() => null, null, null).ShareText("s", "t").Method);
             Assert.Empty(env.Started);
         }

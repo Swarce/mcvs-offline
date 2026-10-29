@@ -298,7 +298,7 @@ namespace McvsOffline
             {
                 int n = Interlocked.Increment(ref serverWorldReports);
                 if (n > ServerWorldReportsLogged && n % 50 != 0) return;
-                string text = "[McvsOffline] server world: ServerManager._AddClientAsync failed: " + Describe(exception) +
+                string text = "server world: ServerManager._AddClientAsync failed: " + Describe(exception) +
                               (n > ServerWorldReportsLogged ? " (" + n.ToString(CultureInfo.InvariantCulture) + " failures so far)" : "");
                 WarnWithBoot(text, exception);
             }
@@ -317,7 +317,7 @@ namespace McvsOffline
                 bool first;
                 lock (gate) first = componentTypes.Count < ComponentTypesLogged && componentTypes.Add(name);
                 if (!first) return;
-                WarnWithBoot("[McvsOffline] component " + name + " was not created: " + Describe(exception), exception);
+                WarnWithBoot("component " + name + " was not created: " + Describe(exception), exception);
             }
             catch (Exception)
             {
@@ -536,7 +536,7 @@ namespace McvsOffline
                 if (b != null) b.Warn(text);
                 Log l = log;
                 if (l != null) l.Warn(text, exception);
-                else if (b == null) SelfLog.Write(SelfLog.Warn, text + ": " + exception);
+                else if (b == null) SelfLog.Write(SelfLog.Warn, "[headless] " + text + ": " + exception);
             }
             catch (Exception)
             {

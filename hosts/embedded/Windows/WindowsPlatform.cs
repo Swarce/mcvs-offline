@@ -267,12 +267,12 @@ namespace McvsOffline.Embedded.Windows
             return false;
         }
 
-        /// <summary>McvsOffline\exports\&lt;displayName&gt; and Explorer (there is no share sheet on PC).</summary>
+        /// <summary>McvsOffline\exports\&lt;displayName&gt;, and Explorer unless subject is null (there is no share sheet on PC).</summary>
         public AdminShareResult ShareFile(string path, string mimeType, string displayName, string subject, string text)
         {
             try
             {
-                return Share().ShareFile(path, displayName);
+                return Share().ShareFile(path, displayName, subject);
             }
             catch (Exception ex)
             {

@@ -13,8 +13,9 @@ namespace McvsOffline.Embedded.Windows
     /// "Share" on PC (docs/design/pc-port.md §6.3, C15): there is no share sheet, so a shared file or text becomes a file in
     /// <c>&lt;DataDir&gt;\exports\</c> (<c>McvsOffline\exports</c>) and Explorer opens on it (<c>explorer.exe /select,"&lt;file&gt;"</c>).
     /// An existing name, compared ignoring case (NTFS folds case, §4.6), gets a " (2)", " (3)"... suffix, so nothing is
-    /// overwritten. Results: Ok with method <c>explorer</c> (Explorer started) or <c>file</c> (the file is there, Explorer did not
-    /// start), <c>PublicPath = "McvsOffline\exports\&lt;name&gt;"</c>. Never throws.
+    /// overwritten. The page's "Save" (a file without a subject) only copies. Results: Ok with method <c>explorer</c> (Explorer
+    /// started) or <c>file</c> (the file is there: saved only, or Explorer did not start),
+    /// <c>PublicPath = "McvsOffline\exports\&lt;name&gt;"</c>. Never throws.
     /// </summary>
     public sealed class WindowsShare
     {
@@ -37,8 +38,11 @@ namespace McvsOffline.Embedded.Windows
             this.warn = warn;
         }
 
-        /// <summary>Copies <paramref name="path"/> to exports\<paramref name="displayName"/> and shows it in Explorer.</summary>
-        public AdminShareResult ShareFile(string path, string displayName)
+        /// <summary>
+        /// Copies <paramref name="path"/> to exports\<paramref name="displayName"/> and, unless <paramref name="subject"/> is null
+        /// (the page's "Save", IAdminHost.ShareFile), shows it in Explorer.
+        /// </summary>
+        public AdminShareResult ShareFile(string path, string displayName, string subject)
         {
             try
             {
@@ -48,6 +52,7 @@ namespace McvsOffline.Embedded.Windows
                 string name = UniqueName(dir, Sanitize(string.IsNullOrEmpty(displayName) ? Path.GetFileName(path) : displayName, ""));
                 string target = Path.Combine(dir, name);
                 File.Copy(path, target, false);
+                if (subject == null) return Saved(name);
                 return Shown(target, name);
             }
             catch (Exception ex)
@@ -84,17 +89,28 @@ namespace McvsOffline.Embedded.Windows
 
         private AdminShareResult Shown(string target, string name)
         {
-            string publicPath = EmbeddedPaths.DataFolderName + "\\" + FolderName + "\\" + name;
             try
             {
                 launch("explorer.exe", "/select,\"" + target + "\"");
+                string publicPath = PublicPath(name);
                 return new AdminShareResult { Ok = true, Method = "explorer", PublicPath = publicPath, Message = "Saved as " + publicPath + "; Explorer shows it." };
             }
             catch (Exception ex)
             {
                 Warn("admin: Explorer did not start: " + ex.GetType().Name + ": " + ex.Message);
-                return new AdminShareResult { Ok = true, Method = "file", PublicPath = publicPath, Message = "Saved as " + publicPath + "." };
+                return Saved(name);
             }
+        }
+
+        private static AdminShareResult Saved(string name)
+        {
+            string publicPath = PublicPath(name);
+            return new AdminShareResult { Ok = true, Method = "file", PublicPath = publicPath, Message = "Saved as " + publicPath + "." };
+        }
+
+        private static string PublicPath(string name)
+        {
+            return EmbeddedPaths.DataFolderName + "\\" + FolderName + "\\" + name;
         }
 
         private string Folder()

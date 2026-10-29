@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using McvsOffline.Server.Core;
@@ -291,7 +292,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             for (int i = 0; i < 12; i++) PcHooks.ServerWorldFailed(new InvalidOperationException("world " + i));
             List<LogEntry> warnings = Warnings();
             Assert.Equal(10, warnings.Count);
-            Assert.All(warnings, w => Assert.StartsWith("[McvsOffline] server world: ServerManager._AddClientAsync failed: InvalidOperationException", w.Message));
+            Assert.All(warnings, w => Assert.StartsWith("server world: ServerManager._AddClientAsync failed: InvalidOperationException", w.Message));
             Assert.NotNull(warnings[0].Exception);
 
             Mark();
@@ -300,9 +301,27 @@ namespace McvsOffline.Embed.Tests.Embedded
             PcHooks.ComponentCreateFailed(null, null);
             warnings = Warnings();
             Assert.Equal(2, warnings.Count);
-            Assert.Equal("[McvsOffline] component System.String was not created: NullReferenceException: Object reference not set to an instance of an object.", warnings[0].Message);
+            Assert.Equal("component System.String was not created: NullReferenceException: Object reference not set to an instance of an object.", warnings[0].Message);
             Assert.Contains("component ? was not created", warnings[1].Message);
             Assert.Contains("server World failures 12, components not created 3", PcHooks.Describe());
+        }
+
+        [Fact]
+        public void ServerWorldAndComponentLinesHaveTheHeadlessWorldShape()
+        {
+            // Like the H3 hook's "[boot] headless world: ..." (GameHooks.HeadlessComponentException): no tag inside the message.
+            var logger = new Logger();
+            var lines = new MemoryLogSink(LogLevel.Debug, 50);
+            logger.AddSink(lines);
+            PcHooks.Configure(logger.For("pc"), new BootTrace(logger.For("boot")));
+            PcHooks.ServerWorldFailed(new InvalidOperationException("world"));
+            PcHooks.ComponentCreateFailed(new NullReferenceException(), typeof(int));
+            List<LogEntry> entries = lines.Snapshot().ToList();
+            Assert.Contains(entries, e => e.Category == "boot" && Regex.IsMatch(e.Message, "^\\+[0-9.]+ s server world: ServerManager._AddClientAsync failed: InvalidOperationException"));
+            Assert.Contains(entries, e => e.Category == "boot" && Regex.IsMatch(e.Message, "^\\+[0-9.]+ s component System.Int32 was not created: NullReferenceException"));
+            Assert.Contains(entries, e => e.Category == "pc" && e.Message.StartsWith("server world: ", StringComparison.Ordinal));
+            Assert.Contains(entries, e => e.Category == "pc" && e.Message.StartsWith("component System.Int32 was not created: ", StringComparison.Ordinal));
+            Assert.DoesNotContain(entries, e => e.Format().Contains("[McvsOffline]"));
         }
 
         private void SetMatchmaker(Func<string, CancellationToken, string, int?, Task<object>> behaviour)

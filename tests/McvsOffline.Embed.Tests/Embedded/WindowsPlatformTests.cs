@@ -10,6 +10,7 @@ using McvsOffline.Embedded;
 using McvsOffline.Embedded.Diagnostics;
 using McvsOffline.Embedded.Windows;
 using McvsOffline.Server.Core;
+using McvsOffline.Server.Services.Admin;
 using Xunit;
 
 namespace McvsOffline.Embed.Tests.Embedded
@@ -266,10 +267,12 @@ namespace McvsOffline.Embed.Tests.Embedded
             PcHooks.ResetForTests();
             string root = GameFolder("winconfigure");
             var sink = new MemoryLogSink(LogLevel.Debug, 200);
+            var started = new List<string>();
             var platform = new WindowsPlatform
             {
                 GameRoot = root,
                 Runtime = () => new RuntimeFacts { Clr = "4.0.30319.42000", Release = 528040, LargeAddressAware = false },
+                ProcessStarter = (program, args) => { lock (started) started.Add(program); },
             };
             EmbeddedHost host = EmbeddedHost.Start(platform, new EmbeddedHostOptions { Port = TestEnvironment.FreePort(), Watchdog = false, StatusIntervalMs = 0 });
             try
@@ -289,6 +292,18 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.True(host.FlushLogs(10000));
                 Assert.Contains("[pc] quicklaunch: the automatch host could not be set", File.ReadAllText(host.Paths.BootstrapLog));
                 Assert.Equal(Path.Combine(root, "McvsOffline", "exports"), platform.PublicDownloadsDir());
+
+                // The page's "Save" (no subject) only copies into exports; "Share" also opens Explorer.
+                string file = Path.Combine(TestEnvironment.NewTempDir("winplatform-share"), "logs.zip");
+                File.WriteAllText(file, "zip");
+                AdminShareResult saved = platform.ShareFile(file, "application/zip", "mcvs-logs.zip", null, "MCVS Offline logs");
+                Assert.Equal("file", saved.Method);
+                Assert.True(File.Exists(Path.Combine(root, "McvsOffline", "exports", "mcvs-logs.zip")));
+                lock (started) Assert.Empty(started);
+                AdminShareResult shared = platform.ShareFile(file, "application/zip", "mcvs-logs.zip", "MCVS Offline logs", "MCVS Offline logs");
+                Assert.Equal("explorer", shared.Method);
+                Assert.Equal("McvsOffline\\exports\\mcvs-logs (2).zip", shared.PublicPath);
+                lock (started) Assert.Equal(new[] { "explorer.exe" }, started);
             }
             finally
             {

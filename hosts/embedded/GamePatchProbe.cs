@@ -108,17 +108,18 @@ namespace McvsOffline.Embedded
         /// <param name="watchLoads">Subscribes a callback to assembly loads and returns the unsubscribe action; null: probe once.</param>
         public static PatchWatcher Watch(ClientCapabilities target, Log log, Func<Action<Assembly>, Action> watchLoads, BootTrace boot, string gameRoot)
         {
-            Assembly[] loaded;
-            try
+            return Watch(target, log, watchLoads, boot, gameRoot, () =>
             {
-                loaded = AppDomain.CurrentDomain.GetAssemblies();
-            }
-            catch (Exception ex)
-            {
-                Warn(log, ex);
-                loaded = new Assembly[0];
-            }
-            return Watch(target, log, watchLoads, boot, gameRoot, loaded);
+                try
+                {
+                    return AppDomain.CurrentDomain.GetAssemblies();
+                }
+                catch (Exception ex)
+                {
+                    Warn(log, ex);
+                    return new Assembly[0];
+                }
+            });
         }
 
         /// <summary>The probe of docs/design/pc-port.md §6.2 without a load subscription or the boot lines (Android: Game is loaded).</summary>
@@ -127,12 +128,15 @@ namespace McvsOffline.Embedded
             return Watch(target, log, null, null, null);
         }
 
-        /// <summary><see cref="Watch(ClientCapabilities, Log, Func{Action{Assembly}, Action}, BootTrace, string)"/> over a given list of loaded assemblies (tests).</summary>
+        /// <summary>
+        /// <see cref="Watch(ClientCapabilities, Log, Func{Action{Assembly}, Action}, BootTrace, string)"/> over a given list of loaded
+        /// assemblies (tests); <paramref name="loaded"/> is asked once the load subscription is in place.
+        /// </summary>
         internal static PatchWatcher Watch(ClientCapabilities target, Log log, Func<Action<Assembly>, Action> watchLoads, BootTrace boot, string gameRoot,
-                                           IEnumerable<Assembly> loaded)
+                                           Func<IEnumerable<Assembly>> loaded)
         {
             var watcher = new PatchWatcher(target ?? new ClientCapabilities(), log, boot, gameRoot);
-            watcher.Start(loaded ?? new Assembly[0], watchLoads);
+            watcher.Start(loaded, watchLoads);
             return watcher;
         }
 
@@ -220,8 +224,11 @@ namespace McvsOffline.Embedded
             get { lock (gate) return unsubscribe != null; }
         }
 
-        /// <summary>Subscribes first, then looks at what is loaded already (so nothing loads unseen in between).</summary>
-        internal void Start(IEnumerable<Assembly> loaded, Func<Action<Assembly>, Action> watchLoads)
+        /// <summary>
+        /// Subscribes first, then asks <paramref name="loaded"/> what is loaded already (so nothing loads unseen in between; an
+        /// assembly seen both ways counts once).
+        /// </summary>
+        internal void Start(Func<IEnumerable<Assembly>> loaded, Func<Action<Assembly>, Action> watchLoads)
         {
             try
             {
@@ -236,7 +243,11 @@ namespace McvsOffline.Embedded
                     }
                     if (already && stop != null) stop();
                 }
-                foreach (Assembly assembly in loaded) Loaded(assembly);
+                IEnumerable<Assembly> present = loaded == null ? null : loaded();
+                if (present != null)
+                {
+                    foreach (Assembly assembly in present) Loaded(assembly);
+                }
                 bool waiting;
                 lock (gate) waiting = !storeDone;
                 if (waiting && log != null)
