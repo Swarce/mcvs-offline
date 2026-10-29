@@ -6,6 +6,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using Android.Runtime;
+using McvsOffline.Embedded.Diagnostics;
 
 namespace McvsOffline.Embedded.Android
 {
@@ -25,8 +26,13 @@ namespace McvsOffline.Embedded.Android
             "FREEZER", "PACKAGE_STATE_CHANGE", "PACKAGE_UPDATED",
         };
 
-        /// <summary>One line per previous process (newest first), or null below API 30.</summary>
-        public static string Describe(int max, string traceDirectory)
+        /// <summary>
+        /// One line per previous process (newest first), or null below API 30. Traces are saved only for exits at or after
+        /// <paramref name="keepSinceUtc"/> (LogRetention.TraceCutoffUtc, null: all): an older one was deleted with its start and
+        /// must not be written again (SaveTrace only checks that the file exists). With logging.keepStarts 0 that is the previous
+        /// start, so the trace of the process that just ended is still saved (and deleted at the next start).
+        /// </summary>
+        public static string Describe(int max, string traceDirectory, DateTime? keepSinceUtc)
         {
             if (AndroidDiagnostics.SdkInt() < 30) return null;
             IntPtr context = global::Android.App.Application.Context.Handle;
@@ -54,12 +60,16 @@ namespace McvsOffline.Embedded.Android
                     long when = JNIEnv.CallLongMethod(info, JNIEnv.GetMethodID(infoClass, "getTimestamp", "()J"));
                     string description = JNIEnv.GetString(JNIEnv.CallObjectMethod(info, JNIEnv.GetMethodID(infoClass, "getDescription", "()Ljava/lang/String;")),
                                                           JniHandleOwnership.TransferLocalRef);
+                    DateTime exitUtc = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddMilliseconds(when);
                     sb.Append("\n  pid ").Append(pid.ToString(CultureInfo.InvariantCulture)).Append(' ')
-                      .Append(new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddMilliseconds(when).ToLocalTime()
-                                  .ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture))
+                      .Append(exitUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture))
                       .Append(' ').Append(reason >= 0 && reason < Names.Length ? Names[reason] : reason.ToString(CultureInfo.InvariantCulture))
                       .Append(" status ").Append(status.ToString(CultureInfo.InvariantCulture)).Append(" \"").Append(description).Append('"');
-                    if (traceDirectory != null && (reason == 5 || reason == 6))
+                    if (traceDirectory != null && (reason == 5 || reason == 6) && !LogRetention.KeepsExit(exitUtc, keepSinceUtc))
+                    {
+                        sb.Append(" (trace not kept: older than the kept starts)");
+                    }
+                    else if (traceDirectory != null && (reason == 5 || reason == 6))
                     {
                         string saved = SaveTrace(info, infoClass, Path.Combine(traceDirectory, "exit-" + pid.ToString(CultureInfo.InvariantCulture) +
                                                                                (reason == 6 ? "-anr.txt" : "-tombstone.pb")));

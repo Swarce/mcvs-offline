@@ -171,7 +171,8 @@ namespace McvsOffline.Server
             else
                 log.Info("client: 'store' patch " + (client.StorePatch == true ? "present" : "unknown (assumed present)"));
             var requestLogger = new RequestLogger(logger, Path.Combine(dataDir, "logs", "unknown-endpoints.jsonl"),
-                                                  () => settings.LogBodyLimit);
+                                                  () => settings.LogBodyLimit,
+                                                  options.FileLogOptions != null && options.FileLogOptions.NewFileAtStart);
             var router = new Router(requestLogger);
             BootTrace boot = options.BootTrace ?? new BootTrace(logger.For("boot"));
             var server = new McvsServer(context, router, requestLogger, options.Limits, boot);
@@ -192,6 +193,15 @@ namespace McvsOffline.Server
             string unknown = requestLogger.DescribeUnknownFile();
             if (unknown != null) lines.Add(unknown);
             return lines;
+        }
+
+        /// <summary>The server's open log files (server.log, unknown-endpoints.jsonl), for the embedded host's log retention.</summary>
+        public List<SafeLogFile> OpenLogFiles()
+        {
+            var files = new List<SafeLogFile>();
+            if (fileSink != null) files.Add(fileSink.File);
+            if (requestLogger.UnknownFile != null) files.Add(requestLogger.UnknownFile);
+            return files;
         }
 
         /// <summary>Binds the configured address and port and starts serving.</summary>

@@ -52,6 +52,7 @@ namespace McvsOffline.Tests.Admin
             Assert.Contains("hd.enabled", AllKeys(views));
             Assert.Contains("install.manageInstaller", AllKeys(views));
             Assert.Contains(SettingsSchema.AccountMenuHideDeadButtonsKey, AllKeys(views));
+            Assert.Contains("logging.keepStarts", AllKeys(views));
             Assert.DoesNotContain("embedded.physics.keepPhysicsLayer", AllKeys(views));
         }
 
@@ -63,6 +64,8 @@ namespace McvsOffline.Tests.Admin
             Assert.DoesNotContain(keys, AndroidOnly);
             Assert.DoesNotContain("admin.accountMenu.hideDeadButtons", keys);
             Assert.Contains("admin.redeemCode", keys);
+            // The PC host deletes the logs of older starts the same way (McvsOffline\logs and %TEMP%\McvsOffline\logs).
+            Assert.Equal(keys.IndexOf("logging.fileLevel") + 1, keys.IndexOf("logging.keepStarts"));
             // Everything else is still there, in the same order.
             List<string> android = AllKeys(SettingsSchema.GroupsFor("android")).Where(k => !AndroidOnly(k)).ToList();
             Assert.Equal(android, keys.Where(k => k != "embedded.physics.keepPhysicsLayer").ToList());
@@ -82,6 +85,25 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal(android.Key, pc.Key);
             Assert.Equal(android.Type, pc.Type);
             Assert.Equal(android.Options, pc.Options);
+            Assert.Equal(android.Default, pc.Default);
+            Assert.Equal(android.Apply, pc.Apply);
+            Assert.Equal(android.Label, pc.Label);
+        }
+
+        /// <summary>The PC has no Downloads copies, thread dumps or exit files, and cleans %TEMP%\McvsOffline\logs too.</summary>
+        [Fact]
+        public void WindowsHasThePcWordingOfKeepStarts()
+        {
+            SettingDefinition pc = SettingsSchema.GroupsFor("windows").SelectMany(v => v.Keys).Single(k => k.Key == "logging.keepStarts");
+            SettingDefinition android = SettingsSchema.Find("logging.keepStarts");
+            Assert.Contains(@"McvsOffline\logs and %TEMP%\McvsOffline\logs", pc.Help);
+            Assert.Contains("crash and exception files", pc.Help);
+            Assert.DoesNotContain("Downloads", pc.Help);
+            Assert.DoesNotContain("thread dump", pc.Help);
+            Assert.DoesNotContain("exit files", pc.Help);
+            Assert.Contains("Downloads/MCVS-Offline", android.Help);   // the catalogue itself is unchanged
+            Assert.Equal(android.Help, SettingsSchema.GroupsFor("android").SelectMany(v => v.Keys).Single(k => k.Key == "logging.keepStarts").Help);
+            Assert.Equal(android.Type, pc.Type);
             Assert.Equal(android.Default, pc.Default);
             Assert.Equal(android.Apply, pc.Apply);
             Assert.Equal(android.Label, pc.Label);

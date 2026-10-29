@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace McvsOffline.Server.Services.Admin
@@ -55,6 +56,7 @@ namespace McvsOffline.Server.Services.Admin
         public string GameRoot { get; set; }
         public string LogsDir { get; set; }
         public string FallbackLogsDir { get; set; }   // internal-storage fallback of the log files, or null
+        public DateTime? StartedUtc { get; set; }     // when this process started (its log files begin then: the report's previous start), or null unknown
         public string PublicLogsDir { get; set; }     // .../Download/MCVS-Offline, or null
         public string MirrorStatus { get; set; }      // one line
         public string WatchdogStatus { get; set; }    // one line

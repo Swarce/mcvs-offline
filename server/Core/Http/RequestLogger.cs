@@ -39,14 +39,21 @@ namespace McvsOffline.Server.Core.Http
         /// <param name="logger">Root logger.</param>
         /// <param name="unknownLogPath">JSON-lines file for unknown endpoints (null: log only).</param>
         /// <param name="bodyLimit">Max characters per value/body in the normal request log.</param>
-        public RequestLogger(Logger logger, string unknownLogPath, Func<int> bodyLimit)
+        /// <param name="newFileAtStart">Start a new unknown-endpoints file for this process (the embedded host's per-start logs).</param>
+        public RequestLogger(Logger logger, string unknownLogPath, Func<int> bodyLimit, bool newFileAtStart = false)
         {
             log = logger != null ? logger.For("http") : Log.Null;
             // Synchronous: unknown endpoints are rare, and the file is read while the server runs (the list of what is missing).
             unknownFile = unknownLogPath == null ? null
-                : new SafeLogFile(unknownLogPath, new SafeLogFileOptions { MaxBytes = 10L * 1024 * 1024, MaxFiles = 3, Synchronous = true });
+                : new SafeLogFile(unknownLogPath, new SafeLogFileOptions
+                {
+                    MaxBytes = 10L * 1024 * 1024, MaxFiles = 3, Synchronous = true, NewFileAtStart = newFileAtStart,
+                });
             this.bodyLimit = bodyLimit ?? (() => 64 * 1024);
         }
+
+        /// <summary>logs/unknown-endpoints.jsonl, or null (the embedded host's log retention deletes its older files through it).</summary>
+        internal SafeLogFile UnknownFile { get { return unknownFile; } }
 
         public string DescribeUnknownFile()
         {

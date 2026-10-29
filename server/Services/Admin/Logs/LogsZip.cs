@@ -46,7 +46,8 @@ namespace McvsOffline.Server.Services.Admin.Logs
 
     /// <summary>
     /// The logs zip for a bug report (design §7.2). Scope <c>recent</c> (default): server.log, bootstrap.log and game.log
-    /// (tails ≤ 4 MiB), their newest rotation .1 (≤ 2 MiB), crash-/exception-/exit-/threaddump- files of the last 72 h
+    /// (tails ≤ 4 MiB), their newest rotation .1 (≤ 2 MiB; the embedded host starts new files at every start, so this is the
+    /// end of the previous start), crash-/exception-/exit-/threaddump- files of the last 72 h
     /// (newest 10 per kind, ≤ 1 MiB each) and unknown-endpoints.jsonl (≤ 512 KiB), in that priority order, with a hard cap
     /// of 8 MiB compressed: an entry that would cross it is left out and listed as skipped. Scope <c>all</c>: every listed
     /// file, ≤ 8 MiB each, 48 MiB uncompressed in total. Plus status.json, settings.json (without superPassword),

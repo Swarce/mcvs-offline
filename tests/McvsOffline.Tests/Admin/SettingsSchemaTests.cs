@@ -26,7 +26,8 @@ namespace McvsOffline.Tests.Admin
             "liveops.enabled", "liveops.divisionSeasons", "liveops.dailyQuests", "liveops.weeklyEvents", "liveops.seasonDays",
             "liveops.seasonStart", "liveops.dailyResetHour", "liveops.modifiers", "liveops.difficulty", "liveops.seasonRewardMultiplier",
             "crm.newsfeedLink",
-            "storage.backups.keep", "storage.backups.intervalMinutes", "storage.autoRestoreCorrupt", "logging.fileLevel", "gameLog.levels",
+            "storage.backups.keep", "storage.backups.intervalMinutes", "storage.autoRestoreCorrupt", "logging.fileLevel", "logging.keepStarts",
+            "gameLog.levels",
             "gameLog.mute", "gameLog.file", "diagnostics.watchdog", "diagnostics.threadDump", "diagnostics.publicLogCopy", "tracking.disable",
         };
 
@@ -60,6 +61,26 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal("any", Def("liveops.seasonStart").BackupBefore);
             Assert.Equal("decrease", Def("storage.backups.keep").ConfirmWhen);
             Assert.Null(Def("storage.backups.keep").BackupBefore);
+        }
+
+        /// <summary>The log retention's setting (host key, read once at start): 0..10 previous starts, default 1.</summary>
+        [Fact]
+        public void KeepStartsIsAnIntegerFromZeroToTenAppliedAtTheNextStart()
+        {
+            SettingDefinition def = Def("logging.keepStarts");
+            Assert.Equal("diagnostics", def.Group);
+            Assert.Equal("int", def.Type);
+            Assert.Equal(1L, def.Default);
+            Assert.Equal(0d, def.Min.Value);
+            Assert.Equal(10d, def.Max.Value);
+            Assert.Equal("restart", def.Apply);
+            Assert.Contains("Saves, settings and the zips you saved are never deleted", def.Help);
+            Assert.Null(JsonPath.Get(Settings.CreateDefaults(), "logging.keepStarts"));   // not a standalone server key
+            Assert.True(SettingsSchema.Validate(def, 0L, out object normalized, out _));
+            Assert.Equal(0L, normalized);
+            Assert.True(SettingsSchema.Validate(def, 10L, out normalized, out _));
+            Assert.False(SettingsSchema.Validate(def, 11L, out _, out _));
+            Assert.False(SettingsSchema.Validate(def, -1L, out _, out _));
         }
 
         [Fact]

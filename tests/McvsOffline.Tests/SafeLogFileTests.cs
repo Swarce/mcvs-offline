@@ -145,6 +145,161 @@ namespace McvsOffline.Tests
             Assert.Contains("INFO  [t] hello", File.ReadAllText(sink.Path));
             logger.Dispose();
         }
+
+        // ------------------------------------------------------------------ a new file at every start (log retention)
+
+        [Fact]
+        public void NewFileAtStartRotatesTheEarlierStartsFile()
+        {
+            string path = dir.Combine("start", "x.log");
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            File.WriteAllText(path, "old\n");
+            File.WriteAllText(path + ".1", "older\n");
+            File.WriteAllText(path + ".2", "oldest\n");
+            using (var file = new SafeLogFile(path, new SafeLogFileOptions { NewFileAtStart = true, MaxFiles = 2 }))
+            {
+                file.AppendLine("new");
+                Assert.True(file.Flush(10000));
+                Assert.Equal(0, file.Failures);
+            }
+            Assert.Equal("new\n", File.ReadAllText(path));
+            Assert.Equal("old\n", File.ReadAllText(path + ".1"));    // the previous start
+            Assert.Equal("older\n", File.ReadAllText(path + ".2"));
+            Assert.False(File.Exists(path + ".3"));                  // MaxFiles: the oldest went
+            Assert.DoesNotContain("oldest\n", Directory.GetFiles(Path.GetDirectoryName(path)).Select(f => File.ReadAllText(f)));
+        }
+
+        [Fact]
+        public void NewFileAtStartLeavesAnEmptyOrMissingFileAloneAndIsOffByDefault()
+        {
+            string empty = dir.Combine("empty", "x.log");
+            Directory.CreateDirectory(Path.GetDirectoryName(empty));
+            File.WriteAllText(empty, "");
+            string missing = dir.Combine("missing", "x.log");
+            string off = dir.Combine("off", "x.log");
+            Directory.CreateDirectory(Path.GetDirectoryName(off));
+            File.WriteAllText(off, "old\n");
+            foreach (var (path, newFile) in new[] { (empty, true), (missing, true), (off, false) })
+            {
+                using (var file = new SafeLogFile(path, new SafeLogFileOptions { NewFileAtStart = newFile }))
+                {
+                    file.AppendLine("new");
+                    Assert.True(file.Flush(10000));
+                }
+                Assert.False(File.Exists(path + ".1"), path);
+            }
+            Assert.Equal("new\n", File.ReadAllText(empty));
+            Assert.Equal("new\n", File.ReadAllText(missing));
+            Assert.Equal("old\nnew\n", File.ReadAllText(off));   // appends as before
+            Assert.Empty(SelfLines("could not start a new file"));
+        }
+
+        [Fact]
+        public void ASynchronousFileStartsItsNewFileInTheConstructor()
+        {
+            string path = dir.Combine("sync", "unknown-endpoints.jsonl");
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            File.WriteAllText(path, "{\"old\":1}\n");
+            using (var file = new SafeLogFile(path, new SafeLogFileOptions { Synchronous = true, NewFileAtStart = true }))
+            {
+                Assert.False(File.Exists(path));   // rotated before any line
+                Assert.Equal("{\"old\":1}\n", File.ReadAllText(path + ".1"));
+                file.AppendLine("{\"new\":1}");
+                Assert.Equal("{\"new\":1}\n", File.ReadAllText(path));
+            }
+        }
+
+        [Fact]
+        public void AFailedStartRotationKeepsWritingIntoTheExistingFile()
+        {
+            string path = dir.Combine("blocked", "x.log");
+            Directory.CreateDirectory(path + ".1");   // a directory where the rotation's x.log.1 should go: the rename fails
+            File.WriteAllText(path, "old\n");
+            using (var file = new SafeLogFile(path, new SafeLogFileOptions { NewFileAtStart = true, MaxFiles = 3, FallbackDirectory = dir.Combine("fb") }))
+            {
+                file.AppendLine("new");
+                Assert.True(file.Flush(10000));
+                Assert.False(file.UsingFallback);
+                Assert.Equal(0, file.Failures);
+                Assert.Equal(path, file.Path);
+            }
+            Assert.Equal("old\nnew\n", File.ReadAllText(path));
+            Assert.True(Directory.Exists(path + ".1"));
+            string warning = Assert.Single(SelfLines("could not start a new file for " + path));
+            Assert.StartsWith(SelfLog.Warn + " ", warning);
+            Assert.Contains("continuing in the existing one", warning);
+        }
+
+        [Fact]
+        public void DeleteFilesBeforeDeletesOnlyThisLogsOlderFiles()
+        {
+            DateTime cutoff = new DateTime(2026, 10, 28, 12, 0, 0, DateTimeKind.Utc);
+            DateTime old = cutoff.AddHours(-3), recent = cutoff.AddMinutes(5);
+            string logs = dir.Combine("ret", "logs"), fb = dir.Combine("ret", "fb");
+            Directory.CreateDirectory(logs);
+            Directory.CreateDirectory(fb);
+            void Plant(string path, DateTime time)
+            {
+                File.WriteAllText(path, Path.GetFileName(path));
+                File.SetLastWriteTimeUtc(path, time);
+            }
+            string path = Path.Combine(logs, "x.log");
+            Plant(path, old);                                   // the file being written: never, even when old
+            Plant(path + ".1", recent);
+            Plant(path + ".2", old);
+            Plant(path + ".3", old);
+            Plant(Path.Combine(fb, "x.log"), old);
+            Plant(Path.Combine(fb, "x.log.1"), old);
+            Plant(Path.Combine(fb, "x.log.2"), recent);
+            foreach (string other in new[] { "x.log.bak", "x.log.1.tmp", "other.log", "x.logs.1", "x.log.1a" }) Plant(Path.Combine(logs, other), old);
+
+            var deleted = new List<string>();
+            var failed = new List<string>();
+            using (var file = new SafeLogFile(path, new SafeLogFileOptions { FallbackDirectory = fb, Synchronous = true }))
+            {
+                int count = file.DeleteFilesBefore(cutoff, p => { File.Delete(p); return true; }, deleted, failed);
+                Assert.Equal(4, count);
+            }
+            Assert.Equal(new[] { path + ".2", path + ".3", Path.Combine(fb, "x.log"), Path.Combine(fb, "x.log.1") }.OrderBy(p => p),
+                         deleted.OrderBy(p => p));
+            Assert.Empty(failed);
+            Assert.Equal(new[] { "other.log", "x.log", "x.log.1", "x.log.1.tmp", "x.log.1a", "x.log.bak", "x.logs.1" },
+                         Directory.GetFiles(logs).Select(Path.GetFileName).OrderBy(n => n, StringComparer.Ordinal));
+            Assert.Equal(new[] { "x.log.2" }, Directory.GetFiles(fb).Select(Path.GetFileName));
+
+            // A delete that fails is reported, not thrown.
+            Plant(path + ".2", old);
+            deleted.Clear();
+            using (var file = new SafeLogFile(path, new SafeLogFileOptions { Synchronous = true }))
+            {
+                Assert.Equal(0, file.DeleteFilesBefore(cutoff, p => throw new IOException("busy"), deleted, failed));
+            }
+            Assert.Empty(deleted);
+            Assert.Equal(new[] { path + ".2" }, failed);
+            Assert.True(File.Exists(path + ".2"));
+        }
+
+        [Fact]
+        public void DeleteFilesBeforeNeverDeletesTheFallbackFileBeingWritten()
+        {
+            string path = dir.Combine("fbw", "logs", "server.log");
+            Directory.CreateDirectory(path);   // the primary file cannot be written: the log moves to the fallback
+            string fb = dir.Combine("fbw", "internal");
+            using (var file = new SafeLogFile(path, new SafeLogFileOptions { FallbackDirectory = fb, RetryDelaysMs = new[] { 20 } }))
+            {
+                file.AppendLine("line");
+                Assert.True(file.Flush(10000));
+                Assert.True(file.UsingFallback);
+                DateTime cutoff = DateTime.UtcNow.AddMinutes(10);   // everything is older
+                File.SetLastWriteTimeUtc(file.Path, cutoff.AddHours(-1));
+                File.WriteAllText(file.Path + ".1", "older");
+                File.SetLastWriteTimeUtc(file.Path + ".1", cutoff.AddHours(-2));
+                var deleted = new List<string>();
+                file.DeleteFilesBefore(cutoff, p => { File.Delete(p); return true; }, deleted, null);
+                Assert.Equal(new[] { file.Path + ".1" }, deleted);
+                Assert.True(File.Exists(file.Path));
+            }
+        }
     }
 
     [Collection("SelfLog")]

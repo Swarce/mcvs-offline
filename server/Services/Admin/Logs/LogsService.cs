@@ -428,7 +428,8 @@ namespace McvsOffline.Server.Services.Admin.Logs
 
         /// <summary>
         /// The plain-text report (design §4.7): status summary, the last 300 WARN+ entries of server.log, bootstrap.log and
-        /// game.log, the newest crash file's first 200 lines; at most 100,000 characters, redacted.
+        /// game.log and of the previous start's last file of each (PreviousStartFile), the newest crash file's first 200 lines; at most 100,000
+        /// characters, redacted.
         /// </summary>
         private string Report(HttpRequest request, string note)
         {
@@ -437,13 +438,30 @@ namespace McvsOffline.Server.Services.Admin.Logs
             if (!string.IsNullOrEmpty(note)) sb.Append("Note: ").Append(note).Append('\n');
             sb.Append('\n').Append("== Status ==\n").Append(StatusSummary(request)).Append('\n');
 
-            List<string> dirs = Directories(api.DescribeHost());
+            AdminHostInfo host = api.DescribeHost();
+            List<string> dirs = Directories(host);
             List<LogFile> files = Files(dirs);
-            foreach (string name in new[] { "server.log", "bootstrap.log", "game.log" })
+            var sections = new List<KeyValuePair<LogFile, string>>();
+            foreach (string name in ReportLogs)
             {
                 LogFile file = files.Find(f => f.Name == name);
-                if (file == null) continue;
-                sb.Append("== ").Append(file.EntryName).Append(" (last warnings and errors) ==\n");
+                if (file != null) sections.Add(new KeyValuePair<LogFile, string>(file, " (last warnings and errors) ==\n"));
+            }
+            // The embedded host starts new files at every start, so the previous start (the one that broke, when the player
+            // restarted the game before opening the page) is the newest numbered file written before this start: ".1", unless the
+            // log also rotated by size during this start. Without the start time: ".1", "previous file".
+            foreach (string name in ReportLogs)
+            {
+                bool known;
+                LogFile file = PreviousStartFile(files, name, host == null ? null : host.StartedUtc, out known);
+                if (file != null)
+                    sections.Add(new KeyValuePair<LogFile, string>(file, known ? " (previous start, last warnings and errors) ==\n"
+                                                                              : " (previous file, usually the previous start, last warnings and errors) ==\n"));
+            }
+            foreach (KeyValuePair<LogFile, string> section in sections)
+            {
+                LogFile file = section.Key;
+                sb.Append("== ").Append(file.EntryName).Append(section.Value);
                 try
                 {
                     foreach (LogTailEntry e in LogTail.Read(file.Path, ReportProblemEntries, LogLevel.Warn, null).Entries)
@@ -478,6 +496,39 @@ namespace McvsOffline.Server.Services.Admin.Logs
             string text = LogRedaction.Redact(sb.ToString());
             if (text.Length > ReportMaxChars) text = text.Substring(0, ReportMaxChars - 2) + "…\n";
             return text;
+        }
+
+        private static readonly string[] ReportLogs = { "server.log", "bootstrap.log", "game.log" };
+
+        /// <summary>
+        /// The last file of the previous start: with <paramref name="startedUtc"/>, the lowest-numbered "name.N" last written
+        /// before it (<paramref name="known"/> true); without, "name.1" (false). Null when there is none.
+        /// </summary>
+        internal static LogFile PreviousStartFile(List<LogFile> files, string name, DateTime? startedUtc, out bool known)
+        {
+            known = startedUtc != null;
+            if (!known) return files.Find(f => f.Name == name + ".1");
+            LogFile best = null;
+            long bestNumber = 0;   // no long.MaxValue: trimmed from the game's mscorlib
+            foreach (LogFile f in files)
+            {
+                if (f.Name == null || f.Name.Length <= name.Length + 1 || !f.Name.StartsWith(name + ".", StringComparison.Ordinal)) continue;
+                long number = 0;
+                bool digits = f.Name.Length - name.Length - 1 <= 9;
+                for (int i = name.Length + 1; i < f.Name.Length && digits; i++)
+                {
+                    char c = f.Name[i];
+                    digits = c >= '0' && c <= '9';
+                    number = number * 10 + (c - '0');
+                }
+                if (!digits || f.ModifiedUtc >= startedUtc.Value) continue;
+                if (best == null || number < bestNumber || (number == bestNumber && f.Dir < best.Dir))
+                {
+                    best = f;
+                    bestNumber = number;
+                }
+            }
+            return best;
         }
 
         private string StatusSummary(HttpRequest request)
