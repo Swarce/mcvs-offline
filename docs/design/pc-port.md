@@ -1763,28 +1763,30 @@ closes.
 ### 13.1 Expected WR2 values (WP5a, build 13)
 
 From the §12.6 run on Linux (`McvsOffline.Patcher pc install` on a temp copy of the read-only Steam files, with the PC
-server DLL the kit embeds, byte-identical), default patch set, port 51780. A second install gave the same bytes.
+server DLL the kit embeds, byte-identical), default patch set, port 51780. A second install gave the same bytes, and
+the values do not depend on the commit they are built at: `Directory.Build.props` turns SourceLink off (it wrote the
+git commit into the server DLL's embedded PDB, so every commit changed these hashes).
 The owner's copy is [PLAYER-SETUP-PC.md](../PLAYER-SETUP-PC.md) §7.
 
 | written | sha256 | mvid |
 |---|---|---|
-| `McvsOffline/bin/EngineBridge.dll` | `ed3972f3abe53cb1b9112a235177f8b9cf4a2454f94bfe9750aaf6661c2f9f3f` | `fbd19966-0405-4607-af4f-e9f794f02ac4` |
-| `McvsOffline/bin/Game.dll` | `d374ee60ae2cb50f5467dfae7228da69a4e3eede174db0ee185a8c905032d939` | `1d76dbb8-2de1-479e-a5b1-360e3beebc47` |
-| `McvsOffline/bin/Gameloft.Engine.dll` | `b83a28787b8f279812eec9802a84cbaaf1126fa7094c36d7b425eefe42ed84ca` | `09c4f5d9-9e61-4908-95aa-61f300c86708` |
-| `McvsOffline/bin/Gameloft.Util.dll` | `25287185fe48c574a931ad6d99ea25b621789313bbed0d28f5901682bf8e2f2d` | `b8e80351-1467-401e-83c9-0b123d73d32f` |
-| `McvsOffline/bin/McvsOffline.Server.dll` | `aa4c303d2013dfc8c23857cd5cb44f91d1a906bfc7d918ed53f30667dcbd56a8` | `809b1326-92d6-4440-a56c-269133c36607` |
+| `McvsOffline/bin/EngineBridge.dll` | `4b0ea8fac51bbee17c6d906d55c897789e203488fe031ab01a527bab89c31257` | `094c4ada-c9cf-4c72-bd75-d55e5c99fe8f` |
+| `McvsOffline/bin/Game.dll` | `90cbbe22a2797777cad4d486f55ba20eb0ad7ca18d9f2474ec3acb1cd481a7bf` | `0d2a948e-b56f-4bda-9903-e45d30f50171` |
+| `McvsOffline/bin/Gameloft.Engine.dll` | `f61725587852e7fb14efb8fd513164f35c35b031c380c3a3adfc795b89fe37e4` | `6985f363-bcc3-483e-befc-99e3ca209668` |
+| `McvsOffline/bin/Gameloft.Util.dll` | `b7de6ae97a3aab35cf6b392d87579262eda2c0202a139b3b22faaa3f374a4618` | `e5148c05-8704-40f0-8376-3e62c16a3152` |
+| `McvsOffline/bin/McvsOffline.Server.dll` | `b79f8b6afe553a45f96df30358c19d4db152909aa8e3a7efda5edbf42f2a1328` | `537e3fc9-959a-4829-a498-41fcde1f9379` |
 | `ModernCombatVersus.exe.config` | `3ebe99b3c93a9540cd7f7b03da55fc048a544501c17e8621457884eae456f94c` | — |
 
 * Applied patches: `hook-pc, headless, bottile, store, signatures, adminpage, headless-engine, physics, quicklaunch,
   headless-diag, nativeonline, waits, adminlink, graphics, geo`; `install.json` `installer.serverBuild` is `13`.
 * `MEM rule on, removed 1` (`GameOptionsWindowsTests.RealFileRemoved`, the real `GameOptions_windows.json`).
-* The kit: `McvsOffline.PcKit.exe`, SHA-256 `a8c8af043792ea9ff1b40fa34a2ad15d7388e2739c96d317aadab9c57ff9f78d`; its
+* The kit: `McvsOffline.PcKit.exe`, SHA-256 `0ca7d218084d8d5e8db6d73fce78e26983819faf66fbba3fd070fc5c4af6292a`; its
   publish check passed on the embedded DLL (every PC hook, `Gameloft.Logs`, only allowed references).
 * The config is byte-identical to §7.4 (UTF-8 without BOM, CRLF, final CRLF). ILVerify of the four patched assemblies
   against the net452 refs reports exactly the errors of the stock files (none in a patched or added method); the server
   DLL verifies clean. `uninstall` restored the exact file listing and every SHA-256 of the copy; with a bootstrap
   `args.txt` block and player data added before it, only `McvsOffline\` with that data remained.
-* Android (§12.6, P5): the APK of the same code (`mcvs-offline-4188101.apk`, cert SHA-256 `fc0db84e…7d16`, targetSdk 35,
+* Android (§12.6, P5): the APK of the same code (`mcvs-offline-00b37fb.apk`, cert SHA-256 `fc0db84e…7d16`, targetSdk 35,
   both ABIs, zipalign OK), compared entry by entry with build 12 (`56956ef`, same key and
   options): same 952 entries in the same order; changed only `AndroidManifest.xml` (exactly `android:isGame=true` and
   `android:appCategory=0` added), `assemblies/McvsOffline.Server.dll`, `META-INF/1.RSA`, `1.SF`, `MANIFEST.MF`, and

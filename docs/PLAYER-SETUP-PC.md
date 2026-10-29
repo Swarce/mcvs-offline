@@ -21,7 +21,7 @@ version has its own guide: [PLAYER-SETUP.md](PLAYER-SETUP.md).
 ## 2. Get the kit
 
 1. Download `McvsOffline.PcKit.exe` into any folder, for example `Downloads`. Its SHA-256 is
-   `a8c8af043792ea9ff1b40fa34a2ad15d7388e2739c96d317aadab9c57ff9f78d` (PowerShell:
+   `0ca7d218084d8d5e8db6d73fce78e26983819faf66fbba3fd070fc5c4af6292a` (PowerShell:
    `Get-FileHash .\McvsOffline.PcKit.exe`).
 2. **SmartScreen warning.** The exe is not code-signed, so Windows may show "Windows protected your PC". Click
    **More info**, then **Run anyway**. Your antivirus may scan it first.
@@ -147,11 +147,11 @@ listed because it holds the install time):
 
 | file | sha256 |
 |---|---|
-| `McvsOffline/bin/EngineBridge.dll` | `ed3972f3abe53cb1b9112a235177f8b9cf4a2454f94bfe9750aaf6661c2f9f3f` |
-| `McvsOffline/bin/Game.dll` | `d374ee60ae2cb50f5467dfae7228da69a4e3eede174db0ee185a8c905032d939` |
-| `McvsOffline/bin/Gameloft.Engine.dll` | `b83a28787b8f279812eec9802a84cbaaf1126fa7094c36d7b425eefe42ed84ca` |
-| `McvsOffline/bin/Gameloft.Util.dll` | `25287185fe48c574a931ad6d99ea25b621789313bbed0d28f5901682bf8e2f2d` |
-| `McvsOffline/bin/McvsOffline.Server.dll` | `aa4c303d2013dfc8c23857cd5cb44f91d1a906bfc7d918ed53f30667dcbd56a8` |
+| `McvsOffline/bin/EngineBridge.dll` | `4b0ea8fac51bbee17c6d906d55c897789e203488fe031ab01a527bab89c31257` |
+| `McvsOffline/bin/Game.dll` | `90cbbe22a2797777cad4d486f55ba20eb0ad7ca18d9f2474ec3acb1cd481a7bf` |
+| `McvsOffline/bin/Gameloft.Engine.dll` | `f61725587852e7fb14efb8fd513164f35c35b031c380c3a3adfc795b89fe37e4` |
+| `McvsOffline/bin/Gameloft.Util.dll` | `b7de6ae97a3aab35cf6b392d87579262eda2c0202a139b3b22faaa3f374a4618` |
+| `McvsOffline/bin/McvsOffline.Server.dll` | `b79f8b6afe553a45f96df30358c19d4db152909aa8e3a7efda5edbf42f2a1328` |
 | `ModernCombatVersus.exe.config` | `3ebe99b3c93a9540cd7f7b03da55fc048a544501c17e8621457884eae456f94c` |
 
 Any difference in this table stops the round until it is explained: the bytes you run must be the bytes we tested.
