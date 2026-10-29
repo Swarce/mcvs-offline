@@ -1784,7 +1784,8 @@ The owner's copy is [PLAYER-SETUP-PC.md](../PLAYER-SETUP-PC.md) §7.
   against the net452 refs reports exactly the errors of the stock files (none in a patched or added method); the server
   DLL verifies clean. `uninstall` restored the exact file listing and every SHA-256 of the copy; with a bootstrap
   `args.txt` block and player data added before it, only `McvsOffline\` with that data remained.
-* Android (§12.6, P5): the APK of the same commit, compared entry by entry with build 12 (`56956ef`, same key and
+* Android (§12.6, P5): the APK of the same code (`mcvs-offline-4188101.apk`, cert SHA-256 `fc0db84e…7d16`, targetSdk 35,
+  both ABIs, zipalign OK), compared entry by entry with build 12 (`56956ef`, same key and
   options): same 952 entries in the same order; changed only `AndroidManifest.xml` (exactly `android:isGame=true` and
   `android:appCategory=0` added), `assemblies/McvsOffline.Server.dll`, `META-INF/1.RSA`, `1.SF`, `MANIFEST.MF`, and
   `Game.dll`, `Gameloft.Engine.dll`, `Gameloft.Util.dll`, `NicePlaySDK.dll` in their 16 MVID bytes only.
