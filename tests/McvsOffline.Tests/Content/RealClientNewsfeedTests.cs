@@ -136,7 +136,9 @@ namespace McvsOffline.Tests.Content
         [Fact]
         public void PcNewsfeedDictionaryHoldsOurItemWithItsEndDate()
         {
-            GameClient game = GameClient.TryGetFrom(output, TestFolders.Pc, TestFolders.PcRefs, "Gameloft.Util");
+            // A private load context: StandardCrm.Data of the other PC tests (running in parallel) adds to the shared one's
+            // static Newsfeeds dictionary.
+            GameClient game = GameClient.TryGetPrivate(output, TestFolders.Pc, TestFolders.PcRefs, "Gameloft.Util");
             if (game == null) return;
             Type newsFeedData = game.Op("NewsFeedData");
             var newsfeeds = (IDictionary)GameClient.Static(newsFeedData, "Newsfeeds");
@@ -148,20 +150,16 @@ namespace McvsOffline.Tests.Content
                 using var dir = new TempDir();
                 using var server = AdminTestClient.CreateServer(dir.Combine("data"), clock: new ManualClock(now));
                 string list = MiniJson.Serialize(MiniJson.ParseObject(Document(server))["newsfeeds"]);
-                lock (newsfeeds)
-                {
-                    newsfeeds.Clear(); // a new game process: the static dictionary starts empty
-                    Activator.CreateInstance(newsFeedData, GameClient.CallStatic(jtoken, "Parse", list));
-                    Assert.Equal(1, newsfeeds.Count);
-                    dynamic item = newsfeeds[""];
-                    Assert.Equal(CrmNewsfeed.NewsId, (string)item.Id);
-                    DateTime monday = CrmNewsfeed.WeekStart(now);
-                    Assert.Equal(monday, ((DateTime)item.CreationDate).ToUniversalTime());
-                    DateTime end = ((DateTime)item.EndDate).ToUniversalTime();
-                    Assert.Equal(monday.AddDays(CrmNewsfeed.EndDateDays), end);
-                    Assert.True(end > now.AddDays(30), "the message must outlive the client's own 30 days");
-                    newsfeeds.Clear();
-                }
+                newsfeeds.Clear(); // a new game process: the static dictionary starts empty
+                Activator.CreateInstance(newsFeedData, GameClient.CallStatic(jtoken, "Parse", list));
+                Assert.Single(newsfeeds);
+                dynamic item = newsfeeds[""];
+                Assert.Equal(CrmNewsfeed.NewsId, (string)item.Id);
+                DateTime monday = CrmNewsfeed.WeekStart(now);
+                Assert.Equal(monday, ((DateTime)item.CreationDate).ToUniversalTime());
+                DateTime end = ((DateTime)item.EndDate).ToUniversalTime();
+                Assert.Equal(monday.AddDays(CrmNewsfeed.EndDateDays), end);
+                Assert.True(end > now.AddDays(30), "the message must outlive the client's own 30 days");
             }
         }
 

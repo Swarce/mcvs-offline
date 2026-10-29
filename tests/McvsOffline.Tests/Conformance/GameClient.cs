@@ -76,6 +76,20 @@ namespace McvsOffline.Tests.Conformance
         /// </summary>
         public static GameClient TryGetFrom(ITestOutputHelper output, string platform, string folder, params string[] assemblies)
         {
+            return HasAssemblies(output, platform, folder, assemblies) ? For(folder) : null;
+        }
+
+        /// <summary>
+        /// Like <see cref="TryGetFrom"/>, but a new client with its own load context, so the game's static fields are the
+        /// caller's alone (the shared client's are written by every test class that runs in parallel).
+        /// </summary>
+        public static GameClient TryGetPrivate(ITestOutputHelper output, string platform, string folder, params string[] assemblies)
+        {
+            return HasAssemblies(output, platform, folder, assemblies) ? new GameClient(Path.GetFullPath(folder)) : null;
+        }
+
+        private static bool HasAssemblies(ITestOutputHelper output, string platform, string folder, string[] assemblies)
+        {
             var needed = new List<string> { "Gameloft.OnlinePlatform" };
             needed.AddRange(assemblies);
             foreach (string name in needed)
@@ -85,9 +99,9 @@ namespace McvsOffline.Tests.Conformance
                 if (TestFolders.Required(platform))
                     throw new InvalidOperationException("the " + platform + " client is required but " + path + " is missing");
                 output?.WriteLine(name + ".dll not found in " + TestFolders.VariableOf(platform) + " (" + folder + "): skipped");
-                return null;
+                return false;
             }
-            return For(folder);
+            return true;
         }
 
         public Assembly OnlinePlatform { get; }
