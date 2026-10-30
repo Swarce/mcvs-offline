@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
+using McvsOffline.Embed.Tests.Support;
 using McvsOffline.Embedded.Admin.SettingsMenu;
 using McvsOffline.Embedded.Graphics;
+using McvsOffline.Server.Core;
 using McvsOffline.Server.Services.Admin;
 using Xunit;
 
@@ -22,15 +25,26 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         /// <summary>One Settings menu with our natives, a host, a state and a back end.</summary>
         private sealed class Rig
         {
-            public Rig(bool wire = true)
+            /// <param name="store">The page's settings instead of <see cref="FakeSettingsMenuHost.Settings"/> (a real store).</param>
+            public Rig(bool wire = true, IPerformanceSettings store = null)
             {
                 Ui = new FakeFlashTree();
                 Host = new FakeSettingsMenuHost(Ui);
                 State = new SettingsMenuState();
                 BackEnd = new FakePageBackEnd();
                 PerformancePage.UseBackEnd(State, BackEnd);
+                // MenusManager.getMenuByName (MenusStack's registered menus): the instance on the stack.
+                FakeFlashTree ui = Ui;
+                Ui.SetStatic("managers.MenusManager", "getMenuByName", a => ui.Stack.LastOrDefault(m => m.Name == (a[0] as string)));
+                Native = store == null ? (ISettingsMenuHost)Host : new StoreHost(Host, store);
                 if (wire) Wire();
             }
+
+            /// <summary>The host the natives get (<see cref="Host"/>, or it with a real store).</summary>
+            public ISettingsMenuHost Native { get; private set; }
+
+            /// <summary>False: the grid step leaves the tile stock (its EnterSection delegate was dropped, or no post).</summary>
+            public bool GridStepRuns { get; set; } = true;
 
             public FakeFlashTree Ui { get; private set; }
             public FakeSettingsMenuHost Host { get; private set; }
@@ -48,13 +62,13 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             private void Wire()
             {
                 FakeFlashTree ui = Ui;
-                ISettingsMenuHost host = Host;
+                ISettingsMenuHost host = Native;
                 SettingsMenuState state = State;
                 ui.OverrideNativeFunction("EnterSection", new Action<string>(section =>
                 {
                     if (section != SettingsMenuNames.MainSettingsSection) return;
                     PerformancePage.LeaveMode(state);
-                    state.TileActive = true;   // the grid's re-dress (WP-B) is taken as done
+                    state.TileActive = GridStepRuns;   // the grid's re-dress (WP-B) is taken as done
                     PerformancePage.ShowRestartPromptIfPending(host, state);
                 }), false);
                 ui.OverrideNativeFunction("GoToForum", new Action(() =>
@@ -203,17 +217,20 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             foreach (bool redressFailed in new[] { true, false })
             foreach (bool mode in new[] { true, false })
             foreach (bool windows in new[] { true, false })
-                yield return new object[] { performance, redressFailed, mode, windows };
+            foreach (bool tileActive in new[] { true, false })
+                yield return new object[] { performance, redressFailed, mode, windows, tileActive };
         }
 
         [Theory]
         [MemberData(nameof(R4Cases))]
-        public void OnlyTheSwitchOnWithoutAFailedRedressOutsideTheModeHidesTheRows(bool performance, bool redressFailed, bool mode, bool windows)
+        public void OnlyTheSwitchOnWithoutAFailedRedressOutsideTheModeHidesTheRows(bool performance, bool redressFailed, bool mode, bool windows,
+                                                                                    bool tileActive)
         {
+            // No Settings grid in the UI: only the tile on the grid shown now lets the rows go.
             var host = new FakeSettingsMenuHost(windows: windows) { PerformanceSetting = performance };
-            var state = new SettingsMenuState { RedressFailed = redressFailed, PerformanceMode = mode };
+            var state = new SettingsMenuState { RedressFailed = redressFailed, PerformanceMode = mode, TileActive = tileActive };
             PerformancePage.UseBackEnd(state, new FakePageBackEnd());
-            bool hides = performance && !redressFailed && !mode && !windows;
+            bool hides = performance && !redressFailed && !mode && !windows && tileActive;
             Assert.Equal(hides, PerformancePage.HidesGameplayRows(host, state));
             object graphic = PerformancePage.CanChangeGraphicSetting(host, state);
             object framerate = PerformancePage.CanChangeMaxFramerate(host, state);
@@ -232,16 +249,28 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         }
 
         [Fact]
-        public void R4NeverAnswersWithoutAHostAndBeforeTheFirstGridVisitAlreadyHides()
+        public void R4NeverAnswersWithoutAHostAndInMatchHidesBeforeTheFirstGridVisit()
         {
             var state = new SettingsMenuState();
             Assert.False(PerformancePage.HidesGameplayRows(null, state));
             Assert.Null(PerformancePage.CanChangeGraphicSetting(null, state));
             Assert.Null(PerformancePage.CanChangeMaxFramerate(null, state));
             Assert.Null(PerformancePage.CanChangeGraphicSetting(new FakeSettingsMenuHost(), null));
-            // Skeptic D2 relaxed, owner answer 4: no tile re-dressed yet in this process, the rows still go.
-            Assert.False(state.TileEverActive);
-            Assert.True(PerformancePage.HidesGameplayRows(new FakeSettingsMenuHost(), state));
+            // Skeptic D2 relaxed, owner answer 4: in a match no tile was ever re-dressed in this process, the rows still go.
+            var match = new Rig();
+            match.Ui.InGame = true;
+            match.Ui.OpenSettings();
+            Assert.False(match.State.TileEverActive);
+            Assert.True(PerformancePage.HidesGameplayRows(match.Host, match.State));
+            // The main-menu grid without the tile (its step never ran on this visit): the rows stay (T-C2).
+            var menu = new Rig { GridStepRuns = false };
+            menu.Ui.OpenSettings();
+            Assert.False(menu.State.RedressFailed);
+            Assert.False(PerformancePage.HidesGameplayRows(menu.Host, menu.State));
+            menu.State.TileActive = true;
+            Assert.True(PerformancePage.HidesGameplayRows(menu.Host, menu.State));
+            match.Ui.AssertAllDisposed();
+            menu.Ui.AssertAllDisposed();
         }
 
         [Fact]
@@ -257,12 +286,17 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.Equal(0, rig.Ui.FramerateWarnings);
             Assert.Equal(0, rig.Host.Pending);
 
-            // In a match (owner answer 4): FRAME RATE LIMIT is gone from the pause menu's Gameplay page too.
+            // In a match (owner answer 4): FRAME RATE LIMIT is gone from the pause menu's Gameplay page too, also before any
+            // main-menu Settings visit (the in-match panel never has the tile).
             var match = new Rig();
             match.Ui.InGame = true;
             match.Ui.Game.InMenu = false;
-            match.Ui.PushMenu("menu_gameplaySettings");
+            match.Ui.OpenSettings();
+            Assert.False(match.State.TileActive);
+            match.Ui.Tap("btn_general");
+            Assert.Equal("menu_gameplaySettings", match.Ui.Top.Name);
             Assert.DoesNotContain("MaxFramerate", match.Ui.RowTypes());
+            Assert.DoesNotContain("GraphicSetting", match.Ui.RowTypes());
         }
 
         [Fact]
@@ -279,6 +313,16 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             failed.Ui.OpenSettings();
             failed.Ui.Tap("btn_general");
             Assert.Equal(StockAndroidRows(), failed.Ui.RowTypes());
+
+            // The main-menu grid step did not run on this visit (no RedressFailed): FORUM is stock, so the rows stay too.
+            var stock = new Rig { GridStepRuns = false };
+            stock.Ui.OpenSettings();
+            stock.Ui.Tap("btn_forum");
+            Assert.Equal(1, stock.Ui.Game.ForumCalls);         // the game's forum, no page
+            Assert.Equal("menu_settings", stock.Ui.Top.Name);
+            stock.Ui.Tap("btn_general");
+            Assert.Equal(StockAndroidRows(), stock.Ui.RowTypes());
+            stock.Ui.AssertAllDisposed();
         }
 
         // ------------------------------------------------------------------ T-C3: the transform
@@ -577,27 +621,71 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         // ------------------------------------------------------------------ SCREEN SCALE
 
         [Fact]
-        public void ASliderMoveIsStoredAndAppliedOncePerValue()
+        public void ASliderMoveIsAppliedAtOnceAndStoredOnceWhenThePageCloses()
         {
             var rig = new Rig();
             rig.Engine.Scale = 0.7f;   // shown 50 %
             rig.OpenPage();
+            Assert.Empty(rig.Engine.Writes);
             FlashObject scale = rig.Ui.Row("mcvs.renderScale");
             rig.Ui.Drag(scale, 0.25f);
-            Assert.Equal(new[] { "graphics.renderScale=25" }, rig.Settings.Saves);
-            Assert.Equal(new[] { "scale=25" }, rig.BackEnd.Calls);
-            Assert.Equal(0.55f, rig.Engine.Scale.Value, 3);
-            rig.Ui.Drag(scale, 0.252f);          // still 25 %
-            Assert.Single(rig.Settings.Saves);
+            Assert.Equal(0.55f, rig.Engine.Scale.Value, 3);   // live
+            Assert.Empty(rig.Settings.Saves);                  // not a settings.json write per frame of the drag
+            rig.Ui.Drag(scale, 0.252f);                        // still 25 %
+            Assert.Single(rig.Engine.Writes);
             rig.Ui.Drag(scale, 1f);
-            Assert.Equal("graphics.renderScale=100", rig.Settings.Saves.Last());
+            Assert.Equal(1f, rig.Engine.Scale.Value, 3);
+            Assert.Empty(rig.BackEnd.Calls);
+            rig.Ui.Back();                                     // the page's pop: SaveUserPreferences (MGS:713), the grid on top
+            Assert.Equal(new[] { "graphics.renderScale=100" }, rig.Settings.Saves);
+            Assert.Equal(new[] { "scale=100" }, rig.BackEnd.Calls);
+            Assert.Contains("settings menu: performance: renderScale 100", rig.Lines());
             Assert.False(rig.State.RestartPending);
-            // The shown auto value is no change: 50 % from auto is not stored.
+            rig.Ui.Tap("btn_general");                         // the stock page's own saves store nothing more
+            rig.Ui.Back();
+            Assert.Single(rig.Settings.Saves);
+
+            // A selector change (SaveUserPreferences, MGS:573) stores the scale moved before it.
+            var both = new Rig();
+            both.OpenPage();
+            both.Ui.Drag(both.Ui.Row("mcvs.renderScale"), 0.3f);
+            both.Ui.Select(both.Ui.Row("mcvs.msaa"), 2);
+            Assert.Equal(new[] { "graphics.renderScale=30", "graphics.msaa=4x" }, both.Settings.Saves);
+
+            // The shown auto value is no change, nor a drag that ends where it began: auto stays auto.
             var auto = new Rig();
             auto.Engine.Scale = 0.7f;
             auto.OpenPage();
             PerformancePage.OnSetUserPreference(auto.Host, auto.State, "mcvs.renderScale", 0.5f);
+            Assert.Empty(auto.Engine.Writes);
+            FlashObject autoScale = auto.Ui.Row("mcvs.renderScale");
+            auto.Ui.Drag(autoScale, 0.8f);
+            auto.Ui.Drag(autoScale, 0.5f);
+            auto.Ui.Back();
             Assert.Empty(auto.Settings.Saves);
+            Assert.Equal(0.7f, auto.Engine.Scale.Value, 3);
+            rig.Ui.AssertAllDisposed();
+        }
+
+        [Fact]
+        public void ADragWritesSettingsJsonOnceWithTheLastValueShownWhateverOrderTheSavesRun()
+        {
+            string path = Path.Combine(TestEnvironment.NewTempDir("perf-drag"), "settings.json");
+            var store = new PerformanceSettingsStore(Settings.Load(path, null), null);
+            var queued = new List<Action>();
+            store.Run = work => queued.Add(work);   // the thread pool: any order, any time
+            var rig = new Rig(store: store);
+            rig.Engine.Scale = 0.7f;                // shown 50 %
+            rig.OpenPage();
+            FlashObject scale = rig.Ui.Row("mcvs.renderScale");
+            for (int percent = 51; percent <= 90; percent++) rig.Ui.Drag(scale, percent / 100f);   // one CHANGE per frame
+            Assert.Equal(0.94f, rig.Engine.Scale.Value, 3);
+            rig.Ui.Back();
+            Assert.Single(queued);
+            queued.Reverse();
+            foreach (Action work in queued) work();
+            Assert.Equal("90", Settings.Load(path, null).Get(SettingsSchema.GraphicsRenderScaleKey));
+            Assert.Equal("90", store.RenderScale);
         }
 
         [Fact]
@@ -744,6 +832,43 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         }
     }
 
+    /// <summary>A <see cref="FakeSettingsMenuHost"/> whose page settings are another store (a real <see cref="PerformanceSettingsStore"/>).</summary>
+    internal sealed class StoreHost : ISettingsMenuHost
+    {
+        private readonly FakeSettingsMenuHost inner;
+
+        public StoreHost(FakeSettingsMenuHost inner, IPerformanceSettings settings)
+        {
+            this.inner = inner;
+            PerformanceSettings = settings;
+        }
+
+        public bool SettingsMenuTrim { get { return inner.SettingsMenuTrim; } }
+
+        public bool SettingsMenuPerformance { get { return inner.SettingsMenuPerformance; } }
+
+        public bool IsWindows { get { return inner.IsWindows; } }
+
+        public Log Log { get { return inner.Log; } }
+
+        public IPerformanceSettings PerformanceSettings { get; private set; }
+
+        public object ClientUi()
+        {
+            return inner.ClientUi();
+        }
+
+        public bool Post(Action action)
+        {
+            return inner.Post(action);
+        }
+
+        public bool Exit(string reason, bool relaunch)
+        {
+            return inner.Exit(reason, relaunch);
+        }
+    }
+
     /// <summary>The engine statics behind the page's auto values, and what the back end applied.</summary>
     internal sealed class FakePageEngine : IEngineGraphics
     {
@@ -798,6 +923,13 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         public int SliderOf(float scale)
         {
             return (int)Math.Round(Math.Max(0, Math.Min(1, (scale - 0.4) / 0.6)) * 100);
+        }
+
+        public float? ScaleOf(string renderScale)
+        {
+            int v;
+            if (!int.TryParse(renderScale, NumberStyles.None, CultureInfo.InvariantCulture, out v)) return null;
+            return v > 97 ? 1f : 0.4f + 0.6f * v / 100f;
         }
 
         public bool SetGraphicsProfile(IPerformanceSettings settings, SettingsMenuState state, string choice)

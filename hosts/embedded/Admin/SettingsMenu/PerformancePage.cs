@@ -21,9 +21,11 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
     /// <item><b>R4.</b> Outside the mode, with <see cref="HidesGameplayRows"/>, <see cref="CanChangeGraphicSetting"/> and
     /// <see cref="CanChangeMaxFramerate"/> return a boxed false, which wins the dispatch: AS never adds the two rows (MGS:229-254).
     /// Otherwise null (the game's answer stands). The gate is the design's §3.5 relaxed per skeptic D2 and owner answer 4 ("removed
-    /// everywhere, in-match too"): <c>admin.settingsMenu.performance</c> on and no failed re-dress in this process
-    /// (<see cref="SettingsMenuState.RedressFailed"/>), so the rows are never unreachable. The in-match Gameplay page loses them too,
-    /// also before the first main-menu Settings visit.</item>
+    /// everywhere, in-match too"): <c>admin.settingsMenu.performance</c> on, no failed re-dress in this process
+    /// (<see cref="SettingsMenuState.RedressFailed"/>), and, unless the Settings grid below is the in-match panel (frame 2), the
+    /// grid shown now carries the PERFORMANCE tile (<see cref="SettingsMenuState.TileActive"/>): a main-menu visit whose grid step
+    /// never ran (a dropped EnterSection, no post) keeps both rows, so they are never unreachable. The in-match Gameplay page loses
+    /// them also before the first main-menu Settings visit (its panel never has the tile).</item>
     /// <item><b>Page (plan R3-B).</b> In the mode both CanChange* return null, so the stock rows are built; the transform, posted from
     /// <see cref="CanChangeGraphicSetting"/>, keeps MaxFramerate (FRAME RATE LIMIT, translated title, 'i' button; B2) and re-types
     /// donors into <see cref="SettingsMenuNames.PageRows"/>: GraphicSetting → GRAPHICS, the first two of InvertCameraX, InvertCameraY,
@@ -41,12 +43,14 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
     /// every outcome (also on the cached menu when another one is on top by then).</item>
     /// <item><b>Shown values.</b> A key at auto shows what the engine has now (design §2): GRAPHICS AUTO, the current MSAA samples,
     /// the current scale on the slider (<see cref="PerformancePrefs.SliderOf"/>), the current LowResMaps.</item>
-    /// <item><b>Writes.</b> <see cref="OnSetUserPreference"/>: a slider move of <c>mcvs.renderScale</c> is stored and applied at once;
-    /// <see cref="OnSaveUserPreferences"/> reads <c>mc_listSelector.value</c> (the true index; E2: no post needed) of the three
-    /// selector rows, since the generic branch sends only <c>Boolean(index)</c> (MGS:571). Both ignore every call while transforming,
-    /// and a value equal to the one shown now (the stored one, or for auto the engine's), so a change on one row never turns another
-    /// row's auto into a value. Values go through <see cref="ISettingsMenuHost.PerformanceSettings"/> and
-    /// <see cref="PerformancePrefs"/> (<see cref="IPerformanceBackEnd"/>; the tests give their own).</item>
+    /// <item><b>Writes.</b> <see cref="OnSetUserPreference"/>: a slider move of <c>mcvs.renderScale</c> is applied to the engine at
+    /// once (every ENTER_FRAME of a drag sends one, ScrollBar.as:185-206) and only remembered; <see cref="OnSaveUserPreferences"/>
+    /// stores the last one (one settings.json write per visit, never an older percent after a newer one: the page's own pop calls
+    /// it, MGS:713, as after every selector change) and reads <c>mc_listSelector.value</c> (the true index; E2: no post needed) of
+    /// the three selector rows, since the generic branch sends only <c>Boolean(index)</c> (MGS:571). Both ignore every call while
+    /// transforming, and a value equal to the one shown before the change (the stored one, or for auto the engine's), so a change
+    /// on one row never turns another row's auto into a value. Values go through <see cref="ISettingsMenuHost.PerformanceSettings"/>
+    /// and <see cref="PerformancePrefs"/> (<see cref="IPerformanceBackEnd"/>; the tests give their own).</item>
     /// <item><b>Restart.</b> GRAPHICS and ANTIALIASING set <see cref="SettingsMenuState.RestartPending"/> (PerformancePrefs); the next
     /// return to the grid posts <see cref="ShowRestartPromptIfPending"/>'s prompt (the game's own texts; Yes → <c>Exit("performance",
     /// true)</c>). Not a copy of Steam's prompt, which is informational only (B1).</item>
@@ -82,6 +86,12 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         {
             public int SpikeLogged;
             public volatile IPerformanceBackEnd BackEnd;
+
+            /// <summary>SCREEN SCALE applied by a drag and not stored yet (0..100), else -1. Game thread.</summary>
+            public int PendingScale = -1;
+
+            /// <summary>What the slider showed before the first move of <see cref="PendingScale"/> (back there: nothing to store).</summary>
+            public int ScaleBefore = -1;
         }
 
         // By reference (SettingsMenuState keeps object's Equals). One registry in the game; no ConditionalWeakTable: the Android
@@ -170,17 +180,38 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             if (state != null) state.PerformanceMode = false;
         }
 
-        /// <summary>The R4 gate (T-C2): Gameplay Settings without GRAPHICS SETTINGS and FRAME RATE LIMIT now.</summary>
+        /// <summary>The R4 gate (T-C2): Gameplay Settings without GRAPHICS SETTINGS and FRAME RATE LIMIT now. Game thread.</summary>
         public static bool HidesGameplayRows(ISettingsMenuHost host, SettingsMenuState state)
         {
             try
             {
-                return host != null && state != null && !host.IsWindows && host.SettingsMenuPerformance && !state.RedressFailed &&
-                       !state.PerformanceMode;
+                if (host == null || state == null || host.IsWindows || !host.SettingsMenuPerformance || state.RedressFailed ||
+                    state.PerformanceMode) return false;
+                // Read last: the Flash lookup runs only when the flags already say hide.
+                return state.TileActive || BelowIsInMatchGrid(host);
             }
             catch (Exception)
             {
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// The Settings menu (the grid Gameplay Settings is opened from) shows the in-match panel, frame 2 (MenuSettings.setup:
+        /// <c>GameSettings.isInGame ? 2 : ...</c>), which never has the PERFORMANCE tile. False when it is the main-menu panel, or
+        /// when there is no UI or no such menu (then only <see cref="SettingsMenuState.TileActive"/> hides the rows).
+        /// </summary>
+        private static bool BelowIsInMatchGrid(ISettingsMenuHost host)
+        {
+            object ui = host.ClientUi();
+            if (ui == null) return false;
+            using (var flash = new FlashScope(ui))
+            {
+                object manager = flash.Class("managers", "MenusManager");
+                object grid = manager == null ? null : flash.Call(manager, "getMenuByName", SettingsMenuNames.SettingsMenu);
+                object panel = grid == null ? null : flash.Child(grid, SettingsMenuNames.Panel);
+                double? frame = panel == null ? null : flash.Number(panel, "currentFrame");
+                return frame == SettingsMenuNames.InGameFrame;
             }
         }
 
@@ -509,7 +540,10 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
 
         // ------------------------------------------------------------------ the page's writes
 
-        /// <summary>SetUserPreference(key, value) as the game calls it (a slider value arrives as float, a selector as bool). Never throws.</summary>
+        /// <summary>
+        /// SetUserPreference(key, value) as the game calls it (a slider value arrives as float, a selector as bool): a new SCREEN SCALE
+        /// percent goes to the engine now and is stored by the next <see cref="OnSaveUserPreferences"/>. Game thread. Never throws.
+        /// </summary>
         public static void OnSetUserPreference(ISettingsMenuHost host, SettingsMenuState state, string key, object value)
         {
             try
@@ -523,28 +557,38 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 IPerformanceBackEnd backEnd = BackEnd(state);
                 IPerformanceSettings settings = host.PerformanceSettings;
                 IEngineGraphics engine = backEnd.Engine;
-                if (settings == null || percent == Shown(backEnd, engine, settings, key)) return;
-                string stored = percent.ToString(CultureInfo.InvariantCulture);
-                if (!backEnd.SetRenderScale(engine, settings, stored)) Write(host, "settings menu: performance: screen scale " + stored + " not stored");
+                if (settings == null) return;
+                Memo memo = MemoOf(state);
+                int shown = memo.PendingScale >= 0 ? memo.PendingScale : Shown(backEnd, engine, settings, key);
+                if (percent == shown) return;
+                // Not stored here: a drag sends a value per frame, and one file write per value could land out of order.
+                if (memo.PendingScale < 0) memo.ScaleBefore = shown;
+                memo.PendingScale = percent;
+                float? scale = backEnd.ScaleOf(percent.ToString(CultureInfo.InvariantCulture));
+                if (scale == null || engine == null || !engine.SetRenderTargetSizeScale(scale.Value))
+                    Write(host, "settings menu: performance: screen scale " + percent.ToString(CultureInfo.InvariantCulture) + " not applied now");
             }
             catch (Exception ex)
             {
-                Write(host, "settings menu: performance: screen scale not stored (" + Describe(ex) + ")");
+                Write(host, "settings menu: performance: screen scale not applied (" + Describe(ex) + ")");
             }
         }
 
-        /// <summary>SaveUserPreferences(): the selectors' true indices. Never throws.</summary>
+        /// <summary>SaveUserPreferences(): the last SCREEN SCALE of a drag, then the selectors' true indices. Never throws.</summary>
         public static void OnSaveUserPreferences(ISettingsMenuHost host, SettingsMenuState state)
         {
             try
             {
-                if (host == null || state == null || state.Transforming || !state.PerformanceMode) return;
+                if (host == null || state == null || state.Transforming) return;
                 if (host.IsWindows || !host.SettingsMenuPerformance) return;
-                object ui = host.ClientUi();
-                if (ui == null) return;
                 IPerformanceBackEnd backEnd = BackEnd(state);
                 IPerformanceSettings settings = host.PerformanceSettings;
                 if (settings == null) return;
+                // Before the mode and top-menu checks: the page's own pop (MGS:713) arrives with the grid already on top.
+                StorePendingScale(host, state, backEnd, settings);
+                if (!state.PerformanceMode) return;
+                object ui = host.ClientUi();
+                if (ui == null) return;
                 using (var flash = new FlashScope(ui))
                 {
                     object menu;
@@ -561,6 +605,17 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             {
                 Write(host, "settings menu: performance: not stored (" + Describe(ex) + ")");
             }
+        }
+
+        /// <summary>The SCREEN SCALE a drag left (already applied), stored once; none when the slider went back to where it was.</summary>
+        private static void StorePendingScale(ISettingsMenuHost host, SettingsMenuState state, IPerformanceBackEnd backEnd, IPerformanceSettings settings)
+        {
+            Memo memo = MemoOf(state);
+            int percent = Interlocked.Exchange(ref memo.PendingScale, -1);
+            if (percent < 0 || percent == memo.ScaleBefore) return;
+            string stored = percent.ToString(CultureInfo.InvariantCulture);
+            bool ok = backEnd.SetRenderScale(backEnd.Engine, settings, stored);
+            Write(host, "settings menu: performance: renderScale " + stored + (ok ? "" : " not stored"));
         }
 
         /// <summary>One selector row: its List.value, stored when it differs from what is shown for the key now.</summary>
@@ -762,6 +817,11 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 return PerformancePrefs.SliderOf(scale);
             }
 
+            public float? ScaleOf(string renderScale)
+            {
+                return PerformancePrefs.ScaleOf(renderScale);
+            }
+
             public bool SetGraphicsProfile(IPerformanceSettings settings, SettingsMenuState state, string choice)
             {
                 return PerformancePrefs.SetGraphicsProfile(settings, state, choice);
@@ -794,6 +854,9 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         IEngineGraphics Engine { get; }
 
         int SliderOf(float scale);
+
+        /// <summary><see cref="PerformancePrefs.ScaleOf"/>: the engine scale of a stored percent (the page's live apply during a drag).</summary>
+        float? ScaleOf(string renderScale);
 
         bool SetGraphicsProfile(IPerformanceSettings settings, SettingsMenuState state, string choice);
 
