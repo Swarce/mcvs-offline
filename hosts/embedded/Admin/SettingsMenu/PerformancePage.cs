@@ -52,7 +52,8 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
     /// transforming, and a value equal to the one shown before the change (the stored one, or for auto the engine's), so a change
     /// on one row never turns another row's auto into a value. Values go through <see cref="ISettingsMenuHost.PerformanceSettings"/>
     /// and <see cref="PerformancePrefs"/> (<see cref="IPerformanceBackEnd"/>; the tests give their own).</item>
-    /// <item><b>Restart.</b> GRAPHICS and ANTIALIASING set <see cref="SettingsMenuState.RestartPending"/> (PerformancePrefs); the next
+    /// <item><b>Restart.</b> GRAPHICS and ANTIALIASING set <see cref="SettingsMenuState.RestartPending"/> while either differs from the
+    /// value the game started with (PerformancePrefs; a change put back clears it); the next
     /// return to the grid posts <see cref="ShowRestartPromptIfPending"/>'s prompt (the game's own texts; Yes → <c>Exit("performance",
     /// true)</c>). Not a copy of Steam's prompt, which is informational only (B1).</item>
     /// <item><b>R3-A spike.</b> The first <see cref="CanChangeGraphicSetting"/> in the mode logs, once per registry, whether C# can read

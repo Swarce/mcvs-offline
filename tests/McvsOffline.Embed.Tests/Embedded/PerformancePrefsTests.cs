@@ -620,6 +620,40 @@ namespace McvsOffline.Embed.Tests.Embedded
         }
 
         [Fact]
+        public void AChangePutBackBeforeLeavingThePageAsksForNoRestart()
+        {
+            // The process started with graphics.profile high and graphics.msaa auto (the host's copy); the page edits the server's.
+            PerformancePrefs.SelectedProfileReset = () => true;
+            var host = new Settings();
+            host.Set("graphics.profile", "high");
+            PerformancePrefs.Configure(host);
+            var settings = new FakePerformanceSettings();
+            settings.Store("graphics.profile", "high");
+            var state = new SettingsMenuState();
+
+            Assert.True(PerformancePrefs.SetGraphicsProfile(settings, state, "auto"));
+            Assert.True(state.RestartPending);
+            Assert.True(PerformancePrefs.SetGraphicsProfile(settings, state, "high"));
+            Assert.False(state.RestartPending);
+
+            Assert.True(PerformancePrefs.SetMsaa(settings, state, "4x"));
+            Assert.True(state.RestartPending);
+            Assert.True(PerformancePrefs.SetMsaa(settings, state, "auto"));
+            Assert.False(state.RestartPending);
+
+            // One row still away from its start value keeps the prompt when the other is put back.
+            Assert.True(PerformancePrefs.SetGraphicsProfile(settings, state, "ultra"));
+            Assert.True(PerformancePrefs.SetMsaa(settings, state, "2x"));
+            Assert.True(PerformancePrefs.SetMsaa(settings, state, "auto"));
+            Assert.True(state.RestartPending);
+            Assert.True(PerformancePrefs.SetGraphicsProfile(settings, state, "high"));
+            Assert.False(state.RestartPending);
+            Assert.Equal(new[] { "graphics.profile=auto", "graphics.profile=high", "graphics.msaa=4x", "graphics.msaa=auto",
+                                 "graphics.profile=ultra", "graphics.msaa=2x", "graphics.msaa=auto", "graphics.profile=high" },
+                         settings.Saves);
+        }
+
+        [Fact]
         public void ThePcHostChangesNothing()
         {
             GraphicsHooks.ConfigureWindows(true);

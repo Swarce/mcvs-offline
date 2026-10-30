@@ -161,7 +161,9 @@ Title PERFORMANCE (`setting.Performance`, translated). No category headers, as o
 | LOW RESOLUTION MAPS (pref `UseLowEndMaps`) | **Port** | `graphics.lowResMaps` (`auto`/`on`/`off`): Steam's handler (PC-CS `GamePreferencesComponent.cs:479-486`) swaps `World.GlobalExcludeLayers` HighEndOnly↔LowEndOnly and sets `GameGameOptionsComponent.LowResMaps`; ours also covers a list holding neither entry. At start after `ApplyGameOptions`, and live for the next level load | The members are the same on both platforms and both layer sets ship in the Android pack [V]. Process-wide, so the in-process match servers load the same layers, as on Steam |
 
 * **Storage.** All values live in `settings.json` (`Settings.SetAndSave`, written on the thread pool, never on the game
-  thread). The settings page shows and edits the same keys. The game's LocalStorage is not used: the game drops unknown
+  thread). The settings page shows and edits the same keys; a change made there applies at the next start (the host reads
+  its own copy at start, and nothing applies a save of the server's copy to the running engine), so all four are
+  `restart` keys on the settings page. The game's LocalStorage is not used: the game drops unknown
   preference keys (AND-CS `UserPreferencesComponent.cs:117-149`) [V]. Saves of one key may run in any order; each one
   writes the key's latest pending value, so the file never ends older than the last change.
 * **What a row shows at `auto`:** GRAPHICS AUTO; ANTIALIASING the current samples; LOW RESOLUTION MAPS the current
@@ -268,7 +270,8 @@ Title PERFORMANCE (`setting.Performance`, translated). No category headers, as o
 * **After `ApplyGameOptions`** (`GraphicsHooks.GameOptionsApplied`), when not `auto`: SCREEN SCALE and LOW RESOLUTION
   MAPS; then the FPS migration (§2).
 * **Live** (from the page): SCREEN SCALE at once, LOW RESOLUTION MAPS for the next level, GRAPHICS and ANTIALIASING
-  stored with `RestartPending` when the value changes (none when it is the same).
+  stored, with `RestartPending` while either differs from the value the process started with (the host's copy,
+  `PerformancePrefs.HostValues`): a change put back before leaving the page asks for no restart.
 * PC: every member does nothing; there `GraphicsHooks` only logs Steam's own Performance prefs.
 
 ### 3.5 R4: two rows out of Android Gameplay

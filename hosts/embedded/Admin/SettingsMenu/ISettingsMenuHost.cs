@@ -290,7 +290,10 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             set { transforming = value; }
         }
 
-        /// <summary>GRAPHICS or ANTIALIASING changed on the page: the next return to the grid shows the restart prompt once.</summary>
+        /// <summary>
+        /// GRAPHICS or ANTIALIASING differs on the page from the value the game started with: the next return to the grid shows the
+        /// restart prompt once (a change put back clears it; PerformancePrefs).
+        /// </summary>
         public bool RestartPending
         {
             get { return restartPending; }

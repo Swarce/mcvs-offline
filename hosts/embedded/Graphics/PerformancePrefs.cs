@@ -29,7 +29,7 @@ namespace McvsOffline.Embedded.Graphics
     /// HighEndOnly/LowEndOnly, also when neither entry is there); then the one-time FPS index migration, keyed on the resolved
     /// <c>GamePreferencesComponent.FpsValues</c> (E7), marker <c>graphics.fpsListVersion</c>, and mapped back when the feature is off.</item>
     /// <item><b>Live</b> (the page): SCREEN SCALE at once; LOW RESOLUTION MAPS for the next level load; GRAPHICS and ANTIALIASING
-    /// stored with <see cref="SettingsMenuState.RestartPending"/> when the value changes (T-D6).</item>
+    /// stored, with <see cref="SettingsMenuState.RestartPending"/> while either differs from the start-time value (T-D6).</item>
     /// </list>
     /// <para>SCREEN SCALE and the level loads: every <c>World.LoadLevel</c> calls <c>GameApplication.ChangeGraphicQuality</c>
     /// (AND-CS GameApplication.cs:1465-1502), which sets the scale again from the component's <c>m_options</c>:
@@ -829,7 +829,7 @@ namespace McvsOffline.Embedded.Graphics
             }
         }
 
-        /// <summary>Stores <c>graphics.msaa</c>; a new value sets <see cref="SettingsMenuState.RestartPending"/>.</summary>
+        /// <summary>Stores <c>graphics.msaa</c>; a new value sets <see cref="SettingsMenuState.RestartPending"/> as <see cref="UpdateRestartPending"/> says.</summary>
         public static bool SetMsaa(IPerformanceSettings settings, SettingsMenuState state, string choice)
         {
             try
@@ -839,7 +839,7 @@ namespace McvsOffline.Embedded.Graphics
                 if (c == null) return false;
                 if (c == settings.Msaa) return true;
                 if (!settings.Save(SettingsSchema.GraphicsMsaaKey, c)) return false;
-                if (state != null) state.RestartPending = true;
+                UpdateRestartPending(settings, state);
                 return true;
             }
             catch (Exception)
@@ -851,7 +851,7 @@ namespace McvsOffline.Embedded.Graphics
         /// <summary>
         /// GRAPHICS (owner answer 1): stores <c>graphics.profile</c> (auto, mid, high, ultra) and resets AppPreferences
         /// <c>GameOptions_SelectedProfile</c> to 0, so AUTO is the game's own choice for this phone [G reachable]. The current value
-        /// raises nothing; a new one sets <see cref="SettingsMenuState.RestartPending"/> (T-D6).
+        /// raises nothing; a new one sets <see cref="SettingsMenuState.RestartPending"/> as <see cref="UpdateRestartPending"/> says (T-D6).
         /// </summary>
         public static bool SetGraphicsProfile(IPerformanceSettings settings, SettingsMenuState state, string choice)
         {
@@ -864,13 +864,32 @@ namespace McvsOffline.Embedded.Graphics
                 if (!settings.Save("graphics.profile", c)) return false;
                 Func<bool> reset = SelectedProfileReset;
                 if (reset != null) reset();
-                if (state != null) state.RestartPending = true;
+                UpdateRestartPending(settings, state);
                 return true;
             }
             catch (Exception)
             {
                 return false;
             }
+        }
+
+        /// <summary>
+        /// After a store of GRAPHICS or ANTIALIASING: a restart is pending while <c>graphics.profile</c> or <c>graphics.msaa</c> differs
+        /// from the value this process started with (<see cref="HostValues"/>, the host's copy, which nothing saves or reloads), so a
+        /// change put back before leaving the page asks for nothing. Without the host's copy (<see cref="Configure"/> not run) every
+        /// change counts.
+        /// </summary>
+        private static void UpdateRestartPending(IPerformanceSettings settings, SettingsMenuState state)
+        {
+            if (state == null) return;
+            IPerformanceSettings start = HostValues;
+            if (start == null)
+            {
+                state.RestartPending = true;
+                return;
+            }
+            state.RestartPending = GameOptionsProfile.Normalize(settings.GraphicsProfile) != GameOptionsProfile.Normalize(start.GraphicsProfile)
+                                   || (NormalizeChoice(settings.Msaa, MsaaChoices) ?? Auto) != (NormalizeChoice(start.Msaa, MsaaChoices) ?? Auto);
         }
 
         /// <summary>

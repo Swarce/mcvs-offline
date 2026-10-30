@@ -384,6 +384,9 @@ for the phone:
 | FRAME RATE LIMIT | 30, 60, 90, 120, UNLIMITED (the game's own setting; 90 and 120 are new, and whether a phone really shows more than 60 is not known yet) | at once |
 | LOW RESOLUTION MAPS | OFF, ON (`graphics.lowResMaps`) | from the next match |
 
+The Applies column is for a change on PERFORMANCE. The same values on the settings page (Graphics: Antialiasing, Screen
+scale, Low resolution maps) apply at the next start of the game.
+
 Until you change a row it shows what the game uses now (`auto` in `settings.json`). Steam's FULL SCREEN, SCREEN
 RESOLUTION and VSYNC do nothing on a phone and are left out; FIELD OF VIEW stays in Gameplay Settings. Gameplay Settings
 no longer has GRAPHICS SETTINGS and FRAME RATE LIMIT, in the main menu and during a match: change them on PERFORMANCE,

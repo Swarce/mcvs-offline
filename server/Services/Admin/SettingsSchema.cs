@@ -750,19 +750,23 @@ namespace McvsOffline.Server.Services.Admin
                           "This also changes the match servers inside the game: they load the levels' Physics layer and run bot AI "
                           + "twice as often. If matches stall or stutter, turn it off again.", "enable", null),
                 // The values of the game's PERFORMANCE page on Android (SettingsMenu/PerformancePage, Graphics/PerformancePrefs;
-                // settings-menu.md §2, §3.4). The page shows "auto" as what the engine has now.
+                // settings-menu.md §2, §3.4). The page shows "auto" as what the engine has now. All restart from here: the embedded
+                // host reads them from its own copy at start, and nothing applies a save of this page's copy to the running engine;
+                // only the game's page applies its own changes live (SCREEN SCALE at once, LOW RESOLUTION MAPS from the next match).
                 Choice("graphics", GraphicsMsaaKey, "Antialiasing", "auto", Restart,
                        "ANTIALIASING on the game's PERFORMANCE page. Auto: what the graphics profile sets. Off, 2x, 4x, 8x: the "
                        + "multisampling of the 3D scene; more is smoother and slower, and 8x may not work on every phone. Needs a build "
                        + "with the 'graphics' patch.",
                        "auto", "off", "2x", "4x", "8x"),
-                Text("graphics", GraphicsRenderScaleKey, "Screen scale", "auto", Live,
+                Text("graphics", GraphicsRenderScaleKey, "Screen scale", "auto", Restart,
                      "SCREEN SCALE on the game's PERFORMANCE page: the resolution the 3D scene is drawn at, from 0 (40 %) to 100 "
-                     + "(full), as on Steam. Auto: what the graphics profile sets. Applies at once.",
+                     + "(full), as on Steam. Auto: what the graphics profile sets. A change here applies at the next start; the "
+                     + "game's PERFORMANCE page applies it at once.",
                      "^(auto|[0-9]{1,3})$", 4, IsRenderScale, "auto, or a whole number from 0 to 100."),
-                Choice("graphics", GraphicsLowResMapsKey, "Low resolution maps", "auto", Menu,
+                Choice("graphics", GraphicsLowResMapsKey, "Low resolution maps", "auto", Restart,
                        "LOW RESOLUTION MAPS on the game's PERFORMANCE page: the levels' low-end versions instead of the high-end "
-                       + "ones, as on Steam. Auto: what the graphics profile sets. Applies from the next match.",
+                       + "ones, as on Steam. Auto: what the graphics profile sets. A change here applies at the next start; the "
+                       + "game's PERFORMANCE page applies it from the next match.",
                        "auto", "on", "off"),
                 Bool("graphics", "hd.enabled", "HD textures", true, Restart,
                      "On: an HD texture pack you put in McvsOffline/hd/ (mcvs-hd-*.zip, made on your PC from your own Steam "

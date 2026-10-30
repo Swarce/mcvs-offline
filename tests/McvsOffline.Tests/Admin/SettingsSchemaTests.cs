@@ -174,13 +174,30 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal("restart", Def(SettingsSchema.GraphicsMsaaKey).Apply);
             Assert.Equal("auto", Default(SettingsSchema.GraphicsRenderScaleKey));
             Assert.Equal("string", Def(SettingsSchema.GraphicsRenderScaleKey).Type);
-            Assert.Equal("live", Def(SettingsSchema.GraphicsRenderScaleKey).Apply);
+            Assert.Equal("restart", Def(SettingsSchema.GraphicsRenderScaleKey).Apply);
             Assert.Equal("auto", Default(SettingsSchema.GraphicsLowResMapsKey));
             Assert.Equal(new[] { "auto", "on", "off" }, Def(SettingsSchema.GraphicsLowResMapsKey).Options);
-            Assert.Equal("menu", Def(SettingsSchema.GraphicsLowResMapsKey).Apply);
+            Assert.Equal("restart", Def(SettingsSchema.GraphicsLowResMapsKey).Apply);
             // The host's FPS-list marker is shown, never edited.
             Assert.Null(SettingsSchema.Find(SettingsSchema.GraphicsFpsListVersionKey));
             Assert.Contains(SettingsSchema.AdvancedKeys, kv => kv.Key == "graphics.fpsListVersion");
+        }
+
+        /// <summary>
+        /// Every Graphics key applies at the next start from this page: the embedded host reads them from its own copy of
+        /// settings.json at start (GraphicsHooks.Configure, PerformancePrefs.Configure, the HD installer), and nothing applies a save
+        /// of the server's copy to the running engine. Only the game's PERFORMANCE page applies its own SCREEN SCALE and LOW
+        /// RESOLUTION MAPS changes live, and the help says so; a "live" or "menu" badge here would promise a change that never comes.
+        /// </summary>
+        [Fact]
+        public void EveryGraphicsKeyAppliesAtTheNextStartFromThisPage()
+        {
+            SettingDefinition[] graphics = SettingsSchema.Keys.Where(d => d.Group == "graphics").ToArray();
+            Assert.Equal(new[] { "graphics.profile", "graphics.fullProfile", "graphics.msaa", "graphics.renderScale", "graphics.lowResMaps", "hd.enabled" },
+                         graphics.Select(d => d.Key).ToArray());
+            Assert.All(graphics, d => Assert.True(d.Apply == "restart", d.Key + " is " + d.Apply));
+            Assert.Contains("applies at the next start; the game's PERFORMANCE page applies it at once", Def(SettingsSchema.GraphicsRenderScaleKey).Help);
+            Assert.Contains("applies at the next start; the game's PERFORMANCE page applies it from the next match", Def(SettingsSchema.GraphicsLowResMapsKey).Help);
         }
 
         [Theory]
