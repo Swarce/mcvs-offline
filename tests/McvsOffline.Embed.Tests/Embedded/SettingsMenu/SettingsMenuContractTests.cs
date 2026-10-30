@@ -209,8 +209,8 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
                 object menu = flash.Call(stack, "getMenuOnTopOfStack");
                 Assert.Equal("menu_settings", ((FlashCharacter)menu).Name);
                 object panel = flash.Child(menu, "mc_panel");
-                Assert.Equal(3, ((FlashCharacter)panel).CurrentFrame);
-                Assert.Equal(3.0, flash.Number(panel, "currentFrame"));
+                Assert.Equal(2, ((FlashCharacter)panel).CurrentFrame);    // native, 0-based
+                Assert.Equal(3.0, flash.Number(panel, "currentFrame"));    // AS, 1-based
                 object forum = flash.Child(panel, "btn_forum");
                 Assert.Equal(465.35, flash.Number(forum, "width").Value, 3);
                 Assert.Equal(6.35, flash.Number(forum, "x").Value, 3);
