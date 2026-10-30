@@ -21,15 +21,22 @@ namespace McvsOffline.Patcher.Patches
     /// IL_0028: newobj AssemblyName::.ctor(string)
     /// IL_002d: call Assembly::Load(AssemblyName)
     /// </code>
-    /// A full display name is a full reference, which gets the codeBase. The cache key (<c>cachedAssemblies[name]</c>) and the
-    /// <c>Loading</c>/<c>Loaded</c> events keep the bare name. <c>Gameloft.Engine.McvsGameLoad</c> (internal static, no server
+    /// A full display name is a full reference, which should get the codeBase (see below). The cache key
+    /// (<c>cachedAssemblies[name]</c>) and the <c>Loading</c>/<c>Loaded</c> events keep the bare name. <c>Gameloft.Engine.McvsGameLoad</c> (internal static, no server
     /// dependency; its presence is the witness, §3.9):
     /// <code>
     /// internal static string Qualify(string name) { if (name == "Game") return "Game, Version=0.0.0.0, …"; return name; }
     /// </code>
     /// The table is <see cref="QualifiedNames"/>: the redirected assemblies that Assemblies.mjson names. Each full name is
-    /// checked against the identity of the file in the game folder before anything changes (the patched copy keeps it); the
-    /// installer's <c>&lt;qualifyAssembly&gt;</c> entries in the config are the second layer.
+    /// checked against the identity of the file in the game folder before anything changes (the patched copy keeps it). This
+    /// patch alone is meant to carry the fix: the full name carries <c>PublicKeyToken=null</c>, so fusion should take it as a
+    /// full reference (not partial) and apply the config's codeBase, as for the static references. Expected, not proven: the
+    /// reasoning rests on the SSCLI sources (the display-name parser and IsPartial), and the managed AssemblyName reaches
+    /// fusion through the VM's AssemblySpec conversion, which those sources do not show; gameload has never run with a config
+    /// in effect (WR2 was build 13 without it; build 14's config was most likely ignored). Unconfirmed on Windows until WR3
+    /// step 4 shows Game loaded from McvsOffline\bin (§8.9). Builds 14 and 15 also wrote <c>&lt;qualifyAssembly&gt;</c>
+    /// entries into the config; those most likely made .NET ignore the whole file (SSCLI evidence; WR3 confirms; pc-port.md
+    /// §7.4), and the config no longer has them.
     /// </summary>
     public sealed class GameAssemblyLoadPatch : IlPatch
     {
@@ -119,7 +126,7 @@ namespace McvsOffline.Patcher.Patches
             PatchSites.FixShortBranches(getAssembly);
             context.Notes.Add(getAssembly.FullName + ": Assembly.Load(new AssemblyName(" + HelperType + "." + QualifyMethod + "(name))): " +
                               string.Join(", ", QualifiedNames.Select(n => n.Key + " -> \"" + n.Value + "\"")) +
-                              " (a full reference, so the .exe.config codeBase applies)");
+                              " (a full reference, so the .exe.config codeBase should apply: expected, WR3 step 4 confirms)");
         }
 
         /// <summary>

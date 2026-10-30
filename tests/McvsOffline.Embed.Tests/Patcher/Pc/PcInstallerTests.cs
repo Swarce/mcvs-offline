@@ -185,7 +185,19 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 SortedDictionary<string, string> before = copy.Tree();
                 PcInstallReport report = copy.Install();
                 Assert.True(report.ExitCode == 0, report.Error);
-                foreach (string line in PcReportText.Install(report, false)) output.WriteLine(line);
+                List<string> printed = PcReportText.Install(report, false);
+                foreach (string line in printed) output.WriteLine(line);
+                // The last lines: the exe and the config Windows must read, by full path, and how to check that it did (§7.6, F).
+                Assert.Equal(new[]
+                {
+                    "exe      " + Path.Combine(copy.Game, "ModernCombatVersus.exe"),
+                    "config   " + Path.Combine(copy.Game, "ModernCombatVersus.exe.config") + " (Windows reads it when that exe starts)",
+                    "next     start the game once, then run status: it must say activation: active",
+                }, printed.Skip(printed.Count - 3));
+                Assert.Equal(PcInstaller.NotVerified, copy.Status().Activation);
+                PcInstallOptions dry = copy.Options();
+                dry.DryRun = true;
+                Assert.DoesNotContain(PcReportText.Install(PcInstaller.Install(dry), true), l => l.StartsWith("next ", StringComparison.Ordinal));
                 SortedDictionary<string, string> after = copy.Tree();
 
                 // P1: every original unchanged, and exactly our seven files added.
@@ -411,6 +423,79 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 Assert.Contains(report.Notes, n => n.Contains("spike"));
                 Assert.True(PcExeConfig.IsOurs(File.ReadAllText(copy.Path_(PcExeConfig.FileName))));
                 Assert.False(Directory.Exists(copy.Path_("McvsOffline/spike")));
+                Assert.Equal(PcInstallState.Current, copy.Status().State);
+            }
+        }
+
+        /// <summary>
+        /// A build-14/15 install: its config has the five qualifyAssembly lines and install.json records that config's hash, so
+        /// every hash matches. Status and verify still report it (most likely .NET ignores the whole file), and install rewrites it (it is ours).
+        /// </summary>
+        [Fact]
+        public void ABuild14ConfigIsReportedAndInstallRewritesIt()
+        {
+            using (PcGameCopy copy = PcGameCopy.Create(output))
+            {
+                if (copy == null) return;
+                Assert.Equal(0, copy.Install().ExitCode);
+                string configPath = copy.Path_(PcExeConfig.FileName);
+                byte[] old = PcExeConfig.Encode(PcExeConfigTests.Build14Config(File.ReadAllText(configPath)));
+                File.WriteAllBytes(configPath, old);
+                string manifestPath = copy.Path_("McvsOffline/install.json");
+                InstallManifest manifest = InstallManifest.Parse(File.ReadAllText(manifestPath));
+                manifest.FindWritten(PcExeConfig.FileName).Sha256 = GameFolder.Sha256(old);
+                File.WriteAllBytes(manifestPath, manifest.ToBytes());
+
+                PcStatusReport status = copy.Status();
+                Assert.Equal("ours", status.Config);
+                Assert.Equal(PcInstallState.Damaged, status.State);
+                Assert.Equal(new[] { PcExeConfig.FileName + " " + PcExeConfig.QualifyLeftoverProblem }, status.Problems);
+                Assert.EndsWith("an old build-14/15 config: run install again", status.StateDetail);
+                PcInstallReport verify = PcInstaller.Verify(copy.Game, TestEnvironment.Net452Refs, () => false);
+                Assert.Equal(PcExitCodes.Io, verify.ExitCode);
+                Assert.Contains("an old build-14/15 config: run install again", verify.Error);
+
+                PcInstallReport again = copy.Install();
+                Assert.True(again.ExitCode == 0, again.Error);
+                Assert.Equal(PcExeConfigTests.Expected, File.ReadAllText(configPath));
+                Assert.Equal(PcInstallState.Current, copy.Status().State);
+                Assert.Equal(0, PcInstaller.Verify(copy.Game, TestEnvironment.Net452Refs, () => false).ExitCode);
+            }
+        }
+
+        /// <summary>
+        /// The build-14 owner's work-around on a real install: every file of McvsOffline\bin copied next to the exe. Status names it
+        /// (not "Steam updated the game"), install refuses it before any write, and putting the game's files back is "current" again.
+        /// </summary>
+        [Fact]
+        public void AHandCopyOfBinOverTheGameFilesIsNamedAndRefused()
+        {
+            using (PcGameCopy copy = PcGameCopy.Create(output))
+            {
+                if (copy == null) return;
+                Assert.Equal(0, copy.Install().ExitCode);
+                var originals = new Dictionary<string, byte[]>();
+                foreach (string file in GameFolder.PatchedFiles.Concat(new[] { GameFolder.ServerFile }))
+                {
+                    if (File.Exists(copy.Path_(file))) originals[file] = File.ReadAllBytes(copy.Path_(file));
+                    File.Copy(copy.Path_(GameFolder.BinRelative(file)), copy.Path_(file), true);
+                }
+                PcStatusReport status = copy.Status();
+                Assert.Equal(PcInstallState.Stale, status.State);
+                Assert.EndsWith(PcInstaller.ManualCopyAdvice, status.StateDetail);
+                Assert.Contains("EngineBridge.dll is MCVS Offline's copy from McvsOffline\\bin (copied over the game's own file)", status.Problems);
+                Assert.Contains(status.Leftovers, l => l.StartsWith("McvsOffline.Server.dll in the game folder is a hand copy of ours", StringComparison.Ordinal));
+
+                SortedDictionary<string, string> before = copy.Tree();
+                PcInstallReport refused = copy.Install();
+                Assert.Equal(PcExitCodes.Refused, refused.ExitCode);
+                Assert.Equal("EngineBridge.dll, Game.dll, Gameloft.Engine.dll, Gameloft.Util.dll are MCVS Offline's own copies from McvsOffline\\bin, not the game's: " +
+                             PcInstaller.ManualCopyAdvice + ". Nothing was written", refused.Error);
+                Assert.Equal(before, copy.Tree());
+
+                // Steam's Verify puts the game's files back (and leaves the server copy, which the player deletes).
+                foreach (KeyValuePair<string, byte[]> o in originals) File.WriteAllBytes(copy.Path_(o.Key), o.Value);
+                File.Delete(copy.Path_(GameFolder.ServerFile));
                 Assert.Equal(PcInstallState.Current, copy.Status().State);
             }
         }

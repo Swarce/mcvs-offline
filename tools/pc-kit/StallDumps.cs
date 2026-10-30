@@ -52,13 +52,10 @@ namespace McvsOffline.PcKit
             return Path.Combine(root, GameFolder.DataDirName, FolderName);
         }
 
-        /// <summary>The game folder's bootstrap.log and the %TEMP% fallback's.</summary>
+        /// <summary>The game folder's bootstrap.log and the %TEMP% fallback's (the list status reads too).</summary>
         public static List<string> BootstrapLogs(KitEnvironment env, string game)
         {
-            var list = new List<string>();
-            if (!string.IsNullOrEmpty(game)) list.Add(Path.Combine(GameFolder.DataDir(game), "logs", "bootstrap.log"));
-            if (!string.IsNullOrEmpty(env.TempRoot)) list.Add(Path.Combine(env.TempRoot, GameFolder.DataDirName, "logs", "bootstrap.log"));
-            return list;
+            return GameFolder.BootstrapLogs(game, env.TempRoot);
         }
 
         /// <summary>Dumps written by this watch.</summary>

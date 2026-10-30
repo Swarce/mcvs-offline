@@ -102,6 +102,9 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                         string what = Steps[i] + (atRename ? " (rename)" : " (write)");
                         Assert.True(report.ExitCode == PcExitCodes.Io, what + ": " + report.ExitCode + " " + report.Error);
                         Assert.Contains(Steps[i], report.Error);
+                        // A first install: no config of ours is in place, so the game runs the stock files.
+                        Assert.EndsWith(". The game will start WITHOUT MCVS Offline until install succeeds", report.Error);
+                        Assert.Contains("error: could not write " + Steps[i], PcReportText.Install(report, false).Single());
 
                         PcStatusReport status = copy.Status();
                         output.WriteLine(what + " -> " + PcReportText.StateName(status.State) + "; leftovers: " + string.Join(" | ", status.Leftovers));
@@ -128,12 +131,48 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 Assert.Equal(0, copy.Install().ExitCode);
                 // The reinstall breaks after the first bin file: the old config still points at files that exist.
                 var files = new FaultyFileOps { FailRenameTo = copy.Path_("McvsOffline/bin/Game.dll") };
-                Assert.Equal(PcExitCodes.Io, copy.Install(files).ExitCode);
+                PcInstallReport failed = copy.Install(files);
+                Assert.Equal(PcExitCodes.Io, failed.ExitCode);
+                Assert.DoesNotContain("WITHOUT MCVS Offline", failed.Error);   // the earlier install's config still redirects
                 AssertNoConfigPointsAtAMissingFile(copy);
+                // A reinstall whose config write fails: the old config may be gone or old, and the player is told.
+                PcInstallReport configFailed = copy.Install(new FaultyFileOps { FailWriteOf = copy.Path_(PcExeConfig.FileName) + GameFolder.TempSuffix });
+                Assert.Equal(PcExitCodes.Io, configFailed.ExitCode);
+                Assert.StartsWith("could not write " + PcExeConfig.FileName + ": ", configFailed.Error);
+                Assert.EndsWith(". " + PcInstaller.NoRedirectWarning, configFailed.Error);
+                File.Delete(copy.Path_(PcExeConfig.FileName) + GameFolder.TempSuffix);
                 // Same bytes as the first install, so nothing is even damaged; a clean reinstall then removes nothing but the temp file.
                 Assert.Equal(PcInstallState.Current, copy.Status().State);
                 Assert.Equal(0, copy.Install().ExitCode);
                 Assert.Empty(copy.Status().Leftovers);
+            }
+        }
+
+        /// <summary>
+        /// An upgrade from build 14/15: the config in place is ours but has qualifyAssembly entries, which .NET most likely ignores
+        /// as a whole, so the game already runs stock; a failure before this run's config write says so, as on a first install.
+        /// </summary>
+        [Fact]
+        public void AFailedUpgradeFromABuild14ConfigSaysTheGameRunsWithoutUs()
+        {
+            using (PcGameCopy copy = PcGameCopy.Create(output))
+            {
+                if (copy == null) return;
+                Assert.Equal(0, copy.Install().ExitCode);
+                string configPath = copy.Path_(PcExeConfig.FileName);
+                byte[] old = PcExeConfig.Encode(PcExeConfigTests.Build14Config(File.ReadAllText(configPath)));
+                File.WriteAllBytes(configPath, old);
+                foreach (string step in new[] { "McvsOffline/bin/Game.dll", "McvsOffline/install.json" })
+                {
+                    PcInstallReport failed = copy.Install(new FaultyFileOps { FailRenameTo = copy.Path_(step) });
+                    output.WriteLine(failed.Error);
+                    Assert.Equal(PcExitCodes.Io, failed.ExitCode);
+                    Assert.StartsWith("could not write " + step + ": ", failed.Error);
+                    Assert.EndsWith(". " + PcInstaller.NoRedirectWarning, failed.Error);
+                    Assert.Equal(old, File.ReadAllBytes(configPath));   // the old config is still the one in place
+                }
+                Assert.Equal(0, copy.Install().ExitCode);
+                Assert.Equal(PcExeConfigTests.Expected, File.ReadAllText(configPath));
             }
         }
 

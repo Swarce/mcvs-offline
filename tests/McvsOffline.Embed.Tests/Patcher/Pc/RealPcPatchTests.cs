@@ -333,23 +333,60 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             {
                 TestEnvironment.AssertPcCorlib(engine);
 
-                // hook-pc: try { McvsOfflineInit(); } catch (object) { pop } then the six original instructions
+                // hook-pc: the marker, try { McvsOfflineInit(); } catch (object) { the marker with the exception }, then the six
+                // original instructions
+                const string trace = "System.Void EngineBridge.Class1::McvsOfflineHookTrace(System.Object)";
                 MethodDefinition start = RealPc.Method(bridge, "EngineBridge.Class1", "Start", 0);
                 Assert.Equal(new[]
                 {
-                    "IL_0000: call System.Void EngineBridge.Class1::McvsOfflineInit()", "IL_0005: leave IL_0010", "IL_000a: pop", "IL_000b: leave IL_0010",
-                    "IL_0010: ldc.i4.0", "IL_0011: ldnull", "IL_0012: ldc.i4.0",
-                    "IL_0013: call System.Int32 Gameloft.Engine.MainLoop::Start(Gameloft.Engine.MainLoop/ModeType,System.String[],System.Boolean)",
-                    "IL_0018: pop", "IL_0019: ret",
+                    "IL_0000: ldnull", "IL_0001: call " + trace,
+                    "IL_0006: call System.Void EngineBridge.Class1::McvsOfflineInit()", "IL_000b: leave IL_001a",
+                    "IL_0010: call " + trace, "IL_0015: leave IL_001a",
+                    "IL_001a: ldc.i4.0", "IL_001b: ldnull", "IL_001c: ldc.i4.0",
+                    "IL_001d: call System.Int32 Gameloft.Engine.MainLoop::Start(Gameloft.Engine.MainLoop/ModeType,System.String[],System.Boolean)",
+                    "IL_0022: pop", "IL_0023: ret",
                 }, start.Body.Instructions.Select(i => i.ToString()));
+                Assert.Equal(EngineBridgeHookPatch.PcPatchedStartFingerprint, IlPatch.Fingerprint(start));
                 ExceptionHandler h = Assert.Single(start.Body.ExceptionHandlers);
                 Assert.Equal("System.Object", h.CatchType.FullName);
-                Assert.Equal(0x0, h.TryStart.Offset);
-                Assert.Equal(0xa, h.HandlerStart.Offset);
+                Assert.Equal(0x6, h.TryStart.Offset);
+                Assert.Equal(0x10, h.HandlerStart.Offset);
+                Assert.Equal(0x1a, h.HandlerEnd.Offset);
                 MethodDefinition init = RealPc.Method(bridge, "EngineBridge.Class1", EngineBridgeHookPatch.HelperName, 0);
                 Assert.True(init.IsPrivate && init.IsStatic && init.ImplAttributes.HasFlag(MethodImplAttributes.NoInlining));
                 Assert.Equal(new[] { "IL_0000: call System.Void McvsOffline.Bootstrap::Init()", "IL_0005: ret" }, init.Body.Instructions.Select(i => i.ToString()));
                 Assert.Equal(EngineBridgeHookPatch.PcCtorFingerprint, IlPatch.Fingerprint(RealPc.Method(bridge, "EngineBridge.Class1", ".ctor", 0)));
+                // The guard: try { McvsOfflineHookWrite(error); } catch (object) { pop }
+                MethodDefinition guard = RealPc.Method(bridge, "EngineBridge.Class1", EngineBridgeHookPatch.TraceName, 1);
+                Assert.True(guard.IsPrivate && guard.IsStatic && guard.ImplAttributes.HasFlag(MethodImplAttributes.NoInlining));
+                Assert.Equal(new[] { "ldarg.0", "call System.Void EngineBridge.Class1::McvsOfflineHookWrite(System.Object)", "leave", "pop", "leave", "ret" },
+                             guard.Body.Instructions.Select(i => i.OpCode.Code == Code.Leave ? "leave" : i.ToString().Substring(i.ToString().IndexOf(' ') + 1)));
+                ExceptionHandler g = Assert.Single(guard.Body.ExceptionHandlers);
+                Assert.Equal("System.Object", g.CatchType.FullName);
+                Assert.Same(guard.Body.Instructions[0], g.TryStart);
+                Assert.Same(guard.Body.Instructions[3], g.HandlerStart);
+                Assert.All(new[] { guard.Body.Instructions[2], guard.Body.Instructions[4] }, l => Assert.Same(guard.Body.Instructions[5], l.Operand));
+                // The writer calls mscorlib only (and the kernel32 import); the import is GetCurrentProcessId, nothing else.
+                MethodDefinition writer = RealPc.Method(bridge, "EngineBridge.Class1", EngineBridgeHookPatch.WriteName, 1);
+                Assert.True(writer.IsPrivate && writer.IsStatic && writer.ImplAttributes.HasFlag(MethodImplAttributes.NoInlining));
+                List<MethodReference> calls = writer.Body.Instructions.Select(i => i.Operand).OfType<MethodReference>().ToList();
+                Assert.All(calls.Where(c => c.DeclaringType.FullName != "EngineBridge.Class1"), c => Assert.Equal("mscorlib", c.DeclaringType.Scope.Name));
+                Assert.Equal(new[] { EngineBridgeHookPatch.PidName }, calls.Where(c => c.DeclaringType.FullName == "EngineBridge.Class1").Select(c => c.Name));
+                Assert.Contains(writer.Body.Instructions, i => i.OpCode == OpCodes.Ldstr && (string)i.Operand == EngineBridgeHookPatch.MarkerFile);
+                Assert.Contains(writer.Body.Instructions, i => i.OpCode == OpCodes.Ldstr && (string)i.Operand == EngineBridgeHookPatch.MarkerFolder);
+                Assert.Contains(calls, c => c.FullName == "System.String System.IO.Path::GetTempPath()");
+                Assert.Contains(calls, c => c.FullName == "System.Void System.IO.File::AppendAllText(System.String,System.String)");
+                ExceptionHandler p = Assert.Single(writer.Body.ExceptionHandlers);
+                Assert.Equal("System.Object", p.CatchType.FullName);
+                Assert.Equal(EngineBridgeHookPatch.PidName, ((MethodReference)p.TryStart.Operand).Name);
+                MethodDefinition pid = RealPc.Method(bridge, "EngineBridge.Class1", EngineBridgeHookPatch.PidName, 0);
+                Assert.True(pid.IsPInvokeImpl && pid.IsPrivate && pid.IsStatic && !pid.HasBody);
+                Assert.Equal("GetCurrentProcessId", pid.PInvokeInfo.EntryPoint);
+                Assert.Equal("kernel32.dll", pid.PInvokeInfo.Module.Name);
+                Assert.Equal("System.UInt32", pid.ReturnType.FullName);
+                Assert.Equal(new[] { "kernel32.dll" }, bridge.ModuleReferences.Select(r => r.Name));
+                Assert.Equal(new[] { "Start", ".ctor", EngineBridgeHookPatch.HelperName, EngineBridgeHookPatch.PidName, EngineBridgeHookPatch.WriteName, EngineBridgeHookPatch.TraceName },
+                             bridge.GetType("EngineBridge.Class1").Methods.Select(m => m.Name));
 
                 // quicklaunch P1: Android's body
                 Assert.Equal(QuickLaunchPatch.AndroidPortFingerprint, IlPatch.Fingerprint(RealPc.Method(engine, "Gameloft.Engine.LocalAnubis.BaseServer", "get_Port", 0)));

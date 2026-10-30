@@ -79,8 +79,15 @@ files in Documents (`GDID.bin`, `DC.bin`, `HDIDFV.bin`), and its options (`MyLoc
 2. `.\McvsOffline.PcKit.exe status --listing` (records the game folder **before** install).
 3. `.\McvsOffline.PcKit.exe probe` (from the normal terminal; it checks the local ports, the folder and .NET).
 4. `.\McvsOffline.PcKit.exe install`, then `.\McvsOffline.PcKit.exe verify` (do not skip `verify`: its `written`
-   lines are compared with section 7). `status` should now say `installed, current`. If build 13 is still installed
-   from WR2, run `.\McvsOffline.PcKit.exe uninstall` first (your saves and settings stay), then `install`.
+   lines are compared with section 7). `status` should now say `installed, current` and, until the game has been
+   started once, `activation: NOT VERIFIED: no start of MCVS Offline since the install (start the game once, then run
+   status)`. The end of `install` names the exe and the config Windows has to read (`exe …\ModernCombatVersus.exe`,
+   `config …\ModernCombatVersus.exe.config`): they must be in the folder Steam starts the game from (Steam › Manage ›
+   Browse local files). If build 13 is still installed from WR2, run `.\McvsOffline.PcKit.exe uninstall` first (your
+   saves and settings stay), then `install`. Over build 14 or 15, just run `install`: it rewrites their config (section 5).
+   * `INSTALL FAILED` (in the double-click menu) or an `error:` line: read the error. "The game will start WITHOUT MCVS
+     Offline until install succeeds" means the config was not written: fix the cause (game closed, folder writable) and
+     run `install` again.
    * "`<name>_args.txt` is in the game folder": the game would read that file instead of `args.txt` and go online.
      Move it out of the game folder and run `install` again.
    * "a ModernCombatVersus.exe.config that is not ours exists": move it away and run `install` again.
@@ -89,7 +96,18 @@ files in Documents (`GDID.bin`, `DC.bin`, `HDIDFV.bin`), and its options (`MyLoc
 6. Start the game **from Steam**, as usual. Do not start it under a debugger: the game then shows a dead window.
 7. After the first start reaches the main menu, close the game and run `.\McvsOffline.PcKit.exe status`. It must say
    `installed, current` and `activation: active at the last start`. If it says `installed, NOT ACTIVE`, stop here, run
-   `collect` and send the zip: the rest of the round would test the old files again.
+   `collect` and send the zip: the rest of the round would test the old files again. What the other answers mean:
+   * `activation: NOT VERIFIED: no start of MCVS Offline since the install`: the game has not been started since the
+     install (or it stopped before MCVS Offline wrote anything). Start it once from Steam, then run `status` again.
+   * `activation: NOT ACTIVE: the game started without MCVS Offline; Windows did not use …\ModernCombatVersus.exe.config`:
+     the game ran (it wrote its own `dr0.bin`/`OF_PP.bin`/`GameVersion`) but our files did not. The `hook:` line below it
+     says whether our `EngineBridge.dll` ever ran (it leaves `%TEMP%\McvsOffline\hook.txt`). Run `collect` and send it.
+   * `activation: NOT ACTIVE: MCVS Offline's EngineBridge ran at … but the server did not start: …`: our files were
+     used, the offline server did not start; the text after it is the error. Run `collect` and send it. (While the game
+     is still running this reads `NOT VERIFIED: MCVS Offline's EngineBridge ran at …; the game is still running`: close
+     the game and run `status` again.)
+   * `activation: NOT ACTIVE: the game started without MCVS Offline: …\ModernCombatVersus.exe.config is missing (install
+     did not finish)`: the install stopped before it wrote the config (`status` says `PARTIAL`). Run `install` again.
 
 **The settings page.** Settings › Account › **MCVS Offline** (or the "MCVS Offline" message in the inbox) opens the
 offline settings page: status, settings, saves (save now, export, import, backups), logs and restart. By default it
@@ -121,6 +139,21 @@ it crashes soon after you chose High, go back to Mid. The `[boot] graphics:` lin
   kit's log then continues in `%TEMP%\McvsOffline\kit\`.
 * After a Steam update or "Verify integrity of game files", run `status`: it says when you need to uninstall and wait
   for a kit that knows the new build.
+* **If you copied the files of `McvsOffline\bin` next to `ModernCombatVersus.exe`** (the work-around for build 14,
+  whose config Windows most likely ignored): those copies replaced Steam's own files, and the kit cannot restore them.
+  `status` names each copy (`Game.dll is MCVS Offline's copy from McvsOffline\bin (copied over the game's own file)`)
+  and ends with `you copied MCVS Offline's DLLs over the game's own files; Steam > Verify integrity of game files
+  restores them, then run install`. Its state is `STALE (…)`, or `DAMAGED (…)` while the build-14/15 config is still in
+  place (the copies are listed first, then the old config). `install` and `uninstall` refuse until then (uninstall
+  would delete the only proof of the copy and leave the game running it). To undo it: Steam › right-click Modern Combat
+  Versus › Properties › Installed Files › **Verify integrity of game files** (it puts back `EngineBridge.dll`,
+  `Game.dll`, `Gameloft.Engine.dll` and `Gameloft.Util.dll` and leaves `McvsOffline\` and the config alone), delete the
+  `McvsOffline.Server.dll` you copied next to the exe (`status` lists it as a leftover; Steam keeps it; `uninstall`
+  removes it too), then run `install` and start the game once.
+* A config from build 14 or 15 (it has `<qualifyAssembly>` lines) makes `status` say `DAMAGED: ModernCombatVersus.exe.config
+  has <qualifyAssembly> entries, which most likely make .NET ignore the whole file (…): an old build-14/15 config: run
+  install again`. `install` replaces it; if that install fails before it writes the new config, it says the game will
+  start WITHOUT MCVS Offline until install succeeds (the old config does not redirect it).
 * `status` also reads the last start in `McvsOffline\logs\bootstrap.log`. `installed, NOT ACTIVE (Game loaded from the
   game folder)` (or `… the 'store' patch is missing`) means the files are installed but the game did not run them, so
   the offline fixes were missing in that start: close the game, run `install` again, start once, and if `status` still
@@ -233,7 +266,9 @@ itself is not listed because it holds the install time):
 | `ModernCombatVersus.exe.config` | `fda12aef617b4cfcd8de0ed0b8ebc3764270a21bbabeaef08113eb09d700c4b6` |
 
 Any difference in this table stops the round until it is explained: the bytes you run must be the bytes we tested.
-(The config is the same as in build 14; the DLLs changed with the server.)
+(The config is the same as in build 14; the DLLs changed with the server.) **Build 16** writes a different config: the
+one WR2 ran, `3ebe99b3c93a9540cd7f7b03da55fc048a544501c17e8621457884eae456f94c` (no `<qualifyAssembly>` lines); its DLL
+values are added here when the build-16 kit is made (`EngineBridge.dll` changes with the `hook.txt` marker).
 
 ## 8. What to send back
 

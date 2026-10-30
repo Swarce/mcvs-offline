@@ -170,7 +170,8 @@ Physics, the game log bridge attaches, and there is no tracker traffic with the 
 
 * **`Game.dll` is ours** (WR2 F1): the new mandatory PC patch `gameload` (Gameloft.Engine.dll, fingerprint-guarded,
   §8.9) makes the engine load `Game` by its full name, which does follow the redirect; the config also gets one
-  `<qualifyAssembly>` per redirected assembly (§7.4). `[boot] patches:` reports `gameload`.
+  `<qualifyAssembly>` per redirected assembly (§7.4; build 16 removes them again: most likely they made .NET ignore the
+  whole config, so the game ran without MCVS Offline). `[boot] patches:` reports `gameload`.
 * **"installed, NOT ACTIVE"** (F2): a start that loaded a redirected assembly from outside `McvsOffline\bin`, or ran
   without the witness of an applied patch, is an error: a `[boot] ERROR` line, `install: installed, NOT ACTIVE (…)` in
   the `[status]` line, a red banner on the settings page, and the kit's `status` and `verify` read the last start's

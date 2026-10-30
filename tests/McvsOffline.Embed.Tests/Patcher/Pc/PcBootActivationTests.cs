@@ -173,9 +173,9 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         }
 
         /// <summary>
-        /// The kit's status on a real install (the stand-in plan): no bootstrap.log → current; WR2's start after the install →
+        /// The kit's status on a real install (the stand-in plan): no bootstrap.log → current, NOT VERIFIED; WR2's start after the install →
         /// "installed, NOT ACTIVE (Game loaded from the game folder; ...)" with an ERROR line; a start from bin → current and "active";
-        /// a start older than the install → current, "not started since the install". Damaged files still win over NOT ACTIVE.
+        /// a start older than the install → current, NOT VERIFIED. Damaged files still win over NOT ACTIVE.
         /// </summary>
         [Fact]
         public void TheKitStatusSaysNotActiveForTheWr2Start()
@@ -186,7 +186,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 Assert.Equal(0, copy.Install().ExitCode);   // install.json writtenUtc 2026-11-02T18:00:00Z
                 PcStatusReport fresh = copy.Status();
                 Assert.Equal(PcInstallState.Current, fresh.State);
-                Assert.Null(fresh.Activation);
+                Assert.Equal(PcInstaller.NotVerified, fresh.Activation);
 
                 Directory.CreateDirectory(copy.Path_("McvsOffline/logs"));
                 string log = copy.Path_("McvsOffline/logs/bootstrap.log");
@@ -214,7 +214,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 PcStatusReport older = copy.Status();
                 Assert.Equal(PcInstallState.Current, older.State);
                 Assert.Empty(older.Errors);
-                Assert.StartsWith("not started since the install", older.Activation);
+                Assert.Equal(PcInstaller.NotVerified, older.Activation);
 
                 // DAMAGED stays DAMAGED (the file problem is the first thing to fix); the start's reason is still an error.
                 File.WriteAllText(log, Start("2026-11-02T18:05:00", false, Wr2Patches));
