@@ -474,6 +474,11 @@ namespace McvsOffline.Embedded.Graphics
         /// maps the index from the stock list and writes marker 1; any other list with marker 1 maps it back from the extended list and
         /// writes 0; otherwise nothing changes (VeryLowGPU's "23 60 -1" with marker 0 included). The phrase for the log, or null while
         /// the list or the stored index cannot be read (try again later). A failed index write leaves the marker as it was.
+        /// <para>The index lives in the game's LocalStorage, the marker in settings.json, saved later and off the game thread: a marker
+        /// lost after the index was written (a failed save, a deleted or reset settings.json) reads 0 again. On the extended list a
+        /// stored index past the stock list's end (120, UNLIMITED) can only be in the extended meaning already, so it is kept and only
+        /// the marker written; mapped again it would read as nothing and become 30. Index 2 stays ambiguous (stock UNLIMITED,
+        /// extended 90) and is read as the stock one.</para>
         /// </summary>
         internal static string MigrateFps(IEngineGraphics engine, IPerformanceSettings settings)
         {
@@ -490,6 +495,12 @@ namespace McvsOffline.Embedded.Graphics
             {
                 from = ParseFpsList(StockFpsList);
                 target = ExtendedFpsListVersion;
+                if (stored.Value >= from.Count && stored.Value < resolved.Count)
+                {
+                    bool marked = settings.Save(SettingsSchema.GraphicsFpsListVersionKey, target);
+                    return list + ", index " + stored.Value.ToString(CultureInfo.InvariantCulture) + " kept (already on this list), graphics.fpsListVersion " +
+                           target.ToString(CultureInfo.InvariantCulture) + (marked ? "" : " not saved");
+                }
             }
             else if (!extendedNow && version == ExtendedFpsListVersion)
             {
@@ -624,6 +635,119 @@ namespace McvsOffline.Embedded.Graphics
             return (int)Math.Round(v, MidpointRounding.AwayFromZero);
         }
 
+        /// <summary>
+        /// SCREEN SCALE's slider while <c>graphics.renderScale</c> is auto (the page's initial display, design §2): the scale a match
+        /// renders at (<see cref="AutoMatchScale"/>), else <paramref name="engine"/>'s current one, else 100. Not the current one first:
+        /// the page exists only in the main menu, where every level load set the menu scale (<c>renderTargetSizeScaleMM</c>, 1.0 in
+        /// GameOptions_android.json:284-285), so the S22's MidGPU would show 100 while its matches render at 0.6, and a write of the
+        /// shown value would then force matches to 1.0. The page still treats a write equal to this display as no change (E1).
+        /// </summary>
+        public static int AutoRenderScaleSlider(IEngineGraphics engine)
+        {
+            try
+            {
+                float? scale = AutoMatchScale;
+                if (scale == null && engine != null) scale = engine.RenderTargetSizeScale;
+                return scale == null ? 100 : SliderOf(scale.Value);
+            }
+            catch (Exception)
+            {
+                return 100;
+            }
+        }
+
+        /// <summary>
+        /// The scale the profile gives a match (ChangeGraphicQuality on a match map, see the class remarks), from the profile's own
+        /// <c>m_options</c> values (before ours): its dynamic scale when <c>dynamicRenderTargetSizeScale</c> is true (applied last,
+        /// <see cref="DynamicMatchScale"/>), else <c>renderTargetSizeScale</c>, else <c>renderTargetSizeScaleMM</c> (a match load
+        /// without either keeps the menu's). Null before the first ApplyGameOptions or when no entry reads as a number.
+        /// </summary>
+        public static float? AutoMatchScale
+        {
+            get
+            {
+                try
+                {
+                    Dictionary<string, object> before;
+                    lock (optionsGate) before = profileOptions;
+                    if (before == null) return null;
+                    object value;
+                    if (before.TryGetValue(DynamicScaleOption, out value) && IsTrue(value))
+                    {
+                        Func<float?> dynamicScale = DynamicMatchScale;
+                        float? dynamic = dynamicScale == null ? null : dynamicScale();
+                        if (dynamic != null) return dynamic;
+                    }
+                    float? scale;
+                    if (before.TryGetValue(ScaleOption, out value) && (scale = ToScale(value)) != null) return scale;
+                    if (before.TryGetValue(MenuScaleOption, out value) && (scale = ToScale(value)) != null) return scale;
+                    return null;
+                }
+                catch (Exception)
+                {
+                    return null;
+                }
+            }
+        }
+
+        /// <summary>
+        /// The engine's dynamic scale (<c>PerformanceOptionApplierComponent.CalculateDynamicRenderTargetScale</c>, from
+        /// <c>PlatformInfo</c>), or null when unreadable (tests replace it).
+        /// </summary>
+        internal static Func<float?> DynamicMatchScale = ReadDynamicScale;
+
+        /// <summary>AND-CS PerformanceOptionApplierComponent.cs:403-420, in float as there; null for a value that is not a number.</summary>
+        internal static float? DynamicScaleOf(int densityDpi, int pixelWidth, int pixelHeight, float inchWidth, float inchHeight)
+        {
+            float num = ((float)densityDpi - 0.5f) * 2f / ((float)pixelWidth / inchWidth + (float)pixelHeight / inchHeight);
+            if ((float)pixelWidth * num > 1920f) num = 1920f / (float)pixelWidth;
+            if (num > 1f) num = 1f;
+            return float.IsNaN(num) || float.IsInfinity(num) || num <= 0f ? (float?)null : num;
+        }
+
+        private static float? ReadDynamicScale()
+        {
+            try
+            {
+                Type info = LoadedTypes.Find(LoadedTypes.EngineAssembly, PlatformInfoTypeName);
+                if (info == null) return null;
+                Func<string, object> read = name =>
+                {
+                    PropertyInfo p = info.GetProperty(name, BindingFlags.Public | BindingFlags.Static);
+                    return p == null ? null : p.GetValue(null, null);
+                };
+                object dpi = read("DensityDpi"), pw = read("ScreenPixelWidth"), ph = read("ScreenPixelHeight");
+                object iw = read("ScreenInchWidth"), ih = read("ScreenInchHeight");
+                if (!(dpi is int) || !(pw is int) || !(ph is int) || !(iw is float) || !(ih is float)) return null;
+                return DynamicScaleOf((int)dpi, (int)pw, (int)ph, (float)iw, (float)ih);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        private static bool IsTrue(object value)
+        {
+            if (value is bool) return (bool)value;
+            string s = value as string;
+            return s != null && string.Equals(s.Trim(), "true", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static float? ToScale(object value)
+        {
+            try
+            {
+                if (value == null || value is bool) return null;
+                float f = Convert.ToSingle(value, CultureInfo.InvariantCulture);
+                return float.IsNaN(f) || float.IsInfinity(f) ? (float?)null : f;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
         /// <summary>Live, game thread: stores <c>graphics.renderScale</c> (0..100, or auto) and applies it at once (auto: from the next start).</summary>
         public static bool SetRenderScale(IEngineGraphics engine, IPerformanceSettings settings, string value)
         {
@@ -751,8 +875,10 @@ namespace McvsOffline.Embedded.Graphics
 
         /// <summary>
         /// What <see cref="SetGraphicsProfile"/> calls after a change (tests count the calls): AppPreferences
-        /// <c>GameOptions_SelectedProfile</c> to 0 when it is not, saved as the game saves it (GamePreferencesComponent.cs:186-200
-        /// stores value − 1 of the stock row's step). True when it is 0 now.
+        /// <c>GameOptions_SelectedProfile</c> to 0 when it is not, saved as the game saves it: <c>SetSecurePreference</c>, then the
+        /// client World's <c>LocalStorage.Save()</c> (GamePreferencesComponent.NativeChangeGraphicSetting, AND-CS :186-194, which
+        /// stores value − 1 of the stock row's step). Not <c>AppPreferences.SavePreferences()</c>: that only walks settings components
+        /// marked [AppPreferencesClass], and none is. True when it is 0 now and, after a change, saved.
         /// </summary>
         internal static Func<bool> SelectedProfileReset = ResetSelectedProfile;
 
@@ -765,13 +891,17 @@ namespace McvsOffline.Embedded.Graphics
                 const BindingFlags Static = BindingFlags.Public | BindingFlags.Static;
                 MethodInfo get = prefs.GetMethod("GetSecurePreferenceAsInt", Static, null, new[] { typeof(string), typeof(int) }, null);
                 MethodInfo set = prefs.GetMethod("SetSecurePreference", Static, null, new[] { typeof(string), typeof(int) }, null);
-                MethodInfo save = prefs.GetMethod("SavePreferences", Static, null, Type.EmptyTypes, null);
                 if (get == null || set == null) return false;
                 object now = get.Invoke(null, new object[] { "GameOptions_SelectedProfile", 0 });
                 if (now is int && (int)now == 0) return true;
                 set.Invoke(null, new object[] { "GameOptions_SelectedProfile", 0 });
-                if (save != null) save.Invoke(null, null);
-                return true;
+                object world = GameEngineGraphics.ClientWorld();
+                PropertyInfo storage = world == null ? null : world.GetType().GetProperty("LocalStorage", BindingFlags.Public | BindingFlags.Instance);
+                object local = storage == null ? null : storage.GetValue(world, null);
+                MethodInfo save = local == null ? null : local.GetType().GetMethod("Save", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+                if (save == null) return false;
+                object saved = save.Invoke(local, null);
+                return !(saved is bool) || (bool)saved;
             }
             catch (Exception)
             {
@@ -822,6 +952,7 @@ namespace McvsOffline.Embedded.Graphics
             migrationPosted = 0;
             migrationTicks = 0;
             SelectedProfileReset = ResetSelectedProfile;
+            DynamicMatchScale = ReadDynamicScale;
         }
 
         // The game's types the engine seam uses (AND-CS), found among the loaded assemblies only.
@@ -832,9 +963,11 @@ namespace McvsOffline.Embedded.Graphics
         internal const string ApplicationTypeName = "Gameloft.Engine.GameApplication";
         internal const string AppPreferencesTypeName = "Gameloft.Engine.AppPreferences";
         internal const string ProfileComponentTypeName = "Gameloft.Engine.GameOptionPerformanceProfileComponent";
+        internal const string PlatformInfoTypeName = "Gameloft.Engine.PlatformInfo";
+        internal const string LocalStorageTypeName = "Gameloft.Engine.LocalStorageComponent";
 
         /// <summary>
-        /// Every member <see cref="Engine"/> and <see cref="SelectedProfileReset"/> use, looked up as they look them up but never
+        /// Every member <see cref="Engine"/>, <see cref="SelectedProfileReset"/> and <see cref="DynamicMatchScale"/> use, looked up as they look them up but never
         /// called, plus what the class remarks rely on (<c>GameApplication.ChangeGraphicQuality(string)</c> and the component's
         /// <c>m_options</c>); one line per problem. The tests run it on the player's own assemblies, so a game update that renames
         /// one shows up there and not as a row that silently does nothing.
@@ -877,6 +1010,9 @@ namespace McvsOffline.Embedded.Graphics
             Type world = type(WorldTypeName);
             staticField(world, "GlobalExcludeLayers", ft => typeof(IList<string>).IsAssignableFrom(ft), "IList<string>");
             if (world != null && world.GetProperty("UserPreferences", Instance) == null) problems.Add(WorldTypeName + ".UserPreferences: no public property");
+            if (world != null && world.GetProperty("LocalStorage", Instance) == null) problems.Add(WorldTypeName + ".LocalStorage: no public property");
+            Type storage = type(LocalStorageTypeName);
+            if (storage != null && storage.GetMethod("Save", Instance, null, Type.EmptyTypes, null) == null) problems.Add(LocalStorageTypeName + ".Save() not found");
             Type prefs = type(PreferencesTypeName);
             staticField(prefs, "FpsValues", ft => typeof(IList<int>).IsAssignableFrom(ft), "IList<int>");
             if (prefs != null)
@@ -899,6 +1035,20 @@ namespace McvsOffline.Embedded.Graphics
             FieldInfo options = profile == null ? null : profile.GetField("m_options", Instance);
             if (profile != null && (options == null || !typeof(IDictionary).IsAssignableFrom(options.FieldType)))
                 problems.Add(ProfileComponentTypeName + ".m_options: no public dictionary field");
+            MethodInfo dynamic = profile == null ? null : GameEngineGraphics.Inherited(profile, "CalculateDynamicRenderTargetScale");
+            if (profile != null && (dynamic == null || dynamic.ReturnType != typeof(float)))
+                problems.Add(ProfileComponentTypeName + ": no float CalculateDynamicRenderTargetScale() (the formula DynamicScaleOf copies)");
+            Type info = type(PlatformInfoTypeName);
+            if (info != null)
+            {
+                string[] names = { "DensityDpi", "ScreenPixelWidth", "ScreenPixelHeight", "ScreenInchWidth", "ScreenInchHeight" };
+                Type[] types = { typeof(int), typeof(int), typeof(int), typeof(float), typeof(float) };
+                for (int i = 0; i < names.Length; i++)
+                {
+                    PropertyInfo prop = info.GetProperty(names[i], Static);
+                    if (prop == null || prop.PropertyType != types[i]) problems.Add(PlatformInfoTypeName + "." + names[i] + ": no public static " + types[i].Name + " property");
+                }
+            }
             Type appPrefs = type(AppPreferencesTypeName);
             if (appPrefs != null)
             {
@@ -906,8 +1056,6 @@ namespace McvsOffline.Embedded.Graphics
                     problems.Add(AppPreferencesTypeName + ".GetSecurePreferenceAsInt(string, int) not found");
                 if (appPrefs.GetMethod("SetSecurePreference", Static, null, new[] { typeof(string), typeof(int) }, null) == null)
                     problems.Add(AppPreferencesTypeName + ".SetSecurePreference(string, int) not found");
-                if (appPrefs.GetMethod("SavePreferences", Static, null, Type.EmptyTypes, null) == null)
-                    problems.Add(AppPreferencesTypeName + ".SavePreferences() not found");
             }
             return problems;
         }
@@ -1072,15 +1220,21 @@ namespace McvsOffline.Embedded.Graphics
                 }
             }
 
-            /// <summary>The client World's UserPreferences (a GamePreferencesComponent), or null before it exists.</summary>
-            private static object Preferences()
+            /// <summary>The client World (<c>GameApplication.Instance.World</c>), or null before it exists.</summary>
+            internal static object ClientWorld()
             {
                 Type app = EngineType(ApplicationTypeName);
                 PropertyInfo instance = StaticProperty(app, "Instance");
                 object application = instance == null ? null : instance.GetValue(null, null);
                 if (application == null) return null;
                 PropertyInfo world = application.GetType().GetProperty("World", Instance);
-                object w = world == null ? null : world.GetValue(application, null);
+                return world == null ? null : world.GetValue(application, null);
+            }
+
+            /// <summary>The client World's UserPreferences (a GamePreferencesComponent), or null before it exists.</summary>
+            private static object Preferences()
+            {
+                object w = ClientWorld();
                 if (w == null) return null;
                 PropertyInfo prefs = w.GetType().GetProperty("UserPreferences", Instance);
                 return prefs == null ? null : prefs.GetValue(w, null);

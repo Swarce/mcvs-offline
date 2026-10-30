@@ -306,6 +306,43 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.Equal(0L, settings.FpsListVersion);
         }
 
+        /// <summary>
+        /// Review: the marker lives in settings.json, the index in LocalStorage, and the marker is saved later. Catches a second
+        /// mapping after the marker was lost: 120 and UNLIMITED are past the stock list's end and became 30.
+        /// </summary>
+        [Fact]
+        public void ALostMarkerKeepsAnIndexThatIsAlreadyOnTheLongerList()
+        {
+            foreach (int stored in new[] { 3, 4 })
+            {
+                var engine = new FakeEngineGraphics { Fps = Extended.ToList(), MaxIndex = stored };
+                var settings = new FakePerformanceSettings();
+                string line = PerformancePrefs.MigrateFps(engine, settings);
+                output.WriteLine(line);
+                Assert.Equal(stored, engine.MaxIndex);
+                Assert.Equal(0, engine.IndexWrites);
+                Assert.Equal(1L, settings.FpsListVersion);
+                Assert.Equal(new[] { "graphics.fpsListVersion=1" }, settings.Saves);
+                Assert.Contains("kept", line);
+                Assert.Contains("kept", PerformancePrefs.MigrateFps(engine, settings));
+                Assert.Single(settings.Saves);
+            }
+
+            // A first run and the same start's marker then lost: the second run leaves the migrated index alone.
+            var again = new FakeEngineGraphics { Fps = Extended.ToList(), MaxIndex = 2 };
+            var first = new FakePerformanceSettings();
+            PerformancePrefs.MigrateFps(again, first);
+            Assert.Equal(4, again.MaxIndex);
+            PerformancePrefs.MigrateFps(again, new FakePerformanceSettings());
+            Assert.Equal(4, again.MaxIndex);
+            Assert.Equal(1, again.IndexWrites);
+
+            // Out of range on both lists: mapped as before (to 30).
+            var garbage = new FakeEngineGraphics { Fps = Extended.ToList(), MaxIndex = 7 };
+            PerformancePrefs.MigrateFps(garbage, new FakePerformanceSettings());
+            Assert.Equal(0, garbage.MaxIndex);
+        }
+
         [Fact]
         public void TheMigrationWaitsForTheIndexAndKeepsTheMarkerWhenTheWriteFails()
         {
@@ -431,6 +468,57 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.Equal(new[] { "graphics.renderScale=30", "graphics.renderScale=auto" }, settings.Saves);
             Assert.True(PerformancePrefs.SetRenderScale(engine, settings, "auto"));   // the same value: no second write
             Assert.Equal(2, settings.Saves.Count);
+        }
+
+        /// <summary>
+        /// Review: SCREEN SCALE at auto shows the match scale. Catches the engine's current scale as the display: on the main menu
+        /// (the only place the page exists) that is renderTargetSizeScaleMM, 1.0, so MidGPU's 0.6 showed as 100.
+        /// </summary>
+        [Fact]
+        public void AutoScreenScaleShowsTheScaleAMatchRendersAtNotTheMenusOne()
+        {
+            var engine = new FakeEngineGraphics { Scale = 0.6f };
+            Assert.Equal(33, PerformancePrefs.AutoRenderScaleSlider(engine));   // no options yet: the engine's own
+            Assert.Null(PerformancePrefs.AutoMatchScale);
+
+            Dictionary<string, object> options = ProfileOptions(false);
+            PerformancePrefs.Apply(engine, new FakePerformanceSettings(), options, false);
+            LoadLevel(engine, options, true);
+            Assert.Equal(1f, engine.Scale);
+            Assert.Equal(0.6f, PerformancePrefs.AutoMatchScale.Value, 5);
+            Assert.Equal(33, PerformancePrefs.AutoRenderScaleSlider(engine));
+
+            // An explicit scale and back to auto: the profile's own values, not ours.
+            var settings = new FakePerformanceSettings();
+            Assert.True(PerformancePrefs.SetRenderScale(engine, settings, "80"));
+            Assert.True(PerformancePrefs.SetRenderScale(engine, settings, "auto"));
+            LoadLevel(engine, options, true);
+            Assert.Equal(33, PerformancePrefs.AutoRenderScaleSlider(engine));
+
+            // A dynamic-scale profile: the engine's dynamic value, applied last at a match load.
+            PerformancePrefs.ResetForTests();
+            PerformancePrefs.DynamicMatchScale = () => 0.83f;
+            Dictionary<string, object> dynamic = ProfileOptions(true);
+            PerformancePrefs.Apply(engine, new FakePerformanceSettings(), dynamic, false);
+            Assert.Equal(72, PerformancePrefs.AutoRenderScaleSlider(engine));
+            PerformancePrefs.DynamicMatchScale = () => null;   // unreadable: the static entry
+            Assert.Equal(33, PerformancePrefs.AutoRenderScaleSlider(engine));
+
+            // No match entry: a match load keeps the menu's.
+            PerformancePrefs.ResetForTests();
+            PerformancePrefs.Apply(engine, new FakePerformanceSettings(), new Dictionary<string, object> { ["renderTargetSizeScaleMM"] = 0.7 }, false);
+            Assert.Equal(50, PerformancePrefs.AutoRenderScaleSlider(engine));
+        }
+
+        [Fact]
+        public void TheDynamicScaleIsTheEnginesFormula()
+        {
+            // 1080x2340 at 320 dpi on a 2.54" x 5.5" screen: (319.5 * 2) / (425.2 + 425.5) = 0.7512.
+            Assert.Equal(0.7512f, PerformancePrefs.DynamicScaleOf(320, 1080, 2340, 2.54f, 5.5f).Value, 3);
+            Assert.Equal(1f, PerformancePrefs.DynamicScaleOf(640, 1080, 2340, 2.54f, 5.5f).Value);       // capped at 1
+            Assert.Equal(0.75f, PerformancePrefs.DynamicScaleOf(640, 2560, 1600, 6f, 3.75f).Value, 5);   // capped at 1920 px wide
+            Assert.Null(PerformancePrefs.DynamicScaleOf(0, 1080, 2340, 2.54f, 5.5f));
+            Assert.Null(PerformancePrefs.DynamicScaleOf(320, 1080, 2340, 0f, 0f));
         }
 
         // ------------------------------------------------------------------ T-D5: LOW RESOLUTION MAPS
@@ -655,6 +743,9 @@ namespace McvsOffline.Embed.Tests.Embedded
                 // The check has teeth: a renamed member is reported.
                 Assert.Contains(PerformancePrefs.VerifyMembers(name => name == PerformancePrefs.WorldTypeName ? typeof(string) : resolve(name)),
                                 p => p.Contains("GlobalExcludeLayers"));
+                Assert.Contains(PerformancePrefs.VerifyMembers(name => name == PerformancePrefs.LocalStorageTypeName ? typeof(string) : resolve(name)),
+                                p => p.Contains("LocalStorageComponent.Save()"));
+                Assert.False(PerformancePrefs.SelectedProfileReset());
                 // Without a running game the seam reads nothing and writes nothing (the default context has no game).
                 Assert.Null(PerformancePrefs.Engine.MaxFramerateIndex);
                 Assert.False(PerformancePrefs.Engine.SetMaxFramerateIndex(1));
