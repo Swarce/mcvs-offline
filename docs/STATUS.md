@@ -1,7 +1,10 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-Last updated for build 18 (October 2026, on `wip/pc-port`; APK and PC kit): on the owner's PC build 17 still ran the
+Last updated for build 19 (October 2026, on `wip/pc-port`; APK and PC kit): the game's Settings menu without the tiles
+that cannot work offline (both platforms), and on the phone the Steam version's PERFORMANCE page (graphics, antialiasing,
+screen scale, frame rate limit up to 120, low resolution maps) with GRAPHICS SETTINGS and FRAME RATE LIMIT out of
+Gameplay Settings; not yet tested on a phone or on Windows; see "Build 19". Build 18: on the owner's PC build 17 still ran the
 game's own `Game.dll` (`store NO, inbox NO`) although every other file came from `McvsOffline\bin`; the cause was most
 likely MCVS Offline's own start code, which loaded `Game` by a partial name before the game did; build 18 no longer
 loads any game assembly itself and logs who loaded one from the game folder; see "Build 18". Build 17: the big unlock
@@ -21,7 +24,7 @@ play; see "Build 12 and device test 9". Before that: the build 11 device test (t
 12). The build 11 plan put HD textures into `Data/` ("Build 11 (plan)"). On build 10 the HD texture probe showed that
 route B fails and route A works. Build 10 targets Android 15 and adds graphics profiles and the PC test kit ("Build
 10"). Device test 8 tested the MCVS Offline page ("Device test 8", "Build 9"). The Cosmetic crate starts on 2026-11-09
-and is not yet tested on the phone. Not yet merged into `main-dev`: builds 13 to 18 (the PC port, the Android
+and is not yet tested on the phone. Not yet merged into `main-dev`: builds 13 to 19 (the PC port, the Android
 'game' manifest flags and build 17's unlock-code and inbox changes are on `wip/pc-port`). Earlier: device tests 6 and 7 on the same S22 ("Build 8", "Build 7", "Device test 6").
 
 **Summary:** the Federation server is complete for the offline single-player goals and passes its full test suite, including a
@@ -46,6 +49,153 @@ HD texture probe and a Windows test kit for the Steam version. Build 11 installs
 version into the game's own data. Build 12 accepts a full ASTC data pack with 2,215 PC textures in it: **device test 9:
 the HD textures and the graphics profiles work, at the same frame rate as before**, and builds 10 to 12 (target Android
 15) installed and played fine.
+
+## Build 19 (October 2026): a shorter Settings menu, and Steam's PERFORMANCE page on the phone
+
+### What build 19 contains
+
+`922ce02` on `wip/pc-port` (`McvsVersion.Build` is `19`; the code is the merges of `wip/b19-contracts`, `-registry`,
+`-grid`, `-page` and `-backend` plus the integration commit `6d02c28`). APK: `mcvs-offline-922ce02.apk` (SHA-256
+`dd88801724faf20a50a9f71a6f9ad3a27ed1632ba7bf239572807468b49ad3bf`; default patch set, unchanged since build 17; the same key as every build: certificate SHA-256
+`fc0db84e…7d16`, targetSdk 35, both ABIs, `isGame` and `appCategory`, zipalign OK); it installs over build 18 as
+usual. Compared entry by entry with build 18's `mcvs-offline-9e21ead.apk`: the same 952 entries in the same order; changed only the server DLL (2,562,560 → 2,649,600 bytes), the signature files and the 16 MVID bytes of `Game.dll`, `Gameloft.Engine.dll`, `Gameloft.Util.dll` and `NicePlaySDK.dll` ([design/pc-port.md](design/pc-port.md) §13.1). The PC kit
+`McvsOffline.PcKit.exe` (win-x64, one file, SHA-256 `effcc07ae46c77ea2bebc07ac4b760ce09461e34e20f2a059b00c42838fa0aef`) replaces build 18's; build 18's Windows checks (whether
+`Game` now comes from `McvsOffline\bin`) still stand and come first. The design is
+[design/settings-menu.md](design/settings-menu.md).
+
+**The owner's request.** The game's Settings menu shows tiles that cannot work offline (SOCIAL MEDIA, FORUM, CUSTOMER
+CARE, and MORE GAMES on the phone); remove them and centre what is left. On the phone, add the Steam version's
+PERFORMANCE tile with its options, less those that mean nothing on a phone, and take GRAPHICS SETTINGS and FRAME RATE
+LIMIT out of Gameplay Settings. Nothing in the game's files changes: MCVS Offline puts its own handlers on the game's
+menu functions while the game runs (no new patch; the APK's game files are build 18's except for their MVIDs).
+
+**What each Settings screen now looks like.**
+
+* **PC (Steam), main-menu Settings:** two centred rows of three, GAMEPLAY SETTINGS, AUDIO, ACCOUNTS / HELP, LANGUAGES,
+  PERFORMANCE, and ABOUT alone, centred, below them. SOCIAL MEDIA, FORUM and CUSTOMER CARE are hidden. Every page
+  behind the tiles is Steam's own and unchanged (PERFORMANCE keeps its nine rows), and so is the in-match Settings
+  panel. ABOUT no longer drifts sideways after visits to a submenu (Steam moved it relative to its last place).
+* **Phone, main-menu Settings:** GAMEPLAY SETTINGS, AUDIO, CUSTOMIZE CONTROLS, ACCOUNTS in the first row (where the
+  stock row 1 was), HELP, LANGUAGES, **PERFORMANCE** centred under it, ABOUT alone at the bottom. FORUM, SOCIAL MEDIA,
+  CUSTOMER CARE and MORE GAMES are hidden; the PERFORMANCE tile is the game's own FORUM tile with the game's own
+  PERFORMANCE title (translated) and icon. The in-match Settings panel (AUDIO, GAMEPLAY, CUSTOMIZE) is unchanged: it
+  cannot get a PERFORMANCE tile without editing the game's files.
+* **Phone, PERFORMANCE page** (the main menu only; no category headers, as on Steam):
+
+  | Row | Choices | What it changes | When |
+  |---|---|---|---|
+  | GRAPHICS SETTINGS | AUTO, MID, HIGH, ULTRA | `graphics.profile` (the same as the settings page's Graphics profile; also resets the game's own relative step so AUTO is the phone's choice) | next start: back on the Settings grid a confirm popup (the game's own texts) offers to restart now |
+  | ANTIALIASING (English) | OFF, 2x, 4x, 8x | `graphics.msaa` → GameOptions `renderTargetMSAA` | next start, same popup |
+  | SCREEN SCALE (English) | slider 0-100 % | `graphics.renderScale` → `RenderTargetSizeScale` (Steam's formula: 0 is 40 %, above 97 is full) | at once while dragging; stored when the page closes |
+  | FRAME RATE LIMIT (the game's own row, translated, with its battery 'i') | 30, 60, 90, 120, UNLIMITED | the game's `MaxFramerate`; 90 and 120 are new, and a stored choice is carried over to the longer list once (`graphics.fpsListVersion`) | at once |
+  | LOW RESOLUTION MAPS (English) | OFF, ON | `graphics.lowResMaps` → the levels' low-end layers | next level load (next match) |
+
+  Until a row is changed it shows what the game uses now (`auto`); SCREEN SCALE shows the scale matches render at (the
+  menu itself renders at full scale). FULLSCREEN, SCREEN RESOLUTION and VSYNC are left out (nothing to switch on a phone:
+  the game's VSync and Steam's frame limiter are empty functions in the Android engine); FIELD OF VIEW stays in Gameplay
+  Settings, where the phone already has it.
+* **Phone, Gameplay Settings** (main menu and in a match): GRAPHICS SETTINGS and FRAME RATE LIMIT (with its 'i') are
+  gone, with no gap and no empty header; every other row is where it was. FRAME RATE LIMIT is therefore changed only on
+  the main-menu PERFORMANCE page (the owner's choice); the stored limit keeps applying at every start.
+
+**The settings to turn it off** (settings page, or `settings.json`; both apply the next time Settings opens):
+`admin.settingsMenu.trim` (Settings › Gameplay › **Shorter Settings menu**, both platforms: off brings the stock grid
+back) and `admin.settingsMenu.performance` (Settings › Gameplay › **PERFORMANCE in the Settings menu**, phone only: off
+removes the tile, puts the two Gameplay rows back, and from the next start the game's own 30/60/UNLIMITED list with the
+stored choice mapped back). The values themselves are on the phone's settings page under Graphics: `graphics.msaa`,
+`graphics.renderScale`, `graphics.lowResMaps` (`auto` = the profile's own); a bad value can be fixed there. When the
+grid cannot be laid out, it stays as the game draws it, the two Gameplay rows stay, and `server.log` says why in a
+`settings menu: … not laid out (…)` line; a page that cannot be built shows the stock rows and logs `performance page
+not built (…)`.
+
+**How it works, in short.** The game's Flash menus call C# "native functions"; the engine lets anyone add a delegate
+to one, and the last answer wins. A timer puts ours back every 2 s if the game re-registers its own. `EnterSection` on
+the Settings grid posts the layout step (it reads every tile first and writes nothing unless all are there);
+`GoToForum` opens the PERFORMANCE page while the tile is ours (otherwise it is the game's forum again);
+`CanChangeGraphicSetting`/`CanChangeMaxFramerate` answer `false` outside the page, so the game never builds the two
+Gameplay rows; on the page they let the game build its rows, and a posted step turns them into the five Performance
+rows. That step's own writes fire the menu's change handlers; while it runs, every preference write is ignored (the
+design review's E1), so opening the page never stores anything.
+
+**Checked**: `McvsOffline.sln` (Release), the Android embedded DLL against the APK's assemblies and the PC DLL with
+`Gameloft.Logs`; all four test projects with `MCVS_REFS`, `MCVS_PC_REFS`, `MCVS_APK`, `MCVS_DATAPACK`,
+`MCVS_BUILD_TOOLS`, `MCVS_REQUIRE_REAL_CLIENT=1`, `MCVS_REQUIRE_PC=1`, `MCVS_REQUIRE_PC_E2E=1`, `MCVS_REQUIRE_EMBEDDED=1`,
+`MCVS_REQUIRE_BUILD_TOOLS=1` and `MCVS_REQUIRE_NODE=1`, at `922ce02`: **McvsOffline.Tests 1576/1576, McvsOffline.Embed.Tests 1141/1141, McvsOffline.PcKit.Tests 63/63, McvsOffline.PcSpike.Tests 62/62, 0 skipped** (2,842; build 18's run was 2,623). New tests: the native registry on a
+fake native table with the engine's dispatch rules (re-registration, one delegate per name, a throwing step, the forum
+tap, no host), every game member used resolved by signature in the real Android and Steam assemblies, the grid plans
+and their all-or-nothing writes on a fake Flash tree of both panels, the page transform on the real row order (the
+exact five rows, the write order, nothing stored by the transform although every change handler runs, no donor
+preference written), the writes (SCREEN SCALE live and stored once whatever order the saves run in), the restart prompt,
+and the back end on the real `GameOptions_android.json` (MSAA, the 90/120 list, the index migration including a
+VeryLowGPU phone, the scale and the low-end layers). The integration tests were checked to fail on the code they guard. The APK was built with `--build-tools` and verified
+as above. The kit published, its `check-server` passed on the PC server DLL (every PC hook (17), `Gameloft.Logs`, only
+allowed references), and its assembly carries that DLL byte for byte. The PC end to end on Linux (§12.6) with the kit's
+Linux build on temp copies of the Steam files: `install`, `verify`, `status` (`installed, current`, `activation: NOT
+VERIFIED` before a start), a second install with the same bytes, `uninstall` restoring the exact listing. Upgrade: over
+a build-18 install (a `ce90194` patcher), `status` says `installed, OLDER BUILD - OLDER BUILD (18; this kit installs
+build 19): run install …` and `verify` fails (exit 1); `install` over it writes exactly the bytes of §13.1, then
+`installed, current`. The expected `verify` values are re-recorded in [design/pc-port.md](design/pc-port.md) §13.1 and
+[PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7 (build 18's are in §13.2): every DLL changed with the server DLL, the config
+is build 16's (`3ebe99b3…f94c`), `serverBuild` is `19`.
+
+**Not checked (untested)**: **nothing ran on a phone or on Windows.** In particular: the layout and centring on real
+screens and whether the stock grid flashes for one frame before ours; whether the hidden tiles can still be reached (a
+tap on their place; on PC the keyboard and a gamepad); whether gameswf accepts the page transform as the fakes do
+(the first PERFORMANCE visit logs one `spike` line that says so); whether SCREEN SCALE and ANTIALIASING change the
+picture on the S22's Mid profile, whether 8x works on its GPU, and whether 90/120 FPS go above 60 on its 120 Hz panel
+(Samsung may hold a game at 60; then the list falls back to 30/60/UNLIMITED in a later build); the restart on Android
+13+ (it may only close the game; the choice is kept either way).
+
+### What to check on the PC and the phone (build 19)
+
+**PC first** (build 18's steps 1-4 first if they have not been done: `Game` from `McvsOffline\bin`, `store yes, inbox
+yes`):
+
+1. Close the game, run this kit's `status` over the build-18 install: `installed, OLDER BUILD - OLDER BUILD (18; this
+   kit installs build 19): run install …`. Run `install`, then `verify` (the six values of
+   [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7, exactly).
+2. Start the game, open Settings from the main menu at 1920×1080: two rows of three tiles, centred (GAMEPLAY SETTINGS,
+   AUDIO, ACCOUNTS / HELP, LANGUAGES, PERFORMANCE), ABOUT alone and centred below; no SOCIAL MEDIA, FORUM, CUSTOMER
+   CARE. `server.log`: `settings menu: frame 1, 6 tiles + ABOUT laid out`. Once more in a windowed 16:10 size.
+3. Every tile opens its own page (PERFORMANCE: Steam's nine rows); after each, Back: the grid is the same, ABOUT has not
+   moved (five round trips).
+4. The hidden tiles: click where SOCIAL MEDIA, FORUM and CUSTOMER CARE were: nothing. With the **keyboard** (arrows,
+   Tab, Enter) and a **gamepad** (d-pad, A), walk the whole grid: focus never lands on an invisible tile and never
+   opens one. Report any step where focus disappears.
+5. In a match: Settings shows Steam's in-match panel, unchanged.
+6. Settings page › Gameplay › Shorter Settings menu off, reopen Settings: the stock grid; back on.
+
+**Phone (S22), install build 19 over build 18:**
+
+1. Main menu › Settings: row 1 GAMEPLAY SETTINGS, AUDIO, CUSTOMIZE CONTROLS, ACCOUNTS; row 2 HELP, LANGUAGES,
+   PERFORMANCE, centred under it; ABOUT alone and centred. No FORUM, SOCIAL MEDIA, CUSTOMER CARE, MORE GAMES; a slow-motion
+   video of opening Settings and of returning from a submenu (does the stock grid flash for a frame?). `server.log`:
+   `settings menu: frame 3, 7 tiles + ABOUT laid out`.
+2. Tap where each hidden tile and button was: nothing happens. Every visible tile opens its own page, Back returns to
+   the same grid.
+3. PERFORMANCE opens a page titled PERFORMANCE with exactly GRAPHICS SETTINGS, ANTIALIASING, SCREEN SCALE, FRAME RATE
+   LIMIT, LOW RESOLUTION MAPS, no headers. `server.log`: `performance page: 5 rows` and the one `spike` line (copy it).
+   Opening it must not change any value: the settings page's Graphics values still say `auto`.
+4. Each row:
+   * GRAPHICS SETTINGS to HIGH, Back: the restart popup; **Yes** restarts (on Android 13+ it may only close: start it
+     again), and the `[boot] graphics:` line says `HighGPU`. Back to AUTO the same way, once answering **No** (the
+     next start applies it).
+   * ANTIALIASING 4x (then 8x), restart: the `[boot] graphics:` line has `renderTargetMSAA 4` (8); edges in a match look
+     smoother; note any glitch or crash at 8x.
+   * SCREEN SCALE: drag to 0 and back up while watching the background: the picture gets blurrier and sharper at once.
+     Leave it at 50, Back, start a match: still at 50 (blurrier than before); the settings page shows `50`.
+   * FRAME RATE LIMIT: 90, then 120, then UNLIMITED, each in a match with an FPS counter (Game Booster or the developer
+     options' frame rate overlay): the frame rate you see at each. If 90/120 never go above 60, say so (and whether
+     Game Booster's own frame rate setting was on).
+   * LOW RESOLUTION MAPS ON, start a match: plainer level geometry/textures; OFF again: back to normal.
+5. Gameplay Settings from the main menu: no GRAPHICS SETTINGS row, no FRAME RATE LIMIT row and no 'i' button at the
+   bottom, no empty header; FIELD OF VIEW is still there. The same in a match (Settings › GAMEPLAY), also in a match
+   started before opening Settings from the main menu.
+6. Settings page › Gameplay › **PERFORMANCE in the Settings menu** off, reopen Settings: FORUM gone, no PERFORMANCE,
+   row 2 is HELP and LANGUAGES; Gameplay Settings has both rows again; after a restart FRAME RATE LIMIT lists 30, 60,
+   UNLIMITED with your choice kept. Back on. Then **Shorter Settings menu** off: the stock grid with the PERFORMANCE
+   tile in FORUM's place. Back on.
+7. As always: boot to the menu, one Classic bot match, the shop, the MCVS Offline page.
 
 ## Build 18 (October 2026): MCVS Offline itself loaded the game's own Game.dll at start
 

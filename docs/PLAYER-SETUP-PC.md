@@ -1,6 +1,6 @@
 # Player setup: MCVS Offline on the Steam (PC) version
 
-**Status: draft for the third Windows round (WR3), build 18** (build 14's PC fixes; build 15 added only server features: the Special Events and an optional Practice tile; build 16 removes the config lines that most likely made Windows start the game without MCVS Offline in builds 14 and 15, and says when the game starts without it; build 17 delivers the unlock codes without the inbox and adds the `inbox` patch, which keeps a big redeem-code message from freezing the inbox; build 18 stops MCVS Offline itself from loading the game's own `Game.dll` at start, most likely the cause of build 17's `Game loaded from the game folder` and of WR2's). The second round (WR2, build 13) showed that the
+**Status: draft for the third Windows round (WR3), build 19** (build 14's PC fixes; build 15 added only server features: the Special Events and an optional Practice tile; build 16 removes the config lines that most likely made Windows start the game without MCVS Offline in builds 14 and 15, and says when the game starts without it; build 17 delivers the unlock codes without the inbox and adds the `inbox` patch, which keeps a big redeem-code message from freezing the inbox; build 18 stops MCVS Offline itself from loading the game's own `Game.dll` at start, most likely the cause of build 17's `Game loaded from the game folder` and of WR2's; build 19 shortens the game's Settings menu, see section 4). The second round (WR2, build 13) showed that the
 install and the game start work, but the game kept loading its own `Game.dll` instead of our patched copy, so every
 fix in that file was missing: the two inbox crashes, the missing "MCVS Offline" button in Settings › Account, the bot
 match running the old way and probably the long freezes. Build 14 makes the game load our copy and says
@@ -25,7 +25,7 @@ version has its own guide: [PLAYER-SETUP.md](PLAYER-SETUP.md).
 ## 2. Get the kit
 
 1. Download `McvsOffline.PcKit.exe` into any folder, for example `Downloads`. Its SHA-256 is
-   `186c1bcb21b46aea633aea888fc6eae531bcdcad73d5027ab660269cd117b28e` (PowerShell:
+   `effcc07ae46c77ea2bebc07ac4b760ce09461e34e20f2a059b00c42838fa0aef` (PowerShell:
    `Get-FileHash .\McvsOffline.PcKit.exe`).
 2. **SmartScreen warning.** The exe is not code-signed, so Windows may show "Windows protected your PC". Click
    **More info**, then **Run anyway**. Your antivirus may scan it first.
@@ -262,23 +262,23 @@ the bot match: in WR2 they caused the long freezes, which would hide everything 
 | 18 | optional: Steam › Verify integrity of game files while installed, then `status` | the state | still `installed, current` |
 | 19 | question: had this Steam account played MCVS on PC before this project? | yes / no | — |
 
-Expected `verify` values for step 3 (build 18: the Linux run of the same kit on Steam build 6372049; `install.json`
+Expected `verify` values for step 3 (build 19: the Linux run of the same kit on Steam build 6372049; `install.json`
 itself is not listed because it holds the install time):
 
 | file | sha256 |
 |---|---|
-| `McvsOffline/bin/EngineBridge.dll` | `956e2a53c2a3102cda4d230ff05e89ccd21dabed5d51d0b99e9418c2f38819c7` |
-| `McvsOffline/bin/Game.dll` | `7cd097ae53feefe6bd66df1f3463ad58f01fb58adf671fc7370c95747c00f798` |
-| `McvsOffline/bin/Gameloft.Engine.dll` | `81b4a794013b3f807d629b227b1b86504e9cfe5f029aa0671da30632b6e88f41` |
-| `McvsOffline/bin/Gameloft.Util.dll` | `a7a1cd0ed73ef631d107fa3232b959d2480d1450a990b3283271c56570e38eba` |
-| `McvsOffline/bin/McvsOffline.Server.dll` | `a6e3991c05d7a6704fe942e9af8477c1aed10e56c336ed666298df41acfcecb4` |
+| `McvsOffline/bin/EngineBridge.dll` | `debb51d93062b3345ebb149d6b100d32c0abb5e56244324d3b9bcd0f518f17cb` |
+| `McvsOffline/bin/Game.dll` | `ca3d94d97cca353c99a233b6aa7962ed11bc74c5923e5be39d6fef164a648b1a` |
+| `McvsOffline/bin/Gameloft.Engine.dll` | `ab8ce00e033238a2f67dc4d6221dbbb03e47f0fa1f8f5479b459b85acc39abf4` |
+| `McvsOffline/bin/Gameloft.Util.dll` | `9c6b69ca922e8ec9f424aaff3a01c6c57ad27b13d70bf7eb1c2467bc028cc32a` |
+| `McvsOffline/bin/McvsOffline.Server.dll` | `074d7b2b83e8caea2040b7c4e3990de538e5e7170c8ee6e85cffdea97d007695` |
 | `ModernCombatVersus.exe.config` | `3ebe99b3c93a9540cd7f7b03da55fc048a544501c17e8621457884eae456f94c` |
 
 Any difference in this table stops the round until it is explained: the bytes you run must be the bytes we tested.
 (The config is the one WR2 ran and build 16 wrote, with no `<qualifyAssembly>` lines: builds 14 and 15 wrote
-`fda12aef…c4b6`, which has five of them. Build 18 changed only the server DLL; the four game DLLs change with it, as
-in every build. An install over build 17 writes exactly these values too (checked on Linux). Over a build-17 install,
-this kit's `status` and `verify` say `installed, OLDER BUILD - OLDER BUILD (17; this kit installs build 18): run install
+`fda12aef…c4b6`, which has five of them. Build 19 changed only the server DLL; the four game DLLs change with it, as
+in every build. An install over build 18 writes exactly these values too (checked on Linux). Over a build-18 install,
+this kit's `status` and `verify` say `installed, OLDER BUILD - OLDER BUILD (18; this kit installs build 19): run install
 to update it`: run it.)
 
 ## 8. What to send back

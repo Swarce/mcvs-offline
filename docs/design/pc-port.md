@@ -2020,58 +2020,61 @@ and the `AppCrash_ModernCombatVers_*` report folders; WP5b records the results i
 in from §12.6 before the kit is handed over): the `written` SHA-256 of the five DLLs and the config (§13.1); the
 `MEM rule on, removed <n>` count.
 
-### 13.1 Expected WR3 values (build 18)
+### 13.1 Expected WR3 values (build 19)
 
-From the §12.6 run on Linux (`McvsOffline.Patcher pc install` on a temp copy of the read-only Steam files, with the PC
-server DLL the kit embeds, byte-identical; `RealFolderEndToEnd` passed in the same run), default patch set, port 51780.
-A second install gave the same bytes, and the values do not depend on the commit they are built at
+From the §12.6 run on Linux (build 19: the kit's own Linux build, `McvsOffline.PcKit.dll install`, on a temp copy of
+the read-only Steam files' managed assemblies, exe and `Data/MCVS.game`, with the PC server DLL the kit embeds,
+byte-identical; `RealFolderEndToEnd`, the same install through `PcInstaller` with ILVerify, passed in the full test run),
+default patch set, port 51780. A second install gave the same bytes, and the values do not depend on the commit they are built at
 (`Directory.Build.props` turns SourceLink off). The owner's copy is [PLAYER-SETUP-PC.md](../PLAYER-SETUP-PC.md) §7.
 
 | written | sha256 | mvid |
 |---|---|---|
-| `McvsOffline/bin/EngineBridge.dll` | `956e2a53c2a3102cda4d230ff05e89ccd21dabed5d51d0b99e9418c2f38819c7` | `eb88ef0f-3bf3-48fc-8c6e-c53855bdfddf` |
-| `McvsOffline/bin/Game.dll` | `7cd097ae53feefe6bd66df1f3463ad58f01fb58adf671fc7370c95747c00f798` | `35762546-a2f0-4ee6-a386-5629fad6a0f9` |
-| `McvsOffline/bin/Gameloft.Engine.dll` | `81b4a794013b3f807d629b227b1b86504e9cfe5f029aa0671da30632b6e88f41` | `75836edd-9c53-43d4-9f14-74b375a5af8b` |
-| `McvsOffline/bin/Gameloft.Util.dll` | `a7a1cd0ed73ef631d107fa3232b959d2480d1450a990b3283271c56570e38eba` | `c4cebe44-664d-4dd8-8d7f-ec67b3193f14` |
-| `McvsOffline/bin/McvsOffline.Server.dll` | `a6e3991c05d7a6704fe942e9af8477c1aed10e56c336ed666298df41acfcecb4` | `c7b02878-6f38-431b-affd-4e70cedaa2a5` |
+| `McvsOffline/bin/EngineBridge.dll` | `debb51d93062b3345ebb149d6b100d32c0abb5e56244324d3b9bcd0f518f17cb` | `0c4102a5-807f-409d-9211-c65bbf44eb2f` |
+| `McvsOffline/bin/Game.dll` | `ca3d94d97cca353c99a233b6aa7962ed11bc74c5923e5be39d6fef164a648b1a` | `1fcecc62-c265-4471-bfc5-b4e63742ee34` |
+| `McvsOffline/bin/Gameloft.Engine.dll` | `ab8ce00e033238a2f67dc4d6221dbbb03e47f0fa1f8f5479b459b85acc39abf4` | `23831d0d-df5a-4885-8217-65d2f01aa164` |
+| `McvsOffline/bin/Gameloft.Util.dll` | `9c6b69ca922e8ec9f424aaff3a01c6c57ad27b13d70bf7eb1c2467bc028cc32a` | `af07eaf9-a0a3-4918-8bc6-47640c89c2dc` |
+| `McvsOffline/bin/McvsOffline.Server.dll` | `074d7b2b83e8caea2040b7c4e3990de538e5e7170c8ee6e85cffdea97d007695` | `8a2cc39d-3198-4437-b4b0-a49e76ebeed1` |
 | `ModernCombatVersus.exe.config` | `3ebe99b3c93a9540cd7f7b03da55fc048a544501c17e8621457884eae456f94c` | — |
 
 * Applied patches: `hook-pc, headless, bottile, store, signatures, inbox, adminpage, headless-engine, physics,
   quicklaunch, headless-diag, nativeonline, waits, adminlink, graphics, gameload, geo` (build 17's set); `install.json`
-  `installer.serverBuild` is `18`. Build 18 changes only the server DLL (the host: `GameReflection` binds lazily from
-  the loaded assemblies, `LoadedTypes`, the load stack, §8.9); no patch changed, so `Game.dll`, EngineBridge,
+  `installer.serverBuild` is `19`. Build 19 changes only the server DLL (the Settings menu trim, the Android PERFORMANCE
+  page and its back end, [settings-menu.md](settings-menu.md)); no patch changed, so `Game.dll`, EngineBridge,
   Gameloft.Engine and Gameloft.Util get new MVIDs and hashes with the server DLL only, as in every build. The config is
-  build 16's. Build 17's values are in §13.2.
+  build 16's. Build 18's values are in §13.2.
 * `MEM rule on, removed 1` (`GameOptionsWindowsTests.RealFileRemoved`, the real `GameOptions_windows.json`).
 * The config is §7.4's codeBase-only text (UTF-8 without BOM, CRLF, final CRLF; five `<dependentAssembly>` entries, no
   `<qualifyAssembly>`), byte for byte the config WR2 ran (§13.2; `PcExeConfigTests.ExpectedSha256`). Builds 14 and 15
   wrote the five `<qualifyAssembly>` entries after them (`fda12aef…c4b6`, §13.2).
-* **Upgrade from build 17** (the same Linux run): a build-17 install made by a `b20d12b` patcher (built in a separate
-  worktree: its server DLL `a40e28c6…00ef` differs from build 17's kit's `32019567…2675` only as a build of another
-  folder; config `3ebe99b3…f94c`, `serverBuild` `17`). The build-18 kit (its Linux build, `McvsOffline.PcKit.dll` with
-  the same embedded server DLL) says in `status` `installed, OLDER BUILD - OLDER BUILD (17; this kit installs build 18):
-  run install to update it (your saves and settings stay)` with the problem line, and `verify` fails with exit 1 on the
-  same sentence (§7.6; the patcher CLI, which does not compare, still says `installed, current`). Build 18's `install`
-  over it exits 0 and writes exactly the bytes of the table above (`serverBuild` `18`); then the kit's and the patcher's
-  `verify` and `status` say `installed, current`, and `uninstall` restores the exact listing and every SHA-256 of the
-  copy.
-* The kit: `McvsOffline.PcKit.exe`, SHA-256 `186c1bcb21b46aea633aea888fc6eae531bcdcad73d5027ab660269cd117b28e`; its
+* **Upgrade from build 18** (the same Linux run): a build-18 install made by a `ce90194` patcher (built in a separate
+  folder: its server DLL `ee0445fb…4803` differs from build 18's kit's `a6e3991c…ecb4` only as a build of another
+  folder; config `3ebe99b3…f94c`, `serverBuild` `18`). This kit (its Linux build, `McvsOffline.PcKit.dll` with the same
+  embedded server DLL) says in `status` `installed, OLDER BUILD - OLDER BUILD (18; this kit installs build 19): run
+  install to update it (your saves and settings stay)`, and `verify` fails with exit 1 on the same sentence. Its
+  `install` over it exits 0 and writes exactly the bytes of the table above (`serverBuild` `19`); then `verify` exits 0
+  and `status` says `installed, current`.
+* A fresh install on a second temp copy: `install`, `verify` (exit 0, every written file, witness and the config read
+  back), `status` (`installed, current`, `activation: NOT VERIFIED` before a start), a second `install` with the same
+  bytes, and `uninstall`, which restored the exact listing and every SHA-256 outside `McvsOffline\` and removed
+  `McvsOffline\` (nothing of the player's in it).
+* The kit: `McvsOffline.PcKit.exe`, SHA-256 `effcc07ae46c77ea2bebc07ac4b760ce09461e34e20f2a059b00c42838fa0aef`; its
   publish check passed on the embedded DLL (every PC hook (17), `Gameloft.Logs`, only allowed references), and the
   kit's assembly carries the server DLL above byte for byte.
-* ILVerify of the four patched assemblies against the net452 refs reports exactly the findings of the stock files
-  (EngineBridge 0, Game 1, Gameloft.Engine 290, Gameloft.Util 3; none in a patched or added method); the server DLL
-  verifies clean. `verify` and `status`: `installed, current`. `uninstall` restored the exact file listing and every
-  SHA-256 of the copy; with a bootstrap `args.txt` block and player data added before it, only `McvsOffline\` with that
-  data remained and `args.txt` was gone. With the first 20 lines of WR2's own `bootstrap.log` as the last start after
+* ILVerify of the four patched assemblies against the net452 refs (`RealFolderEndToEnd`, this run) reports exactly the
+  findings of the stock files (EngineBridge 0, Game 1, Gameloft.Engine 290, Gameloft.Util 3; none in a patched or added
+  method); the server DLL verifies clean. Build 18's run, not repeated by hand in build 19 (no installer code changed;
+  the test suite covers both): with a bootstrap `args.txt` block and player data added before `uninstall`, only
+  `McvsOffline\` with that data remained and `args.txt` was gone; with the first 20 lines of WR2's own `bootstrap.log` as the last start after
   the install, `status` said `installed, NOT ACTIVE (Game loaded from the game folder; the 'store' patch is missing)`
   with its `ERROR:` line (F2); with the first 22 lines of the owner's build-17 start (2026-10-30, `gameload yes`),
   `installed, NOT ACTIVE (Game loaded from the game folder; the 'store' patch is missing; the 'inbox' patch is
   missing)`.
-* Android (§12.6): the APK `mcvs-offline-9e21ead.apk` (SHA-256
-  `5981f1098151f61a8a3d9204514e2351a510fe9f70490521f0c6354c861023b8`; cert SHA-256 `fc0db84e…7d16`, targetSdk 35,
-  both ABIs, `isGame` and `appCategory=0`, zipalign OK), compared entry by entry with build 17's
-  `mcvs-offline-a8742ab.apk` (same key and options): same 952 entries in the same order; changed only
-  `assemblies/McvsOffline.Server.dll` (2,558,976 → 2,562,560 bytes), `META-INF/1.RSA`, `1.SF`, `MANIFEST.MF`, and
+* Android (§12.6): the APK `mcvs-offline-922ce02.apk` (SHA-256
+  `dd88801724faf20a50a9f71a6f9ad3a27ed1632ba7bf239572807468b49ad3bf`; cert SHA-256 `fc0db84e…7d16`, targetSdk 35,
+  both ABIs, `isGame` and `appCategory=0`, zipalign OK), compared entry by entry with build 18's
+  `mcvs-offline-9e21ead.apk` (same key and options): same 952 entries in the same order; changed only
+  `assemblies/McvsOffline.Server.dll` (2,562,560 → 2,649,600 bytes), `META-INF/1.RSA`, `1.SF`, `MANIFEST.MF`, and
   `Game.dll`, `Gameloft.Engine.dll`, `Gameloft.Util.dll`, `NicePlaySDK.dll` in their 16 MVID bytes only.
 
 ### 13.2 WR2 values (build 13, archived)
@@ -2095,6 +2098,9 @@ Build 17 (`a8742ab`, the fourth WR3 kit; on the owner's PC `Game` came from the 
 `14e2a779…352e`, Game `14d887a3…b4a3`, Gameloft.Engine `9af0c02c…abf4`, Gameloft.Util `4fa196fc…7277`,
 McvsOffline.Server `32019567…2675`, config `3ebe99b3…f94c`; kit `804dd546…3ec2`; APK `mcvs-offline-a8742ab.apk`
 (`d4d332f1…16a4`).
+Build 18 (`9e21ead`, the fifth WR3 kit): EngineBridge `956e2a53…19c7`, Game `7cd097ae…f798`, Gameloft.Engine
+`81b4a794…8f41`, Gameloft.Util `a7a1cd0e…8eba`, McvsOffline.Server `a6e3991c…ecb4`, config `3ebe99b3…f94c`; kit
+`186c1bcb…b28e`; APK `mcvs-offline-9e21ead.apk` (`5981f109…23b8`).
 
 ---------------------------------------------------------------------------------------------------
 
