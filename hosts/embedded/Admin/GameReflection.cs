@@ -38,47 +38,78 @@ namespace McvsOffline.Embedded.Admin
     /// </summary>
     internal sealed class GameReflection
     {
-        public const string GameApplicationTypeName = "Gameloft.Engine.GameApplication, Gameloft.Engine";
-        public const string PlayerProfileTypeName = "Game.PlayerProfileComponent, Game";
-        public const string UiExtensionsTypeName = "Game.UISceneExtentions, Game";
+        // Full type names only: their assemblies are found among the loaded ones (LoadedTypes), never bound by name here.
+        public const string GameApplicationTypeName = "Gameloft.Engine.GameApplication";
+        public const string PlayerProfileTypeName = "Game.PlayerProfileComponent";
+        public const string UiExtensionsTypeName = "Game.UISceneExtentions";
 
         private static readonly object cacheGate = new object();
         private static readonly Dictionary<Type, Dictionary<string, MemberInfo>> cache = new Dictionary<Type, Dictionary<string, MemberInfo>>();
 
-        private PropertyInfo instanceProperty;
-        private PropertyInfo worldProperty;
-        private PropertyInfo contextProperty;
-        private Type playerProfileType;
-        private Type uiExtensionsType;
+        private readonly object bindGate = new object();
+        private volatile PropertyInfo instanceProperty;
+        private volatile PropertyInfo worldProperty;
+        private volatile PropertyInfo contextProperty;
+        private volatile Type playerProfileType;
+        private volatile Type uiExtensionsType;
+        private bool lazy;
+        private volatile bool complete;
 
-        /// <summary>Binds to the game's types in the running process (none in tests and on a PC: every member stays unbound).</summary>
+        /// <summary>
+        /// The game's types in the running process, bound lazily from the assemblies that are already loaded (none in tests):
+        /// what is loaded now binds here, the rest on a later use (<see cref="EnsureBound"/>). It never makes the runtime load an
+        /// assembly. On PC this runs at boot, before the engine loads Game by its full name through the .exe.config codeBase
+        /// (gameload, design §8.9); build 17's <c>Type.GetType("Game.PlayerProfileComponent, Game")</c> here was a partial-name
+        /// bind that loaded the stock Game.dll from the game folder first, so the engine got that one back. On Android Game is
+        /// loaded from the APK before the bootstrap, and Gameloft.Engine long before the page or the notification prompt use this.
+        /// </summary>
         public static GameReflection Load()
         {
-            var game = new GameReflection();
-            try
-            {
-                game.Bind(Type.GetType(GameApplicationTypeName, false), Type.GetType(PlayerProfileTypeName, false),
-                          Type.GetType(UiExtensionsTypeName, false));
-            }
-            catch (Exception)
-            {
-            }
+            var game = new GameReflection { lazy = true };
+            game.EnsureBound();
             return game;
         }
 
+        /// <summary>
+        /// <see cref="Load"/>'s binding, from the loaded assemblies only: what is still unbound is looked up again on every use
+        /// until GameApplication (with World and Context), PlayerProfileComponent and UISceneExtentions are all known; from then on
+        /// it costs a field read. Every public member that needs a bound type calls it. Never throws.
+        /// </summary>
+        private void EnsureBound()
+        {
+            if (!lazy || complete) return;
+            lock (bindGate)
+            {
+                if (!lazy || complete) return;
+                try
+                {
+                    if (!IsBoundNow)
+                    {
+                        Type app = LoadedTypes.Find(LoadedTypes.EngineAssembly, GameApplicationTypeName);
+                        if (app != null) BindApplication(app);
+                    }
+                    if (playerProfileType == null) playerProfileType = LoadedTypes.Find(LoadedTypes.GameAssembly, PlayerProfileTypeName);
+                    if (uiExtensionsType == null) uiExtensionsType = LoadedTypes.Find(LoadedTypes.GameAssembly, UiExtensionsTypeName);
+                    complete = IsBoundNow && worldProperty != null && playerProfileType != null && uiExtensionsType != null;
+                }
+                catch (Exception)
+                {
+                }
+            }
+        }
+
         /// <summary>Resolves the static side (tests pass look-alikes); false when GameApplication cannot be used.
-        /// uiExtensions: Game.UISceneExtentions (its static GetUI(World)), may be null.</summary>
+        /// uiExtensions: Game.UISceneExtentions (its static GetUI(World)), may be null. The instance then stays as given (not lazy).</summary>
         public bool Bind(Type gameApplication, Type playerProfileComponent, Type uiExtensions = null)
         {
             try
             {
+                lock (bindGate) lazy = false;
                 playerProfileType = playerProfileComponent;
                 uiExtensionsType = uiExtensions;
                 if (gameApplication == null) return false;
-                instanceProperty = FindProperty(gameApplication, "Instance", true);
-                worldProperty = FindProperty(gameApplication, "World", false);
-                contextProperty = FindProperty(gameApplication, "Context", false);
-                return IsBound;
+                BindApplication(gameApplication);
+                return IsBoundNow;
             }
             catch (Exception)
             {
@@ -86,8 +117,31 @@ namespace McvsOffline.Embedded.Admin
             }
         }
 
-        /// <summary>GameApplication and its game-thread context are known.</summary>
-        public bool IsBound { get { return instanceProperty != null && contextProperty != null; } }
+        /// <summary>World and Context first, Instance last: a reader on another thread that sees Instance sees the others.</summary>
+        private void BindApplication(Type gameApplication)
+        {
+            worldProperty = FindProperty(gameApplication, "World", false);
+            contextProperty = FindProperty(gameApplication, "Context", false);
+            instanceProperty = FindProperty(gameApplication, "Instance", true);
+        }
+
+        private bool IsBoundNow { get { return instanceProperty != null && contextProperty != null; } }
+
+        /// <summary>GameApplication and its game-thread context are known (after <see cref="Load"/>: once Gameloft.Engine is loaded).</summary>
+        public bool IsBound
+        {
+            get
+            {
+                EnsureBound();
+                return IsBoundNow;
+            }
+        }
+
+        /// <summary>Game.PlayerProfileComponent as bound so far, or null (tests).</summary>
+        internal Type PlayerProfileComponent { get { return playerProfileType; } }
+
+        /// <summary>Game.UISceneExtentions as bound so far, or null (tests).</summary>
+        internal Type UiExtensions { get { return uiExtensionsType; } }
 
         /// <summary><see cref="RequestSave"/> can work: the client World and PlayerProfileComponent are known.</summary>
         public bool CanSave { get { return IsBound && worldProperty != null && playerProfileType != null; } }
@@ -97,7 +151,9 @@ namespace McvsOffline.Embedded.Admin
         {
             try
             {
-                return instanceProperty == null ? null : instanceProperty.GetValue(null, null);
+                EnsureBound();
+                PropertyInfo instance = instanceProperty;
+                return instance == null ? null : instance.GetValue(null, null);
             }
             catch (Exception)
             {
@@ -248,11 +304,13 @@ namespace McvsOffline.Embedded.Admin
         /// <summary>The World's own active PlayerProfileComponent (FedId equal to World.Authentication.FedId), else the first one, else null.</summary>
         public object FindPlayerProfile(object world)
         {
-            if (world == null || playerProfileType == null) return null;
+            EnsureBound();
+            Type profileType = playerProfileType;
+            if (world == null || profileType == null) return null;
             MethodInfo enumerate = FindEnumerate(world.GetType());
             if (enumerate == null) return null;
             Type optionsType = enumerate.GetParameters()[1].ParameterType;
-            var components = enumerate.Invoke(world, new object[] { playerProfileType, Enum.ToObject(optionsType, 0) }) as IEnumerable;
+            var components = enumerate.Invoke(world, new object[] { profileType, Enum.ToObject(optionsType, 0) }) as IEnumerable;
             if (components == null) return null;
             string me = null;
             try

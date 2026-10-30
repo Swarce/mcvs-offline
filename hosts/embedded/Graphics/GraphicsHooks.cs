@@ -183,13 +183,7 @@ namespace McvsOffline
         /// </summary>
         private static Type LoadedType(string assemblyName, string typeName)
         {
-            foreach (Assembly a in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                if (!string.Equals(a.GetName().Name, assemblyName, StringComparison.Ordinal)) continue;
-                Type t = a.GetType(typeName, false, false);
-                if (t != null) return t;
-            }
-            return null;
+            return Embedded.LoadedTypes.Find(assemblyName, typeName);
         }
 
         /// <summary><see cref="CaptureInGame()"/> with the preferences type given (tests pass a look-alike).</summary>
@@ -423,8 +417,8 @@ namespace McvsOffline
             var result = new Dictionary<string, string>(StringComparer.Ordinal);
             try
             {
-                Type manager = Type.GetType("Gameloft.Engine.GameOptionManager, Gameloft.Engine", false);
-                Type marshal = Type.GetType("Gameloft.Engine.MoreMarshal, Gameloft.Engine", false);
+                Type manager = Embedded.LoadedTypes.EngineType("Gameloft.Engine.GameOptionManager");
+                Type marshal = Embedded.LoadedTypes.EngineType("Gameloft.Engine.MoreMarshal");
                 if (manager == null) return result;
                 result["loaded"] = NativeString(manager, marshal, "GetLoadedProfileName", "GPU");
                 result["optimal"] = NativeString(manager, marshal, "GetOptimalProfileName", "GPU");
@@ -440,7 +434,7 @@ namespace McvsOffline
                     if (game != null) result["inGame"] = game;
                     return result;
                 }
-                Type prefs = Type.GetType("Gameloft.Engine.AppPreferences, Gameloft.Engine", false);
+                Type prefs = Embedded.LoadedTypes.EngineType("Gameloft.Engine.AppPreferences");
                 MethodInfo getInt = prefs == null ? null
                     : prefs.GetMethod("GetSecurePreferenceAsInt", BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(string), typeof(int) }, null);
                 if (getInt != null)

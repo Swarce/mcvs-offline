@@ -179,7 +179,7 @@ namespace McvsOffline.Embedded.Diagnostics
             {
                 if (instanceProperty == null)
                 {
-                    Type app = Type.GetType("Gameloft.Engine.GameApplication, Gameloft.Engine", false);
+                    Type app = LoadedTypes.EngineType("Gameloft.Engine.GameApplication");
                     if (!Bind(app))
                     {
                         report("[watchdog] Gameloft.Engine.GameApplication not found: game-thread watchdog off");

@@ -26,7 +26,7 @@ namespace McvsOffline.Embedded.Windows
     public sealed class WindowsExit
     {
         public const string SteamAppId = "723780";
-        public const string MenuManagerType = "Gameloft.Engine.MenuManager, Gameloft.Engine";
+        public const string MenuManagerType = "Gameloft.Engine.MenuManager";
         public const string ExitMethod = "ExitAppAndroid";
 
         private int helperStarted;
@@ -148,9 +148,9 @@ namespace McvsOffline.Embedded.Windows
         /// <summary>public static Gameloft.Engine.MenuManager.ExitAppAndroid() (PC-EN/MenuManager.cs:374-379).</summary>
         private static void InvokeExitAppAndroid()
         {
-            Type type = Type.GetType(MenuManagerType, false);
+            Type type = LoadedTypes.EngineType(MenuManagerType);
             MethodInfo method = type == null ? null : type.GetMethod(ExitMethod, BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null);
-            if (method == null) throw new MissingMethodException("Gameloft.Engine.MenuManager", ExitMethod);
+            if (method == null) throw new MissingMethodException(MenuManagerType, ExitMethod);
             method.Invoke(null, null);
         }
 

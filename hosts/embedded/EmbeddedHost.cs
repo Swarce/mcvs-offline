@@ -422,6 +422,7 @@ namespace McvsOffline.Embedded
         {
             try
             {
+                // On PC this runs before the engine loads Game: GameReflection binds lazily and never loads it (pc-port §8.9).
                 var admin = new AdminHost(created.Context, adminPlatform, GameReflection.Load(), created.Context.Logger.For("admin"))
                 {
                     PlatformName = platformName,

@@ -180,7 +180,7 @@ namespace McvsOffline.Embedded.Android
             try
             {
                 if (iapState == 1) return "native IAP library initialized: yes";
-                Type app = Type.GetType("Gameloft.Engine.GameApplication, Gameloft.Engine", false);
+                Type app = LoadedTypes.EngineType("Gameloft.Engine.GameApplication");
                 object instance = app == null ? null : app.GetProperty("Instance").GetValue(null, null);
                 if (instance == null) return null;
                 EmbeddedHost current = EmbeddedHost.Current;

@@ -343,8 +343,8 @@ namespace McvsOffline
         {
             try
             {
-                Type physics = Type.GetType("Gameloft.Engine.PhysicsComponent, Gameloft.Engine", false);
-                Type app = Type.GetType("Gameloft.Engine.GameApplication, Gameloft.Engine", false);
+                Type physics = Embedded.LoadedTypes.EngineType("Gameloft.Engine.PhysicsComponent");
+                Type app = Embedded.LoadedTypes.EngineType("Gameloft.Engine.GameApplication");
                 string deferred = StaticProperty(physics, "DefaultDeferred");
                 object instance = app == null ? null : app.GetProperty("Instance", BindingFlags.Public | BindingFlags.Static).GetValue(null, null);
                 string renderThread = InstanceProperty(app, instance, "RenderThreadEnabled");

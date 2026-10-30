@@ -6,6 +6,7 @@ using System.Reflection;
 using McvsOffline.Embed.Tests.Support;
 using McvsOffline.Embedded;
 using McvsOffline.Patcher.Patches;
+using McvsOffline.Patcher.Pc;
 using McvsOffline.Server.Core;
 using Xunit;
 
@@ -387,6 +388,137 @@ namespace McvsOffline.Embed.Tests.Embedded
         public void WhereAnAssemblyCameFrom(string location, string expected)
         {
             Assert.Equal(expected, PatchWatcher.Where(location, "C:\\Steam\\steamapps\\common\\Modern Combat Versus\\"));
+        }
+
+        /// <summary>
+        /// Build 17's Game load as .NET Framework 4.8 reports it inside the AssemblyLoad event (Environment.StackTrace: our handler,
+        /// the event, the loader internals, then GameReflection.Load's partial-name Type.GetType).
+        /// </summary>
+        private const string Build17Stack =
+            "   at System.Environment.GetStackTrace(Exception e, Boolean needFileInfo)\r\n" +
+            "   at System.Environment.get_StackTrace()\r\n" +
+            "   at McvsOffline.Embedded.PatchWatcher.ReportLoader(String name, Boolean byEvent)\r\n" +
+            "   at McvsOffline.Embedded.PatchWatcher.ReportLocation(String name, Assembly assembly, Boolean byEvent)\r\n" +
+            "   at McvsOffline.Embedded.PatchWatcher.Loaded(Assembly assembly, Boolean byEvent)\r\n" +
+            "   at McvsOffline.Embedded.Windows.WindowsPlatform.<>c__DisplayClass62_0.<WatchAssemblyLoads>b__0(Object sender, AssemblyLoadEventArgs args)\r\n" +
+            "   at System.AppDomain.OnAssemblyLoadEvent(RuntimeAssembly LoadedAssembly)\r\n" +
+            "   at System.Reflection.RuntimeAssembly._nLoad(AssemblyName fileName, String codeBase, Evidence assemblySecurity, RuntimeAssembly locationHint, StackCrawlMark& stackMark, IntPtr pPrivHostBinder, Boolean throwOnFileNotFound, Boolean forIntrospection, Boolean suppressSecurityChecks)\r\n" +
+            "   at System.Reflection.RuntimeAssembly.InternalLoadAssemblyName(AssemblyName assemblyRef, Evidence assemblySecurity, RuntimeAssembly reqAssembly, StackCrawlMark& stackMark, IntPtr pPrivHostBinder, Boolean throwOnFileNotFound, Boolean forIntrospection, Boolean suppressSecurityChecks)\r\n" +
+            "   at System.RuntimeTypeHandle._GetTypeByName(String name, Boolean throwOnError, Boolean ignoreCase, Boolean reflectionOnly, StackCrawlMarkHandle stackMark, IntPtr pPrivHostBinder, Boolean loadTypeFromPartialName, ObjectHandleOnStack type)\r\n" +
+            "   at System.RuntimeTypeHandle.GetTypeByName(String name, Boolean throwOnError, Boolean ignoreCase, Boolean reflectionOnly, StackCrawlMark& stackMark, IntPtr pPrivHostBinder, Boolean loadTypeFromPartialName)\r\n" +
+            "   at System.Type.GetType(String typeName, Boolean throwOnError)\r\n" +
+            "   at McvsOffline.Embedded.Admin.GameReflection.Load()\r\n" +
+            "   at McvsOffline.Embedded.EmbeddedHost.CreateAdminHost(McvsServer created)\r\n" +
+            "   at McvsOffline.Embedded.EmbeddedHost.RunServer(EmbeddedHostOptions options, Int32 port)\r\n" +
+            "   at System.Threading.ThreadHelper.ThreadStart()";
+
+        /// <summary>Build 18: the stack starts at the loader's caller (Type.GetType, then whoever called it); handler and loader frames are cut.</summary>
+        [Fact]
+        public void TheLoadStackStartsAtWhoeverAskedForTheLoad()
+        {
+            Assert.Equal("   at System.Type.GetType(String typeName, Boolean throwOnError)\n" +
+                         "   at McvsOffline.Embedded.Admin.GameReflection.Load()\n" +
+                         "   at McvsOffline.Embedded.EmbeddedHost.CreateAdminHost(McvsServer created)\n" +
+                         "   at McvsOffline.Embedded.EmbeddedHost.RunServer(EmbeddedHostOptions options, Int32 port)\n" +
+                         "   at System.Threading.ThreadHelper.ThreadStart()",
+                         PatchWatcher.LoadStack(Build17Stack, PatchWatcher.MaxStackFrames));
+
+            // The engine's own load (gameload's Assembly.Load(AssemblyName)): Assembly.Load is cut, its caller comes first.
+            string engine = "   at System.AppDomain.OnAssemblyLoadEvent(RuntimeAssembly LoadedAssembly)\n" +
+                            "   at System.Reflection.RuntimeAssembly._nLoad(AssemblyName fileName)\n" +
+                            "   at System.Reflection.Assembly.Load(AssemblyName assemblyRef)\n" +
+                            "   at Gameloft.Engine.ComponentAssemblies.GetAssembly(String fullPath, String name)\n";
+            Assert.Equal("   at Gameloft.Engine.ComponentAssemblies.GetAssembly(String fullPath, String name)", PatchWatcher.LoadStack(engine, 25));
+
+            // A localized "at" (German Windows), and no event frame (another runtime): our leading frames are still cut.
+            string german = "   bei System.Environment.get_StackTrace()\n   bei McvsOffline.Embedded.PatchWatcher.LoadedByEvent(Assembly assembly)\n" +
+                            "   bei System.Reflection.RuntimeAssembly.nLoad(AssemblyName fileName)\n   bei Game.Caller.Run()";
+            Assert.Equal("   bei Game.Caller.Run()", PatchWatcher.LoadStack(german, 25));
+
+            Assert.Null(PatchWatcher.LoadStack(null, 25));
+            Assert.Null(PatchWatcher.LoadStack("   at System.AppDomain.OnAssemblyLoadEvent(RuntimeAssembly a)\n   at System.Reflection.RuntimeAssembly._nLoad()", 25));
+        }
+
+        [Fact]
+        public void TheLoadStackKeepsAtMost25Frames()
+        {
+            var sb = new System.Text.StringBuilder("   at System.AppDomain.OnAssemblyLoadEvent(RuntimeAssembly a)\n");
+            for (int i = 0; i < 40; i++) sb.Append("   at Caller.F").Append(i).Append("()\n");
+            string[] lines = PatchWatcher.LoadStack(sb.ToString(), PatchWatcher.MaxStackFrames).Split('\n');
+            Assert.Equal(26, lines.Length);
+            Assert.Equal("   at Caller.F0()", lines[0]);
+            Assert.Equal("   at Caller.F24()", lines[24]);
+            Assert.Equal("   ... 15 more frames", lines[25]);
+            Assert.Equal(25, PatchWatcher.MaxStackFrames);
+        }
+
+        /// <summary>
+        /// Build 18: a redirected assembly from the game folder gets a "load stack:" WARN with the loader's frames right after its
+        /// "assemblies:" line (not an "assemblies:" line itself: the kit's PcBootActivation must not count it); one from
+        /// McvsOffline\bin does not, and one already loaded when the watch started says its loader is unknown.
+        /// </summary>
+        [Fact]
+        public void AGameFolderLoadLogsWhoLoadedIt()
+        {
+            var (logger, sink, boot) = Logs();
+            using (FixtureCompiler.Sandbox sandbox = Start(EngineSource, GameSource))
+            {
+                var loads = new Loads();
+                PatchWatcher watcher = GamePatchProbe.Watch(new ClientCapabilities(), logger.For("game"), loads.Watch, boot, Root, Nothing);
+                watcher.LocationOf = Locations("EngineBridge", "Game");
+                int asked = 0;
+                watcher.StackOf = () =>
+                {
+                    asked++;
+                    return Build17Stack;
+                };
+                loads.Callback(sandbox.Get("Gameloft.Engine"));
+                Assert.Equal(0, asked);
+                loads.Callback(sandbox.Get("Game"));
+                Assert.Equal(1, asked);
+                watcher.Loaded(sandbox.Get("EngineBridge"));   // found loaded, not by the event: no stack to show
+                Assert.Equal(1, asked);
+
+                List<LogEntry> entries = sink.Snapshot().ToList();
+                int game = entries.FindIndex(e => e.Message.Contains("assemblies: Game " + Root + "\\Game.dll (GAME FOLDER)"));
+                Assert.True(game >= 0);
+                LogEntry stack = entries[game + 1];
+                Assert.Equal(LogLevel.Warn, stack.Level);
+                Assert.EndsWith(" s load stack: Game (GAME FOLDER) was loaded by (innermost first):\n" +
+                                "   at System.Type.GetType(String typeName, Boolean throwOnError)\n" +
+                                "   at McvsOffline.Embedded.Admin.GameReflection.Load()\n" +
+                                "   at McvsOffline.Embedded.EmbeddedHost.CreateAdminHost(McvsServer created)\n" +
+                                "   at McvsOffline.Embedded.EmbeddedHost.RunServer(EmbeddedHostOptions options, Int32 port)\n" +
+                                "   at System.Threading.ThreadHelper.ThreadStart()", stack.Message);
+                Assert.Single(entries, e => e.Message.Contains("load stack: Game"));
+                Assert.Contains(entries, e => e.Level == LogLevel.Warn &&
+                                              e.Message.EndsWith(" s load stack: EngineBridge (GAME FOLDER): already loaded when the host started watching, so its loader is unknown"));
+                Assert.DoesNotContain(entries, e => e.Message.Contains("load stack: Gameloft.Engine"));
+
+                // The kit reads the same log: the stack lines are not "assemblies:" lines and add no reason.
+                string log = string.Join("\n", entries.Select(e => "2026-10-30T11:29:13.033Z WARN  [boot] " + e.Message));
+                PcBootActivation read = PcBootActivation.Read(log);
+                Assert.Equal(3, read.Assemblies.Count);
+                Assert.Equal(new[] { "Game loaded from the game folder", "EngineBridge loaded from the game folder" }, read.Reasons.ToArray());
+            }
+        }
+
+        /// <summary>Without a seam the stack is the real one of the loading thread (here: the test's own frames).</summary>
+        [Fact]
+        public void TheRealStackNamesTheCaller()
+        {
+            var (logger, sink, boot) = Logs();
+            using (FixtureCompiler.Sandbox sandbox = Start(EngineSource, GameSource))
+            {
+                var loads = new Loads();
+                PatchWatcher watcher = GamePatchProbe.Watch(new ClientCapabilities(), logger.For("game"), loads.Watch, boot, Root, Nothing);
+                watcher.LocationOf = Locations("Game");
+                loads.Callback(sandbox.Get("Game"));
+                LogEntry stack = Assert.Single(sink.Snapshot(), e => e.Message.Contains("load stack: Game (GAME FOLDER) was loaded by"));
+                Assert.Contains(nameof(TheRealStackNamesTheCaller), stack.Message);
+                Assert.DoesNotContain("PatchWatcher", stack.Message);
+                Assert.DoesNotContain("System.Environment", stack.Message);
+            }
         }
     }
 }
