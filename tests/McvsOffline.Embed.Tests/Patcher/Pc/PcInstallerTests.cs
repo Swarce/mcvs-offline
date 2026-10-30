@@ -415,6 +415,42 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             }
         }
 
+        /// <summary>
+        /// A build-14/15 install: its config has the five qualifyAssembly lines and install.json records that config's hash, so
+        /// every hash matches. Status and verify still report it (.NET ignores the whole file), and install rewrites it (it is ours).
+        /// </summary>
+        [Fact]
+        public void ABuild14ConfigIsReportedAndInstallRewritesIt()
+        {
+            using (PcGameCopy copy = PcGameCopy.Create(output))
+            {
+                if (copy == null) return;
+                Assert.Equal(0, copy.Install().ExitCode);
+                string configPath = copy.Path_(PcExeConfig.FileName);
+                byte[] old = PcExeConfig.Encode(PcExeConfigTests.Build14Config(File.ReadAllText(configPath)));
+                File.WriteAllBytes(configPath, old);
+                string manifestPath = copy.Path_("McvsOffline/install.json");
+                InstallManifest manifest = InstallManifest.Parse(File.ReadAllText(manifestPath));
+                manifest.FindWritten(PcExeConfig.FileName).Sha256 = GameFolder.Sha256(old);
+                File.WriteAllBytes(manifestPath, manifest.ToBytes());
+
+                PcStatusReport status = copy.Status();
+                Assert.Equal("ours", status.Config);
+                Assert.Equal(PcInstallState.Damaged, status.State);
+                Assert.Equal(new[] { PcExeConfig.FileName + " " + PcExeConfig.QualifyLeftoverProblem }, status.Problems);
+                Assert.EndsWith("an old build-14/15 config: run install again", status.StateDetail);
+                PcInstallReport verify = PcInstaller.Verify(copy.Game, TestEnvironment.Net452Refs, () => false);
+                Assert.Equal(PcExitCodes.Io, verify.ExitCode);
+                Assert.Contains("an old build-14/15 config: run install again", verify.Error);
+
+                PcInstallReport again = copy.Install();
+                Assert.True(again.ExitCode == 0, again.Error);
+                Assert.Equal(PcExeConfigTests.Expected, File.ReadAllText(configPath));
+                Assert.Equal(PcInstallState.Current, copy.Status().State);
+                Assert.Equal(0, PcInstaller.Verify(copy.Game, TestEnvironment.Net452Refs, () => false).ExitCode);
+            }
+        }
+
         [Fact]
         public void TheRunningGameStopsInstallAndUninstall()
         {

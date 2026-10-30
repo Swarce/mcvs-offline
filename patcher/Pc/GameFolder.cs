@@ -307,7 +307,7 @@ namespace McvsOffline.Patcher.Pc
 
         /// <summary>
         /// The assembly's full display name from the metadata ("Game, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null"), as
-        /// the CLR binds it: the config's qualifyAssembly fullName must be exactly this (WR2 F1).
+        /// the CLR binds it: the name the gameload patch loads Game by must be exactly this (WR2 F1).
         /// </summary>
         public static string ReadAssemblyFullName(byte[] assembly)
         {

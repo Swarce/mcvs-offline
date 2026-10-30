@@ -77,8 +77,9 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         /// reference (EngineBridge → Gameloft.Engine → Gameloft.Util, with their file versions), while nothing in the game folder
         /// references Game statically; and ComponentAssemblies.GetAssembly is the only Assembly.Load by name in the game's own
         /// assemblies (Gameloft.Sequences loads raw bytes). The one other bind by name is Newtonsoft.Json's
-        /// DefaultSerializationBinder (LoadWithPartialName for a "$type" assembly name): a partial bind that the config's
-        /// qualifyAssembly entries turn into a full one, so it too lands on our copies.
+        /// DefaultSerializationBinder (LoadWithPartialName for a "$type" assembly name): a partial bind, which gets no config
+        /// policy. Builds 14 and 15 tried to qualify it with qualifyAssembly entries, which made .NET ignore the whole config
+        /// (pc-port.md §7.4); the config no longer has them, and a "$type" naming one of our assemblies is the §17 risk.
         /// </summary>
         [Fact]
         public void TheOtherRedirectedAssembliesAreStaticReferencesAndGetAssemblyIsTheOnlyLoadByName()

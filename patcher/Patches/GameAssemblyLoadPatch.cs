@@ -28,8 +28,11 @@ namespace McvsOffline.Patcher.Patches
     /// internal static string Qualify(string name) { if (name == "Game") return "Game, Version=0.0.0.0, …"; return name; }
     /// </code>
     /// The table is <see cref="QualifiedNames"/>: the redirected assemblies that Assemblies.mjson names. Each full name is
-    /// checked against the identity of the file in the game folder before anything changes (the patched copy keeps it); the
-    /// installer's <c>&lt;qualifyAssembly&gt;</c> entries in the config are the second layer.
+    /// checked against the identity of the file in the game folder before anything changes (the patched copy keeps it). This
+    /// patch alone carries the fix: the full name carries <c>PublicKeyToken=null</c>, so fusion takes it as a full reference
+    /// (not partial) and applies the config's codeBase, as for the static references. Builds 14 and 15 also wrote
+    /// <c>&lt;qualifyAssembly&gt;</c> entries into the config; those made .NET ignore the whole file (pc-port.md §7.4), and
+    /// the config no longer has them.
     /// </summary>
     public sealed class GameAssemblyLoadPatch : IlPatch
     {

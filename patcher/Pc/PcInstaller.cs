@@ -454,8 +454,8 @@ namespace McvsOffline.Patcher.Pc
 
             // The config (versions read from the written bytes) and install.json, which records the config's hash.
             var codeBases = outputs.Select(o => new PcCodeBase(GameFolder.ReadAssemblyName(o.Bytes), GameFolder.ReadAssemblyVersion(o.Bytes), o.Path)).ToList();
-            // The qualifyAssembly fullName (culture neutral, no key) and the gameload patch's table must name each copy exactly
-            // as the CLR will bind it, or a bare-name load would fail instead of landing on the copy (WR2 F1).
+            // Each copy must be what the config's assemblyIdentity says (culture neutral, no key), and the gameload patch's table
+            // must name Game exactly as the CLR will bind the copy, or the qualified load would fail instead of landing on it (WR2 F1).
             for (int i = 0; i < outputs.Count; i++)
             {
                 string fullName = GameFolder.ReadAssemblyFullName(outputs[i].Bytes);
@@ -911,6 +911,7 @@ namespace McvsOffline.Patcher.Pc
                     if (!File.Exists(path)) r.Problems.Add(w.Path + " missing");
                     else if (!string.Equals(GameFolder.TrySha256(path), w.Sha256, StringComparison.Ordinal)) r.Problems.Add(w.Path + " changed");
                 }
+                if (PcExeConfig.HasQualifyAssembly(ReadShared(configPath))) r.Problems.Add(PcExeConfig.FileName + " " + PcExeConfig.QualifyLeftoverProblem);
                 if (r.Problems.Count > 0)
                 {
                     r.State = PcInstallState.Damaged;
@@ -1046,8 +1047,8 @@ namespace McvsOffline.Patcher.Pc
         /// <summary>
         /// The re-read of install step 6 and verify: every written file has the recorded SHA-256 and (assemblies) the recorded
         /// MVID read with Cecil, the witness of every applied patch that has one is present, and the config parses back to the
-        /// five codeBases whose hrefs exist, each with one qualifyAssembly whose fullName is the identity of the file it points to
-        /// (WR2 F1).
+        /// five codeBases whose hrefs exist, each naming the assembly of the file it points to, and has no
+        /// <c>&lt;qualifyAssembly&gt;</c> (builds 14 and 15 wrote them; they make .NET ignore the whole file, §7.4).
         /// </summary>
         public static List<string> CheckWritten(string game, InstallManifest manifest, string bclDirectory)
         {
@@ -1094,7 +1095,7 @@ namespace McvsOffline.Patcher.Pc
                     {
                         string configText = File.ReadAllText(config);
                         List<PcCodeBase> codeBases = PcExeConfig.Parse(configText);
-                        List<PcQualifiedName> qualified = PcExeConfig.ParseQualified(configText);
+                        if (PcExeConfig.HasQualifyAssembly(configText)) problems.Add(PcExeConfig.FileName + " " + PcExeConfig.QualifyLeftoverProblem + ": run install again");
                         var expected = GameFolder.PatchedFiles.Concat(new[] { GameFolder.ServerFile }).Select(f => Path.GetFileNameWithoutExtension(f)).ToList();
                         if (codeBases.Count != expected.Count || !expected.All(e => codeBases.Any(c => c.AssemblyName == e)))
                             problems.Add(PcExeConfig.FileName + ": expected the five codeBases " + string.Join(", ", expected) + ", found " +
@@ -1110,11 +1111,9 @@ namespace McvsOffline.Patcher.Pc
                                     problems.Add(PcExeConfig.FileName + ": " + c.Href + " does not exist");
                                     continue;
                                 }
-                                string identity = GameFolder.ReadAssemblyFullName(File.ReadAllBytes(target));
-                                List<PcQualifiedName> named = qualified.Where(q => q.PartialName == c.AssemblyName).ToList();
-                                if (named.Count != 1 || named[0].FullName != identity)
-                                    problems.Add(PcExeConfig.FileName + ": expected one qualifyAssembly " + c.AssemblyName + " -> \"" + identity + "\" (the file's identity), found " +
-                                                 (named.Count == 0 ? "none" : string.Join(", ", named.Select(q => "\"" + q.FullName + "\""))));
+                                string name = GameFolder.ReadAssemblyName(File.ReadAllBytes(target));
+                                if (name != c.AssemblyName)
+                                    problems.Add(PcExeConfig.FileName + ": the codeBase of " + c.AssemblyName + " points to " + c.Href + ", which is the assembly " + name);
                             }
                             catch (ArgumentException ex)
                             {
@@ -1125,8 +1124,6 @@ namespace McvsOffline.Patcher.Pc
                                 problems.Add(PcExeConfig.FileName + ": " + c.Href + " cannot be read as an assembly: " + ex.Message);
                             }
                         }
-                        foreach (PcQualifiedName q in qualified.Where(q => !codeBases.Any(c => c.AssemblyName == q.PartialName)))
-                            problems.Add(PcExeConfig.FileName + ": qualifyAssembly " + q.PartialName + " has no codeBase");
                     }
                     catch (FormatException ex)
                     {
