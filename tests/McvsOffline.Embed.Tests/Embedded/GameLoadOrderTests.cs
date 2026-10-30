@@ -223,6 +223,16 @@ namespace McvsOffline.Embed.Tests.Embedded
             new Regex(@"(Assembly\.Load|LoadWithPartialName|\.Load|new\s+AssemblyName|CreateInstance)\s*\(\s*""(Game|Gameloft\.Engine|Gameloft\.Util|EngineBridge)""",
                       RegexOptions.CultureInvariant);
 
+        /// <summary>
+        /// A runtime loader called with any argument, a named constant included (<c>Assembly.Load(new AssemblyName(LoadedTypes.GameAssembly))</c>
+        /// passes the two rules above): hosts/ and server/ have no use for one. <c>Activator.CreateInstance(typeof(T))</c> loads nothing.
+        /// A load through an <c>AppDomain</c> variable is left to the IL check of the PC DLL (PcEmbeddedAssemblyTests.OnlyRuntimeInfoLoadsByName).
+        /// </summary>
+        private static readonly Regex AnyRuntimeLoad =
+            new Regex(@"\b(Assembly\.(Load|LoadWithPartialName|LoadFrom|LoadFile|UnsafeLoadFrom|ReflectionOnlyLoad\w*)|" +
+                      @"AppDomain\.CurrentDomain\.(Load|CreateInstance\w*|ExecuteAssembly\w*)|Activator\.CreateInstance\w*|new\s+AssemblyName)" +
+                      @"\s*\((?!\s*typeof\b)", RegexOptions.CultureInvariant);
+
         /// <summary>Type.GetType outside the one fallback that may use it (LoadedTypes.EngineType, Android only) and RuntimeInfo (mscorlib).</summary>
         private static readonly string[] TypeGetTypeAllowed = { "LoadedTypes.cs", "RuntimeInfo.cs" };
 
@@ -236,9 +246,18 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.Matches(BareNameLoad, "Assembly.Load(new AssemblyName(\"Game\"))");
             Assert.DoesNotMatch(PartialQualifiedName, "LoadedTypes.Find(LoadedTypes.GameAssembly, \"Game.PlayerProfileComponent\")");
             Assert.DoesNotMatch(PartialQualifiedName, "\"Game loaded from the game folder\"");
+            // The same loads through the named constants (the finding of the build 18 review).
+            Assert.Matches(AnyRuntimeLoad, "Assembly.Load(new AssemblyName(LoadedTypes.GameAssembly))");
+            Assert.Matches(AnyRuntimeLoad, "AppDomain.CurrentDomain.Load(GamePatchProbe.GameAssembly)");
+            Assert.Matches(AnyRuntimeLoad, "var n = new AssemblyName(GraphicsHooks.PreferencesAssembly);");
+            Assert.Matches(AnyRuntimeLoad, "Activator.CreateInstance(GamePatchProbe.GameAssembly, \"Game.McvsInbox\")");
+            Assert.Matches(AnyRuntimeLoad, "Assembly.LoadFrom(path)");
+            Assert.DoesNotMatch(AnyRuntimeLoad, "Activator.CreateInstance(typeof(LocalProfileStore))");
+            Assert.DoesNotMatch(AnyRuntimeLoad, "Settings = Settings.Load(Paths.SettingsFile, Logger.For(\"settings\"));");
+            Assert.DoesNotMatch(AnyRuntimeLoad, "HdState state = HdState.Load(places.ReadableStatePath());");
         }
 
-        /// <summary>No code in hosts/ or server/ names a redirected assembly by its bare name again (comments are not code).</summary>
+        /// <summary>No code in hosts/ or server/ names a redirected assembly by its bare name again, or calls a runtime loader at all (comments are not code).</summary>
         [Fact]
         public void NoPartialNameOfARedirectedAssemblyComesBack()
         {
@@ -257,6 +276,8 @@ namespace McvsOffline.Embed.Tests.Embedded
                         if (code.StartsWith("//", StringComparison.Ordinal) || code.StartsWith("*", StringComparison.Ordinal)) continue;
                         if (PartialQualifiedName.IsMatch(code) || BareNameLoad.IsMatch(code))
                             problems.Add(relative + ":" + (i + 1) + ": " + code);
+                        else if (AnyRuntimeLoad.IsMatch(code))
+                            problems.Add(relative + ":" + (i + 1) + ": a runtime load (use LoadedTypes): " + code);
                         if (code.Contains("Type.GetType(") && !TypeGetTypeAllowed.Contains(Path.GetFileName(file)))
                             problems.Add(relative + ":" + (i + 1) + ": Type.GetType (use LoadedTypes): " + code);
                     }
