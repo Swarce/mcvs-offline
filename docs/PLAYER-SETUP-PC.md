@@ -1,6 +1,6 @@
 # Player setup: MCVS Offline on the Steam (PC) version
 
-**Status: draft for the third Windows round (WR3), build 16** (build 14's PC fixes; build 15 added only server features: the Special Events and an optional Practice tile; build 16 removes the config lines that most likely made Windows start the game without MCVS Offline in builds 14 and 15, and says when the game starts without it). The second round (WR2, build 13) showed that the
+**Status: draft for the third Windows round (WR3), build 17** (build 14's PC fixes; build 15 added only server features: the Special Events and an optional Practice tile; build 16 removes the config lines that most likely made Windows start the game without MCVS Offline in builds 14 and 15, and says when the game starts without it; build 17 delivers the unlock codes without the inbox and adds the `inbox` patch, which keeps a big redeem-code message from freezing the inbox). The second round (WR2, build 13) showed that the
 install and the game start work, but the game kept loading its own `Game.dll` instead of our patched copy, so every
 fix in that file was missing: the two inbox crashes, the missing "MCVS Offline" button in Settings › Account, the bot
 match running the old way and probably the long freezes. Build 14 makes the game load our copy and says
@@ -253,22 +253,23 @@ freezes, which would hide everything else.
 | 18 | optional: Steam › Verify integrity of game files while installed, then `status` | the state | still `installed, current` |
 | 19 | question: had this Steam account played MCVS on PC before this project? | yes / no | — |
 
-Expected `verify` values for step 3 (build 16: the Linux run of the same kit on Steam build 6372049; `install.json`
+Expected `verify` values for step 3 (build 17: the Linux run of the same kit on Steam build 6372049; `install.json`
 itself is not listed because it holds the install time):
 
 | file | sha256 |
 |---|---|
-| `McvsOffline/bin/EngineBridge.dll` | `4f5e38945ed087c64668ba204bc9ac399a4c103509378378ec8db777f765e32c` |
-| `McvsOffline/bin/Game.dll` | `7c99c1d75264edbf2baf5aa4c4c9149cb4f2add6bf307d5b0d8cf574ec1d785a` |
-| `McvsOffline/bin/Gameloft.Engine.dll` | `f61e59e58ec450a767e24dc62689f45d7945d364c8506a5a41b7597c6d5e7d49` |
-| `McvsOffline/bin/Gameloft.Util.dll` | `cf613f2ce7079cb9585bf3f9118087cde479c8951f51e515bccc6f0da0b1dc64` |
-| `McvsOffline/bin/McvsOffline.Server.dll` | `ed04f15f488f5ff2bd73a1ac012a226d942e4802706c59cadbcaa386492ce5f1` |
+| `McvsOffline/bin/EngineBridge.dll` | `5c2dd7e2ef9e1bf937f574150189d5dcbc8921fd52ffd34c62feb9bec35eaf13` |
+| `McvsOffline/bin/Game.dll` | `39b80ecb84b08c62714bb7b80f8f7da626023e307d6e370662ccc9e589a21618` |
+| `McvsOffline/bin/Gameloft.Engine.dll` | `c4d37967d4c18efb8dd54ac199d264121e7d28dd66979517a4f1dac32e68e5d3` |
+| `McvsOffline/bin/Gameloft.Util.dll` | `40c1792b3c4739821b6022ef81d6b514e6a37cf49a4103c184a2fdf9d1e399ba` |
+| `McvsOffline/bin/McvsOffline.Server.dll` | `3fe6146ab50ec93d74ba0c0e1d682d92c9ef88df088ed64c98996bb29d9a6478` |
 | `ModernCombatVersus.exe.config` | `3ebe99b3c93a9540cd7f7b03da55fc048a544501c17e8621457884eae456f94c` |
 
 Any difference in this table stops the round until it is explained: the bytes you run must be the bytes we tested.
-(The config is the one WR2 ran, with no `<qualifyAssembly>` lines: builds 14 and 15 wrote `fda12aef…c4b6`, which has
-five of them. `EngineBridge.dll` changed with the `hook.txt` marker, the other DLLs with the server. An install over
-build 14 or 15 writes exactly these values too.)
+(The config is the one WR2 ran and build 16 wrote, with no `<qualifyAssembly>` lines: builds 14 and 15 wrote
+`fda12aef…c4b6`, which has five of them. `Game.dll` changed with the new `inbox` patch, the other DLLs with the server.
+An install over build 16 writes exactly these values too (checked on Linux). Over a build-16 install, `status` says
+`installed, current` with `installed by: … (server build 16)` until you run `install`: run it.)
 
 ## 8. What to send back
 
