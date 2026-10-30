@@ -84,6 +84,8 @@ with its offset and operand full name, and every exception handler.
   server's MVID, `ApkPatcher.cs:208, 220-226`), `AndroidManifest.xml` (WP-G `game`, on by default; `--patch` without
   `game` gives today's manifest bytes) and the signature files under `META-INF/`. Every patched method's IL, every
   AssemblyRef/TypeRef/MemberRef table and every other entry is unchanged (§12.4 `AndroidOutputUnchangedTests`, §12.6).
+  Build 17 adds one deliberate Android change, the default `inbox` patch (Game.dll): P5 holds for the default options
+  without it, and with it only `Game.dll` differs (its values pinned in the same test).
 * **P6 — no stored secret** (settings-page I2) also on PC: the ticket travels in the URL fragment to the overlay or the
   system browser only.
 
@@ -1877,7 +1879,8 @@ facades, [PP] §6.1 item 6):
   so `DerivedMvid` no longer depends on the real server DLL that WP1/WP2 change on purpose; the SHA-256 of every
   patched assembly equals the value recorded in D0-d by running the same helper against the `main-dev` 7f24f82 patcher
   (P5). A second assertion, independent of any MVID: per patched method, the `IlPatch.Fingerprint` and the
-  AssemblyRef/TypeRef/MemberRef tables equal those of a 7f24f82 output.
+  AssemblyRef/TypeRef/MemberRef tables equal those of a 7f24f82 output. Since build 17 this holds for the default options
+  without `inbox`; a second test pins the full default set (only `Game.dll` differs, with the `Game.McvsInbox` type).
 
 ### 12.5 WP-G
 

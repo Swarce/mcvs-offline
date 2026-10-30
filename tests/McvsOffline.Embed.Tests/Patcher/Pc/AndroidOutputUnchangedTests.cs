@@ -24,6 +24,9 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
     /// <item>independent of any MVID: a digest of every method's <see cref="IlPatch.Fingerprint"/>, and a digest of the
     /// AssemblyRef, TypeRef and MemberRef tables.</item>
     /// </list>
+    /// Build 17 changes the Android output on purpose with one new default patch, 'inbox' (Game.dll): the main-dev values hold
+    /// for the default options without it, and the full default set equals them except for Game.dll, whose values with 'inbox'
+    /// are pinned in <see cref="WithInbox"/> (recorded at build 17 by the same helper).
     /// Skipped without MCVS_REFS, unless MCVS_REQUIRE_REAL_CLIENT=1. On a mismatch the test prints the current values.
     /// </summary>
     public class AndroidOutputUnchangedTests
@@ -40,6 +43,12 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             ["NicePlaySDK.dll"] = new[] { "4442d3ef71ef5c566891b462c61c3aa8618b460fc536d6cd58661f6069ad313b", "3f99c5d454cbf68d790c4e494a76683bc2540e7382dbe993b0ef90a92a762a9c", "0bc929bd72c2f70b6ba87045b969951c234647c0cf35957fe11e1a089ba9f652" },
         };
 
+        /// <summary>Game.dll patched for the full default set of build 17, 'inbox' included (the other files equal <see cref="Expected"/>).</summary>
+        private static readonly Dictionary<string, string[]> WithInbox = new Dictionary<string, string[]>(StringComparer.Ordinal)
+        {
+            ["Game.dll"] = new[] { "6f68d497be4021997b7b855db73264d9ee693f3674d1f03aba0f460b4c660279", "6169bdc7012954bc1f993930be10b7cf8424e684bce45e87ab350be8fca2fd4d", "023c53c26c859c5d55e17f7c29b2e13aa5836546c01431b331a7df2522f69465" },
+        };
+
         private readonly ITestOutputHelper output;
 
         public AndroidOutputUnchangedTests(ITestOutputHelper output)
@@ -47,24 +56,49 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             this.output = output;
         }
 
+        /// <summary>P5: the default options without the build-17 'inbox' patch give exactly the main-dev 7f24f82 output.</summary>
         [Fact]
-        public void TheDefaultAndroidOutputIsTheMainDevOutput()
+        public void TheDefaultAndroidOutputWithoutInboxIsTheMainDevOutput()
+        {
+            string refs = Refs();
+            if (refs == null) return;
+            AssertOutput(PatchDefault(refs, "inbox"), Expected);
+        }
+
+        /// <summary>The full default set: the main-dev output except Game.dll, which differs only by the 'inbox' patch (pinned values).</summary>
+        [Fact]
+        public void TheDefaultAndroidOutputIsTheMainDevOutputPlusTheInboxPatch()
+        {
+            string refs = Refs();
+            if (refs == null) return;
+            Assert.Contains("inbox", new PatcherOptions().Patches);
+            Dictionary<string, byte[]> patched = PatchDefault(refs);
+            var expected = new Dictionary<string, string[]>(Expected, StringComparer.Ordinal);
+            foreach (var pair in WithInbox) expected[pair.Key] = pair.Value;
+            AssertOutput(patched, expected);
+            Assert.NotEqual(Expected["Game.dll"][1], WithInbox["Game.dll"][1]);
+            using (ModuleDefinition game = ModuleDefinition.ReadModule(new MemoryStream(patched["Game.dll"]), new ReaderParameters { InMemory = true }))
+                Assert.NotNull(game.GetType("Game." + InboxPatch.HelperType));
+        }
+
+        private string Refs()
         {
             string refs = TestEnvironment.GameAssemblies;
-            if (refs == null || !File.Exists(Path.Combine(refs, "Game.dll")))
-            {
-                Assert.True(Environment.GetEnvironmentVariable("MCVS_REQUIRE_REAL_CLIENT") != "1", "MCVS_REQUIRE_REAL_CLIENT=1 but MCVS_REFS has no Game.dll");
-                output.WriteLine("the game's assemblies are not available (MCVS_REFS): skipped");
-                return;
-            }
-            Dictionary<string, byte[]> patched = PatchDefault(refs);
+            if (refs != null && File.Exists(Path.Combine(refs, "Game.dll"))) return refs;
+            Assert.True(Environment.GetEnvironmentVariable("MCVS_REQUIRE_REAL_CLIENT") != "1", "MCVS_REQUIRE_REAL_CLIENT=1 but MCVS_REFS has no Game.dll");
+            output.WriteLine("the game's assemblies are not available (MCVS_REFS): skipped");
+            return null;
+        }
+
+        private void AssertOutput(Dictionary<string, byte[]> patched, Dictionary<string, string[]> expectedValues)
+        {
             var problems = new List<string>();
             foreach (var pair in patched.OrderBy(p => p.Key, StringComparer.Ordinal))
             {
                 string[] actual = Describe(pair.Value);
                 output.WriteLine("[\"" + pair.Key + "\"] = new[] { \"" + string.Join("\", \"", actual) + "\" },");
                 string[] expected;
-                if (!Expected.TryGetValue(pair.Key, out expected))
+                if (!expectedValues.TryGetValue(pair.Key, out expected))
                 {
                     problems.Add(pair.Key + ": patched now, but not in the main-dev output");
                     continue;
@@ -73,15 +107,17 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 if (expected[2] != actual[2]) problems.Add(pair.Key + ": the AssemblyRef/TypeRef/MemberRef tables differ");
                 if (expected[0] != actual[0]) problems.Add(pair.Key + ": the file differs (SHA-256)");
             }
-            foreach (string missing in Expected.Keys.Where(k => !patched.ContainsKey(k))) problems.Add(missing + ": patched on main-dev, not now");
+            foreach (string missing in expectedValues.Keys.Where(k => !patched.ContainsKey(k))) problems.Add(missing + ": patched on main-dev, not now");
             Assert.True(problems.Count == 0, string.Join("\n", problems));
         }
 
-        /// <summary>The default options' IL patches applied as ApkPatcher.Run applies them, with the fixed stand-in server.</summary>
-        internal static Dictionary<string, byte[]> PatchDefault(string refs)
+        /// <summary>The default options' IL patches (less <paramref name="without"/>) applied as ApkPatcher.Run applies them, with the fixed stand-in server.</summary>
+        internal static Dictionary<string, byte[]> PatchDefault(string refs, params string[] without)
         {
             byte[] server = FixtureCompiler.Compile("McvsOffline.Server", RealGamePatchTests.HookServerSource);
-            List<IlPatch> patches = ApkPatcher.SelectPatches(new PatcherOptions().Patches);
+            var ids = new PatcherOptions().Patches;
+            foreach (string id in without) Assert.True(ids.Remove(id), id + " is not a default patch");
+            List<IlPatch> patches = ApkPatcher.SelectPatches(ids);
             var result = new Dictionary<string, byte[]>(StringComparer.Ordinal);
             using (var resolver = new DefaultAssemblyResolver())
             {
