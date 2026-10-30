@@ -166,7 +166,7 @@ namespace McvsOffline.PcKit
             if (game == null) return NoGame(problem, log);
             try
             {
-                PcStatusReport status = PcInstaller.Status(game.Directory, env.GameRunning, SpikeDataFolder(env), env.TempRoot);
+                PcStatusReport status = PcInstaller.Status(game.Directory, env.GameRunning, SpikeDataFolder(env), env.TempRoot, InstallsBuild(env, options));
                 Print(log, PcReportText.Status(status), true);
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
@@ -192,7 +192,8 @@ namespace McvsOffline.PcKit
             PcInstallReport report;
             try
             {
-                report = PcInstaller.Verify(game.Directory, options.Bcl ?? env.DefaultBcl(), env.GameRunning, SpikeDataFolder(env), env.TempRoot);
+                report = PcInstaller.Verify(game.Directory, options.Bcl ?? env.DefaultBcl(), env.GameRunning, SpikeDataFolder(env), env.TempRoot,
+                                            InstallsBuild(env, options));
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
             {
@@ -209,7 +210,7 @@ namespace McvsOffline.PcKit
             {
                 try
                 {
-                    status = PcReportText.Status(PcInstaller.Status(game.Directory, env.GameRunning, SpikeDataFolder(env), env.TempRoot));
+                    status = PcReportText.Status(PcInstaller.Status(game.Directory, env.GameRunning, SpikeDataFolder(env), env.TempRoot, InstallsBuild(env, options)));
                 }
                 catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
                 {
@@ -244,6 +245,22 @@ namespace McvsOffline.PcKit
         private static IEnumerable<string> ListingFolders(KitEnvironment env, string game)
         {
             return new[] { Path.Combine(GameFolder.DataDir(game), GameFolder.KitDirName), Path.Combine(env.TempRoot, GameFolder.DataDirName, GameFolder.KitDirName) };
+        }
+
+        /// <summary>
+        /// McvsVersion.Build of the server DLL install would write (--server, else the embedded one): status and verify call an
+        /// install of an older build OLDER, not current. Null (not compared) when there is none or it cannot be read.
+        /// </summary>
+        public static string InstallsBuild(KitEnvironment env, KitOptions options)
+        {
+            try
+            {
+                return PcInstaller.ServerBuildOf(options.ServerDll != null ? File.ReadAllBytes(options.ServerDll) : env.ServerDll());
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                return null;
+            }
         }
 
         private static string SpikeDataFolder(KitEnvironment env)
@@ -388,7 +405,8 @@ namespace McvsOffline.PcKit
             "Options:\n" +
             "  --game <folder>   the folder with ModernCombatVersus.exe (default: found through Steam); env MCVS_PC_GAME\n" +
             "  --bcl <folder>    the .NET Framework 4 folder (default %WINDIR%\\Microsoft.NET\\Framework\\v4.0.30319)\n" +
-            "  --server <dll>    install this McvsOffline.Server.dll instead of the kit's own (development)\n" +
+            "  --server <dll>    install this McvsOffline.Server.dll instead of the kit's own (development; status and verify\n" +
+            "                    compare the installed build with its build)\n" +
             "  --port <n>        install: the server port, set in McvsOffline\\settings.json (only that key); without it the\n" +
             "                    port already in settings.json, else 51780\n\n" +
             "Exit codes: 0 ok, 1 I/O, 2 usage, 3 refused (unknown build, site mismatch; nothing written), 4 the game is running.";

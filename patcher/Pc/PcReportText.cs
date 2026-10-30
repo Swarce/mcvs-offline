@@ -21,6 +21,7 @@ namespace McvsOffline.Patcher.Pc
                 case PcInstallState.Stale: return "installed, STALE";
                 case PcInstallState.Damaged: return "DAMAGED";
                 case PcInstallState.NotActive: return "installed, NOT ACTIVE";
+                case PcInstallState.Older: return "installed, OLDER BUILD";
                 default: return "PARTIAL";
             }
         }

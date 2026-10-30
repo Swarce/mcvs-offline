@@ -129,11 +129,85 @@ namespace McvsOffline.PcKit.Tests
             }
         }
 
+        /// <summary>
+        /// docs/design/pc-port.md §7.6: the kit compares install.json's serverBuild with the build of the server DLL it carries (or
+        /// --server's). A build-16 install (no 'inbox' recorded) is OLDER BUILD under a build-17 kit, and verify fails; the same
+        /// build is current; a kit whose server DLL has no readable build compares nothing.
+        /// </summary>
+        [Fact]
+        public void StatusAndVerifyCallAnInstallOfAnOlderBuildOlder()
+        {
+            using (var box = new KitSandbox())
+            {
+                WriteInstall(box.Game, "2026-11-02T18:00:00Z", "16");
+                box.Env.ServerDll = () => ServerStandIn("17");
+                Assert.Equal(PcExitCodes.Ok, Program.Run(box.Env, box.Options("status")));
+                string text = box.Out.ToString();
+                Assert.Contains("state:       installed, OLDER BUILD - OLDER BUILD (16; this kit installs build 17): " + PcInstaller.OlderAdvice, text);
+                Assert.Contains("(server build 16)", text);
+                Assert.DoesNotContain("installed, current", text);
+
+                box.Err.GetStringBuilder().Clear();
+                Assert.Equal(PcExitCodes.Io, Program.Run(box.Env, box.Options("verify")));
+                Assert.Contains("OLDER BUILD (16; this kit installs build 17)", box.Err.ToString());
+
+                // --server names the DLL install would write: its build is the one compared.
+                string server = Path.Combine(box.Root, "server16.dll");
+                File.WriteAllBytes(server, ServerStandIn("16"));
+                box.Out.GetStringBuilder().Clear();
+                Assert.Equal(PcExitCodes.Ok, Program.Run(box.Env, box.Options("status", "--server", server)));
+                Assert.Contains("state:       installed, current", box.Out.ToString());
+                AssertVerifyPassesTheStateCheck(box, "verify", "--server", server);
+
+                box.Env.ServerDll = () => ServerStandIn("16");
+                box.Out.GetStringBuilder().Clear();
+                Assert.Equal(PcExitCodes.Ok, Program.Run(box.Env, box.Options("status")));
+                Assert.Contains("state:       installed, current", box.Out.ToString());
+                AssertVerifyPassesTheStateCheck(box, "verify");
+
+                box.Env.ServerDll = () => new byte[] { 1, 2, 3 };
+                Assert.Null(Program.InstallsBuild(box.Env, box.Options("status")));
+                AssertVerifyPassesTheStateCheck(box, "verify");
+            }
+        }
+
+        /// <summary>
+        /// Verify of the made-up install gets past the state (the OLDER check) to the re-read, which fails on its text "assemblies".
+        /// </summary>
+        private static void AssertVerifyPassesTheStateCheck(KitSandbox box, params string[] args)
+        {
+            box.Err.GetStringBuilder().Clear();
+            Assert.Equal(PcExitCodes.Io, Program.Run(box.Env, box.Options(args)));
+            string error = box.Err.ToString();
+            Assert.DoesNotContain("OLDER BUILD", error);
+            Assert.Contains("error: the install does not read back as written: ", error);
+        }
+
+        /// <summary>A server DLL stand-in: an assembly with McvsOffline.Server.Core.McvsVersion.Build = <paramref name="build"/>.</summary>
+        private static byte[] ServerStandIn(string build)
+        {
+            using (var assembly = Mono.Cecil.AssemblyDefinition.CreateAssembly(new Mono.Cecil.AssemblyNameDefinition("McvsOffline.Server", new Version(1, 0, 0, 0)),
+                                                                              "McvsOffline.Server.dll", Mono.Cecil.ModuleKind.Dll))
+            {
+                Mono.Cecil.ModuleDefinition module = assembly.MainModule;
+                var type = new Mono.Cecil.TypeDefinition("McvsOffline.Server.Core", "McvsVersion",
+                                                         Mono.Cecil.TypeAttributes.Public | Mono.Cecil.TypeAttributes.Abstract | Mono.Cecil.TypeAttributes.Sealed,
+                                                         module.TypeSystem.Object);
+                type.Fields.Add(new Mono.Cecil.FieldDefinition("Build", Mono.Cecil.FieldAttributes.Public | Mono.Cecil.FieldAttributes.Static |
+                                                                         Mono.Cecil.FieldAttributes.Literal | Mono.Cecil.FieldAttributes.HasDefault,
+                                                                module.TypeSystem.String) { Constant = build });
+                module.Types.Add(type);
+                var stream = new MemoryStream();
+                assembly.Write(stream);
+                return stream.ToArray();
+            }
+        }
+
         /// <summary>A made-up install of the sandbox's game files: bin copies, install.json written at <paramref name="writtenUtc"/>, our config.</summary>
-        private static void WriteInstall(string game, string writtenUtc)
+        private static void WriteInstall(string game, string writtenUtc, string serverBuild = null)
         {
             Directory.CreateDirectory(GameFolder.BinDir(game));
-            var manifest = new InstallManifest { InstallerName = "tests", InstallerVersion = "0", WrittenUtc = writtenUtc, Port = 51780 };
+            var manifest = new InstallManifest { InstallerName = "tests", InstallerVersion = "0", WrittenUtc = writtenUtc, Port = 51780, ServerBuild = serverBuild };
             var codeBases = new List<PcCodeBase>();
             foreach (string file in GameFolder.PatchedFiles.Concat(new[] { GameFolder.ServerFile }))
             {

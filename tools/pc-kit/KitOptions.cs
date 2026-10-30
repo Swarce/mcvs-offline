@@ -23,7 +23,7 @@ namespace McvsOffline.PcKit
         /// <summary>--bcl; null: %WINDIR%\Microsoft.NET\Framework\v4.0.30319.</summary>
         public string Bcl { get; set; }
 
-        /// <summary>--server: a PC McvsOffline.Server.dll to install instead of the embedded one (development).</summary>
+        /// <summary>--server: a PC McvsOffline.Server.dll to install instead of the embedded one (development); status and verify compare its build.</summary>
         public string ServerDll { get; set; }
 
         public int Port { get; set; }

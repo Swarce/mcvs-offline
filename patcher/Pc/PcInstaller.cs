@@ -127,6 +127,13 @@ namespace McvsOffline.Patcher.Pc
         /// folder (the .exe.config redirect did not apply) or a patch witness missing (WR2 F2).
         /// </summary>
         NotActive,
+
+        /// <summary>
+        /// The files are as written, but by an older build of MCVS Offline than the kit's (install.json's <c>serverBuild</c>): the
+        /// witnesses of the patches that build did not have cannot be missing from its record, so only this says it lacks them
+        /// (a build-16 install has no 'inbox' and delivers the unlock codes as one inbox message). Install updates it.
+        /// </summary>
+        Older,
     }
 
     /// <summary>The result of an install, uninstall or verify run.</summary>
@@ -965,6 +972,17 @@ namespace McvsOffline.Patcher.Pc
         /// </param>
         public static PcStatusReport Status(string gameFolder, Func<bool> gameRunning, string spikeDataFolder, string tempRoot)
         {
+            return Status(gameFolder, gameRunning, spikeDataFolder, tempRoot, null);
+        }
+
+        /// <param name="spikeDataFolder">Where to look for the spike's data folder (tests: a temp folder; null: not checked).</param>
+        /// <param name="tempRoot">The player's %TEMP% (see <see cref="Status(string, Func{bool}, string, string)"/>).</param>
+        /// <param name="installsBuild">
+        /// McvsVersion.Build of the server DLL the caller installs (the kit's own, <see cref="ServerBuildOf"/>): an install that
+        /// recorded an older <c>serverBuild</c> is <see cref="PcInstallState.Older"/> instead of current; null: not compared.
+        /// </param>
+        public static PcStatusReport Status(string gameFolder, Func<bool> gameRunning, string spikeDataFolder, string tempRoot, string installsBuild)
+        {
             var r = new PcStatusReport();
             string game = Path.GetFullPath(gameFolder);
             r.GameFolder = game;
@@ -1126,7 +1144,53 @@ namespace McvsOffline.Patcher.Pc
                 r.HookMarker.AddRange(PcHookMarker.Read(ReadShared(marker)));
             }
             if (r.State != PcInstallState.NotInstalled) Activation(r, game, bootstrap, lastRecord);
+            OlderBuild(r, installsBuild);
             return r;
+        }
+
+        /// <summary>
+        /// An install whose recorded server build is older than <paramref name="installsBuild"/>: one problem line whatever the
+        /// state, and a current install becomes <see cref="PcInstallState.Older"/> (after <see cref="Activation"/>: a start that
+        /// did not run our files is the bigger news). A build that is not a number on either side is not compared.
+        /// </summary>
+        private static void OlderBuild(PcStatusReport r, string installsBuild)
+        {
+            if (r.Manifest == null || !IsOlderBuild(r.Manifest.ServerBuild, installsBuild)) return;
+            r.Problems.Add("installed by MCVS Offline build " + r.Manifest.ServerBuild + ", this kit is build " + installsBuild + ": " +
+                           InstallManifest.FileName + " lists build " + r.Manifest.ServerBuild + "'s patches, so the newer ones are not checked");
+            if (r.State != PcInstallState.Current) return;
+            r.State = PcInstallState.Older;
+            r.StateDetail = "OLDER BUILD (" + r.Manifest.ServerBuild + "; this kit installs build " + installsBuild + "): " + OlderAdvice;
+        }
+
+        /// <summary>The advice for an <see cref="PcInstallState.Older"/> install.</summary>
+        public const string OlderAdvice = "run install to update it (your saves and settings stay)";
+
+        /// <summary>Whether <paramref name="installed"/> and <paramref name="installs"/> are both build numbers and the first is lower.</summary>
+        public static bool IsOlderBuild(string installed, string installs)
+        {
+            int a, b;
+            return int.TryParse(installed, NumberStyles.None, CultureInfo.InvariantCulture, out a) &&
+                   int.TryParse(installs, NumberStyles.None, CultureInfo.InvariantCulture, out b) && a < b;
+        }
+
+        /// <summary>McvsVersion.Build of a server DLL (its constant, read with Cecil), or null when the bytes are not an assembly that has one.</summary>
+        public static string ServerBuildOf(byte[] serverDll)
+        {
+            if (serverDll == null) return null;
+            try
+            {
+                using (ModuleDefinition module = ModuleDefinition.ReadModule(new MemoryStream(serverDll), new ReaderParameters { ReadingMode = ReadingMode.Deferred }))
+                {
+                    string version, build;
+                    ReadServerVersion(module, out version, out build);
+                    return build;
+                }
+            }
+            catch (Exception ex) when (ex is BadImageFormatException || ex is InvalidOperationException || ex is IOException || ex is ArgumentException)
+            {
+                return null;
+            }
         }
 
         /// <summary>The activation line of a current install the game has not been started with since (§7.6).</summary>
@@ -1284,8 +1348,18 @@ namespace McvsOffline.Patcher.Pc
         /// <summary><see cref="Verify(string, string, Func{bool})"/> with <see cref="Status(string, Func{bool}, string, string)"/>'s folders.</summary>
         public static PcInstallReport Verify(string gameFolder, string bclDirectory, Func<bool> gameRunning, string spikeDataFolder, string tempRoot)
         {
+            return Verify(gameFolder, bclDirectory, gameRunning, spikeDataFolder, tempRoot, null);
+        }
+
+        /// <summary>
+        /// <see cref="Verify(string, string, Func{bool}, string, string)"/> that also compares the installed server build with
+        /// <paramref name="installsBuild"/> (<see cref="Status(string, Func{bool}, string, string, string)"/>): an older install fails.
+        /// </summary>
+        public static PcInstallReport Verify(string gameFolder, string bclDirectory, Func<bool> gameRunning, string spikeDataFolder, string tempRoot,
+                                             string installsBuild)
+        {
             var report = new PcInstallReport();
-            PcStatusReport status = Status(gameFolder, gameRunning, spikeDataFolder, tempRoot);
+            PcStatusReport status = Status(gameFolder, gameRunning, spikeDataFolder, tempRoot, installsBuild);
             report.Status = status;
             if (status.Manifest != null)
             {
