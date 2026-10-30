@@ -58,12 +58,15 @@ our server never started. Copying the files of `McvsOffline\bin` next to `Modern
 our config at all**: the stock `EngineBridge.dll` loaded, and none of our code ran (no server, no `bootstrap.log`). The
 kit could not see this: with no `bootstrap.log`, `status` still said `installed, current`.
 
-**Leading explanation (H-A, not yet proven).** The .NET Framework assembly loader (fusion) parses the whole
+**Cause (H-A, confirmed on Windows by the owner).** The .NET Framework assembly loader (fusion) parses the whole
 `<assemblyBinding>` section at once. In the only published fusion source (SSCLI 2.0), a `<qualifyAssembly>` whose
 `fullName` has `PublicKeyToken=null` (every game assembly: none is strong-named) fails the parse with `E_UNEXPECTED`, and
 the loader then throws away everything it parsed, the five `<codeBase>` entries included, and runs with no app policy.
 Build 13's config (no `<qualifyAssembly>`) was proven on WR2: 4 of 5 assemblies came from `McvsOffline\bin`. The CLR 4
-loader in `clr.dll` is not public, so this stays the leading explanation until WR3 shows it on Windows.
+loader in `clr.dll` is not public, but the owner's A/B test on Windows settles it: with build 14's installed config,
+deleting only the five `<qualifyAssembly>` lines (nothing else changed, the stock DLLs back after Steam › Verify) made
+the server start. Which file `Game` itself bound from in that run was not reported, so the gameload claim below stays
+open.
 
 **The fix.** The config is back to build 13's codeBase-only shape, byte for byte the one WR2 ran (SHA-256
 `3ebe99b3c93a9540cd7f7b03da55fc048a544501c17e8621457884eae456f94c`). `Game` no longer needs `<qualifyAssembly>`: the
@@ -108,8 +111,9 @@ McvsOffline.PcKit.Tests 62/62, McvsOffline.PcSpike.Tests 62/62, 0 skipped** (2,5
 VERIFIED` before a start), a second install with the same bytes, `uninstall` restoring the exact listing, ILVerify as the
 stock files; the build-15-then-16 upgrade above; WR2's first start as the last start gives `installed, NOT ACTIVE (Game
 loaded from the game folder; …)`. The new expected `verify` values are in [design/pc-port.md](design/pc-port.md) §13.1
-and [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7. Not checked: anything that runs only on Windows, in particular
-whether .NET now uses the config (H-A) and whether `Game` follows it (gameload).
+and [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7. Not checked here: anything that runs only on Windows. On the
+owner's PC the build-14 config without its `<qualifyAssembly>` lines (the build-16 shape) started the server (H-A
+confirmed); whether `Game` follows the codeBase (gameload) is not yet reported.
 
 ### What WR3 must check first
 
@@ -119,10 +123,9 @@ whether .NET now uses the config (H-A) and whether `Game` follows it (gameload).
   every witness `yes` (`gameload yes`, `store yes`).
 * `status` after closing the game: `installed, current` and `activation: active at the last start`. Any `NOT ACTIVE` or
   `NOT VERIFIED` after a start: stop, `collect`, send it (with `%TEMP%\McvsOffline\hook.txt`).
-* If the server starts and all five come from `McvsOffline\bin`, H-A is confirmed (the only config change from build 15
-  is the five removed lines) and so is the gameload full-reference claim. If our EngineBridge still does not run with
-  the WR2-proven config, H-A is refuted: then come the question whether the game runs under Proton/Wine (whose loader
-  ignores `<codeBase>`) and a .NET Fusion log of one start (`HKLM\SOFTWARE\Microsoft\Fusion` `ForceLog`).
+* H-A is already confirmed (the owner's A/B test above). If all five come from `McvsOffline\bin`, so is the gameload
+  full-reference claim; if `Game` still comes from the game folder (`(GAME FOLDER)`, `store NO`), gameload does not
+  qualify the load on Windows and needs another way (an `AssemblyResolve` handler or an in-place `Game.dll`).
 
 ## Build 15 (October 2026): rotating Special Events, an optional Practice tile, the match-mode doc corrections
 
