@@ -229,7 +229,7 @@ UNLOCKCAMOS (4,450) to UNLOCKALL (11,368) froze the inbox for minutes. The table
   replaced built-in code takes the new definition whole); `assets.couponsEnabled=false` answers 404 to everything.
   `"delivery": "ledger" | "inbox"` chooses the path; without it a code whose name starts with `UNLOCK` is ledger and any
   other (`GIFT500`) inbox. A ledger code writes reward ids with count 1 (a quantity other than 1 is dropped with a
-  warning). An inbox code goes to the game as one message and may hold at most `CouponCatalog.MaxInboxRewards` (300)
+  warning, and the page's code list warns about such a ledger code). An inbox code goes to the game as one message and may hold at most `CouponCatalog.MaxInboxRewards` (300)
   rewards; a bigger one answers 404 with a WARN `refused: <n> rewards in one inbox message would freeze the game's inbox`
   and the page's code list shows a warning. Unknown reward types and `Reset*` are never sent; quantities are JSON
   integers.

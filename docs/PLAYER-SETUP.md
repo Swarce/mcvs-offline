@@ -230,9 +230,11 @@ still unclaimed, that old message still freezes the inbox: restore a save from b
 | `UNLOCKPAID` | only what the original game sold for real money and nothing else gave out: the VIP-only camos and jerseys (about 5,600 items, agents first). `UNLOCKPAIDCAMOS` / `UNLOCKPAIDACCESSORIES` split it. |
 | `UNLOCKUNRELEASED` | content that is in the game's data but was never released: 6 kill-signature emblems. Strictly optional; never part of UNLOCKALL, `unlockAll` or the shop. |
 
-A code only adds what you do not own yet: redeeming a code again (`UNLOCKALL2`, `UNLOCKMERCS2`, or a split code after
-`UNLOCKALL`) gives nothing new. In earlier builds an agent code redeemed again paid the game's duplicate compensation
-(random gear for each agent you already had); that is gone. Codes need the game's own request from this device: in LAN
+A code skips only what an earlier code or `"unlockAll": true` already gave you. Agents, camos and jerseys you got by
+playing, from crates or the store, or by claiming an old coupon message (build 16 and earlier) count as new the first
+time: the code gives them again and the game pays its usual duplicate gear for an agent you already had. Only a repeat
+of a code (`UNLOCKALL2`, `UNLOCKMERCS2`, or a split code after `UNLOCKALL`) gives nothing new; in earlier builds such a
+repeat paid the duplicate compensation for each agent again, and that repeat compensation is gone. Codes need the game's own request from this device: in LAN
 mode, and when the server cannot tell which profile is yours (several profiles on one install and the game not logged
 in yet), the game says the code does not exist and nothing changes; the server log says why. `settings.json`
 `"unlockAll": true` grants the same as `UNLOCKALL` without a code. Details and the exact item lists:

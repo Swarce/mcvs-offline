@@ -265,6 +265,8 @@ namespace McvsOffline.Tests.Content
             {
                 Assert.False(code.TooLargeForTheInbox, code.Code + ": " + code.Rewards + " rewards for one inbox message");
                 if (code.Delivery == CouponCatalog.InboxDelivery) Assert.True(code.Rewards <= CouponCatalog.MaxInboxRewards, code.Code);
+                // A shipped ledger code holds only unlocks: nothing in it is skipped while the game says "redeemed".
+                Assert.Equal(0, code.SkippedOnTheLedger);
             }
             // The largest built-in code, for scale: it could never be an inbox code.
             Assert.True(codes.Single(c => c.Code == "UNLOCKALL").Rewards > 11000);

@@ -455,7 +455,8 @@ namespace McvsOffline.Tests.Admin
         {
             using var rig = new Rig();
             rig.Server.Context.Settings.Override("assets.coupons", MiniJson.ParseObject("{\"GIFT500\":{\"rewards\":[{\"type\":\"HardCurrency\",\"quantity\":500}],\"description\":\"500 gold\"},"
-                                                                                   + "\"ALLCAMOS\":{\"groups\":[\"camos\"]}}"));
+                                                                                   + "\"ALLCAMOS\":{\"groups\":[\"camos\"]},"
+                                                                                   + "\"UNLOCKGOLD\":{\"groups\":[\"gearSlots\"],\"rewards\":[{\"type\":\"HardCurrency\",\"quantity\":500}]}}"));
             var body = AdminTestClient.Json(rig.Client.Get("codes"));
             var codes = ((List<object>)body["codes"]).Cast<Dictionary<string, object>>().ToList();
             var unlockAll = codes.Single(c => (string)c["code"] == "UNLOCKALL");
@@ -474,6 +475,12 @@ namespace McvsOffline.Tests.Admin
             var big = codes.Single(c => (string)c["code"] == "ALLCAMOS");
             Assert.Equal("inbox", big["delivery"]);
             Assert.StartsWith("4409 rewards are too many for one inbox message (at most 300)", (string)big["warning"]);
+            // The ledger advice is only for a code of unlocks: a ledger code drops a reward with a quantity other than 1.
+            Assert.Contains("if it holds only unlocks (each quantity 1), give it \"delivery\": \"ledger\"", (string)big["warning"]);
+            var gold = codes.Single(c => (string)c["code"] == "UNLOCKGOLD");
+            Assert.Equal("ledger", gold["delivery"]);
+            Assert.Equal(110L, gold["rewards"]);
+            Assert.StartsWith("1 of its rewards have a quantity other than 1: a ledger code grants only unlocks", (string)gold["warning"]);
             Assert.Equal("MCVSOFFLINE", body["pageCode"]);
             Assert.Equal(true, body["enabled"]);
         }

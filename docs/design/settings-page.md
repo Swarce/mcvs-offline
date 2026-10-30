@@ -588,7 +588,7 @@ by `EmbeddedHost.AddEmbeddedDefaults` at the next start.
 "rewards": 11368}], "pageCode": "MCVSOFFLINE", "enabled": true}` from `CouponCatalog.Describe()` (WP2 adds it: code,
 description, numeric-suffix flag of every entry of `coupons.json` merged with `assets.coupons`; delivery and reward
 count since the inbox-freeze fix). An inbox code above 300 rewards also has `"warning"` (redeeming it is refused), shown
-under the code in the list.
+under the code in the list; so has a ledger code with rewards of a quantity other than 1 (the ledger skips them).
 
 ### 4.5 Actions: save now, restart and the others
 

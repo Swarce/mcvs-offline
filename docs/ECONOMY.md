@@ -127,7 +127,9 @@ Examples: *relaxed* = `versusCoinsMultiplier 2` + `priceMultiplier 0.5` (≈4× 
   like the built-in ones (its rewards must be unlock ids with quantity 1); any other code (`GIFT500`) becomes one
   inbox message and may hold at most 300 rewards: a bigger one is refused with a WARN line ("would freeze the game's
   inbox") and a warning in the page's code list. `"delivery": "ledger"` or `"inbox"` in a definition overrides the
-  name rule.
+  name rule. Only a code that holds nothing but unlocks can be a ledger code: the ledger skips a reward with a
+  quantity other than 1 (currency, crates) while the game still says "redeemed", and the page's code list warns
+  about such a code.
 
 ### Unlock-all (opt-in)
 

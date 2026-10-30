@@ -63,8 +63,8 @@ namespace McvsOffline.Server.Services.Assets
                 // The game rebuilds every reward of every unclaimed message on its game thread when the inbox opens and
                 // every 10 s while it stays open: thousands froze it for minutes (inbox-freeze report §2 C1, C2).
                 log.Warn("coupon '" + code + "' (" + match.Code + ") refused: " + rewards.Count + " rewards in one inbox message would freeze "
-                         + "the game's inbox (at most " + CouponCatalog.MaxInboxRewards + "); split the code or give it \"delivery\": \"ledger\" "
-                         + "in settings.json assets.coupons");
+                         + "the game's inbox (at most " + CouponCatalog.MaxInboxRewards + "); split the code, or, if it holds only unlocks (each quantity 1), "
+                         + "give it \"delivery\": \"ledger\" in settings.json assets.coupons");
                 return HttpResponse.Error(HttpStatus.NotFound, "coupon does not exist");
             }
             // The game marks the code as claimed for this profile before it parses the body, and puts every reward into

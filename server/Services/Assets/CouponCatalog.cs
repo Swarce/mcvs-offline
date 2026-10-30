@@ -102,13 +102,20 @@ namespace McvsOffline.Server.Services.Assets
             var list = new List<CouponDescription>();
             foreach (var kv in codes)
             {
+                List<object> rewards = Expand(kv.Value, kv.Key, Log.Null);
+                string delivery = DeliveryOf(kv.Key, kv.Value);
+                int notUnlocks = 0;
+                if (delivery == LedgerDelivery)
+                    foreach (object r in rewards)
+                        if (JsonValue.GetLong((Dictionary<string, object>)r, "quantity", 1) != 1) notUnlocks++;
                 list.Add(new CouponDescription
                 {
                     Code = kv.Key,
                     Description = JsonValue.GetString(kv.Value, "description") ?? "",
                     NumericSuffix = JsonValue.GetBool(kv.Value, "allowNumericSuffix", false),
-                    Delivery = DeliveryOf(kv.Key, kv.Value),
-                    Rewards = Expand(kv.Value, kv.Key, Log.Null).Count,
+                    Delivery = delivery,
+                    Rewards = rewards.Count,
+                    SkippedOnTheLedger = notUnlocks,
                 });
             }
             return list;
@@ -306,6 +313,12 @@ namespace McvsOffline.Server.Services.Assets
 
         /// <summary>How many rewards the code expands to.</summary>
         public int Rewards { get; set; }
+
+        /// <summary>
+        /// A ledger code's rewards with a quantity other than 1 (currency, crates): <see cref="CouponCatalog.Match"/> skips
+        /// them, and the game still says the code was redeemed. Always 0 for an inbox code.
+        /// </summary>
+        public int SkippedOnTheLedger { get; set; }
 
         /// <summary>An inbox code above <see cref="CouponCatalog.MaxInboxRewards"/> rewards: redeeming it is refused.</summary>
         public bool TooLargeForTheInbox
