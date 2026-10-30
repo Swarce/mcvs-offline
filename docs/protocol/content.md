@@ -15,7 +15,7 @@ verify-C6 §2.6, §5; report 04 §4-6, §10-11, §15; report 06 §4.5-4.8; repor
 | GET | `lobbyconfigs/{clientId}/{serverType}` | `matchmaker.lobbyconfigs` | 200 `{"game":{...,"cmd_args"},"automatchers":{...}}` | verify-C2 §1.3-1.4, report 06 §4.8 | implemented |
 | GET | `rooms/{clientId}` | `matchmaker.rooms.find` | 200 `[]` + warning (rooms live in the local Finder) | `EN/ClientLink.cs:377-440` | conservative |
 | POST | `rooms/{clientId}/quick_launch`, `rooms/{clientId}/automatch/{automatcher}` | `matchmaker.rooms.*` | 404 `{"error"}` + warning: only reached outside Embedded mode | `EN/ClientSettings.cs:341-351` OverrideAnubisHost | conservative |
-| GET | `coupons/{clientId}/{code}` | `assets.coupon` | 200 `[{"type":"<rewardId>","quantity":<int>}, ...]`; 404 = "coupon does not exist"; the page code (`admin.redeemCode`) is always 404 and may open the settings page (below) | verify-C5 (b), `EN/AssetsComponent.cs:180-210` | implemented |
+| GET | `coupons/{clientId}/{code}` | `assets.coupon` | an unlock code: 200 `[]`, its keys go into the player's inventory ledger (below); an inbox code: 200 `[{"type":"<rewardId>","quantity":<int>}, ...]` (at most 300); 404 = "coupon does not exist" (also every refusal); the page code (`admin.redeemCode`) is always 404 and may open the settings page (below) | verify-C5 (b), `EN/AssetsComponent.cs:180-210`, inbox-freeze report §3 F1 | implemented |
 | GET | `assets/{clientId}` | `assets.list` | 200 `[{name, hash (sha256), size}]` of `<data>/assets` (normally `[]`) | report 10 §5 | implemented |
 | GET | `assets/{clientId}/{name}` (+ `/metadata[/{attr}]`, `/url`) | `assets.get` | the local file (Range → 206/416), metadata JSON, URL text; 404 when not provided | report 04 §11 | implemented |
 | GET | `_mcvs/crm` / POST `_mcvs/crm/reload` | `crm.debug` / `crm.reload` | diagnostics: preconfiguration source, size, `_ServerConfig.default`, validation problems, the `collector` block (below) / rebuild | ours | implemented |
@@ -190,7 +190,14 @@ gs: -ServerType gs -EnvironmentSwitcherUrl http://127.0.0.1:51780/ -DataCenter m
 
 ## Coupons
 
-| Code | Payload (claimed in this order) |
+Every built-in code is an **unlock code** (`"delivery": "ledger"` in coupons.json): the server answers `200 []` and
+writes the code's keys into the player's inventory ledger itself (`UnlockGranter.GrantKeys`, the `unlockAll` loop:
+[unlocks.md](unlocks.md)). Until build 16 the game got the payload below and put all of it into ONE inbox message;
+`InboxComponent.GetMessagesObject` rebuilds every reward of every unclaimed message on the game thread when the inbox
+opens and on every frame of every 10th second while it is open (`PCD/InboxComponent.cs:351-369, 465-505, 664-718`), so
+UNLOCKCAMOS (4,450) to UNLOCKALL (11,368) froze the inbox for minutes. The table is what each code grants, in order:
+
+| Code | Keys (granted in this order) |
 |---|---|
 | `UNLOCKALL` | the "mercs" group (`UnlockMerc_{2-21}`, then `ModTier_{1-21}_4`: every merc + every mod), weapons, gear slots, kill signatures, camos, accessories, skins (11,368 rewards; the groups of unlocks.json "order") |
 | `UNLOCKMERCS` | the "mercs" group |
@@ -200,13 +207,32 @@ gs: -ServerType gs -EnvironmentSwitcherUrl http://127.0.0.1:51780/ -DataCenter m
 | `UNLOCKUNRELEASED` | the "unreleased" group (`KillSignature_Avatar_{1513-1518}`); never in UNLOCKALL, `unlockAll` or the shop |
 
 * The game marks a code claimed for the profile before it parses the body, so every built-in code also accepts a
-  numeric suffix (`UNLOCKALL2`). Codes are case-insensitive.
-* Rewards go to one inbox message (7-day expiry) and are claimed sequentially; merc-dependent rewards of a locked merc
-  would turn into alternate rewards, hence the merc unlocks first (verify-C5 (b)). They are explicit per-merc rewards:
-  `UnlockMerc_ALL_MAX` claimed fine but crashed every reward display, which looks the merc up by id (device test 3).
-* `assets.coupons` in settings.json adds or replaces codes (`{"groups":[...],"rewards":[{"type","quantity"}]}`);
-  `assets.couponsEnabled=false` answers 404 to everything. Unknown reward types and `Reset*` are never sent; quantities
-  are JSON integers.
+  numeric suffix (`UNLOCKALL2`). Codes are case-insensitive. A repeat writes only keys the ledger lacks (usually none).
+* **What the game does with `[]`**: success whatever the body (`RedeemCouponRemote` checks only the error,
+  `PCD/PlayerProfileComponent.cs:3632-3667`; AS `MenuAccountSettings.checkRedeemResult` shows `crm.ReedeemSuccessful`),
+  then `PushCouponDataToInbox` adds a message with no rewards (`:3608-3630`). `InboxMessage.IsClaimable` is false
+  without rewards (`PCD/InboxMessage.cs:53-66`), so its Claim button stays disabled (AS `Inbox.as` setMsgInfo:430) and
+  the rewards panel is hidden (:429); it costs nothing to build and goes with its 7-day expiry
+  (`InboxComponent.CheckExpirationDates`). Android is the same (`AND/PlayerProfileComponent.cs:3524-3545`,
+  `AND/InboxMessage.cs`). Checked through the real Android and PC clients (EndToEndConformance step 13).
+* **Which account**: the request carries no token, so the current player (`CurrentPlayerResolver`: the game's
+  credential, the last own login, the device's only account, the only profile with a game profile). Refused with 404
+  and `coupon '<code>' (<CODE>) refused, nothing written: <reason>` when `lanMode` is on (a LAN guest's redemption runs
+  on the host's menu server), the player is unknown or ambiguous, the request is not the game's own (the page code's
+  checks: loopback, no browser header, the game's `User-Agent`), or it carries another account's token.
+* Logged: `coupon '<code>' (<CODE>): <n> unlock keys queued for <account> through the inventory ledger, at most <b>
+  batch(es) ...` per redeem, and `unlock code <CODE>: <account>: done, <n> keys written in <b> batch(es) (...)` per job.
+* Merc-dependent rewards of a locked merc turn into alternate rewards, hence the merc keys first, alone (verify-C5 (b)).
+  They are explicit per-merc keys: `UnlockMerc_ALL_MAX` claimed fine but crashed every reward display, which looks the
+  merc up by id (device test 3).
+* `assets.coupons` in settings.json adds or replaces codes (`{"groups":[...],"rewards":[{"type","quantity"}]}`, a
+  replaced built-in code takes the new definition whole); `assets.couponsEnabled=false` answers 404 to everything.
+  `"delivery": "ledger" | "inbox"` chooses the path; without it a code whose name starts with `UNLOCK` is ledger and any
+  other (`GIFT500`) inbox. A ledger code writes reward ids with count 1 (a quantity other than 1 is dropped with a
+  warning). An inbox code goes to the game as one message and may hold at most `CouponCatalog.MaxInboxRewards` (300)
+  rewards; a bigger one answers 404 with a WARN `refused: <n> rewards in one inbox message would freeze the game's inbox`
+  and the page's code list shows a warning. Unknown reward types and `Reset*` are never sent; quantities are JSON
+  integers.
 * The Redeem button needs `GameFeatures.RedeemCoupons`, forced on by the CRM `_OverrideTables` cell above.
 * **The page code** (`admin.redeemCode`, default `MCVSOFFLINE`; empty turns it off; checked before
   `assets.couponsEnabled`): always 404 "coupon does not exist" (a 200 would make the game mark it claimed and add an

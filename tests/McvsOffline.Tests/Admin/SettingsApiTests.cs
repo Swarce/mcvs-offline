@@ -454,7 +454,8 @@ namespace McvsOffline.Tests.Admin
         public void CodesListTheRedeemCodes()
         {
             using var rig = new Rig();
-            rig.Server.Context.Settings.Override("assets.coupons", MiniJson.ParseObject("{\"GIFT500\":{\"rewards\":[{\"type\":\"HardCurrency\",\"quantity\":500}],\"description\":\"500 gold\"}}"));
+            rig.Server.Context.Settings.Override("assets.coupons", MiniJson.ParseObject("{\"GIFT500\":{\"rewards\":[{\"type\":\"HardCurrency\",\"quantity\":500}],\"description\":\"500 gold\"},"
+                                                                                   + "\"ALLCAMOS\":{\"groups\":[\"camos\"]}}"));
             var body = AdminTestClient.Json(rig.Client.Get("codes"));
             var codes = ((List<object>)body["codes"]).Cast<Dictionary<string, object>>().ToList();
             var unlockAll = codes.Single(c => (string)c["code"] == "UNLOCKALL");
@@ -463,6 +464,16 @@ namespace McvsOffline.Tests.Admin
             var gift = codes.Single(c => (string)c["code"] == "GIFT500");
             Assert.Equal("500 gold", gift["description"]);
             Assert.Equal(false, gift["numericSuffix"]);
+            // Delivery and size: the unlock codes go through the ledger; an oversized inbox code carries a warning.
+            Assert.Equal("ledger", unlockAll["delivery"]);
+            Assert.True((long)unlockAll["rewards"] > 11000);
+            Assert.False(unlockAll.ContainsKey("warning"));
+            Assert.Equal("inbox", gift["delivery"]);
+            Assert.Equal(1L, gift["rewards"]);
+            Assert.False(gift.ContainsKey("warning"));
+            var big = codes.Single(c => (string)c["code"] == "ALLCAMOS");
+            Assert.Equal("inbox", big["delivery"]);
+            Assert.StartsWith("4409 rewards are too many for one inbox message (at most 300)", (string)big["warning"]);
             Assert.Equal("MCVSOFFLINE", body["pageCode"]);
             Assert.Equal(true, body["enabled"]);
         }
