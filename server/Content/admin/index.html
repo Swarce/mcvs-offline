@@ -1575,7 +1575,7 @@ p { margin: 4px 0 8px; }
       para(body, 'Loading…', 'muted');
       return;
     }
-    para(body, 'Type them in Settings › Account › Redeem code. Each code works once per save; codes marked "+ number" work again with a number added (UNLOCKALL2), but give only what is still missing.', 'muted');
+    para(body, 'Type them in Settings › Account › Redeem code. Each code works once per save; codes marked "+ number" work again with a number added (UNLOCKALL2), but give only what an earlier code or unlockAll did not already give (items from play, crates, the store or an old coupon message count as new once).', 'muted');
     para(body, 'Unlock codes do not use the inbox: the items arrive over a few minutes, in batches with a rewards popup each. Stay in the menus until the popups stop.', 'muted');
     if (c.enabled === false) para(body, 'Unlock codes are off: turn on "Unlock codes" above.', 'warnt');
     var codes = c.codes || [];
