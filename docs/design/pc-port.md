@@ -1139,7 +1139,8 @@ the last record of our host. With none at or after `writtenUtc`:
   did not start)`, `activation: NOT ACTIVE: MCVS Offline's EngineBridge ran at <t> but the server did not start: <the
   marker's exception line, or "no exception recorded">`;
 * else a file the stock game writes in its folder (`GameFolder.GameWrittenNames`: `dr0.bin`..`dr3.bin`, `OF_PP.bin`,
-  `GameVersion`, `core.dmp`) was written after the install and after our last record (whole seconds) → `installed, NOT
+  `GameVersion`, `core.dmp`) was written after the install and after our last record (whole seconds), and the game is
+  not running now (a starting game may not have reached our first line yet) → `installed, NOT
   ACTIVE (the game started without MCVS Offline)`, `activation: NOT ACTIVE: the game started without MCVS Offline;
   Windows did not use <game>\ModernCombatVersus.exe.config`, a `hook:` line (no marker: "our EngineBridge has never run as
   this user"; an older one: when it last ran), the file and its time as a problem, and an `ERROR:` line;

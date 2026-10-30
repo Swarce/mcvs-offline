@@ -204,6 +204,11 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 Assert.Contains("hook:        " + status.HookEvidence, text);
                 Assert.DoesNotContain(text, l => l.Contains("installed, current"));
 
+                // While the game runs, our host may not have written its first line yet: no verdict from the game's files.
+                PcStatusReport running = PcInstaller.Status(fake.Game, () => true, null, fake.Temp);
+                Assert.Equal(PcInstallState.Current, running.State);
+                Assert.Equal(PcInstaller.NotVerified, running.Activation);
+
                 // With a marker from before the install: it says when our EngineBridge last ran.
                 fake.Log(fake.Marker, "2026-11-01T10:00:00.000Z hook-pc start pid 4242 exe C:\\Games\\ModernCombatVersus.exe dll C:\\Games\\McvsOffline\\bin\\EngineBridge.dll\r\n");
                 status = fake.Status();

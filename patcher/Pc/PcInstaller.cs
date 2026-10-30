@@ -1170,7 +1170,8 @@ namespace McvsOffline.Patcher.Pc
                 {
                 }
             }
-            bool gameRan = gameFile != null && gameTime > installed && (!lastRecord.HasValue || gameTime > lastRecord.Value);
+            // While the game runs, our host may still be starting (no line yet): only a closed game's files are evidence.
+            bool gameRan = gameFile != null && gameTime > installed && (!lastRecord.HasValue || gameTime > lastRecord.Value) && !r.GameRunning;
             PcHookEntry hookStart = PcHookMarker.LastStart(r.HookMarker, installed);
             PcHookEntry hookFailure = PcHookMarker.LastFailure(r.HookMarker, installed);
             string config = Path.Combine(game, PcExeConfig.FileName);
