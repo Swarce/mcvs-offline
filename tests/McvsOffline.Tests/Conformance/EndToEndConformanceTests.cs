@@ -12,6 +12,7 @@ using McvsOffline.Server;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Accounts;
 using McvsOffline.Server.Core.Content;
+using McvsOffline.Server.Core.Json;
 using McvsOffline.Server.Services.Unlocks;
 using McvsOffline.Tests.Auth;
 using Xunit;
@@ -65,7 +66,16 @@ namespace McvsOffline.Tests.Conformance
             GameClient game = GameClient.TryGetFrom(output, platform, folder, "Gameloft.Engine", "Game", "Gameloft.Templates", "Gameloft.Util");
             if (game == null) return;
             var ct = new CancellationTokenSource(TimeSpan.FromMinutes(2)).Token;
-            using var host = new Host(game, output);
+            using var host = new Host(game, output, settings =>
+            {
+                // Step 13: the unlock codes' batches without the 10 s pauses, and one small inbox code.
+                settings.Override("unlocks", new Dictionary<string, object>
+                {
+                    ["batchSize"] = 400L, ["batchDelaySeconds"] = 0L, ["startDelaySeconds"] = 0L, ["streamWaitSeconds"] = 0L,
+                });
+                settings.Override("assets.coupons", MiniJson.ParseObject(
+                    @"{""GIFT2"":{""rewards"":[{""type"":""HardCurrency"",""quantity"":500},{""type"":""UnlockMerc_3""},{""type"":""ModTier_3_4""}]}}"));
+            });
 
             // ---------------------------------------------------------------- 1. eve: datacenters + urls (OnlinePlatformComponent)
             dynamic clientFed = host.Federation();
@@ -246,51 +256,74 @@ namespace McvsOffline.Tests.Conformance
             }
 
             // ---------------------------------------------------------------- 13. coupon redeem (PlayerProfileComponent.RedeemCouponRemote -> PushCouponDataToInbox)
+            // An unlock code answers [] (one empty, cheap inbox message instead of thousands of rewards that froze the
+            // inbox, inbox-freeze report §3 F1) and its keys go into the player's inventory ledger.
             game.RegisterGameAssemblies();
-            byte[] coupon = await GameClient.Await(game.Service(ts, "AssetsService").RedeemCoupon("UNLOCKMERCS", ct));
-            dynamic rewards = GameClient.CallStatic(game.Type("Gameloft.Util", "Gameloft.Util.Json"), "LoadArray", Encoding.UTF8.GetString(coupon));
+            Type json = game.Type("Gameloft.Util", "Gameloft.Util.Json");
             Type rewardItem = game.Type("Game", "Game.RewardItem");
+            Type rewardHelper = game.Type("Game", "Game.RewardHelper");
             object source = Activator.CreateInstance(rewardItem.GetNestedType("TrackingSource"));
-            var parsedTypes = new List<string>();
-            foreach (dynamic reward in (IEnumerable)rewards)
-            {
-                object item = GameClient.CallStatic(game.Type("Game", "Game.RewardHelper"), "CreateRewardItem", (string)reward["type"], (int)reward["quantity"], source);
-                Assert.NotNull(item);
-                // Explicit merc ids only (the reward displays look every UnlockMerc up by its id; "ALL" crashed them).
-                string subtype = (string)rewardItem.GetProperty("Subtype").GetValue(item);
-                string subtype2 = (string)rewardItem.GetProperty("Subtype2").GetValue(item);
-                Assert.True(int.TryParse(subtype, out int mercId) && mercId > 0, (string)reward["type"]);
-                if (item.GetType().Name == "ModTierRewardItem") Assert.Equal("4", subtype2);
-                else Assert.Equal("UnlockMercRewardItem", item.GetType().Name);
-                parsedTypes.Add(item.GetType().Name + "_" + subtype);
-            }
-            Assert.Equal(McvsOffline.Tests.Content.AssetsTests.MercGroup.Length, parsedTypes.Count);
-            Assert.Equal(20, parsedTypes.Count(t => t.StartsWith("UnlockMercRewardItem_", StringComparison.Ordinal)));
-            host.Covered("assets coupons/{cid}/{code} -> AssetsService.RedeemCoupon, Json.LoadArray, RewardHelper.CreateRewardItem (UNLOCKMERCS: "
-                         + "20 UnlockMercRewardItem with numeric merc ids, 21 ModTierRewardItem tier 4)");
-            // The opt-in codes: every reward parses to its reward class with numeric ids (claim and display look them up).
-            var expectedClass = new Dictionary<string, string>
-            {
-                ["UnlockMerc"] = "UnlockMercRewardItem", ["WeaponCamo"] = "WeaponCamoRewardItem",
-                ["MercAccessory"] = "MercAccessoryRewardItem", ["KillSignature"] = "KillSignatureRewardItem",
-            };
-            foreach (string code in new[] { "UNLOCKPAID", "UNLOCKUNRELEASED" })
+            UnlockGranter granter = host.Server.Context.Features.Get<UnlockGranter>();
+            var catalog = McvsOffline.Server.Services.Assets.CouponCatalog.Load(host.Server.Context.Content, host.Server.Context.Settings, null);
+            var expectedKeys = new List<string>();
+            foreach (string code in new[] { "UNLOCKCAMOS", "UNLOCKPAID", "UNLOCKUNRELEASED" })
             {
                 byte[] data = await GameClient.Await(game.Service(ts, "AssetsService").RedeemCoupon(code, ct));
-                int n = 0;
-                foreach (dynamic reward in (IEnumerable)GameClient.CallStatic(game.Type("Gameloft.Util", "Gameloft.Util.Json"), "LoadArray", Encoding.UTF8.GetString(data)))
+                Assert.Equal("[]", Encoding.UTF8.GetString(data));
+                Assert.Empty((IEnumerable)GameClient.CallStatic(json, "LoadArray", Encoding.UTF8.GetString(data))); // PushCouponDataToInbox: no reward
+                string state = null;
+                for (int i = 0; i < 400; i++)
                 {
-                    string type = (string)reward["type"];
-                    object item = GameClient.CallStatic(game.Type("Game", "Game.RewardHelper"), "CreateRewardItem", type, (int)reward["quantity"], source);
-                    Assert.NotNull(item);
-                    Assert.Equal(expectedClass[type.Split('_')[0]], item.GetType().Name);
-                    string last = (string)rewardItem.GetProperty(type.StartsWith("UnlockMerc_", StringComparison.Ordinal) ? "Subtype" : "Subtype2").GetValue(item);
-                    Assert.True(int.TryParse(last, out _), type);
-                    n++;
+                    if (granter.CodeStatus().TryGetValue(accountId, out object codes)
+                        && ((Dictionary<string, object>)codes).TryGetValue(code, out object s) && ((string)s).StartsWith("done", StringComparison.Ordinal))
+                    {
+                        state = (string)s;
+                        break;
+                    }
+                    await Task.Delay(50, ct);
                 }
-                Assert.True(n > 0, code);
-                host.Covered("assets coupons/{cid}/" + code + " -> " + n + " rewards, each parsed by RewardHelper.CreateRewardItem to its class with numeric ids");
+                Assert.True(state != null, code + ": " + MiniJson.Serialize(granter.CodeStatus()));
+                foreach (string key in catalog.Match(code).Keys) if (!expectedKeys.Contains(key)) expectedKeys.Add(key);
             }
+            // The message PushCouponDataToInbox makes of []: no rewards, so not claimable (its Claim button stays disabled,
+            // Inbox.as setMsgInfo) and nothing for the inbox to rebuild; it goes away with its 7-day expiry.
+            dynamic empty = Activator.CreateInstance(game.Type("Game", "Game.InboxMessage"));
+            Assert.Equal(0, (int)empty.Rewards.Count);
+            Assert.False((bool)empty.IsClaimable);
+            // The ledger as the TS's IapStoreComponent.InventorySection loads it (CheckInventory, EN/IapStoreComponent.cs:1243-1306).
+            var ledger = new ProfileSections(game, ts);
+            await ledger.LoadAll(ct);
+            Type jvalue = game.Type("Newtonsoft.Json", "Newtonsoft.Json.Linq.JValue");
+            var ledgerKeys = new List<string>();
+            var unknown = new List<string>();
+            foreach (dynamic property in (IEnumerable)ledger.Inventory.JsonProfile)
+            {
+                string key = property.Name;
+                int count = (int)(long)jvalue.GetProperty("Value").GetValue((object)property.Value);
+                Assert.Equal(1, count);
+                ledgerKeys.Add(key);
+                if (GameClient.CallStatic(rewardHelper, "CreateRewardItem", key, count, source) == null) unknown.Add(key);
+            }
+            Assert.Equal(McvsOffline.Tests.Content.AssetsTests.MercGroup, ledgerKeys.Take(McvsOffline.Tests.Content.AssetsTests.MercGroup.Length));
+            Assert.Equal(expectedKeys, ledgerKeys);
+            Assert.True(ledgerKeys.Count(k => k.StartsWith("WeaponCamo_", StringComparison.Ordinal)) >= 4409);
+            Assert.True(unknown.Count == 0, "ledger keys RewardItem.Parse does not know: " + string.Join(", ", unknown.Take(20)));
+            host.Covered("assets coupons/{cid}/UNLOCKCAMOS, UNLOCKPAID, UNLOCKUNRELEASED -> AssetsService.RedeemCoupon: [] parsed by Json.LoadArray (0 rewards); "
+                         + ledgerKeys.Count + " keys in the inventory ledger read by IapStoreComponent.InventorySection, merc unlocks first, every key parsed by RewardHelper.CreateRewardItem");
+            // A numbered repeat is a no-op for what the ledger already holds.
+            Assert.Equal("[]", Encoding.UTF8.GetString((byte[])await GameClient.Await(game.Service(ts, "AssetsService").RedeemCoupon("UNLOCKCAMOS2", ct))));
+            // A small inbox code (settings assets.coupons) still reaches the game as rewards: explicit merc ids parse.
+            byte[] gift = await GameClient.Await(game.Service(ts, "AssetsService").RedeemCoupon("GIFT2", ct));
+            var parsedTypes = new List<string>();
+            foreach (dynamic reward in (IEnumerable)GameClient.CallStatic(json, "LoadArray", Encoding.UTF8.GetString(gift)))
+            {
+                object item = GameClient.CallStatic(rewardHelper, "CreateRewardItem", (string)reward["type"], (int)reward["quantity"], source);
+                Assert.NotNull(item);
+                parsedTypes.Add(item.GetType().Name);
+            }
+            Assert.Equal(new[] { "UnlockMercRewardItem", "ModTierRewardItem" }, parsedTypes.Skip(1));
+            Assert.Equal(3, parsedTypes.Count);
+            host.Covered("assets coupons/{cid}/GIFT2 (an inbox code) -> Json.LoadArray, RewardHelper.CreateRewardItem: " + string.Join(", ", parsedTypes));
 
             // ---------------------------------------------------------------- 14. next app start: a new server instance on the same data, a new client
             host.Restart();

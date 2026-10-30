@@ -10,7 +10,7 @@ for index columns and the collector's rules) plus our tuning in ``pricing.json``
                       generic ``#VersusCoins`` shop-hub tab), see docs/ECONOMY.md and verify-C5 (d)
   unlocks.json        reward-id groups (coupon payloads): the full unlock ("order"), the opt-in paid/unreleased sets, compressed as
                       ``Prefix_{2,4-231}`` ranges
-  coupons.json        built-in coupon codes (UNLOCKALL first claims every merc and its mods, verify-C5 (b))
+  coupons.json        built-in coupon codes (UNLOCKALL first claims every merc and its mods, verify-C5 (b)); all "delivery": "ledger"
   economy.json        ``_OverrideTables`` targets for the settings.json economy multipliers + a cost summary
   crm_overlay.json    static CRM overlay (game parameters we always send)
   liveops.json        live-ops catalogue (weekly division seasons, daily quests, weekly achievement events, weekly
@@ -668,7 +668,7 @@ def build_coupons(group_ids):
     codes = {
         "UNLOCKALL": {
             "groups": ["mercs", "weapons", "gearSlots", "signatures", "camos", "accessories", "skins"],
-            "description": "Full unlock in one inbox message (about 11k rewards, claimed in this order)",
+            "description": "Full unlock (about 11k items, granted in this order)",
         },
         "UNLOCKMERCS": {"groups": ["mercs"], "description": "Every merc and every mod"},
         "UNLOCKSIGNATURES": {"groups": ["signatures"], "description": "Every kill-signature avatar, background and sound"},
@@ -695,6 +695,10 @@ def build_coupons(group_ids):
         codes[names[g]] = {"groups": ["mercs", g], "description": "Every merc, then all %s" % g}
     for c in codes.values():
         c["allowNumericSuffix"] = True
+        # Granted through the inventory ledger, never as one inbox message: the game rebuilds every reward of every
+        # unclaimed message each time the inbox opens (UNLOCKCAMOS: 4,450 rewards froze it for minutes). The server
+        # answers [] and writes the keys itself (UnlockGranter.GrantKeys), merc unlocks first.
+        c["delivery"] = "ledger"
     ordered = {}
     for k in ["UNLOCKALL", "UNLOCKMERCS", "UNLOCKWEAPONS", "UNLOCKGEARSLOTS", "UNLOCKSIGNATURES", "UNLOCKCAMOS",
               "UNLOCKACCESSORIES", "UNLOCKSKINS", "UNLOCKPAID", "UNLOCKPAIDCAMOS", "UNLOCKPAIDACCESSORIES", "UNLOCKUNRELEASED"]:

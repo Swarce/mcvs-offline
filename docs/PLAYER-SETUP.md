@@ -212,19 +212,33 @@ If you see that error anyway, the APK was patched by an older version of the pat
 
 ### Unlock codes (optional)
 
-Settings › Account › Redeem code. Each code works once per profile; add a number to redeem again (`UNLOCKALL2`). The
-rewards arrive as one inbox message and are claimed in order.
+Settings › Account › Redeem code. Each code works once per profile; add a number to redeem again (`UNLOCKALL2`).
+
+The items do **not** come through the inbox any more (one inbox message with thousands of rewards froze the game every
+time the inbox opened). The game says the code was redeemed and the server puts the items straight into your profile,
+the same way as `"unlockAll": true`: the agents first, then the rest in batches of 400 about 10 seconds apart, each with
+a rewards popup. `UNLOCKALL` takes a few minutes (about 30 popups). Stay in the menus and let it finish; if you close
+the game half-way, the rest arrives after the next start. An empty "Coupon" message is left in the inbox: it has nothing
+to claim and disappears after 7 days. If a code was redeemed while an old, full coupon message from an earlier build is
+still unclaimed, that old message still freezes the inbox: restore a save from before it on the MCVS Offline page
+(Saves) or wait for its 7 days to run out.
 
 | Code | What you get |
 |---|---|
-| `UNLOCKALL` | everything that was released: every agent and all their mods, weapons, gear slots, kill signatures, camos, jerseys, skins (about 11,400 rewards). Unlocking every mod raises your level to about 46 at once; the game then saves once per level and lags for a while. Let it finish. |
+| `UNLOCKALL` | everything that was released: every agent and all their mods, weapons, gear slots, kill signatures, camos, jerseys, skins (about 11,400 items). Unlocking every mod raises your level to about 46 at once; the game then saves once per level and lags for a while. Let it finish. |
 | `UNLOCKMERCS`, `UNLOCKWEAPONS`, `UNLOCKGEARSLOTS`, `UNLOCKSIGNATURES`, `UNLOCKCAMOS`, `UNLOCKACCESSORIES`, `UNLOCKSKINS` | the same in smaller parts (all but signatures unlock the agents first) |
-| `UNLOCKPAID` | only what the original game sold for real money and nothing else gave out: the VIP-only camos and jerseys (about 5,600 rewards, agents first). `UNLOCKPAIDCAMOS` / `UNLOCKPAIDACCESSORIES` split it. |
+| `UNLOCKPAID` | only what the original game sold for real money and nothing else gave out: the VIP-only camos and jerseys (about 5,600 items, agents first). `UNLOCKPAIDCAMOS` / `UNLOCKPAIDACCESSORIES` split it. |
 | `UNLOCKUNRELEASED` | content that is in the game's data but was never released: 6 kill-signature emblems. Strictly optional; never part of UNLOCKALL, `unlockAll` or the shop. |
 
-Redeeming an agent code again when you already own the agents gives the game's usual duplicate compensation (random
-gear) for each one. `settings.json` `"unlockAll": true` grants the same as `UNLOCKALL` without a code. Details and the
-exact item lists: [ECONOMY.md](ECONOMY.md).
+A code skips only what an earlier code or `"unlockAll": true` already gave you. Agents, camos and jerseys you got by
+playing, from crates or the store, or by claiming an old coupon message (build 16 and earlier) count as new the first
+time: the code gives them again and the game pays its usual duplicate gear for an agent you already had. Only a repeat
+of a code (`UNLOCKALL2`, `UNLOCKMERCS2`, or a split code after `UNLOCKALL`) gives nothing new; in earlier builds such a
+repeat paid the duplicate compensation for each agent again, and that repeat compensation is gone. Codes need the game's own request from this device: in LAN
+mode, and when the server cannot tell which profile is yours (several profiles on one install and the game not logged
+in yet), the game says the code does not exist and nothing changes; the server log says why. `settings.json`
+`"unlockAll": true` grants the same as `UNLOCKALL` without a code. Details and the exact item lists:
+[ECONOMY.md](ECONOMY.md).
 
 ### Match modes
 

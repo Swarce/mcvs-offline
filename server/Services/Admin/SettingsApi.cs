@@ -502,6 +502,15 @@ namespace McvsOffline.Server.Services.Admin
                 o["code"] = coupon.Code;
                 o["description"] = coupon.Description;
                 o["numericSuffix"] = coupon.NumericSuffix;
+                o["delivery"] = coupon.Delivery;   // "ledger": items arrive in batches; "inbox": one inbox message
+                o["rewards"] = (long)coupon.Rewards;
+                if (coupon.TooLargeForTheInbox)
+                    o["warning"] = coupon.Rewards + " rewards are too many for one inbox message (at most "
+                                   + CouponCatalog.MaxInboxRewards + "): redeeming it is refused. Split it, or, if it holds only unlocks (each quantity 1), give it \"delivery\": \"ledger\".";
+                else if (coupon.SkippedOnTheLedger > 0)
+                    o["warning"] = coupon.SkippedOnTheLedger + " of its rewards have a quantity other than 1: a ledger code grants only unlocks, "
+                                   + "so they are skipped while the game says the code was redeemed. Give it \"delivery\": \"inbox\" "
+                                   + "(at most " + CouponCatalog.MaxInboxRewards + " rewards) or move them to an inbox code.";
                 list.Add(o);
             }
             var body = new Dictionary<string, object>(StringComparer.Ordinal);

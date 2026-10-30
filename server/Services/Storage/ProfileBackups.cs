@@ -19,7 +19,7 @@ namespace McvsOffline.Server.Services.Storage
         public long Revision { get; set; }
 
         /// <summary>
-        /// The token of why it was taken (the third part of the id): auto, delete, replace, wipe, unlockall, preimport,
+        /// The token of why it was taken (the third part of the id): auto, delete, replace, wipe, unlockall, unlockcode, preimport,
         /// prerestore, presettings, prerevert, manual...
         /// </summary>
         public string Reason { get; set; }

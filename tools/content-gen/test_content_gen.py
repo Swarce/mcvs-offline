@@ -431,6 +431,9 @@ class GeneratorTests(unittest.TestCase):
         self.assertEqual(codes["UNLOCKUNRELEASED"]["groups"], ["unreleased"])
         for code in ("UNLOCKALL", "UNLOCKMERCS", "UNLOCKCAMOS", "UNLOCKACCESSORIES", "UNLOCKSIGNATURES"):
             self.assertNotIn("unreleased", codes[code]["groups"])
+        # every unlock code goes through the inventory ledger, never as one inbox message (inbox-freeze report F1)
+        for name, code in codes.items():
+            self.assertEqual(code["delivery"], "ledger", name)
         # without names.json nothing can be verified: no unreleased item at all
         os.remove(os.path.join(self.tmp, "names.json"))
         groups = {g["id"]: g for g in self.outputs()["unlocks.json"]["groups"]}

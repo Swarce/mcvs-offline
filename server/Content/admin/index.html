@@ -1566,7 +1566,8 @@ p { margin: 4px 0 8px; }
       para(body, 'Loading…', 'muted');
       return;
     }
-    para(body, 'Type them in Settings › Account › Redeem code. Each code works once per save; codes marked "+ number" work again with a number added (UNLOCKALL2).', 'muted');
+    para(body, 'Type them in Settings › Account › Redeem code. Each code works once per save; codes marked "+ number" work again with a number added (UNLOCKALL2), but give only what is still missing.', 'muted');
+    para(body, 'Unlock codes do not use the inbox: the items arrive over a few minutes, in batches with a rewards popup each. Stay in the menus until the popups stop.', 'muted');
     if (c.enabled === false) para(body, 'Unlock codes are off: turn on "Unlock codes" above.', 'warnt');
     var codes = c.codes || [];
     for (var i = 0; i < codes.length; i++) add(body, codeRow(codes[i]));
@@ -1578,6 +1579,7 @@ p { margin: 4px 0 8px; }
     var left = add(row, el('div', 'il'));
     add(left, el('div', 'mono lbl', code.code + (code.numericSuffix ? ' (+ number)' : '')));
     if (code.description) add(left, el('div', 'help', code.description));
+    if (code.warning) add(left, el('div', 'warnt', code.warning));
     var right = add(row, el('div', 'ir'));
     add(right, btn('Copy', 'small', function () { copyText(code.code, 'MCVS Offline code'); }));
     return row;

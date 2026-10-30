@@ -584,9 +584,11 @@ replaced by `"***"` (a character scan for the member name, `:`, a JSON string li
 "restartRequired": true}`. The host keys (`embedded.*`, `gameLog.*`, `diagnostics.*`, `install.*`) are added back
 by `EmbeddedHost.AddEmbeddedDefaults` at the next start.
 
-`GET codes` → `{"codes": [{"code": "UNLOCKALL", "description": "...", "numericSuffix": true}], "pageCode": "MCVSOFFLINE",
-"enabled": true}` from `CouponCatalog.Describe()` (WP2 adds it: code, description, numeric-suffix flag of every entry of
-`coupons.json` merged with `assets.coupons`).
+`GET codes` → `{"codes": [{"code": "UNLOCKALL", "description": "...", "numericSuffix": true, "delivery": "ledger",
+"rewards": 11368}], "pageCode": "MCVSOFFLINE", "enabled": true}` from `CouponCatalog.Describe()` (WP2 adds it: code,
+description, numeric-suffix flag of every entry of `coupons.json` merged with `assets.coupons`; delivery and reward
+count since the inbox-freeze fix). An inbox code above 300 rewards also has `"warning"` (redeeming it is refused), shown
+under the code in the list; so has a ledger code with rewards of a quantity other than 1 (the ledger skips them).
 
 ### 4.5 Actions: save now, restart and the others
 
@@ -1059,14 +1061,14 @@ id on `-` and reads the token as the third part.
 | Pool | Tokens | Cap per account | Pruning |
 |---|---|---|---|
 | `auto` | `auto` | `storage.backups.keep` (0–200) | after each new `auto` backup, oldest `auto` beyond the cap. `keep = 0`: `Commit` takes no `auto` backup, so nothing is pruned; existing ones stay. |
-| `event` | `wipe`, `delete`, `replace`, `unlockall`, any other reason a `WriteOutcome`/`IProfileAccess` gives, `backup` | 20 | after each new `event` backup |
+| `event` | `wipe`, `delete`, `replace`, `unlockall`, `unlockcode`, any other reason a `WriteOutcome`/`IProfileAccess` gives, `backup` | 20 | after each new `event` backup |
 | `system` | `preimport`, `prerestore`, `presettings`, `prerevert` | 10 | after each new `system` backup |
 | `manual` | `manual` | 10 | **never**: an 11th is refused (`ManualBackupLimitException` → 409 `manual_full`); only the player's Delete removes one (I4) |
 
 Changes:
 
 * `LocalProfileStore.Backup(account, revision, reason)` no longer returns when `keep <= 0`: every non-`auto` backup is
-  always taken (`wipe`, `delete`, `replace`, `unlockall`, the pre-* backups of §6.4). `Commit` still requests `auto` only
+  always taken (`wipe`, `delete`, `replace`, `unlockall`, `unlockcode`, the pre-* backups of §6.4). `Commit` still requests `auto` only
   when `keep > 0` and the interval is due.
 * `ProfileBackups.Create(accountId, fileText, revision, reason, nowUtc, autoKeep)`: for `manual`, counts first and throws
   before writing when 10 exist; writes; then `Prune(accountId, PoolOf(token), cap)` for that pool only (`auto` with

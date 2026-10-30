@@ -9,6 +9,7 @@ using McvsOffline.Server;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Accounts;
 using McvsOffline.Server.Core.Http;
+using McvsOffline.Server.Core.Json;
 using McvsOffline.Server.Services.Admin;
 using McvsOffline.Tests.Admin;
 using McvsOffline.Tests.Auth;
@@ -305,7 +306,8 @@ namespace McvsOffline.Tests.Content
             Assert.True(rig.Logs.Contains("coupon 'MCVSOFFLINE' does not exist"));
             Assert.False(rig.Logs.Contains("opens the MCVS Offline page"));
 
-            HttpResponse coupon = rig.Redeem("UNLOCKMERCS");
+            rig.Server.Context.Settings.Override("assets.coupons", MiniJson.ParseObject(@"{""GIFT5"":{""rewards"":[{""type"":""HardCurrency"",""quantity"":5}]}}"));
+            HttpResponse coupon = rig.Redeem("GIFT5");
             Assert.Equal(200, coupon.StatusCode);
             Assert.StartsWith("[{\"type\":", coupon.BodyText);
             Assert.Equal(0, rig.Opened);

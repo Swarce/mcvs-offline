@@ -1,4 +1,4 @@
-# Unlock-all through the inventory ledger (`server/Services/Unlocks`)
+# Unlock-all and the unlock codes through the inventory ledger (`server/Services/Unlocks`)
 
 Owner: core (lead). Glue between STORAGE (`IProfileAccess`), CONTENT (`server/Content/unlocks.json`) and MISC
 (`alerts.push`). Evidence: [verify-C5](../research/verify-C5-unlock-all.md) (c) and its "Recommended design".
@@ -13,12 +13,12 @@ a non-empty game profile and an `inventory` section, the server:
 1. waits until the player has an alert stream that takes `set_profile` (the TS's AlertsComponent; at most
    `unlocks.streamWaitSeconds`, 60), then `unlocks.startDelaySeconds` (10) more;
 2. backs up the profile (backup reason `unlockall`, taken with the game profile in it; the change is one-way);
-3. writes `inventory.UnlockMerc_ALL_MAX = 1` on its own and pushes a `set_profile` alert to the player;
+3. writes the "mercs" group (`UnlockMerc_<id>` for every merc but the starting one, then `ModTier_<id>_4`) on its own
+   and pushes a `set_profile` alert to the player (a ledger that holds the old `UnlockMerc_ALL_MAX` already has them);
 4. writes the remaining keys of the `unlocks.json` groups in their `order` (weapons, gear slots, signatures, camos,
    accessories, skins last) with count `1`, in batches of `unlocks.batchSize` (400), each followed by a
-   `set_profile` alert, `unlocks.batchDelaySeconds` (10) apart. Before each batch the ledger is read again: if
-   `UnlockMerc_ALL_MAX` has gone (a late R3 Set, a hand edit), it is written again first, alone, and lost keys are
-   written again. Every merge also starts with the merc unlock at its current count (a no-op while it is there), so
+   `set_profile` alert, `unlocks.batchDelaySeconds` (10) apart. Before each batch the ledger is read again: if a merc
+   key has gone (a late R3 Set, a hand edit), it is written again first, alone, and lost keys are written again. Every merge also starts with the merc unlock at its current count (a no-op while it is there), so
    a section replaced between that read and the write still gets the merc unlock ahead of the batch.
 
 An account that is not ready yet (status `waiting: ...`) is tried again at its next save; it is only marked done
@@ -32,6 +32,30 @@ saved by the TS's normal saves. Nothing in the game is patched, and the develope
 Keys already present with a count of at least 1 are never touched (idempotent; real IAP-ledger entries are kept). A
 missed alert is harmless: the next login diffs whatever is left, still in order. Turning `unlockAll` off later keeps
 everything that was granted.
+
+**After a restart** the grant carries on by itself: the "done" mark lives only in memory, so the account's next
+game-profile save queues it again and the ledger diff writes only what is still missing (tested:
+`UnlockAllCarriesOnAfterARestartThroughTheLedgerDiff`).
+
+## Unlock codes
+
+A redeemed unlock code (every built-in `UNLOCK*` code, numbered repeats and any letter case; content.md "Coupons") is
+a job per (account, code) on the same worker, `UnlockGranter.GrantKeys(account, keys, code)`: the same loop with the
+code's keys in its order. The merc keys among them (UNLOCKPAID: the merc unlocks without the mods) go first and alone,
+the rest in `unlocks.batchSize` batches with a `set_profile` alert each, after the same stream wait; the profile is
+backed up first (reason `unlockcode`); keys already in the ledger are skipped, so a repeat (`UNLOCKCAMOS2`) writes
+nothing and the game's duplicate compensation for owned mercs that the inbox claim paid is gone. It runs whether
+`unlockAll` is on or not, and needs the same readiness (a game profile and an inventory section).
+
+`<data>/unlocks/codes.json` (`{"format":1,"pending":[{"account","code","since"}]}`) holds every code that is not
+complete yet; it is written when the code is queued and the entry is removed once every key is in the ledger. After a
+restart an entry is queued again at its account's next game-profile save, like `unlockAll`, with the keys the catalog
+defines for the code then (a code that is no longer a ledger code is dropped with a warning). Tested:
+`AnUnfinishedCodeCarriesOnAfterARestart`.
+
+Logs (INFO): `unlock code <CODE>: granting <n> of <m> unlock keys to <account> ...` when it starts and
+`unlock code <CODE>: <account>: done, <n> keys written in <b> batch(es) (<k> already in the inventory ledger)` or
+`done, nothing missing (...)` when it ends; `unlockAll` logs the same two lines with the prefix `unlockAll`.
 
 ## Why this order and these values
 
@@ -61,13 +85,17 @@ everything that was granted.
 
 ## Diagnostics (loopback only)
 
-* `GET /_mcvs/unlocks` → `{enabled, keys, accounts: {<id>: "queued" | "waiting: ..." | "granting n/m" | "done (...)" | "failed: ..."}}`
+* `GET /_mcvs/unlocks` → `{enabled, keys, accounts: {<id>: "queued" | "waiting: ..." | "granting n/m" | "done (...)" | "failed: ..."},
+  codes: {<id>: {<CODE>: <state as above>}}, pendingCodes: [{account, code, since}]}`
 * `POST /_mcvs/unlocks/grant` `account=<id or fed_id:id>` → queue a grant now (409 when `unlockAll` is off).
 
 ## Needs a device test
 
 * The TS really receives `set_profile` on the user's alert stream and runs `CheckInventory` (MISC's Kairos stream on
   Mono).
-* Reward popups and performance with batches of 400 keys; about 11.3k keys in total.
+* Reward popups and performance with batches of 400 keys; about 11.3k keys in total (also what UNLOCKALL does now).
+* A code redeemed on a profile that claimed the same items earlier from a coupon inbox message (builds up to 16):
+  those keys are not in the ledger, so they are written and claimed again; the duplicate handling of camos and
+  jerseys is unverified.
 * Whether the GS (also a server World) runs its own `CheckInventory` for the player and double-grants (harmless for
   unlocks, but would show duplicate-compensation popups).

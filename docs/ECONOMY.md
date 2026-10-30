@@ -123,13 +123,19 @@ Examples: *relaxed* = `versusCoinsMultiplier 2` + `priceMultiplier 0.5` (≈4× 
 * Power users: `crm.overlay` (deep-merged into the CRM document last), `crm.pointcutActions` (e.g. a daily login
   gift: `{"id":"daily_gift","type":"give_object","frequency":1,"item":"HardCurrency","quantity":20,"pointcuts":[{"name":"launch","conditions":[]}],"limit":[{"max":1,"interval":86400}]}`
   (`frequency` defaults to 0 = never fires; limits are kept per `id` in the profile)),
-  `assets.coupons` (own coupon codes).
+  `assets.coupons` (own coupon codes). An own code whose name starts with `UNLOCK` goes through the inventory ledger
+  like the built-in ones (its rewards must be unlock ids with quantity 1); any other code (`GIFT500`) becomes one
+  inbox message and may hold at most 300 rewards: a bigger one is refused with a WARN line ("would freeze the game's
+  inbox") and a warning in the page's code list. `"delivery": "ledger"` or `"inbox"` in a definition overrides the
+  name rule. Only a code that holds nothing but unlocks can be a ledger code: the ledger skips a reward with a
+  quantity other than 1 (currency, crates) while the game still says "redeemed", and the page's code list warns
+  about such a code.
 
 ### Unlock-all (opt-in)
 
 | Way | How | Notes |
 |---|---|---|
-| Coupon | Settings › Account › Redeem code: `UNLOCKALL` | one inbox message with every merc first (`UnlockMerc_<id>` for each merc but the starting one, then `ModTier_<id>_4`: every mod; not `UnlockMerc_ALL_MAX`, which crashed the reward display), then weapons, gear slots, signatures, camos, accessories, skins (≈11k rewards, claimed in order). Each code works once per profile; `UNLOCKALL2`, `UNLOCKALL3`… redeem again. Smaller codes if the big message is too heavy: `UNLOCKMERCS`, `UNLOCKWEAPONS`, `UNLOCKGEARSLOTS`, `UNLOCKSIGNATURES`, `UNLOCKCAMOS`, `UNLOCKACCESSORIES`, `UNLOCKSKINS` (all but signatures unlock the mercs first). `assets.couponsEnabled=false` disables codes. |
+| Coupon | Settings › Account › Redeem code: `UNLOCKALL` | the code's keys go into the inventory ledger, exactly like `unlockAll` (`UnlockGranter.GrantKeys`): every merc first, alone in its own batch (`UnlockMerc_<id>` for each merc but the starting one, then `ModTier_<id>_4`: every mod; not `UnlockMerc_ALL_MAX`, which crashed the reward display), then weapons, gear slots, signatures, camos, accessories, skins (≈11k keys) in batches of `unlocks.batchSize` (400) with a set_profile alert and a rewards popup each. The game gets `[]`: it shows "redeem successful" and makes one empty, unclaimable inbox message (7-day expiry). Each code works once per profile; `UNLOCKALL2`, `UNLOCKALL3`… redeem again but only write keys the ledger lacks. Smaller codes: `UNLOCKMERCS`, `UNLOCKWEAPONS`, `UNLOCKGEARSLOTS`, `UNLOCKSIGNATURES`, `UNLOCKCAMOS`, `UNLOCKACCESSORIES`, `UNLOCKSKINS` (all but signatures unlock the mercs first). `assets.couponsEnabled=false` disables codes. |
 | Dev cheat menu | `devMenu: true`, then tap top-left, top-right, bottom-left, bottom-right, top-left, bottom-right | exposes destructive cheats too (verify-C5 (a)); off by default |
 | Inventory ledger | `unlockAll: true` | the storage `inventory` section diff (STORAGE module, verify-C5 (c)); grants exactly what UNLOCKALL grants |
 
@@ -166,9 +172,11 @@ How the sets are decided, and their caveats:
   as unreleased content we can check (an audio event, not a file).
 * `KillSignature_Sound_2`-`5` share the starting sound's asset (`sfx_ui_crate_reveal`); they have live ecomm ids, so
   they count as released (sold in the hub, part of UNLOCKALL).
-* Redeeming a code that unlocks mercs when you already own them (UNLOCKALL2, a split code after UNLOCKALL,
-  UNLOCKPAID after UNLOCKALL) pays the game's duplicate compensation for each owned merc (40 random gear,
-  `AlternateRewards` `UnlockMerc_<rarity>`), as a duplicate merc from a crate does.
+* Redeeming a code that unlocks mercs when you already own them (UNLOCKALL2, UNLOCKMERCS2, a split code after
+  UNLOCKALL, UNLOCKPAID after UNLOCKALL) writes nothing: the ledger already holds those keys. Up to build 16 the codes
+  were inbox messages and a repeat paid the game's duplicate compensation for each owned merc (40 random gear,
+  `AlternateRewards` `UnlockMerc_<rarity>`); that compensation is gone with the inbox delivery. A merc owned through
+  a crate or the store but not through the ledger still is a new ledger key, and the TS claims it as a duplicate.
 
 ## 4. Live ops income (docs/LIVEOPS.md)
 
@@ -255,6 +263,10 @@ are listed in the design, §4.4.
   unverified); names of our packs show the raw `crm.<name>` key unless the SWF uses the content's names.
 * A merc detail screen with two prices (VersusCoins and HC) shows both buttons (the shipped preconfiguration had
   two-price mercs, so the client supports it).
-* The ≈11k-reward UNLOCKALL inbox message (UI and save size) — the split codes exist for this.
+* The ≈11k-reward UNLOCKALL inbox message (UI and save size) — gone: every unlock code is delivered through the
+  ledger (inbox-freeze report: the inbox rebuilt every reward of every unclaimed coupon message on open and every 10 s).
+* Keys a profile claimed earlier through a coupon inbox message (builds up to 16) are not in the ledger, so a code
+  redeemed now writes them and the TS claims them again; for camos and jerseys the game's duplicate handling is
+  unverified [G] (test once on a profile that claimed UNLOCKCAMOS from the inbox).
 * MUL cells on integer table columns (`"*1.5"` makes a double) are converted back by the typed table readers.
 * The Cosmetic crate on the phone (STATUS.md, build 9, checks 14–28): reveals, screen times, the season crate.
