@@ -25,7 +25,7 @@ version has its own guide: [PLAYER-SETUP.md](PLAYER-SETUP.md).
 ## 2. Get the kit
 
 1. Download `McvsOffline.PcKit.exe` into any folder, for example `Downloads`. Its SHA-256 is
-   `06235ac9f0cf6339bb201ffb32b9c9b14fb3c98453d0a2604a16470c0c31ae41` (PowerShell:
+   `804dd546825a27af92712062a3ec8603e114c9c4bc34ebb016b7fcee64fc3ec2` (PowerShell:
    `Get-FileHash .\McvsOffline.PcKit.exe`).
 2. **SmartScreen warning.** The exe is not code-signed, so Windows may show "Windows protected your PC". Click
    **More info**, then **Run anyway**. Your antivirus may scan it first.
@@ -227,8 +227,8 @@ For every crash or freeze, also write down:
   Alt+F4, Task Manager);
 * for a crash: whether Windows showed a message, and what it said.
 
-Do the unlock codes and the unlock-all grant **only at step 8b**, after the bot match: in WR2 they caused the long
-freezes, which would hide everything else.
+Do the unlock codes and the unlock-all grant **only at step 8b** (and the claim of old coupon messages at 8a), after
+the bot match: in WR2 they caused the long freezes, which would hide everything else.
 
 | # | do | record | expected |
 |---|---|---|---|
@@ -240,7 +240,8 @@ freezes, which would hide everything else.
 | 6 | open the settings page: Settings › Account › MCVS Offline (WR2 could not show it); then the inbox message; then the page's "Open in the system browser"; then `admin.openVia` = `system`, then `game` (restart the game each time); back to `auto`: once fullscreen, once windowed, once with Steam › Settings › In Game › "Enable the Steam Overlay while in-game" off | for each: where the page appeared and whether Status loads; the `admin: page opened … via …` line in `server.log` | the overlay shows the page in both window modes; with the overlay off: `via system` and the browser opens; `game` works after login; if `via overlay` ever shows nothing, the next click logs `via system … overlay showed no page last time` |
 | 7 | on the page: Saves › Save the game now; Saves › Export (Explorer opens `McvsOffline\exports`); Logs › share; copy a text. Then with `admin.openVia` = `system` and the game **minimised** behind the browser: Save the game now | whether each works; whether "Save now" finishes while the game is minimised | all work |
 | 8 | play one bot match to the end, started from **Battle › Classic multiplayer** (the game has no visible bot-match tile), with `watch` running, before any unlock code | bots and physics (nobody falls through the floor), rewards saved; `[pc] quicklaunch: automatch through the local Finder` | the match runs and ends normally; `automatch through the local Finder` appears (in WR2 it never did) |
-| 8b | now redeem one big unlock code (`UNLOCKALL`) and time how long the game takes to answer; open the inbox; stay in the menus until the items stop arriving (about 30 rewards popups over a few minutes); then turn on the unlock-all grant once | the time; whether the game says the code was redeemed; what the inbox shows; any freeze or `STALL` during the popups (and whether `watch` printed that it saved a dump); the `unlock code UNLOCKALL: … done, … keys written in … batch(es)` line in `server.log` | the game answers at once and says the code was redeemed; the inbox shows one empty Coupon message and opens at once (WR2 crashed there twice with the old full message); the batches arrive with a popup each; the `done` line appears; a freeze of a minute or more leaves a dump in `%LOCALAPPDATA%\McvsOffline\dumps\` |
+| 8a | after step 8, before any unlock code: open the inbox. If it still holds old WR2 coupon messages (UNLOCKPAID, UNLOCKCAMOS and UNLOCKPAIDCAMOS were redeemed on 2026-10-29 and are kept for 7 days; uninstall keeps them): select one, stay in the inbox for 30 s, then press **Claim** | how long the inbox takes to open; how many rewards the message shows; any freeze while it is open (every 10 s?) or on Claim; how many rewards the popup lists; afterwards, whether the message is gone and the camos and jerseys of every agent are owned (loadout); or that no old message was left | the inbox opens within seconds (WR2 froze and crashed there with these messages); the message shows 30 rewards; no freeze while it is open; the popup lists 30; afterwards the message is gone and every camo or jersey of that code is owned (the `inbox` patch caps the display, the claim gives everything) |
+| 8b | now redeem one big unlock code (`UNLOCKALL`) and time how long the game takes to answer; open the inbox; stay in the menus until the items stop arriving (about 30 rewards popups over a few minutes); then turn on the unlock-all grant once | the time; whether the game says the code was redeemed; what the inbox shows; after 8a's claim, what the camos and jerseys that message already gave turn into (the code gives them again: duplicates in the loadout, gear, nothing?); any freeze or `STALL` during the popups (and whether `watch` printed that it saved a dump); the `unlock code UNLOCKALL: … done, … keys written in … batch(es)` line in `server.log` | the game answers at once and says the code was redeemed; the inbox opens within seconds and shows one empty Coupon message (plus any old WR2 message 8a left, each with at most 30 rewards); the batches arrive with a popup each; the `done` line appears; a freeze of a minute or more leaves a dump in `%LOCALAPPDATA%\McvsOffline\dumps\` |
 | 9 | during the match: minimise and restore; open the in-game menu; open the Steam overlay (Shift+Tab) | pauses, cursor in the menu and on the end screen | one pause each time, cursor visible |
 | 10 | in the game's options: toggle fullscreen twice | crash? setting kept? | no crash, kept |
 | 11 | firewall prompts (when, for what); `watch`'s endpoint lists | prompts and listeners | listeners: `0.0.0.0:25001` and up, the match's UDP socket, the Finder on 51750 |
@@ -258,18 +259,19 @@ itself is not listed because it holds the install time):
 
 | file | sha256 |
 |---|---|
-| `McvsOffline/bin/EngineBridge.dll` | `5c2dd7e2ef9e1bf937f574150189d5dcbc8921fd52ffd34c62feb9bec35eaf13` |
-| `McvsOffline/bin/Game.dll` | `39b80ecb84b08c62714bb7b80f8f7da626023e307d6e370662ccc9e589a21618` |
-| `McvsOffline/bin/Gameloft.Engine.dll` | `c4d37967d4c18efb8dd54ac199d264121e7d28dd66979517a4f1dac32e68e5d3` |
-| `McvsOffline/bin/Gameloft.Util.dll` | `40c1792b3c4739821b6022ef81d6b514e6a37cf49a4103c184a2fdf9d1e399ba` |
-| `McvsOffline/bin/McvsOffline.Server.dll` | `3fe6146ab50ec93d74ba0c0e1d682d92c9ef88df088ed64c98996bb29d9a6478` |
+| `McvsOffline/bin/EngineBridge.dll` | `14e2a779cd3455cd6677a19065f566a35c776e1e8ef59b4fb83964396655352e` |
+| `McvsOffline/bin/Game.dll` | `14d887a32e883c96cde5a3614ac6e055cd2b4c2e3745a74fd5c2deb9ba53b4a3` |
+| `McvsOffline/bin/Gameloft.Engine.dll` | `9af0c02c50cb5043ebd539ff3cbc339aa5ae266ea9b8454153a52816d614abf4` |
+| `McvsOffline/bin/Gameloft.Util.dll` | `4fa196fcce22ea02572e964731540782279b6de065d0817b07d9878accea7277` |
+| `McvsOffline/bin/McvsOffline.Server.dll` | `32019567b9eea7280603b69c72541c0f94939da3d1d4fa09575cc749793e2675` |
 | `ModernCombatVersus.exe.config` | `3ebe99b3c93a9540cd7f7b03da55fc048a544501c17e8621457884eae456f94c` |
 
 Any difference in this table stops the round until it is explained: the bytes you run must be the bytes we tested.
 (The config is the one WR2 ran and build 16 wrote, with no `<qualifyAssembly>` lines: builds 14 and 15 wrote
 `fda12aef…c4b6`, which has five of them. `Game.dll` changed with the new `inbox` patch, the other DLLs with the server.
-An install over build 16 writes exactly these values too (checked on Linux). Over a build-16 install, `status` says
-`installed, current` with `installed by: … (server build 16)` until you run `install`: run it.)
+An install over build 16 writes exactly these values too (checked on Linux). Over a build-16 install, this kit's
+`status` and `verify` say `installed, OLDER BUILD - OLDER BUILD (16; this kit installs build 17): run install to update
+it`: run it.)
 
 ## 8. What to send back
 

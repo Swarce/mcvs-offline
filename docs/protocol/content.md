@@ -15,7 +15,7 @@ verify-C6 §2.6, §5; report 04 §4-6, §10-11, §15; report 06 §4.5-4.8; repor
 | GET | `lobbyconfigs/{clientId}/{serverType}` | `matchmaker.lobbyconfigs` | 200 `{"game":{...,"cmd_args"},"automatchers":{...}}` | verify-C2 §1.3-1.4, report 06 §4.8 | implemented |
 | GET | `rooms/{clientId}` | `matchmaker.rooms.find` | 200 `[]` + warning (rooms live in the local Finder) | `EN/ClientLink.cs:377-440` | conservative |
 | POST | `rooms/{clientId}/quick_launch`, `rooms/{clientId}/automatch/{automatcher}` | `matchmaker.rooms.*` | 404 `{"error"}` + warning: only reached outside Embedded mode | `EN/ClientSettings.cs:341-351` OverrideAnubisHost | conservative |
-| GET | `coupons/{clientId}/{code}` | `assets.coupon` | an unlock code: 200 `[]`, its keys go into the player's inventory ledger (below); an inbox code: 200 `[{"type":"<rewardId>","quantity":<int>}, ...]` (at most 300); 404 = "coupon does not exist" (also every refusal); the page code (`admin.redeemCode`) is always 404 and may open the settings page (below) | verify-C5 (b), `EN/AssetsComponent.cs:180-210`, inbox-freeze report §3 F1 | implemented |
+| GET | `coupons/{clientId}/{code}` | `assets.coupon` | an unlock code: 200 `[]`, its keys go into the player's inventory ledger (below); an inbox code: 200 `[{"type":"<rewardId>","quantity":<int>}, ...]` (at most 300); 404 = "coupon does not exist" (also every refusal); the page code (`admin.redeemCode`) is always 404 and may open the settings page (below) | verify-C5 (b), `EN/AssetsComponent.cs:180-210`, [research/inbox-freeze.md](../research/inbox-freeze.md) §3 F1 | implemented |
 | GET | `assets/{clientId}` | `assets.list` | 200 `[{name, hash (sha256), size}]` of `<data>/assets` (normally `[]`) | report 10 §5 | implemented |
 | GET | `assets/{clientId}/{name}` (+ `/metadata[/{attr}]`, `/url`) | `assets.get` | the local file (Range → 206/416), metadata JSON, URL text; 404 when not provided | report 04 §11 | implemented |
 | GET | `_mcvs/crm` / POST `_mcvs/crm/reload` | `crm.debug` / `crm.reload` | diagnostics: preconfiguration source, size, `_ServerConfig.default`, validation problems, the `collector` block (below) / rebuild | ours | implemented |
@@ -278,7 +278,9 @@ listing in `GET assets/{cid}`. Names are sanitised (no `..`, no absolute paths).
 - [ ] Merc detail shows VersusCoins and HC buttons; buying works with VersusCoins.
 - [ ] Skins shop and signature screen list our entries; VersusCoins hub tab renders weapons, gear slots, mod tiers,
       crates, packs, VIP; packs grant 10 distinct items.
-- [ ] Redeem code button visible; `UNLOCKALL` inbox message (≈11k rewards) claims fully; else use the split codes.
+- [ ] Redeem code button visible; `UNLOCKALL` says redeemed and leaves one empty Coupon message; the keys arrive in
+      about 30 ledger batches with a popup each; an old full coupon message (build 16 or earlier) claims fully with
+      the `inbox` patch.
 - [ ] Economy multipliers (MUL cells) change match rewards on the GS (`*` on integer columns).
 - [ ] The preconfiguration is found in the embedded layout on first boot after the installer finished.
 - [ ] With live ops: the TS refetches `configs/users/me` once at each `expiry` (midnight UTC, Monday), not in a loop;

@@ -140,9 +140,10 @@ request; `--art` is a separate option):
   `HashSet<string>` (lists of more than 16 ids) instead of `List.Contains` per table row, and
   `GameOfflineStore.GetKillSignItems` builds the avatar/background list once per call instead of once per owned item
   (the kill-signature screen froze for minutes after unlock-all).
-- `inbox` (default, build 17, Android and PC): a redeem code is one inbox message with all its rewards (UNLOCKALL 11,368),
-  and opening the inbox built every reward of every message on the game thread (`InboxComponent.GetObject` →
-  `GenerateRewardsObjects` → `RewardItem.GetObject`), again on every constant frame of every 10th second. Now
+- `inbox` (default, build 17, Android and PC): up to build 16 a redeem code was one inbox message with all its rewards
+  (UNLOCKALL 11,368); since build 17 the unlock codes go through the ledger, and the patch covers messages already in a
+  profile and any other big message. Opening the inbox built every reward of every message on the game thread
+  (`InboxComponent.GetObject` → `GenerateRewardsObjects` → `RewardItem.GetObject`), again on every constant frame of every 10th second. Now
   `GenerateRewardsObjects` (through the added `Game.McvsInbox`) builds at most 30 rewards plus every Gear reward (Flash's
   gear-inventory-full check), each in try/catch (a throwing reward is skipped and reported through
   `GameHooks.InboxRewardException`); `GetObject` adds `RewardsTotal`; the claim popup's `Concat(...).ToList()` in
@@ -257,8 +258,8 @@ over loopback — send `false` unless the player enabled it), `_OverrideTables` 
 **Economy / unlocks.** Everything purchasable for **VersusCoins** (the repeatable currency; HC is
 finite) via `offline_store` and the generic `#VersusCoins` hub category (which can sell any reward
 string, incl. weapons, camos, sounds, crates). Unlock-all, all opt-in through settings: dev cheat
-menu, a coupon code (`assets coupons/{cid}/{code}` → `[{type:"UnlockMerc_2",quantity:1}, ...]`),
-and the inventory ledger.
+menu, a coupon code (`assets coupons/{cid}/{code}`: the code's keys go into the inventory ledger and the
+game gets `[]`, [protocol/content.md](protocol/content.md) "Coupons"), and the inventory ledger.
 
 **Everything else** (social events, Hermes messaging/inbox, Kairos alerts, Olympus leaderboards,
 game_stats, profanity, chat, clans, wall, bantool, Iris assets, geolocation): well-formed minimal

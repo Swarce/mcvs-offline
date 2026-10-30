@@ -48,13 +48,16 @@ the HD textures and the graphics profiles work, at the same frame rate as before
 
 ### What build 17 contains
 
-`80378cf` on `wip/pc-port` (`McvsVersion.Build` is `17`). APK: `mcvs-offline-80378cf.apk` (SHA-256 `b6bcb82b…2219`;
+`a8742ab` on `wip/pc-port` (`McvsVersion.Build` is `17`; after the review fixes below, which replaced the first cut
+`80378cf`/`96801b4`). APK: `mcvs-offline-a8742ab.apk` (SHA-256 `d4d332f1…16a4`;
 default patch set, now with `inbox`; the same key as every build: certificate SHA-256 `fc0db84e…7d16`, targetSdk 35,
 both ABIs, `isGame` and `appCategory`, zipalign OK); it installs over build 15 as usual (build 16 had no APK).
 Compared entry by entry with build 15 (`mcvs-offline-1a70a5b.apk`): the same 952 entries in the same order; changed
 only the server DLL, `Game.dll` (the `inbox` patch), the signature files and the 16 MVID bytes of
 `Gameloft.Engine.dll`, `Gameloft.Util.dll` and `NicePlaySDK.dll` ([design/pc-port.md](design/pc-port.md) §13.1). The
-PC kit `McvsOffline.PcKit.exe` (win-x64, one file, SHA-256 `ba8a977ff926c58746406ecd81e81f0b8a6f162a1be68ccf7620058c9d7350e5`) replaces build 16's for WR3.
+PC kit `McvsOffline.PcKit.exe` (win-x64, one file, SHA-256 `804dd546825a27af92712062a3ec8603e114c9c4bc34ebb016b7fcee64fc3ec2`)
+replaces build 16's for WR3. The first cut's APK (`mcvs-offline-80378cf.apk`, `b6bcb82b…2219`) and kit (`ba8a977f…50e5`)
+are superseded: use these.
 
 **The owner's report.** "The game simply freezes when I go to the inbox, but only after redeeming specific codes, not
 all of them."
@@ -64,14 +67,16 @@ game build every reward of every unclaimed message on the game thread (`InboxCom
 `GetObject` → `GenerateRewardsObjects` → `RewardItem.GetObject`; for a camo or a jersey that builds a whole merc or
 scans the accessory table), copies all of it into Flash several times and draws one card per reward of the selected
 message. While the inbox stays open the C# part runs again on every constant frame of every 10th second
-(`RefreshUI`, whose `lastRefreshUIDone` was written and never read). The code's size is the whole difference:
+(`RefreshUI`, whose `lastRefreshUIDone` was written and never read). The code's size is the whole difference. The
+right column is predicted from the code ([research/inbox-freeze.md](research/inbox-freeze.md) §2): only the owner's
+report and WR2's freeze with stacked codes (below) were observed, nothing was measured per code:
 
-| code | rewards | inbox on open (build 16) |
+| code | rewards | predicted on inbox open (build 16, from the code) |
 |---|---|---|
 | `UNLOCKALL` (and `UNLOCKALL2`, case variants) | 11,368 | freezes, practically for good (PC: may end in a crash) |
 | `UNLOCKPAID`, `UNLOCKACCESSORIES`, `UNLOCKCAMOS` | 4,450-5,644 | freezes for minutes, again every 10 s |
 | `UNLOCKPAIDACCESSORIES`, `UNLOCKPAIDCAMOS` | 2,704-2,960 | freezes, shorter |
-| `UNLOCKSIGNATURES` | 1,549 | stalls for seconds, every 10 s |
+| `UNLOCKSIGNATURES` | 1,549 | likely stalls for seconds, every 10 s |
 | `UNLOCKGEARSLOTS`, `UNLOCKSKINS`, `UNLOCKWEAPONS`, `UNLOCKMERCS`, `UNLOCKUNRELEASED` | 6-150 | no freeze |
 
 An unclaimed big message stays in the profile (saved with it) for 7 days, so after one big code **every** later
@@ -119,8 +124,9 @@ whatever a profile holds, so it also **rescues profiles that already hold a gian
 * PC only: `KillSignatureRewardItem.IsRandom` gets the null check Android already has (an own coupon with a kill
   signature and no id).
 
-The boot line names it (`[boot] patches: … store yes, inbox yes`); the settings page's Status warns when the running
-Game.dll lacks it (a banner, "The game was patched without MCVS Offline's 'inbox' patch: opening the inbox freezes the
+On PC the boot line names it (`[boot] patches: … store yes, inbox yes`); on Android the server log's Debug line
+`Game.dll: … 'inbox' patch present` and the settings page's Status show it (Android writes no `[boot] patches:` line).
+The settings page's Status warns when the running Game.dll lacks it (a banner, "The game was patched without MCVS Offline's 'inbox' patch: opening the inbox freezes the
 game while a big redeem-code message … is unclaimed", and `Game patches: missing: inbox`).
 [PLAYER-SETUP.md](PLAYER-SETUP.md) §4, [design/pc-port.md](design/pc-port.md) §8.1.
 
@@ -130,17 +136,42 @@ holds the three copies equal. The expected WR3 values are re-recorded ([design/p
 [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7): `Game.dll` changed with the patch; EngineBridge, Gameloft.Engine,
 Gameloft.Util with the server DLL; the config is build 16's (`3ebe99b3…f94c`); `serverBuild` is `17`.
 
+**Review fixes (`2ce6ee4`, `a8742ab` and the docs after them).**
+
+* The kit's `status` and `verify` call an install of an older build `installed, OLDER BUILD - OLDER BUILD (16; this
+  kit installs build 17): run install to update it (your saves and settings stay)`, and `verify` fails on it (exit 1).
+  Before, build 17's kit called a build-16 install `installed, current`: it records only build 16's patches, so the
+  missing `inbox` had no witness to miss, and a build-16 server still sends the unlock codes to the inbox as one
+  message (the freeze). The kit compares `install.json`'s `serverBuild` with `McvsVersion.Build` of the server DLL it
+  carries (`PcInstaller.ServerBuildOf`, or `--server`'s); DAMAGED, STALE and NOT ACTIVE keep their state and get the
+  same problem line ([design/pc-port.md](design/pc-port.md) §7.6). Tests: `PcOlderBuildTests`,
+  `KitCommandTests.StatusAndVerifyCallAnInstallOfAnOlderBuildOlder`.
+* The settings page's code list: a numbered repeat "gives only what an earlier code or unlockAll did not already give
+  (items from play, crates, the store or an old coupon message count as new once)", instead of "only what is still
+  missing" (the ledger does not know what an old inbox claim gave). This changed the server DLL, so the APK, the kit
+  and every expected WR3 value were rebuilt and re-recorded.
+* Docs: the checklist below gained step 3 (a code on items an old message gave) and PLAYER-SETUP-PC step 8a (WR2's
+  old coupon messages on the PC); the per-code table says it is predicted; the boot line is PC only;
+  [ARCHITECTURE.md](ARCHITECTURE.md) and [protocol/content.md](protocol/content.md)'s device checklist no longer
+  describe the codes as one inbox message; the investigation is in the repo now,
+  [research/inbox-freeze.md](research/inbox-freeze.md); PLAYER-SETUP-PC step 1 had kept build 16's kit hash.
+
 **Checked**: `McvsOffline.sln` (Release), the Android embedded DLL against the APK's assemblies and the PC DLL with
 `Gameloft.Logs`; all four test projects with `MCVS_REFS`, `MCVS_PC_REFS`, `MCVS_APK`, `MCVS_DATAPACK`,
 `MCVS_BUILD_TOOLS`, `MCVS_REQUIRE_REAL_CLIENT=1`, `MCVS_REQUIRE_PC=1`, `MCVS_REQUIRE_PC_E2E=1`, `MCVS_REQUIRE_EMBEDDED=1`,
-`MCVS_REQUIRE_BUILD_TOOLS=1` and `MCVS_REQUIRE_NODE=1`: **McvsOffline.Tests 1564/1564, McvsOffline.Embed.Tests 911/911, McvsOffline.PcKit.Tests 62/62, McvsOffline.PcSpike.Tests 62/62, 0 skipped** (2,599; the first Embed run found three tests the `inbox` branch had not updated for the real APK, the note totals and P5's Android output, fixed in `80378cf`). `PcInstallerTests.RealFolderEndToEnd` ran
+`MCVS_REQUIRE_BUILD_TOOLS=1` and `MCVS_REQUIRE_NODE=1`, at `a8742ab`: **McvsOffline.Tests 1564/1564,
+McvsOffline.Embed.Tests 924/924, McvsOffline.PcKit.Tests 63/63, McvsOffline.PcSpike.Tests 62/62, 0 skipped** (2,613;
+the first cut's run was 2,599, and its first Embed run found three tests the `inbox` branch had not updated for the
+real APK, the note totals and P5's Android output, fixed in `80378cf`). `PcInstallerTests.RealFolderEndToEnd` ran
 with `inbox` in the PC set: every recorded witness present, ILVerify findings equal to the stock files'. The
 content-gen tests: 32/32. The PC end to end on Linux (§12.6) on a temp copy of the Steam files: `pc install`,
 `verify`, `status` (`installed, current`, `activation: NOT VERIFIED` before a start), a second install with the same
 bytes, `uninstall` restoring the exact listing; a build-16 install (the `c2b5076` patcher) upgraded by build 17's
-`install` to exactly the bytes of §13.1 (before that, build 17's `status` calls the build-16 install `installed,
-current`, with `installed by: … (server build 16)`: a build-16 `Game.dll` records no `inbox` to check). Not checked: anything on a phone or on Windows; the timing of the batches
-and popups in the real game.
+`install` to exactly the bytes of §13.1 (before that, the build-17 kit's `status` says `installed, OLDER BUILD` and its
+`verify` fails; the patcher CLI, which does not compare, says `installed, current`). The APK compared with the first
+cut's: only the server DLL, the signature files and the 16 MVID bytes of `Game.dll`, `Gameloft.Engine.dll`,
+`Gameloft.Util.dll` and `NicePlaySDK.dll` differ. Not checked: anything on a phone or on Windows; the timing of the
+batches and popups in the real game.
 
 ### What to check on the phone and the PC (build 17)
 
@@ -157,18 +188,26 @@ code tests (settings page › Saves › Export first, or a fresh profile).
    it opens **within seconds**, the message shows 30 rewards; staying in the inbox does not freeze every 10 s. Press
    **Claim**: the popup lists 30, and afterwards **everything** of the message is owned (camos and jerseys of every
    agent); the message is gone. Repeat with UNLOCKALL's old message if one is at hand.
-3. **Small codes.** `UNLOCKMERCS`, `UNLOCKSKINS` (fresh profile copy): redeemed, items arrive (ledger, a popup or
+3. **A code on what step 2 claimed.** On the same profile copy, which now owns the old message's items from the
+   inbox (not in the ledger): redeem `UNLOCKCAMOS2` (or `UNLOCKPAIDCAMOS` after an old `UNLOCKPAIDCAMOS`). The code
+   writes those keys again and the game claims them again: the one path nobody has seen
+   ([protocol/unlocks.md](protocol/unlocks.md), open items). Record the batches, the popups, any `[watchdog] STALL`,
+   what the duplicate camos and jerseys turn into (nothing, a second copy, gear or currency) and the gear inventory
+   (full?).
+4. **Small codes.** `UNLOCKMERCS`, `UNLOCKSKINS` (fresh profile copy): redeemed, items arrive (ledger, a popup or
    two); a repeat (`UNLOCKMERCS2`) gives nothing new and no error. `MCVSOFFLINE` still opens the settings page.
-4. **Settings page.** Settings › Unlocks & codes: the text says the codes arrive in batches, not in the inbox; an
+5. **Settings page.** Settings › Unlocks & codes: the text says the codes arrive in batches, not in the inbox; an
    own inbox code with more than 300 rewards in `settings.json` `assets.coupons` shows its warning in the code list
    and is refused when redeemed (WARN "would freeze the game's inbox"). Status: no `inbox` warning with build 17; a
    Game.dll without the patch (an APK patched with `--patch` without `inbox`) shows the banner and `Game patches:
    missing: inbox`.
-5. **LAN mode on**: redeem `UNLOCKSKINS`: the game says the code does not exist; `server.log` says why. Turn LAN off.
-6. **PC (WR3)**: step 4's `[boot] patches:` line ends `store yes, inbox yes`; `verify` prints the values of
-   [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7; step 8b as written there (one empty Coupon message, the batches with
-   a popup each, the `done` line).
-7. As always: boot to the menu, one Classic bot match, the shop, the page (Status, Settings, Saves › Save now).
+6. **LAN mode on**: redeem `UNLOCKSKINS`: the game says the code does not exist; `server.log` says why. Turn LAN off.
+7. **PC (WR3)**: before `install`, the build-17 kit's `status` over the build-16 install says `installed, OLDER
+   BUILD - OLDER BUILD (16; this kit installs build 17): run install …`; after it, PLAYER-SETUP-PC step 4's
+   `[boot] patches:` line ends `store yes, inbox yes`; `verify` prints the values of
+   [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7; steps 8a (WR2's old coupon messages: 30 shown, Claim gives all) and 8b
+   as written there (one empty Coupon message, the batches with a popup each, the `done` line).
+8. As always: boot to the menu, one Classic bot match, the shop, the page (Status, Settings, Saves › Save now).
 
 ## Build 16 (PC only, October 2026): the config that kept MCVS Offline from starting, and start diagnostics
 

@@ -264,7 +264,7 @@ are listed in the design, §4.4.
 * A merc detail screen with two prices (VersusCoins and HC) shows both buttons (the shipped preconfiguration had
   two-price mercs, so the client supports it).
 * The ≈11k-reward UNLOCKALL inbox message (UI and save size) — gone: every unlock code is delivered through the
-  ledger (inbox-freeze report: the inbox rebuilt every reward of every unclaimed coupon message on open and every 10 s).
+  ledger ([research/inbox-freeze.md](research/inbox-freeze.md): the inbox rebuilt every reward of every unclaimed coupon message on open and every 10 s).
 * Keys a profile claimed earlier through a coupon inbox message (builds up to 16) are not in the ledger, so a code
   redeemed now writes them and the TS claims them again; for camos and jerseys the game's duplicate handling is
   unverified [G] (test once on a profile that claimed UNLOCKCAMOS from the inbox).
