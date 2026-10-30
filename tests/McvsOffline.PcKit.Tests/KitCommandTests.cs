@@ -116,7 +116,8 @@ namespace McvsOffline.PcKit.Tests
 
                 Directory.CreateDirectory(Path.Combine(box.Temp, "McvsOffline"));
                 File.WriteAllText(Path.Combine(box.Temp, "McvsOffline", "hook.txt"),
-                                  "2026-11-02T18:10:00.000Z hook-pc start pid 7 exe x dll y\r\n" +
+                                  "2026-11-02T18:10:00.000Z hook-pc start pid 7 exe " + Path.Combine(box.Game, GameFolder.ExeName) + " dll " +
+                                  Path.Combine(GameFolder.BinDir(box.Game), "EngineBridge.dll") + "\r\n" +
                                   "2026-11-02T18:10:00.010Z hook-pc McvsOfflineInit failed (pid 7): System.IO.FileNotFoundException: McvsOffline.Server\r\n");
                 box.Out.GetStringBuilder().Clear();
                 Assert.Equal(PcExitCodes.Ok, Program.Run(box.Env, box.Options("status")));
