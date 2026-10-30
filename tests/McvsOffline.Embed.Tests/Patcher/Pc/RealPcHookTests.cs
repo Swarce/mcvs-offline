@@ -1,10 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using McvsOffline.Embed.Tests.Support;
@@ -89,26 +92,62 @@ namespace McvsOffline
             patched["Gameloft.Engine.dll"] = FixtureCompiler.Compile("Gameloft.Engine", EngineSource);
             byte[] server = FixtureCompiler.Compile("McvsOffline.Server", RecordingServerSource);
 
-            foreach (var (serverImage, throws, expected) in new[]
+            string marker = Path.Combine(Path.GetTempPath(), EngineBridgeHookPatch.MarkerFolder, EngineBridgeHookPatch.MarkerFile);
+            byte[] markerBefore = File.Exists(marker) ? File.ReadAllBytes(marker) : null;
+            string pid = OperatingSystem.IsWindows() ? Environment.ProcessId.ToString(CultureInfo.InvariantCulture) : "?";   // kernel32 only on Windows
+            try
             {
-                (server, false, new[] { "Init", "MainLoop.Start(0, null, False)" }),
-                (server, true, new[] { "Init", "MainLoop.Start(0, null, False)" }),
-                ((byte[])null, false, new[] { "MainLoop.Start(0, null, False)" }),
-            })
-            {
-                var order = new List<string>();
-                AppContext.SetData(OrderKey, order);
-                using (var game = new RealGamePatchTests.GameContext(pc, patched, serverImage))
+                foreach (var (serverImage, throws, expected, failure) in new[]
                 {
-                    if (serverImage != null) game.Get("McvsOffline.Server").GetType("McvsOffline.Bootstrap", true).GetField("Throws").SetValue(null, throws);
-                    Type bridge = game.Get("EngineBridge").GetType("EngineBridge.Class1", true);
-                    object instance = Activator.CreateInstance(bridge);
-                    bridge.GetMethod("Start").Invoke(instance, null);
+                    (server, false, new[] { "Init", "MainLoop.Start(0, null, False)" }, (string)null),
+                    (server, true, new[] { "Init", "MainLoop.Start(0, null, False)" }, "System.InvalidOperationException: Init failed"),
+                    ((byte[])null, false, new[] { "MainLoop.Start(0, null, False)" }, "McvsOffline.Server"),
+                })
+                {
+                    var order = new List<string>();
+                    AppContext.SetData(OrderKey, order);
+                    long markerLength = File.Exists(marker) ? new FileInfo(marker).Length : 0;
+                    DateTime before = DateTime.UtcNow.AddSeconds(-1);
+                    string location;
+                    using (var game = new RealGamePatchTests.GameContext(pc, patched, serverImage))
+                    {
+                        if (serverImage != null) game.Get("McvsOffline.Server").GetType("McvsOffline.Bootstrap", true).GetField("Throws").SetValue(null, throws);
+                        Type bridge = game.Get("EngineBridge").GetType("EngineBridge.Class1", true);
+                        location = bridge.Assembly.Location;
+                        object instance = Activator.CreateInstance(bridge);
+                        bridge.GetMethod("Start").Invoke(instance, null);
+                    }
+                    output.WriteLine((serverImage == null ? "no server" : throws ? "throwing Init" : "server") + ": " + string.Join(", ", order));
+                    Assert.Equal(expected, order);
+
+                    // The marker: a start line before Init, and the exception after it when Init failed (or could not be bound).
+                    string added = File.ReadAllText(marker).Substring((int)markerLength);
+                    output.WriteLine(added);
+                    Assert.EndsWith("\r\n", added);
+                    int firstEnd = added.IndexOf("\r\n", StringComparison.Ordinal);
+                    string startLine = added.Substring(0, firstEnd), rest = added.Substring(firstEnd + 2);
+                    DateTime at = DateTime.ParseExact(startLine.Substring(0, 24), EngineBridgeHookPatch.MarkerTimeFormat, CultureInfo.InvariantCulture,
+                                                      DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal);
+                    Assert.InRange(at, before, DateTime.UtcNow.AddSeconds(1));
+                    Assert.Equal(EngineBridgeHookPatch.MarkerStart + pid + " exe " + Environment.GetCommandLineArgs()[0] + " dll " +
+                                 location, startLine.Substring(24));
+                    if (failure == null)
+                    {
+                        Assert.Equal("", rest);
+                        continue;
+                    }
+                    // The exception text may hold line breaks of its own (the stack trace): one entry, ending the addition.
+                    Assert.StartsWith(EngineBridgeHookPatch.MarkerFailed + pid + "): ", rest.Substring(24));
+                    Assert.Contains(failure, rest);
+                    Assert.Equal(1, Regex.Matches(rest, " hook-pc ").Count);
                 }
-                output.WriteLine((serverImage == null ? "no server" : throws ? "throwing Init" : "server") + ": " + string.Join(", ", order));
-                Assert.Equal(expected, order);
             }
-            AppContext.SetData(OrderKey, null);
+            finally
+            {
+                AppContext.SetData(OrderKey, null);
+                if (markerBefore == null) File.Delete(marker);
+                else File.WriteAllBytes(marker, markerBefore);
+            }
         }
 
         [Fact]
