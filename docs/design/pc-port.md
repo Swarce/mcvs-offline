@@ -445,11 +445,11 @@ WP3 only look them up by these names:
 | `inbox` | `Game.dll` | type `Game.McvsInbox` (`InboxPatch.HelperType`, `GamePatchProbe.InboxType`; build 17) | yes |
 
 The constants live in the patch classes (WP4) and are duplicated as string literals in `GamePatchProbe` (WP2) and
-`PcInstaller` (WP3); `PcHookContractTests` (§12.4) asserts the three copies are equal. Open (build 17): `inbox` is not yet
-in `PcInstaller.Witnesses` (patcher/Pc was frozen while build 16 worked on it), so the kit's `verify`/`status` do not check
-it and only the boot `patches:` line reports a Game.dll without it. Integration adds
-`["inbox"] = new PcWitness("Game.dll", "Game.McvsInbox", null)` and its row in
-`PcHookContractTests.TheWitnessNamesAreTheDesignsAndTheirCopiesAgree`.
+`PcInstaller` (WP3); `PcHookContractTests` (§12.4) asserts the three copies are equal. `inbox` is in
+`PcInstaller.Witnesses` since build 17 (`["inbox"] = new PcWitness("Game.dll", "Game.McvsInbox", null)`, with its row in
+`PcHookContractTests.TheWitnessNamesAreTheDesignsAndTheirCopiesAgree`), so the kit's `verify`/`status` re-read it like
+`store`; `PcInstallerTests.RealFolderEndToEnd` checks every recorded witness in the installed copies (the default PC set,
+`inbox` included) and ILVerifies them.
 
 ### 3.10 `install.json` (format 1)
 

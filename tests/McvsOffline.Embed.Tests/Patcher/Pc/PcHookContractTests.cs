@@ -133,6 +133,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 ["graphics"] = (new GraphicsPatch().AssemblyFile, "Gameloft.Engine." + GraphicsPatch.HelperType, null),
                 ["gameload"] = (new GameAssemblyLoadPatch().AssemblyFile, GameAssemblyLoadPatch.HelperNamespace + "." + GameAssemblyLoadPatch.HelperType, null),
                 ["store"] = (new StorePatch().AssemblyFile, "Game." + StorePatch.SafetyType, null),
+                ["inbox"] = (new InboxPatch().AssemblyFile, "Game." + InboxPatch.HelperType, null),
             };
             var actual = McvsOffline.Patcher.Pc.PcInstaller.Witnesses.ToDictionary(
                 kv => kv.Key, kv => (kv.Value.AssemblyFile, kv.Value.TypeName, kv.Value.MemberName), StringComparer.Ordinal);

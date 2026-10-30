@@ -85,7 +85,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         {
             return new List<IlPatch>
             {
-                new StandInHookPcPatch(), new BotTilePatch(), new StorePatch(), new SignaturesPatch(), new HeadlessEnginePatch(), new PhysicsPatch(),
+                new StandInHookPcPatch(), new BotTilePatch(), new StorePatch(), new SignaturesPatch(), new InboxPatch(), new HeadlessEnginePatch(), new PhysicsPatch(),
                 new GameAssemblyLoadPatch(), new GeoPatch(),
             };
         }
@@ -219,7 +219,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 Assert.Equal(OurFiles.Where(f => f != "McvsOffline/install.json"), m.Written.Select(w => w.Path));
                 foreach (InstallWritten w in m.Written) Assert.Equal(after[w.Path], w.Sha256);
                 Assert.Equal(new[] { "hook-pc" }, m.FindWritten("McvsOffline/bin/EngineBridge.dll").Patches);
-                Assert.Equal(new[] { "bottile", "store", "signatures" }, m.FindWritten("McvsOffline/bin/Game.dll").Patches);
+                Assert.Equal(new[] { "bottile", "store", "signatures", "inbox" }, m.FindWritten("McvsOffline/bin/Game.dll").Patches);
                 Assert.Equal(new[] { "geo" }, m.FindWritten("McvsOffline/bin/Gameloft.Util.dll").Patches);
                 InstallWritten server = m.FindWritten("McvsOffline/bin/McvsOffline.Server.dll");
                 Assert.Null(server.Patches);
@@ -245,7 +245,10 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                         }
                     }
                     using (ModuleDefinition game = ModuleDefinition.ReadModule(copy.Path_("McvsOffline/bin/Game.dll"), reader))
+                    {
                         Assert.True(PcInstaller.Witnesses["store"].IsIn(game));
+                        Assert.True(PcInstaller.Witnesses["inbox"].IsIn(game));
+                    }
                     using (ModuleDefinition bridge = ModuleDefinition.ReadModule(copy.Path_("McvsOffline/bin/EngineBridge.dll"), reader))
                         Assert.True(PcInstaller.Witnesses["hook-pc"].IsIn(bridge));
                 }
@@ -704,8 +707,41 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 Assert.True(verify.ExitCode == 0, verify.Error);
                 output.WriteLine("WR2 expected values (written SHA-256):");
                 foreach (string path in verify.Written) output.WriteLine("  " + path + "  " + verify.WrittenSha256[path]);
+                AssertEveryWitness(copy);
                 IlVerifyOutputs(copy, serverDll);
             }
+        }
+
+        /// <summary>
+        /// Every patch install.json records on a written assembly and that has a witness (§3.9) is present in that file, and the default
+        /// PC set records 'store' and 'inbox' on Game.dll (the witness the kit's verify/status re-read since build 17).
+        /// </summary>
+        private void AssertEveryWitness(PcGameCopy copy)
+        {
+            InstallManifest m = InstallManifest.Parse(File.ReadAllText(copy.Path_("McvsOffline/install.json")));
+            Assert.Contains("store", m.FindWritten("McvsOffline/bin/Game.dll").Patches);
+            Assert.Contains("inbox", m.FindWritten("McvsOffline/bin/Game.dll").Patches);
+            int checkedWitnesses = 0;
+            ReaderParameters reader = TestEnvironment.PcReader(copy.Game, copy.ServerFolder);
+            using (reader.AssemblyResolver)
+            {
+                foreach (InstallWritten w in m.Written.Where(w => w.Patches != null))
+                {
+                    using (ModuleDefinition module = ModuleDefinition.ReadModule(copy.Path_(w.Path), reader))
+                    {
+                        foreach (string id in w.Patches)
+                        {
+                            PcWitness witness;
+                            if (!PcInstaller.Witnesses.TryGetValue(id, out witness)) continue;
+                            Assert.Equal(Path.GetFileName(w.Path), witness.AssemblyFile);
+                            Assert.True(witness.IsIn(module), w.Path + ": witness of '" + id + "' (" + witness + ") missing");
+                            checkedWitnesses++;
+                        }
+                    }
+                }
+            }
+            Assert.Equal(PcInstaller.Witnesses.Count, checkedWitnesses);
+            output.WriteLine("witnesses present: " + string.Join(", ", PcInstaller.Witnesses.Keys));
         }
 
         /// <summary>The PC patches D0-d added as skeletons that throw "&lt;id&gt;: not implemented" (§11.4); WP4 implements them.</summary>

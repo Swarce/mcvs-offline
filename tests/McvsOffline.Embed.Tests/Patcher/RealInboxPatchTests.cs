@@ -500,7 +500,7 @@ namespace McvsOffline.Embed.Tests.Patcher
                 Assert.Equal(1, first);
                 return;
             }
-            Assert.True(false, "never stayed inside one :x0 second for the 80 frames");
+            Assert.Fail("never stayed inside one :x0 second for the 80 frames");
         }
 
         /// <summary>Sleeps until the start of the next second whose number ends in 0 (it may already be one: then at once).</summary>

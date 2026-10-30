@@ -292,6 +292,7 @@ namespace McvsOffline.Patcher.Pc
             ["graphics"] = new PcWitness("Gameloft.Engine.dll", "Gameloft.Engine.McvsGraphics", null),
             ["gameload"] = new PcWitness("Gameloft.Engine.dll", "Gameloft.Engine.McvsGameLoad", null),
             ["store"] = new PcWitness("Game.dll", "Game.McvsStoreSafety", null),
+            ["inbox"] = new PcWitness("Game.dll", "Game.McvsInbox", null),
         };
 
         public const string StaleAdvice = "Steam updated the game: run uninstall, wait for a kit that knows this build";
