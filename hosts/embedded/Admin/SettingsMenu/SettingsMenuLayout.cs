@@ -15,10 +15,11 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
     /// MenuBase.onFocusIn calls before <c>MenuSettings.setup()</c>; the step runs at the start of the next frame, after setup().
     /// <para>The step reads everything before it writes anything (the build-13 rule): the menu on top of <c>MenusStack</c> is
     /// <c>menu_settings</c>, its <c>mc_panel.currentFrame</c> is 1 on Steam or 3 on Android (never the in-match 2, Kayac 4 or
-    /// Chinese 5), every instance the plan names exists and every tile is <see cref="SettingsMenuNames.TileWidth"/> wide (±2). It then
-    /// writes: on Android first <c>btn_forum.setup({title, icon})</c> (if that throws, nothing else moves); <c>visible=false</c> and
-    /// <c>mouseEnabled=false</c> on the removed instances; absolute <c>x</c>/<c>y</c> as floats on the kept ones (this also ends Steam's
-    /// relative drift of CUSTOMER CARE and ABOUT, PC MenuSettings.as:253-258). <see cref="SettingsMenuState.TileActive"/> is set only
+    /// Chinese 5: any other frame fails the step like a missing instance), every instance the plan names exists and every tile is
+    /// <see cref="SettingsMenuNames.TileWidth"/> wide (±2). It then writes: on Android first <c>btn_forum.setup({title, icon})</c>
+    /// (if that throws, nothing else moves); <c>visible=false</c> and <c>mouseEnabled=false</c> on the removed instances; absolute
+    /// <c>x</c>/<c>y</c> as floats on the kept ones (this also ends Steam's relative drift of CUSTOMER CARE and ABOUT, PC
+    /// MenuSettings.as:253-258). <see cref="SettingsMenuState.TileActive"/> is set only
     /// after every write succeeded. One log line: "settings menu: frame 3, 7 tiles + ABOUT laid out" or "... not laid out (reason)".</para>
     /// <para>Settings (read per step): <c>admin.settingsMenu.trim</c> off → no relayout; <c>admin.settingsMenu.performance</c> on
     /// (Android) → the re-dress, in place when the trim is off (T-B7). Performance off with the trim on: FORUM stays hidden and row 2
@@ -191,8 +192,9 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
 
         /// <summary>
         /// Game thread, after MenuSettings.setup(): the step above on <see cref="ISettingsMenuHost.ClientUi"/>. Logs exactly one line
-        /// when it lays out or finds a reason not to (the in-match frame 2 logs nothing: that panel opens every match; both switches
-        /// off logs nothing either). Never throws; every wrapper it got is disposed.
+        /// when it lays out or finds a reason not to (both switches off logs nothing). Any frame but the plan's is such a reason, the
+        /// in-match 2 too: only <c>settings_main_screen</c> posts the step (the pause panel enters <c>pvp_settings_screen</c>), so a
+        /// wrong frame here is an anomaly. Never throws; every wrapper it got is disposed.
         /// <para><see cref="SettingsMenuState.RedressFailed"/> is set (for the process: the R4 gate) whenever the step meant to re-dress
         /// the tile and did not, also for a reason found while reading: a game update that moved an instance would otherwise hide
         /// FRAME RATE LIMIT from Gameplay Settings with no page to reach it.</para>
@@ -217,10 +219,9 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 using (var flash = new FlashScope(ui))
                 {
                     string done;
-                    bool silent;
-                    string problem = TryApply(flash, state, Plan(windows, redress), trim, redress, out done, out silent);
+                    string problem = TryApply(flash, state, Plan(windows, redress), trim, redress, out done);
                     if (problem == null) Write(host, done);
-                    else if (!silent) Fail(host, state, redress, problem);
+                    else Fail(host, state, redress, problem);
                 }
             }
             catch (Exception ex)
@@ -231,13 +232,12 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         }
 
         /// <summary>
-        /// Null when done (<paramref name="done"/> is the log line), else why not (<paramref name="silent"/>: not worth a line). Reads
-        /// everything before it writes anything; a write that throws after the re-dress puts the stock FORUM dress back and rethrows.
+        /// Null when done (<paramref name="done"/> is the log line), else why not. Reads everything before it writes anything; a
+        /// write that throws after the re-dress puts the stock FORUM dress back and rethrows.
         /// </summary>
-        private static string TryApply(FlashScope flash, SettingsMenuState state, LayoutPlan plan, bool trim, bool redress, out string done, out bool silent)
+        private static string TryApply(FlashScope flash, SettingsMenuState state, LayoutPlan plan, bool trim, bool redress, out string done)
         {
             done = null;
-            silent = false;
             object stack = flash.Class("gluic.components.menus", "MenusStack");
             if (stack == null) return "no MenusStack";
             object menu = flash.Call(stack, "getMenuOnTopOfStack");
@@ -252,12 +252,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             object panel = flash.Child(menu, SettingsMenuNames.Panel);
             if (panel == null) return "no " + SettingsMenuNames.Panel;
             int frame = Frame(flash, panel);
-            if (frame != plan.Frame)
-            {
-                // The in-match pause panel has no tile to re-dress, and it is not worth a line on every match.
-                silent = frame == SettingsMenuNames.InGameFrame;
-                return "frame " + frame.ToString(CultureInfo.InvariantCulture);
-            }
+            if (frame != plan.Frame) return "frame " + frame.ToString(CultureInfo.InvariantCulture);
 
             // Trim off: only the re-dress, in place (T-B7), so only btn_forum is read.
             var found = new Dictionary<string, object>(StringComparer.Ordinal);
@@ -330,13 +325,18 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             return null;
         }
 
-        /// <summary>The panel's frame: <c>ASCharacter.CurrentFrame</c>, else the AS <c>currentFrame</c>; 0 when neither reads.</summary>
+        /// <summary>
+        /// The panel's frame, 1-based like the AS: the AS <c>currentFrame</c>, else <c>ASCharacter.CurrentFrame</c> + 1; 0 when
+        /// neither reads. The native property is 0-based (libnativeengine's AS getter adds one to the same vtable call; the game's
+        /// own C# does <c>GotoAndStop(GetMember("currentFrame") - 1)</c>, FirstPersonEquipmentComponent.cs:544), so read raw it
+        /// would make Android's frame 3 the in-match 2 and Steam's 1 a 0.
+        /// </summary>
         private static int Frame(FlashScope flash, object panel)
         {
-            object frame = GameReflection.Property(panel, "CurrentFrame");
-            if (frame is int) return (int)frame;
             double? number = flash.Number(panel, "currentFrame");
-            return number.HasValue ? (int)number.Value : 0;
+            if (number.HasValue) return (int)number.Value;
+            object frame = GameReflection.Property(panel, "CurrentFrame");
+            return frame is int ? (int)frame + 1 : 0;
         }
 
         /// <summary>BtnBase.setup's argument (an IDictionary becomes an AS object; AdminHooks.cs:78).</summary>

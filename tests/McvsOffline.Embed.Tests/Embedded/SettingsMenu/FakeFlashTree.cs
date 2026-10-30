@@ -1248,13 +1248,16 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         /// <summary>ASCharacter.Name (the native instance name).</summary>
         public string Name { get { return target.Name ?? ""; } }
 
-        /// <summary>ASCharacter.CurrentFrame.</summary>
+        /// <summary>
+        /// ASCharacter.CurrentFrame: 0-based, unlike the AS <c>currentFrame</c> (libnativeengine's AS getter adds one to the same
+        /// vtable call; the game does <c>GotoAndStop(GetMember("currentFrame") - 1)</c>).
+        /// </summary>
         public int CurrentFrame
         {
             get
             {
                 Check();
-                return target.Frame;
+                return target.Frame - 1;
             }
         }
 

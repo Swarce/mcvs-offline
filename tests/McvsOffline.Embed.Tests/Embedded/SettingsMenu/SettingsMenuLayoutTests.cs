@@ -266,17 +266,33 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             rig.Host.Drain();
             SettingsMenuLayout.Apply(rig.Host, rig.State);   // also when something posts it on the pause panel
             rig.AssertNoWrites();
-            if (frame == 2)
-            {
-                Assert.Empty(rig.Lines);                    // the in-match panel opens every match
-                Assert.False(rig.State.RedressFailed);
-            }
-            else
-            {
-                Assert.All(rig.Lines, l => Assert.Equal("settings menu: not laid out (frame " + frame + ")", l));
-                Assert.NotEmpty(rig.Lines);
-                Assert.Equal(!steam, rig.State.RedressFailed);
-            }
+            // Only settings_main_screen posts the step, so any other frame (the in-match 2 too) is an anomaly: a line, and on
+            // Android the R4 gate keeps GRAPHICS SETTINGS and FRAME RATE LIMIT in Gameplay Settings.
+            Assert.All(rig.Lines, l => Assert.Equal("settings menu: not laid out (frame " + frame + ")", l));
+            Assert.NotEmpty(rig.Lines);
+            Assert.Equal(!steam, rig.State.RedressFailed);
+            rig.AssertClean();
+        }
+
+        [Theory]
+        [InlineData(false, true)]
+        [InlineData(false, false)]
+        [InlineData(true, true)]
+        [InlineData(true, false)]
+        public void TheMainFrameIsReadOneBasedWhicheverMemberAnswers(bool steam, bool asReadable)
+        {
+            // ASCharacter.CurrentFrame is 0-based (Android's 3 reads 2, the in-match frame; Steam's 1 reads 0); the AS currentFrame
+            // is 1-based. Read raw, the property left Android's grid stock with no line and no RedressFailed.
+            var rig = new Rig(steam);
+            rig.Ui.OpenSettings();
+            int frame = steam ? 1 : 3;
+            Assert.Equal(frame, rig.Ui.Panel.Frame);
+            if (!asReadable) Assert.True(rig.Ui.Panel.Getters.Remove("currentFrame"));   // only the native property answers
+            rig.Host.Drain();
+            Assert.Equal(new[] { "settings menu: frame " + frame + ", " + (steam ? 6 : 7) + " tiles + ABOUT laid out" }, rig.Lines);
+            Assert.Equal(1, rig.State.Layouts);
+            Assert.Equal(!steam, rig.State.TileActive);
+            Assert.False(rig.State.RedressFailed);
             rig.AssertClean();
         }
 
