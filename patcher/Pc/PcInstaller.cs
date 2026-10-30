@@ -260,7 +260,9 @@ namespace McvsOffline.Patcher.Pc
 
         /// <summary>
         /// One line on whether the install ran at the last start: "active at …", "NOT ACTIVE at …: Game loaded from the game folder",
-        /// "unknown: …", or "not started since the install"; null when nothing is installed or there is no bootstrap.log.
+        /// "unknown: …", "NOT VERIFIED: no start of MCVS Offline since the install …" or, with no start of ours since the install,
+        /// "NOT ACTIVE: the game started without MCVS Offline; …" / "NOT ACTIVE: MCVS Offline's EngineBridge ran at …" (§7.6);
+        /// null when nothing is installed, or install.json has no install time and there is no start to judge.
         /// </summary>
         public string Activation { get; set; }
     }
