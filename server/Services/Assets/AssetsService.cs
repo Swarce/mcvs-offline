@@ -1,7 +1,10 @@
 // Module: Assets - owner group: CONTENT (Crm, Matchmaker, Assets + server/Content + tools/content-gen)
 // Iris assets and coupons (requests carry no token).
 // Protocol: report 02 §9; report 04 §10-11; report 10 §5; verify-C5 (b); docs/protocol/content.md
-//   GET  coupons/{clientId}/{code}   -> [{"type":"UnlockMerc_2","quantity":1}, ...]; 404 = "coupon does not exist"
+//   GET  coupons/{clientId}/{code}   -> [{"type":"HardCurrency","quantity":500}, ...]; 404 = "coupon does not exist"
+//                                       an unlock code (UNLOCK*, "delivery": "ledger") -> [] and its keys go into the
+//                                       player's inventory ledger (UnlockGranter.GrantKeys; inbox-freeze report §3 F1)
+//                                       an inbox code above 300 rewards -> 404 (it would freeze the game's inbox)
 //                                       admin.redeemCode (MCVSOFFLINE) opens the settings page, always 404 (design
 //                                       docs/design/settings-page.md §9.5)
 //   GET  assets/{clientId}           -> [{name, hash, size}] of <data>/assets (usually [])
@@ -17,6 +20,7 @@ using McvsOffline.Server.Core.Json;
 using McvsOffline.Server.Core.Routing;
 using McvsOffline.Server.Services.Admin;
 using McvsOffline.Server.Services.Auth;
+using McvsOffline.Server.Services.Unlocks;
 
 namespace McvsOffline.Server.Services.Assets
 {
@@ -45,19 +49,90 @@ namespace McvsOffline.Server.Services.Assets
                 return HttpResponse.Error(HttpStatus.NotFound, "coupon does not exist");
             }
             var catalog = CouponCatalog.Load(context.Content, context.Settings, log);
-            string matched;
-            List<object> rewards = catalog.Resolve(code, out matched);
-            if (rewards == null)
+            CouponMatch match = catalog.Match(code);
+            if (match == null)
             {
                 // 404 is the only status the game maps to "CouponDoesNotExist" (EN/AssetsComponent.cs RedeemCoupon).
                 log.Info("coupon '" + code + "' does not exist (known: " + string.Join(", ", catalog.Codes.ToArray()) + ")");
                 return HttpResponse.Error(HttpStatus.NotFound, "coupon does not exist");
             }
+            if (match.Delivery == CouponCatalog.LedgerDelivery) return LedgerCoupon(context, log, request, code, match);
+            List<object> rewards = match.Rewards;
+            if (rewards.Count > CouponCatalog.MaxInboxRewards)
+            {
+                // The game rebuilds every reward of every unclaimed message on its game thread when the inbox opens and
+                // every 10 s while it stays open: thousands froze it for minutes (inbox-freeze report §2 C1, C2).
+                log.Warn("coupon '" + code + "' (" + match.Code + ") refused: " + rewards.Count + " rewards in one inbox message would freeze "
+                         + "the game's inbox (at most " + CouponCatalog.MaxInboxRewards + "); split the code or give it \"delivery\": \"ledger\" "
+                         + "in settings.json assets.coupons");
+                return HttpResponse.Error(HttpStatus.NotFound, "coupon does not exist");
+            }
             // The game marks the code as claimed for this profile before it parses the body, and puts every reward into
             // one inbox message (7-day expiry), claimed in array order (verify-C5 (b)).
-            log.Info("coupon '" + code + "' (" + matched + "): " + rewards.Count + " reward(s), first "
+            log.Info("coupon '" + code + "' (" + match.Code + "): " + rewards.Count + " reward(s) for the inbox, first "
                      + (rewards.Count > 0 ? JsonValue.GetString((Dictionary<string, object>)rewards[0], "type") : "-"));
             return HttpResponse.Json(rewards);
+        }
+
+        /// <summary>
+        /// An unlock code: its keys are queued for the current player's inventory ledger (<see cref="UnlockGranter.GrantKeys"/>,
+        /// the settings.unlockAll path: merc keys first, batches with a reward popup each) and the game gets <c>[]</c>.
+        /// <para>
+        /// After a 200 the game shows "redeem successful" (CouponSuccess, AS menus/settings/MenuAccountSettings.as
+        /// checkRedeemResult) whatever the body is, marks the code claimed, and puts a message with no rewards into the
+        /// inbox (GM/PlayerProfileComponent.cs PushCouponDataToInbox): nothing for the inbox to rebuild. The message cannot
+        /// be claimed (InboxMessage.IsClaimable is false without rewards, so its Claim button stays disabled, Inbox.as
+        /// setMsgInfo) and goes away with its 7-day expiry (InboxComponent.CheckExpirationDates). The same on Android.
+        /// </para>
+        /// <para>
+        /// The request carries no access token (see <see cref="PageCode"/>), so the account is the current player
+        /// (CurrentPlayerResolver: the game's credential, its last login, the device's only account, the only game
+        /// profile). Refused with 404 and nothing written: in LAN mode (a guest's redemption runs on this phone's menu
+        /// server and would unlock the host's items), when the player is unknown or ambiguous, when the request is not
+        /// the game's own from this machine (a web page must not unlock items), or when it carries another account's token.
+        /// </para>
+        /// </summary>
+        private static HttpResponse LedgerCoupon(ServerContext context, Log log, HttpRequest request, string code, CouponMatch match)
+        {
+            string account;
+            string refused = LedgerAccount(context, request, out account);
+            UnlockGranter granter = context.Features.Get<UnlockGranter>();
+            if (refused == null && granter == null) refused = "the unlocks module is not part of this server";
+            if (refused != null)
+            {
+                log.Warn("coupon '" + code + "' (" + match.Code + ") refused, nothing written: " + refused);
+                return HttpResponse.Error(HttpStatus.NotFound, "coupon does not exist");
+            }
+            bool queued = granter.EnqueueCode(account, match.Code, match.Keys);
+            log.Info("coupon '" + code + "' (" + match.Code + "): " + match.Keys.Count + " unlock keys "
+                     + (queued ? "queued" : "already queued") + " for " + account + " through the inventory ledger, at most "
+                     + granter.PlannedBatches(match.Keys) + " batch(es) with a reward popup each; the game gets [] (no inbox rewards)");
+            return HttpResponse.Json(new List<object>());
+        }
+
+        /// <summary>Null and the account to grant to, or why a ledger code is refused.</summary>
+        private static string LedgerAccount(ServerContext context, HttpRequest request, out string account)
+        {
+            account = null;
+            if (context.Settings.LanMode) return "LAN mode is on (a guest's code arrives on this machine's menu server too)";
+            if (request.RemoteEndPoint != null && !LocalAccessGate.IsLoopback(request.RemoteEndPoint)) return "not from this machine";
+            string notTheGame = GameRequest.NotTheGame(request, request.RouteValues.GetRaw("clientId"));
+            if (notTheGame != null) return notTheGame;
+            AdminApi api = context.Features.Get<AdminApi>();
+            CurrentPlayer current = api != null ? api.CurrentPlayer()
+                                                : new CurrentPlayerResolver(context).Resolve(context.Features.Get<IAdminHost>());
+            if (current == null || string.IsNullOrEmpty(current.AccountId))
+                return "the current player is unknown or ambiguous (no login of the game on this device, several profiles)";
+            IAuthenticator auth = context.Features.Get<IAuthenticator>();
+            string token = auth != null ? auth.GetAccessToken(request) : request.Param("access_token");
+            if (!string.IsNullOrEmpty(token))
+            {
+                AuthIdentity who = auth == null ? null : auth.Resolve(token);
+                if (who == null || !string.Equals(who.AccountId, current.AccountId, StringComparison.Ordinal))
+                    return "the request's access token is not the current player's";
+            }
+            account = current.AccountId;
+            return null;
         }
 
         private static HttpResponse Asset(ServerContext context, LocalAssets assets, Log log, HttpRequest request)
