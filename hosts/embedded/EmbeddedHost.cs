@@ -621,6 +621,7 @@ namespace McvsOffline.Embedded
             string profile = Settings.GetString("graphics.profile", GameOptionsProfile.Auto);
             bool full = Settings.GetBool("graphics.fullProfile", false);
             GraphicsHooks.Configure(profile, full, Logger.For("game"), Boot);
+            PerformancePrefs.Configure(Settings);
             string file = "GameOptions_android.json";
             if (isWindows)
             {
@@ -960,6 +961,7 @@ namespace McvsOffline.Embedded
                         server = created;
                         // The game's hooks (Settings › Account button, inbox marker) work from here on.
                         if (admin != null) AdminHooks.Host = admin;
+                        if (admin != null) Admin.SettingsMenu.UiNatives.Start(admin);
                         StartNotificationPrompt(created, admin);
                         Log.Info("offline server running at " + created.Context.BaseUrl);
                         Boot.Mark("offline server listening at " + created.Context.BaseUrl);

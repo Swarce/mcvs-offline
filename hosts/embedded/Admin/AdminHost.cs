@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Threading;
+using McvsOffline.Embedded.Admin.SettingsMenu;
 using McvsOffline.Embedded.Diagnostics;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Storage;
@@ -28,9 +29,10 @@ namespace McvsOffline.Embedded.Admin
     /// routes) combined with the game-side state; without a platform (the tests' DirectoryPlatform) every capability is false
     /// and the share methods answer <c>none</c>.</item>
     /// </list>
+    /// It is also the <see cref="ISettingsMenuHost"/> of the game's Settings menu natives (docs/design/settings-menu.md §3).
     /// Every member is thread-safe and never throws. The page's one-time ticket URL is never logged.
     /// </summary>
-    internal sealed class AdminHost : IAdminHost
+    internal sealed class AdminHost : IAdminHost, ISettingsMenuHost
     {
         /// <summary>Watchdog lease per page open and per request of the page (it pings every 10 s).</summary>
         public const int PageLeaseMs = 45000;
@@ -59,6 +61,7 @@ namespace McvsOffline.Embedded.Admin
         private long freeBytes = -1;
         private int freeBytesTick;
         private volatile string warnedOpenVia;
+        private readonly PerformanceSettingsStore performanceSettings;
 
         public AdminHost(ServerContext context, IAdminPlatform platform, GameReflection game, Log log)
         {
@@ -68,6 +71,7 @@ namespace McvsOffline.Embedded.Admin
             this.game = game ?? new GameReflection();
             this.log = log ?? context.Logger.For("admin");
             opener = new PageOpener(this);
+            performanceSettings = new PerformanceSettingsStore(context.Settings, this.log);
             PlatformName = platform == null ? "directory" : "android";
             ExitFallbackMs = 3000;
             QuitBrowserWaitMs = 500;
@@ -167,6 +171,78 @@ namespace McvsOffline.Embedded.Admin
                 {
                     return true;
                 }
+            }
+        }
+
+        /// <summary>settings admin.settingsMenu.trim (server copy, read each time the game's Settings menu opens; default true).</summary>
+        public bool SettingsMenuTrim
+        {
+            get
+            {
+                try
+                {
+                    return context.Settings.GetBool(SettingsSchema.SettingsMenuTrimKey, true);
+                }
+                catch (Exception)
+                {
+                    return true;
+                }
+            }
+        }
+
+        /// <summary>
+        /// settings admin.settingsMenu.performance (server copy, read on every call of the Settings menu natives; default true) on
+        /// Android; false on PC, whose Steam PERFORMANCE tile and page stay as they are.
+        /// </summary>
+        public bool SettingsMenuPerformance
+        {
+            get
+            {
+                if (IsWindows) return false;
+                try
+                {
+                    return context.Settings.GetBool(SettingsSchema.SettingsMenuPerformanceKey, true);
+                }
+                catch (Exception)
+                {
+                    return true;
+                }
+            }
+        }
+
+        /// <summary>The PC (Steam) host.</summary>
+        public bool IsWindows
+        {
+            get { return string.Equals(PlatformName, SettingsSchema.PlatformWindows, StringComparison.Ordinal); }
+        }
+
+        /// <summary>The Android PERFORMANCE page's values in the server copy of settings.json (read and saved per call).</summary>
+        public IPerformanceSettings PerformanceSettings { get { return performanceSettings; } }
+
+        /// <summary>The store behind <see cref="PerformanceSettings"/> (tests run its saves inline).</summary>
+        internal PerformanceSettingsStore PerformanceSettingsStore { get { return performanceSettings; } }
+
+        object ISettingsMenuHost.ClientUi()
+        {
+            try
+            {
+                return game.ClientUi();
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        bool ISettingsMenuHost.Post(Action action)
+        {
+            try
+            {
+                return action != null && game.Post(action, log);
+            }
+            catch (Exception)
+            {
+                return false;
             }
         }
 

@@ -17,7 +17,10 @@ namespace McvsOffline.Tests.Admin
             key.StartsWith("hd.", StringComparison.Ordinal) || key.StartsWith("install.", StringComparison.Ordinal)
             || key.StartsWith("notifications.", StringComparison.Ordinal)
             || key == "diagnostics.publicLogCopy" || key == "diagnostics.threadDump"
-            || key == SettingsSchema.AccountMenuHideDeadButtonsKey; // no effect on PC: no Facebook/Google/Restore entry
+            || key == SettingsSchema.AccountMenuHideDeadButtonsKey  // no effect on PC: no Facebook/Google/Restore entry
+            // The Android PERFORMANCE page and its values: Steam keeps its own page (docs/design/settings-menu.md §1.1).
+            || key == "admin.settingsMenu.performance" || key == "graphics.msaa" || key == "graphics.renderScale"
+            || key == "graphics.lowResMaps" || key == "graphics.fpsListVersion";
 
         private static IEnumerable<string> AllKeys(List<SettingGroupView> views) =>
             views.SelectMany(v => v.Keys.Select(k => k.Key).Concat(v.Advanced.Select(a => a.Key)));
@@ -52,6 +55,9 @@ namespace McvsOffline.Tests.Admin
             Assert.Contains("hd.enabled", AllKeys(views));
             Assert.Contains("install.manageInstaller", AllKeys(views));
             Assert.Contains(SettingsSchema.AccountMenuHideDeadButtonsKey, AllKeys(views));
+            Assert.Contains("admin.settingsMenu.performance", AllKeys(views));
+            Assert.Contains("graphics.renderScale", AllKeys(views));
+            Assert.Contains("graphics.fpsListVersion", AllKeys(views));
             Assert.Contains("logging.keepStarts", AllKeys(views));
             Assert.DoesNotContain("embedded.physics.keepPhysicsLayer", AllKeys(views));
         }
@@ -64,6 +70,11 @@ namespace McvsOffline.Tests.Admin
             Assert.DoesNotContain(keys, AndroidOnly);
             Assert.DoesNotContain("admin.accountMenu.hideDeadButtons", keys);
             Assert.Contains("admin.redeemCode", keys);
+            // The trim of the Settings grid is the same on both platforms; the PERFORMANCE page is Android's only.
+            Assert.Contains("admin.settingsMenu.trim", keys);
+            Assert.DoesNotContain("admin.settingsMenu.performance", keys);
+            Assert.DoesNotContain("graphics.msaa", keys);
+            Assert.DoesNotContain("graphics.fpsListVersion", keys);
             // The PC host deletes the logs of older starts the same way (McvsOffline\logs and %TEMP%\McvsOffline\logs).
             Assert.Equal(keys.IndexOf("logging.fileLevel") + 1, keys.IndexOf("logging.keepStarts"));
             // Everything else is still there, in the same order.
