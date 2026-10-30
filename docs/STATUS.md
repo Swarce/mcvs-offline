@@ -1,9 +1,12 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-Last updated for build 17 (October 2026, on `wip/pc-port`; APK and PC kit): the big unlock codes froze the inbox (one
-inbox message with thousands of rewards); the codes now go straight into the inventory ledger, and the new `inbox`
-patch bounds the inbox for any message, also one already in a profile; see "Build 17". Build 16 (PC only, no APK): the
+Last updated for build 18 (October 2026, on `wip/pc-port`; APK and PC kit): on the owner's PC build 17 still ran the
+game's own `Game.dll` (`store NO, inbox NO`) although every other file came from `McvsOffline\bin`; the cause was most
+likely MCVS Offline's own start code, which loaded `Game` by a partial name before the game did; build 18 no longer
+loads any game assembly itself and logs who loaded one from the game folder; see "Build 18". Build 17: the big unlock
+codes froze the inbox (one inbox message with thousands of rewards); the codes now go straight into the inventory
+ledger, and the new `inbox` patch bounds the inbox for any message, also one already in a profile; see "Build 17". Build 16 (PC only, no APK): the
 build-14/15 PC config most likely made Windows start the game without MCVS Offline (the owner's "game fails to
 connect"); build 16 writes the WR2-proven config again and says when a start ran without us; see "Build 16 (PC only)". Build 15: rotating Special Events (the Battle menu's Arena box,
 filled with bots, a new mode every day, or one pinned mode), an optional Practice tile (off by default) and the
@@ -18,7 +21,7 @@ play; see "Build 12 and device test 9". Before that: the build 11 device test (t
 12). The build 11 plan put HD textures into `Data/` ("Build 11 (plan)"). On build 10 the HD texture probe showed that
 route B fails and route A works. Build 10 targets Android 15 and adds graphics profiles and the PC test kit ("Build
 10"). Device test 8 tested the MCVS Offline page ("Device test 8", "Build 9"). The Cosmetic crate starts on 2026-11-09
-and is not yet tested on the phone. Not yet merged into `main-dev`: builds 13 to 17 (the PC port, the Android
+and is not yet tested on the phone. Not yet merged into `main-dev`: builds 13 to 18 (the PC port, the Android
 'game' manifest flags and build 17's unlock-code and inbox changes are on `wip/pc-port`). Earlier: device tests 6 and 7 on the same S22 ("Build 8", "Build 7", "Device test 6").
 
 **Summary:** the Federation server is complete for the offline single-player goals and passes its full test suite, including a
@@ -43,6 +46,121 @@ HD texture probe and a Windows test kit for the Steam version. Build 11 installs
 version into the game's own data. Build 12 accepts a full ASTC data pack with 2,215 PC textures in it: **device test 9:
 the HD textures and the graphics profiles work, at the same frame rate as before**, and builds 10 to 12 (target Android
 15) installed and played fine.
+
+## Build 18 (October 2026): MCVS Offline itself loaded the game's own Game.dll at start
+
+### What build 18 contains
+
+`9e21ead` on `wip/pc-port` (`McvsVersion.Build` is `18`; the code is the merge `ef0057c` of `wip/b18-gameload`). APK:
+`mcvs-offline-9e21ead.apk` (SHA-256 `5981f1098151f61a8a3d9204514e2351a510fe9f70490521f0c6354c861023b8`; default
+patch set, unchanged since build 17; the same key as every build: certificate SHA-256 `fc0db84e…7d16`, targetSdk 35,
+both ABIs, `isGame` and `appCategory`, zipalign OK); it installs over build 17 as usual. Compared entry by entry with
+build 17's `mcvs-offline-a8742ab.apk`: the same 952 entries in the same order; changed only the server DLL, the
+signature files and the 16 MVID bytes of `Game.dll`, `Gameloft.Engine.dll`, `Gameloft.Util.dll` and `NicePlaySDK.dll`
+([design/pc-port.md](design/pc-port.md) §13.1). The PC kit `McvsOffline.PcKit.exe` (win-x64, one file, SHA-256
+`186c1bcb21b46aea633aea888fc6eae531bcdcad73d5027ab660269cd117b28e`) replaces build 17's.
+
+**The owner's build-17 log** (Windows, 2026-10-30, with build 16's config in effect). Every redirected file but one
+came from `McvsOffline\bin`, and the boot line said `gameload yes`, yet:
+
+```
+[boot] +0.109 s assemblies: EngineBridge …\McvsOffline\bin\EngineBridge.dll (McvsOffline\bin)       (and Gameloft.Engine, McvsOffline.Server)
+[game] Game is not loaded yet: the client's patches are probed when it loads
+[boot] +0.125 s assemblies: Gameloft.Util …\McvsOffline\bin\Gameloft.Util.dll (McvsOffline\bin)
+[boot] +0.140 s install: current
+[boot] +0.187 s assemblies: Game …\Modern Combat Versus\Game.dll (GAME FOLDER): the .exe.config redirect did not apply
+[boot] +0.187 s patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload yes, store NO, inbox NO
+[boot] +0.187 s install: installed, NOT ACTIVE (Game loaded from the game folder; the 'store' patch is missing; …)
+[boot] +0.250 s offline server listening at http://127.0.0.1:51780/
+```
+
+The game then ran its own `Game.dll`: none of the fixes in that file (store, signatures, inbox, the settings-page
+button, the bot match) were active.
+
+**Cause (found by reading the code; the timing in both Windows logs fits; not yet confirmed on Windows).** `Game`
+was loaded between `install: current` and `server listening`, which is the host's start thread
+(`EmbeddedHost.RunServer`). On that thread `CreateAdminHost` called `GameReflection.Load()`, which looked up
+`Type.GetType("Game.PlayerProfileComponent, Game", false)` and `Type.GetType("Game.UISceneExtentions, Game", false)`
+for the settings page's "save now". `"Game"` there is a **partial** assembly name: .NET applies no application-config
+policy to it, so the `<codeBase>` of `ModernCombatVersus.exe.config` was ignored, the loader probed the exe folder and
+loaded the **stock** `Game.dll` next to the exe. When the engine later loaded `Game` by its full name (the `gameload`
+patch), the `Game` already loaded was what it got. The same call ran in every WR2 start (build 13 had it), so it most
+likely also explains **WR2's F1** (`Game` from the game folder in 15/15 starts), which was put down to the engine's
+bare-name load. So `gameload` has never had a chance to run first: whether its full name gets the codeBase is still
+open ([design/pc-port.md](design/pc-port.md) §8.9, Q1, Q15). The start thread runs beside the game thread, so the
+timing alone cannot rule out an engine load that also missed the codeBase; the load stack below settles it.
+
+**The fix.** MCVS Offline's own code never makes the runtime load a game assembly:
+
+* `GameReflection.Load` binds lazily, only from assemblies that are **already loaded** (`LoadedTypes.Find`:
+  `AppDomain.GetAssemblies()` by simple name, never a load), and binds what is still missing on the next use (the
+  settings page's save now, the notification prompt, the exit post). On PC it is unbound at boot and bound once the
+  engine has loaded `Game`. On Android `Game` and `Gameloft.Engine` are loaded from the APK before our start, so
+  nothing changes there.
+* The other lookups by name (watchdog, threading line, graphics, IAP status, `WindowsExit`'s `MenuManager`) take
+  `LoadedTypes.EngineType`: the loaded `Gameloft.Engine` (on PC always loaded before our start); only on Android, when
+  it is not loaded yet, the old partial-name lookup (the APK has one copy and no redirect).
+* Tests with teeth: `GameLoadOrderTests` runs the shipped `GameReflection.cs` and `LoadedTypes.cs` in a load context
+  that serves a look-alike `Game` by partial name and records every request (no request and no load of `Game` before
+  the engine loads it, whatever member is used; bound once it is loaded; a control shows build 17's call is caught);
+  a source scan fails on any `"…, Game"`-style literal of a redirected assembly, any bare-name `Assembly.Load` or
+  `LoadWithPartialName`, and any `Type.GetType` in `hosts/` or `server/` outside `LoadedTypes` and `RuntimeInfo`;
+  `PcEmbeddedAssemblyTests.OnlyRuntimeInfoLoadsByName` checks the built PC DLL's IL the same way.
+
+**The load-stack diagnostic.** When a redirected assembly comes from the game folder, `bootstrap.log` now says who
+loaded it, right under the `GAME FOLDER` line: `[boot] load stack: Game (GAME FOLDER) was loaded by (innermost first):`
+and up to 25 indented `at …` frames (the managed stack inside the `AssemblyLoad` event, our handler's and the
+loader's own frames cut), or `… already loaded when the host started watching, so its loader is unknown`. A second
+signature has no stack: `assemblies: Game (no file) (elsewhere)` means the stock `Gameloft.Sequences` read `Game.dll`
+from bytes because the engine's `gameload` bind itself failed ([design/pc-port.md](design/pc-port.md) §8.9). As the
+spec says, the stack is not widened to that case (a redirected assembly with no `Location`); the docs describe its
+signature instead, and widening it needs the owner's agreement.
+
+**What the next Windows start must show** ([PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7 step 4):
+`assemblies: Game …\McvsOffline\bin\Game.dll (McvsOffline\bin)` and `patches: … gameload yes, store yes, inbox yes`,
+then `status`: `installed, current`, `activation: active at the last start`. If `Game` still comes from the game
+folder, the `[boot] load stack:` lines name the loader (send them with `bootstrap.log`); `Game (no file) (elsewhere)`
+means the `gameload` bind failed (send `collect`).
+
+**Checked**: `McvsOffline.sln` (Release), the Android embedded DLL against the APK's assemblies and the PC DLL with
+`Gameloft.Logs`; all four test projects with `MCVS_REFS`, `MCVS_PC_REFS`, `MCVS_APK`, `MCVS_DATAPACK`,
+`MCVS_BUILD_TOOLS`, `MCVS_REQUIRE_REAL_CLIENT=1`, `MCVS_REQUIRE_PC=1`, `MCVS_REQUIRE_PC_E2E=1`, `MCVS_REQUIRE_EMBEDDED=1`,
+`MCVS_REQUIRE_BUILD_TOOLS=1` and `MCVS_REQUIRE_NODE=1`, at `9e21ead`: **McvsOffline.Tests 1565/1565,
+McvsOffline.Embed.Tests 933/933, McvsOffline.PcKit.Tests 63/63, McvsOffline.PcSpike.Tests 62/62, 0 skipped** (2,623;
+build 17's run was 2,613). The APK was built with `--build-tools` and verified as above. The kit published, its
+`check-server` passed on the embedded DLL (every PC hook (17), `Gameloft.Logs`, only allowed references), and its
+assembly carries that DLL byte for byte. The PC end to end on Linux (§12.6) on a temp copy of the Steam files: `pc
+install`, `verify`, `status` (`installed, current`, `activation: NOT VERIFIED` before a start), a second install with
+the same bytes, `uninstall` restoring the exact listing, ILVerify as the stock files; the owner's build-17 start as the
+last start gives `installed, NOT ACTIVE (Game loaded from the game folder; the 'store' patch is missing; the 'inbox'
+patch is missing)`. Upgrade: a build-17 install (the `b20d12b` patcher), on which this kit's `status` says
+`installed, OLDER BUILD - OLDER BUILD (17; this kit installs build 18): run install …` and its `verify` fails (exit
+1); build 18's `install` over it writes exactly the bytes of §13.1, then `installed, current`. The expected `verify`
+values are re-recorded in [design/pc-port.md](design/pc-port.md) §13.1 and [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md)
+§7 (build 17's are in §13.2): every DLL changed with the server DLL, the config is build 16's (`3ebe99b3…f94c`),
+`serverBuild` is `18`.
+
+**Not checked**: **nothing ran on Windows.** The cause is confirmed only by reading the code and by the timing in the
+owner's build-17 log and WR2's log, until the next Windows start shows `Game` from `McvsOffline\bin` (`store yes,
+inbox yes`) or the new load-stack lines. Nothing on a phone either.
+
+### What to check on the PC and the phone (build 18)
+
+1. **PC, first:** close the game, run this kit's `status` over the build-17 install: `installed, OLDER BUILD - OLDER
+   BUILD (17; this kit installs build 18): run install …`. Run `install`, then `verify` (the six values of
+   [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7, exactly).
+2. Start the game from Steam once. In `McvsOffline\logs\bootstrap.log`: `[boot] assemblies: Game
+   …\McvsOffline\bin\Game.dll (McvsOffline\bin)` and `[boot] patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload yes,
+   store yes, inbox yes`; no `NOT ACTIVE`. After closing the game, `status`: `installed, current`, `activation: active
+   at the last start`.
+3. If `Game` still says `(GAME FOLDER)`: copy the `[boot] load stack:` line and all its `at …` lines, send them with
+   `bootstrap.log` and `collect`; stop there. If it says `Game (no file) (elsewhere)`: send `collect`; stop there.
+4. With `Game` from `McvsOffline\bin`: the rest of WR3 as written ([PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7; build
+   17's PC step 7 in "Build 17" below), in particular Settings › Account › **MCVS Offline** (the button lives in our
+   `Game.dll`) and the settings page's Saves › **Save the game now** (it uses the lazily bound `GameReflection`).
+5. **Phone** (install build 18 over build 17): the settings page still works: open it from Settings › Account › MCVS
+   Offline and from the inbox message; Status loads; Saves › Save the game now finishes; Restart works. As always: boot
+   to the menu, one Classic bot match, the shop.
 
 ## Build 17 (October 2026): big unlock codes froze the inbox; the codes now go through the ledger, and the inbox is bounded
 

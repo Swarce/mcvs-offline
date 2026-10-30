@@ -1,6 +1,6 @@
 # Design: the PC (Steam) port and the Android `game` manifest flags
 
-Status: **implemented up to WP5a plus the WR2 fixes (build 14, October 2026; build 15 changes only the server DLL; build 16 drops the `<qualifyAssembly>` entries again and adds the start diagnostics; build 17 adds the `inbox` patch and its witness); WR2 done (§13.0, §14), WR3 and WP5b pending** (designed October 2026; revised after one review round, Appendix A; the expected WR3 values in §13.1). It is the contract for the work packages in §11: everything another
+Status: **implemented up to WP5a plus the WR2 fixes (build 14, October 2026; build 15 changes only the server DLL; build 16 drops the `<qualifyAssembly>` entries again and adds the start diagnostics; build 17 adds the `inbox` patch and its witness; build 18: our host no longer loads `Game` by a partial name at boot, and a `GAME FOLDER` load logs its loader's stack, §8.9); WR2 done (§13.0, §14), WR3 and WP5b pending** (designed October 2026; revised after one review round, Appendix A; the expected WR3 values in §13.1). It is the contract for the work packages in §11: everything another
 package relies on (defines, hook signatures, IL sites and fingerprints, file layouts, settings keys, file formats, log
 lines) is fixed here, mostly in §3 ("Day-0 contracts"). Change it only through the integrator (WP5, §11.1).
 
@@ -2020,7 +2020,7 @@ and the `AppCrash_ModernCombatVers_*` report folders; WP5b records the results i
 in from §12.6 before the kit is handed over): the `written` SHA-256 of the five DLLs and the config (§13.1); the
 `MEM rule on, removed <n>` count.
 
-### 13.1 Expected WR3 values (build 17)
+### 13.1 Expected WR3 values (build 18)
 
 From the §12.6 run on Linux (`McvsOffline.Patcher pc install` on a temp copy of the read-only Steam files, with the PC
 server DLL the kit embeds, byte-identical; `RealFolderEndToEnd` passed in the same run), default patch set, port 51780.
@@ -2029,35 +2029,33 @@ A second install gave the same bytes, and the values do not depend on the commit
 
 | written | sha256 | mvid |
 |---|---|---|
-| `McvsOffline/bin/EngineBridge.dll` | `14e2a779cd3455cd6677a19065f566a35c776e1e8ef59b4fb83964396655352e` | `8af55939-3c5f-450a-acc7-5e06910f66ad` |
-| `McvsOffline/bin/Game.dll` | `14d887a32e883c96cde5a3614ac6e055cd2b4c2e3745a74fd5c2deb9ba53b4a3` | `d71b20c3-7cb6-4839-8668-9d9c0f0b6fc9` |
-| `McvsOffline/bin/Gameloft.Engine.dll` | `9af0c02c50cb5043ebd539ff3cbc339aa5ae266ea9b8454153a52816d614abf4` | `5e273bf6-5cb4-4b83-b852-9cc707f7f12d` |
-| `McvsOffline/bin/Gameloft.Util.dll` | `4fa196fcce22ea02572e964731540782279b6de065d0817b07d9878accea7277` | `23bbb722-f88f-4fa5-a6b7-0206066aaf1d` |
-| `McvsOffline/bin/McvsOffline.Server.dll` | `32019567b9eea7280603b69c72541c0f94939da3d1d4fa09575cc749793e2675` | `bd7be111-1140-47d2-9582-98b4ab917bb5` |
+| `McvsOffline/bin/EngineBridge.dll` | `956e2a53c2a3102cda4d230ff05e89ccd21dabed5d51d0b99e9418c2f38819c7` | `eb88ef0f-3bf3-48fc-8c6e-c53855bdfddf` |
+| `McvsOffline/bin/Game.dll` | `7cd097ae53feefe6bd66df1f3463ad58f01fb58adf671fc7370c95747c00f798` | `35762546-a2f0-4ee6-a386-5629fad6a0f9` |
+| `McvsOffline/bin/Gameloft.Engine.dll` | `81b4a794013b3f807d629b227b1b86504e9cfe5f029aa0671da30632b6e88f41` | `75836edd-9c53-43d4-9f14-74b375a5af8b` |
+| `McvsOffline/bin/Gameloft.Util.dll` | `a7a1cd0ed73ef631d107fa3232b959d2480d1450a990b3283271c56570e38eba` | `c4cebe44-664d-4dd8-8d7f-ec67b3193f14` |
+| `McvsOffline/bin/McvsOffline.Server.dll` | `a6e3991c05d7a6704fe942e9af8477c1aed10e56c336ed666298df41acfcecb4` | `c7b02878-6f38-431b-affd-4e70cedaa2a5` |
 | `ModernCombatVersus.exe.config` | `3ebe99b3c93a9540cd7f7b03da55fc048a544501c17e8621457884eae456f94c` | — |
 
 * Applied patches: `hook-pc, headless, bottile, store, signatures, inbox, adminpage, headless-engine, physics,
-  quicklaunch, headless-diag, nativeonline, waits, adminlink, graphics, gameload, geo`; `install.json`
-  `installer.serverBuild` is `17`. Build 17 changes `Game.dll` (the new default `inbox` patch, §8.1, whose witness
-  `Game.McvsInbox` `verify` and `status` now re-read, §3.9) and the server DLL; EngineBridge, Gameloft.Engine and
-  Gameloft.Util get new MVIDs and hashes with the server DLL, as in every build. The config is build 16's. These are
-  the values after the build-17 review (`a8742ab`: the settings page's repeat-code sentence changed the server DLL,
-  and with it every MVID; the kit's status and verify now call an older build OLDER BUILD); the first build-17
-  values (`96801b4`) are in §13.2.
+  quicklaunch, headless-diag, nativeonline, waits, adminlink, graphics, gameload, geo` (build 17's set); `install.json`
+  `installer.serverBuild` is `18`. Build 18 changes only the server DLL (the host: `GameReflection` binds lazily from
+  the loaded assemblies, `LoadedTypes`, the load stack, §8.9); no patch changed, so `Game.dll`, EngineBridge,
+  Gameloft.Engine and Gameloft.Util get new MVIDs and hashes with the server DLL only, as in every build. The config is
+  build 16's. Build 17's values are in §13.2.
 * `MEM rule on, removed 1` (`GameOptionsWindowsTests.RealFileRemoved`, the real `GameOptions_windows.json`).
 * The config is §7.4's codeBase-only text (UTF-8 without BOM, CRLF, final CRLF; five `<dependentAssembly>` entries, no
   `<qualifyAssembly>`), byte for byte the config WR2 ran (§13.2; `PcExeConfigTests.ExpectedSha256`). Builds 14 and 15
   wrote the five `<qualifyAssembly>` entries after them (`fda12aef…c4b6`, §13.2).
-* **Upgrade from build 16** (the same Linux run): a build-16 install made by a `c2b5076` patcher (built in a separate
-  worktree: its server DLL `3210f290…5f80` differs from the kit's `ed04f15f…e5f1` only as a build of another folder;
-  config `3ebe99b3…f94c`, `serverBuild` `16`, no `inbox` recorded on `Game.dll`). The build-17 kit (its Linux build,
-  `McvsOffline.PcKit.dll` with the same embedded server DLL) says in `status` `installed, OLDER BUILD - OLDER BUILD (16;
-  this kit installs build 17): run install to update it (your saves and settings stay)` with the problem line, and
-  `verify` fails with exit 1 on the same sentence (§7.6; the patcher CLI, which does not compare, still says
-  `installed, current`). Build 17's `install` over it exits 0 and writes exactly the bytes of the table above
-  (`serverBuild` `17`, `inbox` recorded on `Game.dll`); then the kit's and the patcher's `verify` and `status` say
-  `installed, current`, and `uninstall` restores the exact listing and every SHA-256 of the copy.
-* The kit: `McvsOffline.PcKit.exe`, SHA-256 `804dd546825a27af92712062a3ec8603e114c9c4bc34ebb016b7fcee64fc3ec2`; its
+* **Upgrade from build 17** (the same Linux run): a build-17 install made by a `b20d12b` patcher (built in a separate
+  worktree: its server DLL `a40e28c6…00ef` differs from build 17's kit's `32019567…2675` only as a build of another
+  folder; config `3ebe99b3…f94c`, `serverBuild` `17`). The build-18 kit (its Linux build, `McvsOffline.PcKit.dll` with
+  the same embedded server DLL) says in `status` `installed, OLDER BUILD - OLDER BUILD (17; this kit installs build 18):
+  run install to update it (your saves and settings stay)` with the problem line, and `verify` fails with exit 1 on the
+  same sentence (§7.6; the patcher CLI, which does not compare, still says `installed, current`). Build 18's `install`
+  over it exits 0 and writes exactly the bytes of the table above (`serverBuild` `18`); then the kit's and the patcher's
+  `verify` and `status` say `installed, current`, and `uninstall` restores the exact listing and every SHA-256 of the
+  copy.
+* The kit: `McvsOffline.PcKit.exe`, SHA-256 `186c1bcb21b46aea633aea888fc6eae531bcdcad73d5027ab660269cd117b28e`; its
   publish check passed on the embedded DLL (every PC hook (17), `Gameloft.Logs`, only allowed references), and the
   kit's assembly carries the server DLL above byte for byte.
 * ILVerify of the four patched assemblies against the net452 refs reports exactly the findings of the stock files
@@ -2066,15 +2064,15 @@ A second install gave the same bytes, and the values do not depend on the commit
   SHA-256 of the copy; with a bootstrap `args.txt` block and player data added before it, only `McvsOffline\` with that
   data remained and `args.txt` was gone. With the first 20 lines of WR2's own `bootstrap.log` as the last start after
   the install, `status` said `installed, NOT ACTIVE (Game loaded from the game folder; the 'store' patch is missing)`
-  with its `ERROR:` line (F2).
-* Android (§12.6): the APK `mcvs-offline-a8742ab.apk` (cert SHA-256 `fc0db84e…7d16`, targetSdk 35, both ABIs,
-  `isGame` and `appCategory=0`, zipalign OK), compared entry by entry with build 15's `mcvs-offline-1a70a5b.apk` (same
-  key and options; build 16 had no APK): same 952 entries in the same order; changed only
-  `assemblies/McvsOffline.Server.dll`, `assemblies/Game.dll` (the `inbox` patch: 7,746,560 → 7,747,584 bytes),
-  `META-INF/1.RSA`, `1.SF`, `MANIFEST.MF`, and `Gameloft.Engine.dll`, `Gameloft.Util.dll`, `NicePlaySDK.dll` in their
-  16 MVID bytes only. Against the first build-17 APK (`mcvs-offline-80378cf.apk`): the same entries in the same
-  order; changed only the server DLL (the page sentence), the signature files and the 16 MVID bytes of `Game.dll`,
-  `Gameloft.Engine.dll`, `Gameloft.Util.dll` and `NicePlaySDK.dll`.
+  with its `ERROR:` line (F2); with the first 22 lines of the owner's build-17 start (2026-10-30, `gameload yes`),
+  `installed, NOT ACTIVE (Game loaded from the game folder; the 'store' patch is missing; the 'inbox' patch is
+  missing)`.
+* Android (§12.6): the APK `mcvs-offline-9e21ead.apk` (SHA-256
+  `5981f1098151f61a8a3d9204514e2351a510fe9f70490521f0c6354c861023b8`; cert SHA-256 `fc0db84e…7d16`, targetSdk 35,
+  both ABIs, `isGame` and `appCategory=0`, zipalign OK), compared entry by entry with build 17's
+  `mcvs-offline-a8742ab.apk` (same key and options): same 952 entries in the same order; changed only
+  `assemblies/McvsOffline.Server.dll` (2,558,976 → 2,562,560 bytes), `META-INF/1.RSA`, `1.SF`, `MANIFEST.MF`, and
+  `Game.dll`, `Gameloft.Engine.dll`, `Gameloft.Util.dll`, `NicePlaySDK.dll` in their 16 MVID bytes only.
 
 ### 13.2 WR2 values (build 13, archived)
 
@@ -2093,6 +2091,10 @@ Gameloft.Engine `f61e59e5…7d49`, Gameloft.Util `cf613f2c…dc64`, McvsOffline.
 Build 17 first cut (`96801b4`, replaced by the review fixes before any Windows run): EngineBridge `5c2dd7e2…af13`,
 Game `39b80ecb…1618`, Gameloft.Engine `c4d37967…e5d3`, Gameloft.Util `40c1792b…99ba`, McvsOffline.Server
 `3fe6146a…6478`, config `3ebe99b3…f94c`; kit `ba8a977f…50e5`; APK `mcvs-offline-80378cf.apk` (`b6bcb82b…2219`).
+Build 17 (`a8742ab`, the fourth WR3 kit; on the owner's PC `Game` came from the game folder, §8.9): EngineBridge
+`14e2a779…352e`, Game `14d887a3…b4a3`, Gameloft.Engine `9af0c02c…abf4`, Gameloft.Util `4fa196fc…7277`,
+McvsOffline.Server `32019567…2675`, config `3ebe99b3…f94c`; kit `804dd546…3ec2`; APK `mcvs-offline-a8742ab.apk`
+(`d4d332f1…16a4`).
 
 ---------------------------------------------------------------------------------------------------
 
