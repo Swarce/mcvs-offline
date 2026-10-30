@@ -27,11 +27,11 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
     public class RealPcHookTests
     {
         private const BindingFlags All = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
-        private const string OrderKey = "mcvs-hook-pc-order";
-        private static readonly BuildProfile Pc = BuildProfile.PcSteam6372049;
+        internal const string OrderKey = "mcvs-hook-pc-order";
+        internal static readonly BuildProfile Pc = BuildProfile.PcSteam6372049;
 
         /// <summary>A look-alike Gameloft.Engine with only what EngineBridge.Class1.Start calls; it records the call.</summary>
-        private const string EngineSource = @"
+        internal const string EngineSource = @"
 namespace Gameloft.Engine
 {
     public class MainLoop
@@ -48,7 +48,7 @@ namespace Gameloft.Engine
 }";
 
         /// <summary>A server whose Bootstrap.Init records into the same list (and throws when told to).</summary>
-        private const string RecordingServerSource = @"
+        internal const string RecordingServerSource = @"
 namespace McvsOffline
 {
     public static class Bootstrap
@@ -312,6 +312,79 @@ namespace McvsOffline
                 output.WriteLine("reported: " + reported.GetType().Name + ": " + reported.Message);
                 Assert.Contains("boom", reported.ToString());
                 Assert.Same(boomType, arguments[1]);
+            }
+        }
+    }
+
+    [CollectionDefinition(Name, DisableParallelization = true)]
+    public class PcTempRedirectCollection
+    {
+        /// <summary>Tests that point the process's %TEMP% elsewhere: they run alone, so no other test sees the change.</summary>
+        public const string Name = "PcTempRedirect";
+    }
+
+    /// <summary>
+    /// hook-pc's safety promise (§8.2): a marker that cannot be written (here %TEMP%\McvsOffline is a file, so the folder cannot
+    /// be created) changes nothing. Start still calls Init and MainLoop.Start in order and returns normally, for a working
+    /// server, a throwing Init and a missing server DLL (the second marker write, in the catch, fails as well). Skipped without
+    /// MCVS_PC_REFS.
+    /// </summary>
+    [Collection(PcTempRedirectCollection.Name)]
+    public class RealPcHookMarkerFailureTests
+    {
+        private readonly ITestOutputHelper output;
+
+        public RealPcHookMarkerFailureTests(ITestOutputHelper output)
+        {
+            this.output = output;
+        }
+
+        [Fact]
+        public void AMarkerThatCannotBeWrittenNeverStopsTheGame()
+        {
+            string pc = RealPc.Folder(output);
+            if (pc == null) return;
+            Dictionary<string, byte[]> patched = RealPc.Patch(pc, PcHookServer.Compile(), null, RealPcHookTests.Pc, new EngineBridgeHookPatch());
+            patched["Gameloft.Engine.dll"] = FixtureCompiler.Compile("Gameloft.Engine", RealPcHookTests.EngineSource);
+            byte[] server = FixtureCompiler.Compile("McvsOffline.Server", RealPcHookTests.RecordingServerSource);
+
+            string temp = TestEnvironment.NewTempDir("pc-unwritable-temp");
+            string blocker = Path.Combine(temp, EngineBridgeHookPatch.MarkerFolder);
+            File.WriteAllText(blocker, "a file where the marker folder would be");
+            // Path.GetTempPath reads TMPDIR (Unix) or TMP/TEMP (Windows) on every call.
+            string[] names = OperatingSystem.IsWindows() ? new[] { "TMP", "TEMP" } : new[] { "TMPDIR" };
+            Dictionary<string, string> saved = names.ToDictionary(n => n, Environment.GetEnvironmentVariable);
+            try
+            {
+                foreach (string n in names) Environment.SetEnvironmentVariable(n, temp + Path.DirectorySeparatorChar);
+                Assert.Equal(Path.GetFullPath(temp + Path.DirectorySeparatorChar), Path.GetFullPath(Path.GetTempPath()));   // else this proves nothing
+                foreach (var (serverImage, throws, expected) in new[]
+                {
+                    (server, false, new[] { "Init", "MainLoop.Start(0, null, False)" }),
+                    (server, true, new[] { "Init", "MainLoop.Start(0, null, False)" }),
+                    ((byte[])null, false, new[] { "MainLoop.Start(0, null, False)" }),
+                })
+                {
+                    var order = new List<string>();
+                    AppContext.SetData(RealPcHookTests.OrderKey, order);
+                    using (var game = new RealGamePatchTests.GameContext(pc, patched, serverImage))
+                    {
+                        if (serverImage != null) game.Get("McvsOffline.Server").GetType("McvsOffline.Bootstrap", true).GetField("Throws").SetValue(null, throws);
+                        Type bridge = game.Get("EngineBridge").GetType("EngineBridge.Class1", true);
+                        object instance = Activator.CreateInstance(bridge);
+                        bridge.GetMethod("Start").Invoke(instance, null);   // a throw here fails the test
+                    }
+                    output.WriteLine((serverImage == null ? "no server" : throws ? "throwing Init" : "server") + ": " + string.Join(", ", order));
+                    Assert.Equal(expected, order);
+                    Assert.True(File.Exists(blocker));
+                    Assert.Equal("a file where the marker folder would be", File.ReadAllText(blocker));
+                }
+            }
+            finally
+            {
+                foreach (KeyValuePair<string, string> v in saved) Environment.SetEnvironmentVariable(v.Key, v.Value);
+                AppContext.SetData(RealPcHookTests.OrderKey, null);
+                Directory.Delete(temp, true);
             }
         }
     }
