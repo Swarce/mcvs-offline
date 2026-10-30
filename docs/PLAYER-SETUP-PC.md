@@ -120,8 +120,14 @@ The setting `admin.openVia` in `McvsOffline\settings.json` picks the route: `aut
 settings page's unlock tools grant. On a Steam account that never played MCVS on PC, the game's first start resets this
 game's Steam stats (stock behaviour).
 
-**Graphics.** Use the game's own menu: Settings › Graphics (quality Low, Mid or High, render scale, 30/60 FPS, Vsync,
-MSAA, full screen). The graphics quality applies at the next start and overrides the settings page's
+**The game's Settings menu** (build 19): SOCIAL MEDIA, FORUM and CUSTOMER CARE, which cannot work offline, are hidden;
+the six tiles left (GAMEPLAY SETTINGS, AUDIO, ACCOUNTS / HELP, LANGUAGES, PERFORMANCE) stand in two centred rows of three
+with ABOUT alone below them. Every page behind them is Steam's own, unchanged; so is the Settings panel during a match.
+The settings page's **Shorter Settings menu** (`admin.settingsMenu.trim`, Settings › Gameplay) brings the stock menu
+back the next time Settings opens.
+
+**Graphics.** Use the game's own menu: Settings › PERFORMANCE (graphics quality, antialiasing, screen scale, FPS limit,
+full screen, Vsync, resolution, field of view, low resolution maps). The graphics quality applies at the next start and overrides the settings page's
 `graphics.profile` (keep that at `auto`). High uses more memory, and the game is a 32-bit program with 2 GB at most: if
 it crashes soon after you chose High, go back to Mid. The `[boot] graphics:` lines and the `graphics:` part of the
 `[status]` lines in `McvsOffline\logs\bootstrap.log` say which profile ran and what the game's menu was set to.

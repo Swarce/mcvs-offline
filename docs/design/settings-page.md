@@ -64,6 +64,7 @@ Found while implementing and reviewing the packages and at the integration (WP8)
 | `AdminHostInfo` gains `RelaunchUnconfirmed` (Android 13+), `Notifications`, `Graphics`, `HdTextures`; `GET status` returns them as `host.relaunchUnconfirmed`, `host.notifications`, `host.graphics`, `host.hdTextures`; Status › Game host shows the three rows. | The status row of the notification permission, and what the engine really got. | §4.3, §8.1 |
 | Build 11: `hd.mount` is gone (the zip mount was removed); `hd.enabled` installs the HD pack `McvsOffline/hd/mcvs-hd-*.zip` into `Data/` (false: removes it at the next start). `AdminHostInfo.HdInstalled` (`host.hdInstalled`); Actions › **Remove HD textures** (shown while it is true and `hd.enabled` is not false) asks first, posts `hd.enabled` false through `POST settings` and offers the restart. | [design/hd-install.md](hd-install.md); a restart is what puts the originals back (the installer step runs only at start-up, before the game's installer). | §4.3, §4.5 |
 | On Android 13+ (`host.relaunchUnconfirmed`) every Restart text (Actions, the restart dialog and its toast, the restart banner, Status' "Restart via") says the game may close without coming back and then must be started again; none says it will not come back. | Since Android 13 AlarmManager is expected to start no activity for an alarm, at any target (target-sdk.md §4.6, critic note 3), but STATUS device-test item 9 has not been observed on its own (device test 8 passed checks 1–13 only as a whole). Reword to a firm "closes" only after item 9 or WP-T7 shows no relaunch. | §4.5, §8.8 |
+| Build 19: the game's Settings menu ([design/settings-menu.md](settings-menu.md)). Gameplay: `admin.settingsMenu.trim` (bool, true, live; both platforms) and `admin.settingsMenu.performance` (bool, true, live; Android only, hidden on PC). Graphics (Android only, hidden on PC): `graphics.msaa` (enum auto/off/2x/4x/8x, restart), `graphics.renderScale` (text `auto` or 0-100, live), `graphics.lowResMaps` (enum auto/on/off, menu). Advanced (read-only, Android): `graphics.fpsListVersion`. | The trimmed Settings grid on both platforms and the Android PERFORMANCE page; the game's PERFORMANCE page and this page edit the same keys, so a bad value can be fixed here. | §3.1, §3.2, §9.4 |
 
 ## 0. Decisions already taken (not reopened here) and invariants
 
@@ -298,6 +299,8 @@ save before saving the change, §4.4).
 |---|---|---|---|---|---|---|
 | Gameplay | `instantBots` | Instant bot matches | bool | true | menu | Matches start at once and bots fill the empty slots. Off: the game waits for other players first. |
 | Gameplay | `crm.practiceTile` | Practice tile in the main menu | bool | false | menu | Shows the game's own hidden PRACTICE tile (a bot match) as the last tile of the main menu. With the bottile patch (default) it starts the same bot-filled, full-reward match as Battle > Classic multiplayer, without the mode and group screens; without it, the game's free bot match (5 Credits per win). Untested: where the tile sits in this menu and how it looks; turn it off again if the menu looks wrong. Two CRM SET cells on MCVS_Meta `MainMenuElements` row 13 ([protocol/content.md](../protocol/content.md) step 5). |
+| Gameplay | `admin.settingsMenu.trim` | Shorter Settings menu | bool | true | live | Hides SOCIAL MEDIA, FORUM and CUSTOMER CARE (and MORE GAMES on phones) in the game's Settings menu, which cannot work offline, and centres the tiles that are left, with ABOUT alone below them. Applies the next time Settings opens. Read by the embedded host on every Settings opening (`SettingsMenu/UiNatives`, [settings-menu.md](settings-menu.md) §3.2). Both platforms. |
+| Gameplay | `admin.settingsMenu.performance` | PERFORMANCE in the Settings menu | bool | true | live | Adds a PERFORMANCE tile to the game's Settings menu, as on Steam: GRAPHICS, ANTIALIASING, SCREEN SCALE, FRAME RATE LIMIT and LOW RESOLUTION MAPS. GRAPHICS SETTINGS and FRAME RATE LIMIT then leave Gameplay Settings, also during a match. FRAME RATE LIMIT offers 90 and 120 from the next start. Off: the game's own menus. Applies the next time Settings opens. Android only (not shown on PC; settings-menu.md §3.3-§3.5). |
 | Gameplay | `devMenu` | Developer cheat menu | bool | false | restart | Gameloft's developer menu (`IsDevelopment` in the menu server handshake). `confirmWhen: enable`, `backupBefore: enable`: "Cheats can damage your profile. A backup of your save is made now." |
 | Gameplay | `leaderboards.virtualPlayers` | Leaderboard opponents | bool | true | live | Division leaderboards are filled with generated players. |
 | Gameplay | `geo.country` | Country | string `^[A-Z]{2}$` | `US` | restart | Two-letter country code reported to the game. |
@@ -341,6 +344,9 @@ save before saving the change, §4.4).
 | Diagnostics | `diagnostics.threadDump` | Thread dumps on freezes | bool | true | restart | |
 | Diagnostics | `diagnostics.publicLogCopy` | Log copies in Downloads/MCVS-Offline | bool | true | restart | Android 11 and later. |
 | Diagnostics | `tracking.disable` | Block the game's analytics uploads | bool | false | live | |
+| Graphics | `graphics.msaa` | Antialiasing | enum `auto`, `off`, `2x`, `4x`, `8x` | `auto` | restart | ANTIALIASING on the game's PERFORMANCE page: GameOptions `renderTargetMSAA` in the `graphics` rewrite; `auto` leaves the text byte-identical. Android only ([settings-menu.md](settings-menu.md) §2). |
+| Graphics | `graphics.renderScale` | Screen scale | string `^(auto\|[0-9]{1,3})$`, at most 100 | `auto` | live | SCREEN SCALE on the PERFORMANCE page: `RenderTargetSizeScale` = `v > 0.97 ? 1 : 0.4 + 0.6 v`, at once and after every start. Android only. |
+| Graphics | `graphics.lowResMaps` | Low resolution maps | enum `auto`, `on`, `off` | `auto` | menu | LOW RESOLUTION MAPS on the PERFORMANCE page: the levels' low-end layers from the next level load. Android only. |
 
 New keys introduced by this design (defaults live in code, nothing is added to `settings.json` automatically):
 `admin.redeemCode`, `crm.newsfeedLink` (editable above), and the file-only keys `admin.enabled` (bool, true; kill
@@ -358,7 +364,8 @@ Shown with their effective value: `port`, `bind`, `publicUrl`, `lanMode`, `super
 `crm.usePreconfiguration`, `crm.offlineStore`, `crm.iap`, `crm.omitOwnedSignatures`, `crm.overlay` (shown as "not set"
 or "set, N characters"), `crm.pointcutActions` (count), `assets.coupons` (count), `matchmaker.tsRoomCapacity`,
 `matchmaker.gsRoomCapacity`, `storage.cache`, `storage.absentField`, `auth.requireSuperPassword`, `admin.enabled`,
-`admin.openVia`, `admin.restartVia`, `security.hostCheck`.
+`admin.openVia`, `admin.restartVia`, `security.hostCheck`, `graphics.fpsListVersion` ("Frame rate limit list": which
+FRAME RATE LIMIT list the stored index belongs to, written by the embedded host only; Android, [settings-menu.md](settings-menu.md) §2).
 
 **Server-side denylist** (refused with 400 `not_editable` even if a future schema edit marked them editable):
 `port`, `bind`, `publicUrl`, `lanMode`, `superCredential`, `superPassword`, `dataCenter`, `pandora.*`,
@@ -2088,6 +2095,11 @@ ret
 ```
 
 Id `forum`, in `OptionalPatches` only. The label stays "Forum".
+
+Build 19: with `admin.settingsMenu.trim` on, the Forum tile is hidden ([settings-menu.md](settings-menu.md) §1); on
+Android with `admin.settingsMenu.performance` on it is the PERFORMANCE tile, whose `GoToForum` calls the game's own
+`UIComponent.GoToForum()` (this patch's body) only while the tile is not active. So the patch is reachable only with the
+trim off on PC, and with both switches off on Android.
 
 ### 9.5 Optional: hidden redeem code (WP7)
 

@@ -68,6 +68,8 @@ The repository contains no game files. You bring your own APK; the project bring
 **Looks and compatibility**
 
 - Graphics profiles (`auto`, `mid`, `high`, `ultra`), using Gameloft's own GPU profiles.
+- A Settings menu without the tiles that cannot work offline, and on phones the Steam version's **PERFORMANCE** page
+  (graphics, antialiasing, screen scale, frame rate limit up to 120, low resolution maps).
 - **HD textures** from the PC (Steam) version, which has many textures at twice the phone's resolution: an ASTC pack
   for most recent phones (Galaxy S22 and newer), ETC packs for older GPUs. You build them yourself from your own Steam
   files; see [tools/hd-textures](tools/hd-textures/README.md).
@@ -99,6 +101,7 @@ the shop, the MCVS Offline page and the HD textures. A few newer features are bu
 | Graphics profiles | Works (tested on a phone) |
 | HD textures (ASTC and ETC packs) | Works: the ASTC pack on a Galaxy S22, at the same frame rate as the stock textures |
 | Game Mode flags (Android 'game' patch) | Built (build 13), waiting for a phone test |
+| Shorter Settings menu, Android PERFORMANCE page | Built (build 19), waiting for a phone and a Windows test |
 | PC (Steam) port | Second Windows test done (install, start and menu work; the game ran its own `Game.dll`, fixed in build 14). Ready for the third: the kit and [docs/PLAYER-SETUP-PC.md](docs/PLAYER-SETUP-PC.md) on the `wip/pc-port` branch |
 | LAN multiplayer | Experimental: guests use the host's server for everything |
 | Internet multiplayer | Planned (overlay VPN guide first) |
@@ -197,6 +200,8 @@ Underneath, everything lives in `settings.json` (in the game:
 | `graphics.profile` | `auto` | Graphics profile: `auto`, `mid`, `high` or `ultra` (after a restart) |
 | `hd.enabled` | `true` | Install the HD pack in `McvsOffline/hd/`; `false` removes it at the next start |
 | `crm.practiceTile` | `false` | Show the game's hidden PRACTICE bot-match tile in the main menu (untested placement and art) |
+| `admin.settingsMenu.trim` | `true` | The game's Settings menu without SOCIAL MEDIA, FORUM, CUSTOMER CARE (and MORE GAMES), centred |
+| `admin.settingsMenu.performance` | `true` | Phones: the PERFORMANCE tile and page; Gameplay Settings without GRAPHICS SETTINGS and FRAME RATE LIMIT |
 
 All keys: [docs/PLAYER-SETUP.md](docs/PLAYER-SETUP.md) section 8 (the in-game host) and the per-module protocol notes
 in [docs/PROTOCOL.md](docs/PROTOCOL.md).

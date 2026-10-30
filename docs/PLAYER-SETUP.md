@@ -157,7 +157,9 @@ What the patches do:
   the chip it runs a game (more performance, device dependent), and a phone may cap the screen at 60 Hz for it, which
   the game's 30 fps does not notice. Nothing in the game reads these flags. Without it the manifest is exactly as in
   build 12 and earlier; `--target-sdk 36` needs it.
-- **forum** (not in the default set): the Forum button in Settings opens the page too.
+- **forum** (not in the default set): the Forum button in Settings opens the page too. Since build 19 that button is
+  hidden, or is the PERFORMANCE tile (section 7), unless both "Shorter Settings menu" and "PERFORMANCE in the Settings
+  menu" are off.
 - **lan** (experimental): groundwork for LAN play (see the end of this guide). It changes nothing for single-device
   play.
 - **Icon and launch screen** (`--art`, not a `--patch` id): once the project's own art exists in `art/android/` and the
@@ -356,7 +358,7 @@ and nothing on it leaves the phone unless you share it.
 - Settings › Account › Redeem code: type `MCVSOFFLINE`. The page opens and the game then says the code does not exist;
   that is expected, nothing is claimed. `admin.redeemCode` in `settings.json` changes the code (empty turns it off).
   The code does nothing while `lanMode` is on.
-- The Forum button, if you patched with `--patch default,forum`.
+- The Forum button, if you patched with `--patch default,forum` and turned off the two Settings menu settings below.
 
 **Settings › Account** shows only **Redeem code** and **MCVS Offline**, side by side in the middle of the screen.
 Facebook, Google Play Games and Restore are hidden: their login can never succeed offline, and Restore is the restore of
@@ -368,6 +370,28 @@ page turned off (`admin.enabled`) Redeem code is. If the menu cannot be rearrang
 them (stacked on the left) and `server.log` says why in an `[admin] account menu:` line. On a PC the game's GameCenter
 button stays (the Steam build has no Facebook, Google or Restore button, so nothing changes there), and the setting is
 not on the PC's settings page.
+
+**The game's Settings menu** (build 19) shows the tiles that work offline: GAMEPLAY SETTINGS, AUDIO, CUSTOMIZE
+CONTROLS, ACCOUNTS in the first row, HELP, LANGUAGES, **PERFORMANCE** centred below them, and ABOUT alone at the bottom.
+FORUM, SOCIAL MEDIA, CUSTOMER CARE and MORE GAMES are hidden. **PERFORMANCE** is the Steam version's graphics page,
+for the phone:
+
+| Row | Choices | Applies |
+|---|---|---|
+| GRAPHICS SETTINGS | AUTO, MID, HIGH, ULTRA: the same as the page's Graphics profile (`graphics.profile`) | after a restart: back on the Settings menu the game offers to restart now |
+| ANTIALIASING | OFF, 2x, 4x, 8x (`graphics.msaa`; 8x may not work on every phone) | after a restart, as above |
+| SCREEN SCALE | 0-100 % (`graphics.renderScale`): the resolution the 3D scene is drawn at, 0 is 40 %, as on Steam | at once |
+| FRAME RATE LIMIT | 30, 60, 90, 120, UNLIMITED (the game's own setting; 90 and 120 are new, and whether a phone really shows more than 60 is not known yet) | at once |
+| LOW RESOLUTION MAPS | OFF, ON (`graphics.lowResMaps`) | from the next match |
+
+Until you change a row it shows what the game uses now (`auto` in `settings.json`). Steam's FULL SCREEN, SCREEN
+RESOLUTION and VSYNC do nothing on a phone and are left out; FIELD OF VIEW stays in Gameplay Settings. Gameplay Settings
+no longer has GRAPHICS SETTINGS and FRAME RATE LIMIT, in the main menu and during a match: change them on PERFORMANCE,
+from the main menu. Two settings on the page (Settings › Gameplay, on by default, applied the next time Settings opens)
+undo this: **Shorter Settings menu** (`admin.settingsMenu.trim`) brings the hidden tiles back, **PERFORMANCE in the
+Settings menu** (`admin.settingsMenu.performance`) removes the PERFORMANCE tile and puts the two Gameplay rows back
+(FRAME RATE LIMIT then has 30, 60 and UNLIMITED again from the next start, your choice carried over). If the menu
+cannot be rearranged, it stays as the game draws it and `server.log` says why in a `settings menu:` line.
 
 **Chrome is not supported.** Open the page only from the game. In Chrome (or any other browser)
 `http://127.0.0.1:51780/_mcvs/ui/` shows a view-only page at most: Android freezes the game about a minute after it leaves the screen, and the page's
