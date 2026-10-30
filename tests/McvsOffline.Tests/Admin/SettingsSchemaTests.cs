@@ -18,8 +18,9 @@ namespace McvsOffline.Tests.Admin
         /// <summary>§3.1, in page order.</summary>
         private static readonly string[] EditableKeys =
         {
-            "instantBots", "crm.practiceTile", "devMenu", "leaderboards.virtualPlayers", "geo.country",
-            "graphics.profile", "graphics.fullProfile", "hd.enabled",
+            "instantBots", "crm.practiceTile", "admin.settingsMenu.trim", "admin.settingsMenu.performance", "devMenu",
+            "leaderboards.virtualPlayers", "geo.country",
+            "graphics.profile", "graphics.fullProfile", "graphics.msaa", "graphics.renderScale", "graphics.lowResMaps", "hd.enabled",
             "economy.versusCoinsMultiplier", "economy.creditsMultiplier", "economy.xpMultiplier", "economy.priceMultiplier", "crm.dailyCapMultiplier",
             "economy.collector.enabled", "economy.collector.itemsPerCrate",
             "unlockAll", "assets.couponsEnabled", "crm.redeemCoupons", "admin.accountMenu.hideDeadButtons", "unlocks.batchSize", "admin.redeemCode",
@@ -158,6 +159,28 @@ namespace McvsOffline.Tests.Admin
             Assert.Null(Def("graphics.fullProfile").BackupBefore);
             Assert.Equal(true, Default("hd.enabled"));
             Assert.Equal("restart", Def("hd.enabled").Apply);
+
+            // Read by the embedded host's Settings menu natives each time Settings opens (docs/design/settings-menu.md §3); the
+            // owner can turn either off and get the game's own menus back.
+            Assert.Equal(true, Default(SettingsSchema.SettingsMenuTrimKey));
+            Assert.Equal("live", Def(SettingsSchema.SettingsMenuTrimKey).Apply);
+            Assert.Equal(true, Default(SettingsSchema.SettingsMenuPerformanceKey));
+            Assert.Equal("live", Def(SettingsSchema.SettingsMenuPerformanceKey).Apply);
+            Assert.Contains("FRAME RATE LIMIT", Def(SettingsSchema.SettingsMenuPerformanceKey).Help);
+            Assert.Contains("during a match", Def(SettingsSchema.SettingsMenuPerformanceKey).Help);
+            // The Android PERFORMANCE page's values (PerformancePrefs): "auto" leaves the graphics profile's own value.
+            Assert.Equal("auto", Default(SettingsSchema.GraphicsMsaaKey));
+            Assert.Equal(new[] { "auto", "off", "2x", "4x", "8x" }, Def(SettingsSchema.GraphicsMsaaKey).Options);
+            Assert.Equal("restart", Def(SettingsSchema.GraphicsMsaaKey).Apply);
+            Assert.Equal("auto", Default(SettingsSchema.GraphicsRenderScaleKey));
+            Assert.Equal("string", Def(SettingsSchema.GraphicsRenderScaleKey).Type);
+            Assert.Equal("live", Def(SettingsSchema.GraphicsRenderScaleKey).Apply);
+            Assert.Equal("auto", Default(SettingsSchema.GraphicsLowResMapsKey));
+            Assert.Equal(new[] { "auto", "on", "off" }, Def(SettingsSchema.GraphicsLowResMapsKey).Options);
+            Assert.Equal("menu", Def(SettingsSchema.GraphicsLowResMapsKey).Apply);
+            // The host's FPS-list marker is shown, never edited.
+            Assert.Null(SettingsSchema.Find(SettingsSchema.GraphicsFpsListVersionKey));
+            Assert.Contains(SettingsSchema.AdvancedKeys, kv => kv.Key == "graphics.fpsListVersion");
         }
 
         [Theory]
@@ -280,6 +303,17 @@ namespace McvsOffline.Tests.Admin
         [InlineData("gameLog.mute", "profile:debug  net:all", false)]
         [InlineData("gameLog.mute", "pro_file:debug", false)]
         [InlineData("gameLog.mute", ":debug", false)]
+        [InlineData("graphics.renderScale", "auto", true)]
+        [InlineData("graphics.renderScale", "0", true)]
+        [InlineData("graphics.renderScale", "100", true)]
+        [InlineData("graphics.renderScale", "75", true)]
+        [InlineData("graphics.renderScale", "101", false)]
+        [InlineData("graphics.renderScale", "999", false)]
+        [InlineData("graphics.renderScale", "AUTO", false)]
+        [InlineData("graphics.renderScale", "", false)]
+        [InlineData("graphics.renderScale", "-1", false)]
+        [InlineData("graphics.renderScale", "0.5", false)]
+        [InlineData("graphics.renderScale", "1000", false)]
         public void StringsMatchTheirPatterns(string key, string value, bool valid)
         {
             Assert.Equal(valid, Check(key, value).ok);

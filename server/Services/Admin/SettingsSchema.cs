@@ -156,6 +156,34 @@ namespace McvsOffline.Server.Services.Admin
         /// <summary>Read by the embedded host's AdminHooks.AccountMenuButtons each time Settings › Account opens.</summary>
         public const string AccountMenuHideDeadButtonsKey = "admin.accountMenu.hideDeadButtons";
 
+        /// <summary>
+        /// Read by the embedded host (AdminHost.SettingsMenuTrim) each time the game's Settings menu opens: SOCIAL MEDIA, FORUM,
+        /// CUSTOMER CARE (and MORE GAMES) hidden and the tiles left centred (docs/design/settings-menu.md §3.2). Both platforms.
+        /// </summary>
+        public const string SettingsMenuTrimKey = "admin.settingsMenu.trim";
+
+        /// <summary>
+        /// Read by the embedded host (AdminHost.SettingsMenuPerformance) on every call of its Settings menu natives: the Android
+        /// PERFORMANCE tile and page, and GRAPHICS SETTINGS and FRAME RATE LIMIT out of Gameplay Settings (§3.3, §3.5); read once
+        /// at start for the 90 and 120 FPS limits (§3.4). Android only.
+        /// </summary>
+        public const string SettingsMenuPerformanceKey = "admin.settingsMenu.performance";
+
+        /// <summary>ANTIALIASING of the Android PERFORMANCE page: GameOptions <c>renderTargetMSAA</c> at the next start (§3.4).</summary>
+        public const string GraphicsMsaaKey = "graphics.msaa";
+
+        /// <summary>SCREEN SCALE of the Android PERFORMANCE page: <c>PostProcessManager.RenderTargetSizeScale</c>, live and at start (§3.4).</summary>
+        public const string GraphicsRenderScaleKey = "graphics.renderScale";
+
+        /// <summary>LOW RESOLUTION MAPS of the Android PERFORMANCE page: the levels' low-end layers from the next level load (§3.4).</summary>
+        public const string GraphicsLowResMapsKey = "graphics.lowResMaps";
+
+        /// <summary>
+        /// Written by the embedded host only (read-only on the page): the FRAME RATE LIMIT value list the stored <c>MaxFramerate</c>
+        /// index belongs to; 0 or absent is the game's own list (§3.4, skeptic E7).
+        /// </summary>
+        public const string GraphicsFpsListVersionKey = "graphics.fpsListVersion";
+
         /// <summary>liveops.arenaRotation: rotate, off and every mode of the shipped liveops.json <c>arena.modes</c> (a test
         /// keeps the list equal to the catalogue).</summary>
         internal static readonly string[] ArenaRotationChoices =
@@ -207,6 +235,7 @@ namespace McvsOffline.Server.Services.Admin
             "security.hostCheck", "Host check",
             "notifications.request", "Ask for the notification permission (Android 13+)",
             "notifications.requestedAt", "Notification permission asked",
+            GraphicsFpsListVersionKey, "Frame rate limit list",
         };
 
         /// <summary>Never editable, whatever the schema says (design §3.2); prefixes end with '.'.</summary>
@@ -222,14 +251,16 @@ namespace McvsOffline.Server.Services.Admin
 
         /// <summary>
         /// Keys the PC host neither writes nor uses (docs/design/pc-port.md §3.6): the Android installer and HD textures,
-        /// notifications, the public log copy and the Mono thread dump; and admin.accountMenu.hideDeadButtons, which
+        /// notifications, the public log copy and the Mono thread dump; admin.accountMenu.hideDeadButtons, which
         /// changes nothing on PC (the Steam build's Account list is Redeem code and GameCenter: no Facebook, Google or
-        /// Restore entry to hide, and a GameCenter entry is never centred). Prefixes end with '.'.
+        /// Restore entry to hide, and a GameCenter entry is never centred); and the Android PERFORMANCE page with its values
+        /// (Steam keeps its own PERFORMANCE page: docs/design/settings-menu.md §1.1). Prefixes end with '.'.
         /// </summary>
         private static readonly string[] WindowsHidden =
         {
             "hd.", "install.", "notifications.", "diagnostics.publicLogCopy", "diagnostics.threadDump",
-            AccountMenuHideDeadButtonsKey,
+            AccountMenuHideDeadButtonsKey, SettingsMenuPerformanceKey, GraphicsMsaaKey, GraphicsRenderScaleKey,
+            GraphicsLowResMapsKey, GraphicsFpsListVersionKey,
         };
 
         /// <summary>Read-only keys only the PC host has, as key, label, description, inserted after <see cref="WindowsAdvancedAfter"/>.</summary>
@@ -688,6 +719,16 @@ namespace McvsOffline.Server.Services.Admin
                      + "bottile patch (default) it starts the same bot-filled, full-reward match as Battle > Classic multiplayer, "
                      + "without the mode and group screens; without it, the game's free bot match (5 Credits per win). "
                      + "Untested: where the tile sits in this menu and how it looks; turn it off again if the menu looks wrong."),
+                // Read by the embedded host each time Settings opens (SettingsMenu/UiNatives; docs/design/settings-menu.md §3).
+                Bool("gameplay", SettingsMenuTrimKey, "Shorter Settings menu", true, Live,
+                     "Hides SOCIAL MEDIA, FORUM and CUSTOMER CARE (and MORE GAMES on phones) in the game's Settings menu, which "
+                     + "cannot work offline, and centres the tiles that are left, with ABOUT alone below them. Applies the next time "
+                     + "Settings opens."),
+                Bool("gameplay", SettingsMenuPerformanceKey, "PERFORMANCE in the Settings menu", true, Live,
+                     "Adds a PERFORMANCE tile to the game's Settings menu, as on Steam: GRAPHICS, ANTIALIASING, SCREEN SCALE, FRAME "
+                     + "RATE LIMIT and LOW RESOLUTION MAPS. GRAPHICS SETTINGS and FRAME RATE LIMIT then leave Gameplay Settings, also "
+                     + "during a match. FRAME RATE LIMIT offers 90 and 120 from the next start. Off: the game's own menus. Applies the "
+                     + "next time Settings opens."),
                 Confirmed(Bool("gameplay", "devMenu", "Developer cheat menu", false, Restart,
                                "Gameloft's developer menu (IsDevelopment in the menu server handshake)."),
                           "Cheats can damage your profile. A backup of your save is made now.", "enable", "enable"),
@@ -708,6 +749,21 @@ namespace McvsOffline.Server.Services.Admin
                                + "profile as it is."),
                           "This also changes the match servers inside the game: they load the levels' Physics layer and run bot AI "
                           + "twice as often. If matches stall or stutter, turn it off again.", "enable", null),
+                // The values of the game's PERFORMANCE page on Android (SettingsMenu/PerformancePage, Graphics/PerformancePrefs;
+                // settings-menu.md §2, §3.4). The page shows "auto" as what the engine has now.
+                Choice("graphics", GraphicsMsaaKey, "Antialiasing", "auto", Restart,
+                       "ANTIALIASING on the game's PERFORMANCE page. Auto: what the graphics profile sets. Off, 2x, 4x, 8x: the "
+                       + "multisampling of the 3D scene; more is smoother and slower, and 8x may not work on every phone. Needs a build "
+                       + "with the 'graphics' patch.",
+                       "auto", "off", "2x", "4x", "8x"),
+                Text("graphics", GraphicsRenderScaleKey, "Screen scale", "auto", Live,
+                     "SCREEN SCALE on the game's PERFORMANCE page: the resolution the 3D scene is drawn at, from 0 (40 %) to 100 "
+                     + "(full), as on Steam. Auto: what the graphics profile sets. Applies at once.",
+                     "^(auto|[0-9]{1,3})$", 4, IsRenderScale, "auto, or a whole number from 0 to 100."),
+                Choice("graphics", GraphicsLowResMapsKey, "Low resolution maps", "auto", Menu,
+                       "LOW RESOLUTION MAPS on the game's PERFORMANCE page: the levels' low-end versions instead of the high-end "
+                       + "ones, as on Steam. Auto: what the graphics profile sets. Applies from the next match.",
+                       "auto", "on", "off"),
                 Bool("graphics", "hd.enabled", "HD textures", true, Restart,
                      "On: an HD texture pack you put in McvsOffline/hd/ (mcvs-hd-*.zip, made on your PC from your own Steam "
                      + "copy) is installed into the game's data at the next start. Off: an installed pack is removed at the "
@@ -913,6 +969,20 @@ namespace McvsOffline.Server.Services.Admin
                 if (!IsUpper(c) && !IsDigit(c)) return false;
             }
             return true;
+        }
+
+        /// <summary>^(auto|[0-9]{1,3})$ and at most 100.</summary>
+        internal static bool IsRenderScale(string s)
+        {
+            if (s == "auto") return true;
+            if (s.Length < 1 || s.Length > 3) return false;
+            int value = 0;
+            foreach (char c in s)
+            {
+                if (!IsDigit(c)) return false;
+                value = value * 10 + (c - '0');
+            }
+            return value <= 100;
         }
 
         /// <summary>^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$ and a real date and time.</summary>
