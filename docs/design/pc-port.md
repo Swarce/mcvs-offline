@@ -1088,8 +1088,9 @@ and Windows semantics), log):
 6. `dryRun` stops here and prints the report (with the SHA-256 each output would have). Else write (§7.4), then re-read
    every written file (SHA-256 as reported, Cecil MVID as recorded, the witnesses of §3.9 present for every applied
    patch that has one), and parse the config back (five `dependentAssembly`, hrefs exist and are the assembly they
-   name, no `qualifyAssembly`). A write that fails before our config is in place (a first install, or the config write
-   itself) adds "The game will start WITHOUT MCVS Offline until install succeeds"; the kit's menu then prints
+   name, no `qualifyAssembly`). A write that fails before our config is in place (a first install, an upgrade from a
+   build-14/15 config with `qualifyAssembly` entries, which most likely does not redirect, or the config write itself)
+   adds "The game will start WITHOUT MCVS Offline until install succeeds"; the kit's menu then prints
    `INSTALL FAILED (exit code n): see the error above, fix it and run install again`.
 7. `args.txt` is not written (the bootstrap writes it at the first start). A reinstall overwrites `bin\` files, then
    `install.json`, then the config (also a build-14/15 config with `qualifyAssembly` entries: it is ours).
@@ -1100,7 +1101,13 @@ and Windows semantics), log):
 nothing else touched) when it cannot be deleted, so it never redirects to deleted files; delete `bin\*` and
 `bin\`, then `install.json`; strip the managed block from `args.txt` with `PcArgsBlock.Remove` (rewritten through
 `args.txt.mcvs-tmp`), deleting the file when nothing but whitespace is left (the depot has no `args.txt`, F9); delete
-every `*.mcvs-tmp` of §7.4; report anything left behind (a DLL that cannot be deleted: "quit the game and run uninstall again"). Uninstall works from every state
+every `*.mcvs-tmp` of §7.4; report anything left behind (a DLL that cannot be deleted: "quit the game and run uninstall again").
+Before anything is deleted, a game DLL that is byte for byte our bin copy (a hand copy, as for install step 2) refuses
+uninstall (exit 3, nothing removed: "<files> are MCVS Offline's own copies from McvsOffline\bin, not the game's: you
+copied MCVS Offline's DLLs over the game's own files; Steam > Verify integrity of game files restores them, then run
+uninstall again"): deleting bin and `install.json` would remove the only proof and leave the game running our copies
+while status says "not installed". A `McvsOffline.Server.dll` next to the exe that is our copy (Verify keeps it) is
+removed with the rest. Uninstall works from every state
 (`installed`, `STALE`, `DAMAGED`, `PARTIAL`): it removes what of ours is there and skips what is missing. **The data
 stays** (`settings.json`, accounts, profiles, logs, exports); `--remove-data` deletes all of `McvsOffline\` after the
 confirmation `DELETE` (interactive) or `--yes`. Before that deletion the kit closes its log in `McvsOffline\kit\` and
@@ -1114,7 +1121,8 @@ without `--remove-data`; the kit moves its log to `%TEMP%` first in that case to
 wait for a kit that knows this build"; when a changed DLL is byte for byte our bin copy, "you copied MCVS Offline's DLLs
 over the game's own files; Steam > Verify integrity of game files restores them, then run install" and each such file
 named) | `DAMAGED` (a written file missing or changed, or a config with `<qualifyAssembly>`: "an old build-14/15 config:
-run install again", §7.4) | `PARTIAL` (e.g. bin without config); leftovers (also a `McvsOffline.Server.dll` next to the
+run install again", §7.4; a hand copy is checked here too and, when found, its files come first and the advice is the
+Verify one above, `DAMAGED (<problems>): you copied …`, since install would refuse) | `PARTIAL` (e.g. bin without config); leftovers (also a `McvsOffline.Server.dll` next to the
 exe that is a copy of ours): a foreign or spike config, an `args.txt` block while not installed, any `*.mcvs-tmp` (§7.4), any
 `*_args.txt` (the engine reads `<prefix>_args.txt` instead of `args.txt`, `tools/pc-spike/ArgsTxtStep.cs:42-48`; also
 when installed, as an error), the spike's data folder `%LOCALAPPDATA%\McvsOffline\spike`; listed apart, informational and
@@ -1135,15 +1143,21 @@ DAMAGED and PARTIAL keep their state (the reason is still an error).
 `installed, current`). Both `bootstrap.log` files count, `<game>\McvsOffline\logs\` and the `%TEMP%\McvsOffline\logs\`
 fallback (`GameFolder.BootstrapLogs`, the list `watch` follows); the newer is judged, and its newest timestamped line is
 the last record of our host. With none at or after `writtenUtc`:
-* hook-pc's marker `%TEMP%\McvsOffline\hook.txt` (§8.2) has a start since the install → `installed, NOT ACTIVE (the server
-  did not start)`, `activation: NOT ACTIVE: MCVS Offline's EngineBridge ran at <t> but the server did not start: <the
-  marker's exception line, or "no exception recorded">`;
+* hook-pc's marker `%TEMP%\McvsOffline\hook.txt` (§8.2) has a start since the install whose exe or `EngineBridge.dll`
+  lies in this game folder (the file is shared by every copy of the game the user runs) → `installed, NOT ACTIVE (the
+  server did not start)`, `activation: NOT ACTIVE: MCVS Offline's EngineBridge ran at <t> but the server did not start:
+  <the exception line of the same pid, or "no exception recorded">`; while the game runs and that process recorded no
+  exception, only `activation: NOT VERIFIED: MCVS Offline's EngineBridge ran at <t>; the game is still running: run status
+  after closing it` (the start line precedes McvsOfflineInit and the host's first line, so it may still be starting);
 * else a file the stock game writes in its folder (`GameFolder.GameWrittenNames`: `dr0.bin`..`dr3.bin`, `OF_PP.bin`,
   `GameVersion`, `core.dmp`) was written after the install and after our last record (whole seconds), and the game is
   not running now (a starting game may not have reached our first line yet) → `installed, NOT
   ACTIVE (the game started without MCVS Offline)`, `activation: NOT ACTIVE: the game started without MCVS Offline;
   Windows did not use <game>\ModernCombatVersus.exe.config`, a `hook:` line (no marker: "our EngineBridge has never run as
-  this user"; an older one: when it last ran), the file and its time as a problem, and an `ERROR:` line;
+  this user"; an older one: when it last ran from this folder), the file and its time as a problem, and an `ERROR:` line.
+  Without a config of ours (PARTIAL: the install stopped before the config write, or a foreign one) the reason is the
+  config instead: `NOT ACTIVE: the game started without MCVS Offline: <config> is missing (install did not finish)` (or
+  `is not ours`);
 * else `activation: NOT VERIFIED: no start of MCVS Offline since the install (start the game once, then run status)`; the
   state stays `installed, current`.
 The kit passes its own `%TEMP%` (`KitEnvironment.TempRoot`) to status and verify; the patcher CLI uses `Path.GetTempPath()`.
@@ -1419,9 +1433,12 @@ the `Loading`/`Loaded` events keep the bare name). `Assemblies.mjson` (PC data `
 `NicePlaySDK` (managedDlls, absent on PC); of the redirected assemblies only `Game` is loaded this way, so the table is
 `Game → "Game, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null"`. Before any change the patch resolves the game
 folder's `Game.dll` and refuses unless its identity is exactly that (the patched copy keeps it; install cross-checks the
-table against the written copy). Since build 16 this patch alone carries the fix (the config has no `<qualifyAssembly>`,
-§7.4): a display name that gives the token, even as `null`, is a full reference for fusion, so the codeBase applies as for
-the static references (SSCLI `IsPartial`; WR3 step 4 confirms). `McvsGameLoad` has no server dependency: `Qualify` is
+table against the written copy). Since build 16 this patch alone is meant to carry the fix (the config has no
+`<qualifyAssembly>`, §7.4): a display name that gives the token, even as `null`, should be a full reference for fusion, so
+the codeBase applies as for the static references. Expected, not proven: the reasoning is the SSCLI `IsPartial` reading,
+and a managed `AssemblyName` reaches fusion through the VM's `AssemblySpec` conversion, which SSCLI does not show in full;
+`gameload` has never run with a config in effect (WR2 was build 13 without it, build 14's config was most likely
+ignored). WR3 step 4 confirms (`Game …\McvsOffline\bin\Game.dll`) or refutes it. `McvsGameLoad` has no server dependency: `Qualify` is
 `if (name == "Game") return "<full name>"; return name;` (`string.op_Equality` from the PC corlib). Its presence is the
 witness (§3.9), reported in `[boot] patches: … gameload yes …`. Tests: `RealPcGameLoadTests` (the stock `GetAssembly`
 asks the loader for the bare name and the patched one for the full name, executed on net8 with a recording load context;
@@ -2012,7 +2029,7 @@ Game `9cdd0853…e28d`, Gameloft.Engine `a203bb06…63ecb`, Gameloft.Util `af4c5
 | Q12 | The TS automatch reaches the in-process Finder (P3 + the default host) | WR2/WR3 8 | a data-free alternative: set `MatchmakingComponent.Host/Port` from a hook at TS-World start ([QL-V] §8) | **Open, blocked by Q1** (the match path needs our Game.dll; `bottile`, also in Game.dll, only matters for the hidden PRACTICE tile; `automatch through the local Finder 0`). WR3 step 8 |
 | Q13 | `ContinueWith` on the game's `SynchronizationContext` keeps LocalAnubis's continuations on the game thread ([CR] F6 [I]) | WR2/WR3 5 (thread ids in the log) | run the `Start` call through `GameApplication.Instance.Context.Post` | **Settled: yes** (`[pc]` thread id = the watchdog's game thread in 15/15 starts) |
 | Q14 | `GameLogBridge` attaches on PC (the `ENABLE_LOGGER`/Fatal-only story is the same code, [CR] F4) | WR2/WR3 15 (`logs/game.log`) | `gameLog` off on PC | **Attach settled** (`game.log` written in every start); the exit path untested (WR3 step 15). New: `gameLog.levels` had no effect on PC (F5, fixed in build 14) |
-| Q15 | Does `<qualifyAssembly>` apply to an `AssemblyName` with only `Name` set (the engine's load)? The `gameload` IL patch does not depend on it | WR3 4 | `gameload` alone carries the fix | **Answered, strong but unconfirmed until WR3: worse than "does not apply".** With a non-strong-named `fullName` (`PublicKeyToken=null`) fusion fails the parse of the whole config and keeps none of it, codeBases included (SSCLI `nodefact.cpp:975-984`, `policy.cpp:374-391`; §7.4), which matches build 14's "server not running, copying bin next to the exe fixes it". Build 16 writes no `<qualifyAssembly>` (the WR2 shape, `3ebe99b3…f94c`); `gameload` qualifies the Game load on its own (a full name with the null token is a full reference). WR3 step 4 confirms (`Game` from `McvsOffline\bin`) or refutes it |
+| Q15 | Does `<qualifyAssembly>` apply to an `AssemblyName` with only `Name` set (the engine's load)? The `gameload` IL patch does not depend on it | WR3 4 | `gameload` alone carries the fix | **Answered, strong but unconfirmed until WR3: worse than "does not apply".** With a non-strong-named `fullName` (`PublicKeyToken=null`) fusion fails the parse of the whole config and keeps none of it, codeBases included (SSCLI `nodefact.cpp:975-984`, `policy.cpp:374-391`; §7.4), which matches build 14's "server not running, copying bin next to the exe fixes it". Build 16 writes no `<qualifyAssembly>` (the WR2 shape, `3ebe99b3…f94c`); `gameload` qualifies the Game load on its own (by the same SSCLI reading a full name with the null token is a full reference; expected, not proven: the managed `AssemblyName` path through the VM's `AssemblySpec` is not in SSCLI, and `gameload` has never run with a config in effect). WR3 step 4 confirms (`Game` from `McvsOffline\bin`) or refutes it |
 | Q16 | Do the busy game-thread stalls of 60-180 s after big unlock codes and the unlock-all grant persist with `signatures` loaded? | WR3 8b (timed; the kit's dump at 60 s) | analyse the dump; coalesce the unlock-all `set_profile` alerts (`UnlockGranter`) | new after WR2 |
 | Q17 | The native cause of the WR2 access violation in `ASValue.SetAsDictionary` (at HighGPU/HighEnd, during the unlock-all grant; `core.dmp` was 0 bytes) | a WER LocalDumps or kit dump of the next one (WR3 setup) | depends on the dump | new after WR2 |
 | Q18 | Does `graphics.profile` survive an in-game Graphics quality choice (`LocalStorage` `Performance`)? | WR3 12 | document the in-game menu as the only graphics control on PC | new after WR2 |
@@ -2095,7 +2112,7 @@ user. Sketch, so WR2 can start it at once ([CR] Q2, [QL] §7.2 variant 2b):
 | R17 | Overlay not available (disabled, not hooked in this graphics mode) or shows no page | medium / low | `auto` falls back to the system browser when the overlay is disabled and on the next click after an overlay open that showed no page (§6.5); the page's "Open in the system browser"; WR2 step 6 runs fullscreen, windowed and overlay-off |
 | R18 | Continuations of the quicklaunch hook leave the game thread (no synchronization context) | low / medium | WARN line, WR2 Q13, `Context.Post` alternative |
 | R19 | Popuplib's Internet Explorer helper blocks its caller while IE runs (stock popups only) | low / low | not on our path; noted for support ([WH-V] "other" 2) |
-| R20 | A config shape real .NET Framework has not read: build 14's `<qualifyAssembly … PublicKeyToken=null>` entries most likely made fusion ignore the whole config (§7.4, Q15), and nothing before WR3 could have caught it (the tests read the file with `XmlDocument`, not fusion) | happened (build 14) / blocking | build 16 writes only the shape WR2 ran (`3ebe99b3…f94c`, pinned by a test); hook-pc's `%TEMP%\McvsOffline\hook.txt` marker and status's NOT VERIFIED / NOT ACTIVE (§7.6) make a config Windows did not use visible at the first start; a `$type` through Newtonsoft.Json's `LoadWithPartialName` naming one of our assemblies stays a partial bind (appbase only), not seen in WR2's logs; a Windows self-test of the config (a probe exe whose config `PcExeConfig.Build` writes) is the follow-up |
+| R20 | A config shape real .NET Framework has not read: build 14's `<qualifyAssembly … PublicKeyToken=null>` entries most likely made fusion ignore the whole config (§7.4, Q15), and nothing before WR3 could have caught it (the tests read the file with `XmlDocument`, not fusion) | happened (build 14) / blocking | build 16 writes only the shape WR2 ran (`3ebe99b3…f94c`, pinned by a test); hook-pc's `%TEMP%\McvsOffline\hook.txt` marker and status's NOT VERIFIED / NOT ACTIVE (§7.6) make a config Windows did not use visible at the first start; the build-14 work-around (bin copied over the game's files) is named by status in every state (STALE, or DAMAGED with the old config) and refused by install and uninstall until Steam's Verify; a `$type` through Newtonsoft.Json's `LoadWithPartialName` naming one of our assemblies stays a partial bind (appbase only), not seen in WR2's logs; a Windows self-test of the config (a probe exe whose config `PcExeConfig.Build` writes) is the follow-up |
 
 **Memory after WR2 (R2, recommendation, not implemented in build 14).** WR2's peak of 1727 MB virtual (84 % of the
 2048 MB a 32-bit process without LAA gets) came with three Worlds during a 180 s stall at LowEnd; a match and the
