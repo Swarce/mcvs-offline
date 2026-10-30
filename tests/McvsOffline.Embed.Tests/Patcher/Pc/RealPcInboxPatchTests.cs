@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using McvsOffline.Embed.Tests.Support;
@@ -15,8 +16,9 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
     /// <summary>
     /// The 'inbox' patch on the real Steam Game.dll (1.17.30, MCVS_PC_REFS), executed on net8 next to the unpatched one: the same
     /// cases as <see cref="RealInboxPatchTests"/> (display cap with Gear kept, the UNLOCKALL message, the claim popup, the refresh
-    /// latch) and I5, the null check PC's <c>KillSignatureRewardItem.IsRandom</c> lacks. The fingerprints, the plan, the second
-    /// application, JIT and ILVerify of the whole PC set are RealPcPatchTests' and RealPcJitTests'. Skipped without the files, a
+    /// latch) and I5, the null check PC's <c>KillSignatureRewardItem.IsRandom</c> lacks, plus ILVerify of the patch alone (the only
+    /// other PC ILVerify is <see cref="PcInstallerTests.RealFolderEndToEnd"/>, of the whole default set). The fingerprints, the plan,
+    /// the second application and JIT of the whole PC set are RealPcPatchTests' and RealPcJitTests'. Skipped without the files, a
     /// failure under MCVS_REQUIRE_PC=1.
     /// </summary>
     [Collection("GameHooks")]
@@ -136,5 +138,73 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 }
             }
         }
+
+        /// <summary>The 12 net452 assemblies PC ILVerify runs against (as <see cref="PcInstallerTests.RealFolderEndToEnd"/>'s).</summary>
+        private static readonly string[] Net452 =
+        {
+            "mscorlib", "System", "System.Core", "System.Net.Http", "System.Xml", "System.Xml.Linq", "System.IO.Compression", "System.Windows.Forms",
+            "System.Drawing", "System.Runtime.Serialization", "System.Data", "System.Numerics",
+        };
+
+        /// <summary>
+        /// ILVerify of the Steam Game.dll patched with 'inbox' alone (I1-I5, the PC claim state machine included): the patched methods
+        /// verify without a finding, and the whole assembly has exactly the shipped findings afterwards.
+        /// </summary>
+        [Fact]
+        public void IlVerifyAcceptsThePatchedMethods()
+        {
+            string pc = RealPc.Folder(output);
+            if (pc == null) return;
+            string tool = RealAdminPagePatchTests.IlVerifyTool();
+            if (tool == null)
+            {
+                Assert.False(TestEnvironment.RequirePc, "MCVS_REQUIRE_PC=1 but ilverify was not found (MCVS_ILVERIFY or ~/.dotnet/tools/ilverify)");
+                output.WriteLine("ilverify not found: skipped");
+                return;
+            }
+            Dictionary<string, byte[]> images = Patched(pc, out byte[] serverImage);
+            string dir = TestEnvironment.NewTempDir("pc-inbox-ilverify");
+            try
+            {
+                string patchedFile = Path.Combine(dir, "Game.dll"), serverFile = Path.Combine(dir, "McvsOffline.Server.dll");
+                File.WriteAllBytes(patchedFile, images["Game.dll"]);
+                File.WriteAllBytes(serverFile, serverImage);
+                string shipped = Path.Combine(pc, "Game.dll");
+                var references = Net452.Select(n => Path.Combine(TestEnvironment.Net452Refs, n + ".dll"))
+                    .Concat(PcGameCopy.ManagedFiles.Where(f => f != "Game.dll").Select(f => Path.Combine(pc, f)))
+                    .Concat(new[] { serverFile }).ToList();
+                var system = new[] { "--system-module", "mscorlib" };
+
+                var arguments = system.Concat(new[]
+                {
+                    "-i", @"\]Game\.InboxComponent\.(GenerateRewardsObjects|GetObject|RefreshUI)$",
+                    "-i", @"\]<ClaimRewardsForMessage>d__\d+\.MoveNext$",   // ILVerify names a nested type without its declaring one
+                    "-i", @"\]Game\.KillSignatureRewardItem\.get_IsRandom$",
+                    "-i", @"\]Game\.McvsInbox\.",
+                    "--statistics",
+                }).ToList();
+                foreach (string file in new[] { shipped, patchedFile })
+                {
+                    var (exit, text) = RealAdminPagePatchTests.IlVerify(tool, file, references, arguments);
+                    output.WriteLine((file == patchedFile ? "patched: " : "original: ") + text.Trim());
+                    Assert.True(exit == 0, "ilverify exit code " + exit + ":\n" + text);
+                    Assert.Contains("Methods verified: " + (file == patchedFile ? 5 + McvsInboxMethods : 5), text);
+                }
+
+                List<string> before = RealAdminPagePatchTests.Findings(RealAdminPagePatchTests.IlVerify(tool, shipped, references, system).Text);
+                List<string> after = RealAdminPagePatchTests.Findings(RealAdminPagePatchTests.IlVerify(tool, patchedFile, references, system).Text);
+                output.WriteLine("whole assembly: " + before.Count + " shipped findings, " + after.Count + " after patching");
+                Assert.Equal(before, after);
+                Assert.DoesNotContain(after, l => l.Contains("InboxComponent") || l.Contains("<ClaimRewardsForMessage>") || l.Contains("McvsInbox") ||
+                                                  l.Contains("KillSignatureRewardItem"));
+            }
+            finally
+            {
+                Directory.Delete(dir, true);
+            }
+        }
+
+        /// <summary>The methods of the added Game.McvsInbox (Rewards, Popup, Total, RefreshDue, Report, Forward).</summary>
+        private const int McvsInboxMethods = 6;
     }
 }

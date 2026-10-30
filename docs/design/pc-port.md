@@ -441,9 +441,14 @@ WP3 only look them up by these names:
 | `graphics` | `Gameloft.Engine.dll` | type `Gameloft.Engine.McvsGraphics` (`GraphicsPatch.HelperType`) | yes |
 | `gameload` | `Gameloft.Engine.dll` | type `Gameloft.Engine.McvsGameLoad` (internal, abstract sealed; `GameAssemblyLoadPatch.HelperType`, §8.9) | no |
 | `store` | `Game.dll` | type `Game.McvsStoreSafety` (`StorePatch.SafetyType`, `GamePatchProbe.StoreSafetyType`) | yes |
+| `inbox` | `Game.dll` | type `Game.McvsInbox` (`InboxPatch.HelperType`, `GamePatchProbe.InboxType`; build 17) | yes |
 
 The constants live in the patch classes (WP4) and are duplicated as string literals in `GamePatchProbe` (WP2) and
-`PcInstaller` (WP3); `PcHookContractTests` (§12.4) asserts the three copies are equal.
+`PcInstaller` (WP3); `PcHookContractTests` (§12.4) asserts the three copies are equal. Open (build 17): `inbox` is not yet
+in `PcInstaller.Witnesses` (patcher/Pc was frozen while build 16 worked on it), so the kit's `verify`/`status` do not check
+it and only the boot `patches:` line reports a Game.dll without it. Integration adds
+`["inbox"] = new PcWitness("Game.dll", "Game.McvsInbox", null)` and its row in
+`PcHookContractTests.TheWitnessNamesAreTheDesignsAndTheirCopiesAgree`.
 
 ### 3.10 `install.json` (format 1)
 

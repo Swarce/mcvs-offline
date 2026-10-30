@@ -100,7 +100,8 @@ namespace McvsOffline.Tests.Admin
 
         /// <summary>
         /// WR2 F2: "client" carries "notActive", the PC error the page shows as "installed, NOT ACTIVE", and is there only while it is
-        /// set (only the PC host sets it), so Android's and the standalone host's payload keeps its shape.
+        /// set (only the PC host sets it) or while the client is known to lack the 'store' or 'inbox' patch (Android's only sign of an
+        /// APK patched without 'inbox'); unknown or present patches keep the payload's shape.
         /// </summary>
         [Fact]
         public void TheClientSectionCarriesNotActive()
@@ -111,15 +112,44 @@ namespace McvsOffline.Tests.Admin
             client.OpenSession();
             var body = AdminTestClient.Json(client.Get("status"));
             Assert.False(body.ContainsKey("client"));
-            server.Context.Features.Get<ClientCapabilities>().StorePatch = false;
+            ClientCapabilities capabilities = server.Context.Features.Get<ClientCapabilities>();
+            capabilities.StorePatch = true;
+            capabilities.InboxPatch = true;
             Assert.False(AdminTestClient.Json(client.Get("status")).ContainsKey("client"));
 
-            ClientCapabilities capabilities = server.Context.Features.Get<ClientCapabilities>();
             capabilities.StorePatch = false;
             capabilities.NotActive = "Game loaded from the game folder; the 'store' patch is missing";
             body = AdminTestClient.Json(client.Get("status"));
             Assert.Equal("Game loaded from the game folder; the 'store' patch is missing", JsonPath.Get(body, "client.notActive"));
             Assert.Equal(false, JsonPath.Get(body, "client.storePatch"));
+        }
+
+        /// <summary>
+        /// Android: no host sets notActive, so a Game.dll without the 'inbox' (or 'store') patch alone brings the "client" section, which
+        /// the page shows as a banner and a "Game patches: missing" row (a big redeem-code message would freeze the inbox).
+        /// </summary>
+        [Fact]
+        public void AMissingPatchWithoutNotActiveStillReportsTheClient()
+        {
+            using var dir = new TempDir();
+            using var server = AdminTestClient.CreateServer(dir.Combine("data"));
+            var client = new AdminTestClient(server);
+            client.OpenSession();
+            ClientCapabilities capabilities = server.Context.Features.Get<ClientCapabilities>();
+            capabilities.StorePatch = true;
+            capabilities.InboxPatch = false;
+            capabilities.NotActive = null;
+            var body = AdminTestClient.Json(client.Get("status"));
+            Assert.True(body.ContainsKey("client"));
+            Assert.Equal(false, JsonPath.Get(body, "client.inboxPatch"));
+            Assert.Equal(true, JsonPath.Get(body, "client.storePatch"));
+            Assert.Null(JsonPath.Get(body, "client.notActive"));
+
+            capabilities.InboxPatch = null;
+            capabilities.StorePatch = false;
+            body = AdminTestClient.Json(client.Get("status"));
+            Assert.Equal(false, JsonPath.Get(body, "client.storePatch"));
+            Assert.Null(JsonPath.Get(body, "client.inboxPatch"));
         }
 
         [Fact]
