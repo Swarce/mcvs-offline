@@ -1,6 +1,6 @@
 # Player setup: MCVS Offline on the Steam (PC) version
 
-**Status: draft for the third Windows round (WR3), build 15** (build 14's PC fixes; build 15 adds only server features: the Special Events and an optional Practice tile). The second round (WR2, build 13) showed that the
+**Status: draft for the third Windows round (WR3), build 16** (build 14's PC fixes; build 15 added only server features: the Special Events and an optional Practice tile; build 16 removes the config lines that most likely made Windows start the game without MCVS Offline in builds 14 and 15, and says when the game starts without it). The second round (WR2, build 13) showed that the
 install and the game start work, but the game kept loading its own `Game.dll` instead of our patched copy, so every
 fix in that file was missing: the two inbox crashes, the missing "MCVS Offline" button in Settings › Account, the bot
 match running the old way and probably the long freezes. Build 14 makes the game load our copy and says
@@ -25,7 +25,7 @@ version has its own guide: [PLAYER-SETUP.md](PLAYER-SETUP.md).
 ## 2. Get the kit
 
 1. Download `McvsOffline.PcKit.exe` into any folder, for example `Downloads`. Its SHA-256 is
-   `34131809abd25515bd0ff791f3ebc82f337d906e7598ca0c3d4176b3ae1baabb` (PowerShell:
+   `06235ac9f0cf6339bb201ffb32b9c9b14fb3c98453d0a2604a16470c0c31ae41` (PowerShell:
    `Get-FileHash .\McvsOffline.PcKit.exe`).
 2. **SmartScreen warning.** The exe is not code-signed, so Windows may show "Windows protected your PC". Click
    **More info**, then **Run anyway**. Your antivirus may scan it first.
@@ -253,22 +253,22 @@ freezes, which would hide everything else.
 | 18 | optional: Steam › Verify integrity of game files while installed, then `status` | the state | still `installed, current` |
 | 19 | question: had this Steam account played MCVS on PC before this project? | yes / no | — |
 
-Expected `verify` values for step 3 (build 15: the Linux run of the same kit on Steam build 6372049; `install.json`
+Expected `verify` values for step 3 (build 16: the Linux run of the same kit on Steam build 6372049; `install.json`
 itself is not listed because it holds the install time):
 
 | file | sha256 |
 |---|---|
-| `McvsOffline/bin/EngineBridge.dll` | `4cffc8291abd000bbe90294be0e34168a29aa2936d6ffc9bbcf7738be95f004e` |
-| `McvsOffline/bin/Game.dll` | `26fac2e9add0e32676cd374c27593f14ad1d79e018d6ab73119f48606c8bc64c` |
-| `McvsOffline/bin/Gameloft.Engine.dll` | `c033977aa155f2fd1d6b13577a6f720135a8331aa63c52afb2042ac68f9056c6` |
-| `McvsOffline/bin/Gameloft.Util.dll` | `4d59932c8d5aa65019eb7b089a6a0df5c212d5a393686b7c0faff25592932b12` |
-| `McvsOffline/bin/McvsOffline.Server.dll` | `8a6a1628c19d676b509a6c39b66baca014d5c9dd4a1f5be841ad2f8014499b8c` |
-| `ModernCombatVersus.exe.config` | `fda12aef617b4cfcd8de0ed0b8ebc3764270a21bbabeaef08113eb09d700c4b6` |
+| `McvsOffline/bin/EngineBridge.dll` | `4f5e38945ed087c64668ba204bc9ac399a4c103509378378ec8db777f765e32c` |
+| `McvsOffline/bin/Game.dll` | `7c99c1d75264edbf2baf5aa4c4c9149cb4f2add6bf307d5b0d8cf574ec1d785a` |
+| `McvsOffline/bin/Gameloft.Engine.dll` | `f61e59e58ec450a767e24dc62689f45d7945d364c8506a5a41b7597c6d5e7d49` |
+| `McvsOffline/bin/Gameloft.Util.dll` | `cf613f2ce7079cb9585bf3f9118087cde479c8951f51e515bccc6f0da0b1dc64` |
+| `McvsOffline/bin/McvsOffline.Server.dll` | `ed04f15f488f5ff2bd73a1ac012a226d942e4802706c59cadbcaa386492ce5f1` |
+| `ModernCombatVersus.exe.config` | `3ebe99b3c93a9540cd7f7b03da55fc048a544501c17e8621457884eae456f94c` |
 
 Any difference in this table stops the round until it is explained: the bytes you run must be the bytes we tested.
-(The config is the same as in build 14; the DLLs changed with the server.) **Build 16** writes a different config: the
-one WR2 ran, `3ebe99b3c93a9540cd7f7b03da55fc048a544501c17e8621457884eae456f94c` (no `<qualifyAssembly>` lines); its DLL
-values are added here when the build-16 kit is made (`EngineBridge.dll` changes with the `hook.txt` marker).
+(The config is the one WR2 ran, with no `<qualifyAssembly>` lines: builds 14 and 15 wrote `fda12aef…c4b6`, which has
+five of them. `EngineBridge.dll` changed with the `hook.txt` marker, the other DLLs with the server. An install over
+build 14 or 15 writes exactly these values too.)
 
 ## 8. What to send back
 
