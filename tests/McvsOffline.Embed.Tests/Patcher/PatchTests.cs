@@ -281,15 +281,15 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Equal(new[] { "hook" }, ApkPatcher.SelectPatches(new string[0], headless: false).Select(p => p.Id));
             Assert.Equal(new[]
                          {
-                             "hook", "headless", "headless-engine", "physics", "nativeonline", "waits", "geo", "bottile", "finder", "store", "signatures", "adminpage",
+                             "hook", "headless", "headless-engine", "physics", "nativeonline", "waits", "geo", "bottile", "finder", "store", "signatures", "inbox", "adminpage",
                              "debloat", "adminlink", "graphics",
                          },
                          ApkPatcher.SelectPatches(PatcherOptions.ParsePatchList("default")).Select(p => p.Id));
             Assert.Equal(new[] { "finder", "lan" }, PatcherOptions.ParsePatchList("lan"));
             Assert.Empty(PatcherOptions.ParsePatchList("none"));
-            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "forum", "game", "geo", "graphics", "lan", "nativeonline", "signatures", "store", "targetsdk", "waits" },
+            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "forum", "game", "geo", "graphics", "inbox", "lan", "nativeonline", "signatures", "store", "targetsdk", "waits" },
                          PatcherOptions.ParsePatchList("all"));
-            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "game", "geo", "graphics", "nativeonline", "signatures", "store", "targetsdk", "waits" },
+            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "game", "geo", "graphics", "inbox", "nativeonline", "signatures", "store", "targetsdk", "waits" },
                          PatcherOptions.ParsePatchList("default"));
             Assert.Equal(new[] { "targetsdk" }, PatcherOptions.ParsePatchList("targetsdk"));
             Assert.Equal(new[] { "game" }, PatcherOptions.ParsePatchList("game"));
@@ -299,7 +299,7 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Throws<ArgumentException>(() => PatcherOptions.ParsePatchList("geo,unlockall"));
 
             // The settings-page triggers: adminpage and adminlink by default, forum only on request (--patch default,forum).
-            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "forum", "game", "geo", "graphics", "nativeonline", "signatures", "store", "targetsdk", "waits" },
+            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "forum", "game", "geo", "graphics", "inbox", "nativeonline", "signatures", "store", "targetsdk", "waits" },
                          PatcherOptions.ParsePatchList("default,forum"));
             Assert.Equal(new[] { "graphics" }, PatcherOptions.ParsePatchList("graphics"));
             Assert.Equal(new[] { "hook", "headless", "headless-engine", "physics", "graphics" }, ApkPatcher.SelectPatches(new[] { "graphics" }).Select(p => p.Id));

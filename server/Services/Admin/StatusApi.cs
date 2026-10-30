@@ -69,6 +69,7 @@ namespace McvsOffline.Server.Services.Admin
             {
                 var clientInfo = new Dictionary<string, object>(StringComparer.Ordinal);
                 clientInfo["storePatch"] = client.StorePatch;
+                clientInfo["inboxPatch"] = client.InboxPatch;
                 clientInfo["notActive"] = client.NotActive;
                 body["client"] = clientInfo;
             }

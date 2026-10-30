@@ -29,6 +29,9 @@ namespace McvsOffline.Embedded
         /// <summary>The class the 'store' patch adds to Game.dll (patcher/Patches/StorePatch.cs, <c>SafetyType</c>).</summary>
         public const string StoreSafetyType = "Game.McvsStoreSafety";
 
+        /// <summary>The class the 'inbox' patch adds to Game.dll (patcher/Patches/InboxPatch.cs, <c>HelperType</c>).</summary>
+        public const string InboxType = "Game.McvsInbox";
+
         // The PC patch witnesses (docs/design/pc-port.md §3.9): copies of the patch classes' constants (WP4) and of PcInstaller's
         // (WP3); PcHookContractTests keeps the three equal.
         public const string EngineBridgeAssembly = "EngineBridge";
@@ -92,11 +95,17 @@ namespace McvsOffline.Embedded
                     return result;
                 }
                 result.StorePatch = game.GetType(StoreSafetyType, false, false) != null;
-                if (log != null) log.Debug("Game.dll: 'store' patch " + (result.StorePatch == true ? "present" : "missing"));
+                result.InboxPatch = game.GetType(InboxType, false, false) != null;
+                if (log != null)
+                {
+                    log.Debug("Game.dll: 'store' patch " + (result.StorePatch == true ? "present" : "missing") + ", 'inbox' patch " +
+                              (result.InboxPatch == true ? "present" : "missing"));
+                }
             }
             catch (Exception ex)
             {
                 result.StorePatch = null;
+                result.InboxPatch = null;
                 Warn(log, ex);
             }
             return result;
@@ -149,7 +158,7 @@ namespace McvsOffline.Embedded
         public const string NotApplied = "off (not applied)";
 
         /// <summary>
-        /// "patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload yes, store yes" from the loaded assemblies ("NO" for a
+        /// "patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload yes, store yes, inbox yes" from the loaded assemblies ("NO" for a
         /// missing witness, "unknown" for an assembly that is not loaded). With <paramref name="applied"/> (install.json
         /// <c>options.patches</c>), a missing witness of a patch the install did not apply is <see cref="NotApplied"/> instead of
         /// "NO" (e.g. <c>--patch none</c> leaves out the default 'store'); null: every missing witness is "NO".
@@ -167,6 +176,7 @@ namespace McvsOffline.Embedded
             sb.Append(", graphics ").Append(YesNo(engine, "graphics", applied, a => a.GetType(GraphicsType, false, false) != null));
             sb.Append(", gameload ").Append(YesNo(engine, "gameload", applied, a => a.GetType(GameLoadType, false, false) != null));
             sb.Append(", store ").Append(YesNo(game, "store", applied, a => a.GetType(StoreSafetyType, false, false) != null));
+            sb.Append(", inbox ").Append(YesNo(game, "inbox", applied, a => a.GetType(InboxType, false, false) != null));
             return sb.ToString();
         }
 
@@ -354,7 +364,9 @@ namespace McvsOffline.Embedded
                 if (boot != null) ReportLocation(name, assembly);
                 if (name == GamePatchProbe.GameAssembly)
                 {
-                    target.StorePatch = GamePatchProbe.Detect(new[] { assembly }, log).StorePatch;
+                    ClientCapabilities found = GamePatchProbe.Detect(new[] { assembly }, log);
+                    target.StorePatch = found.StorePatch;
+                    target.InboxPatch = found.InboxPatch;
                     lock (gate) storeDone = true;
                 }
                 Finish();

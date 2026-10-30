@@ -66,6 +66,11 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             ("store", "Game.dll", "Game.KillSignatureRewardItem", "GetAvailableId", 1, StorePatch.GetAvailableIdFingerprint),
             ("signatures", "Game.dll", "Game.PlayerProfileComponent", "GetSignatureAssetsList", -1, SignaturesPatch.AssetsListFingerprint),
             ("signatures", "Game.dll", "Game.GameOfflineStore", "GetKillSignItems", -1, SignaturesPatch.KillSignItemsFingerprint),
+            ("inbox", "Game.dll", "Game.InboxComponent", "GenerateRewardsObjects", 3, InboxPatch.GenerateRewardsFingerprint),
+            ("inbox", "Game.dll", "Game.InboxComponent", "GetObject", 2, InboxPatch.GetObjectFingerprint),
+            ("inbox", "Game.dll", "Game.InboxComponent", "RefreshUI", 0, InboxPatch.PcRefreshFingerprint),
+            ("inbox", "Game.dll", "Game.InboxComponent/<ClaimRewardsForMessage>d__57", "MoveNext", 0, InboxPatch.PcClaimFingerprint),
+            ("inbox", "Game.dll", "Game.KillSignatureRewardItem", "get_IsRandom", 0, InboxPatch.PcIsRandomFingerprint),
             ("forum", "Game.dll", "Game.UIComponent", "GoToForum", -1, ForumPatch.ForumFingerprint),
         };
 

@@ -67,6 +67,12 @@ namespace McvsOffline
         public static System.Exception LastStoreException;
 
         public static void StoreItemException(object item, System.Exception exception) { StoreCalls++; LastStoreItem = item; LastStoreException = exception; }
+
+        public static int InboxCalls;
+        public static object LastInboxReward;
+        public static System.Exception LastInboxException;
+
+        public static void InboxRewardException(object reward, System.Exception exception) { InboxCalls++; LastInboxReward = reward; LastInboxException = exception; }
     }
 
     // patch 'graphics': records its calls; JsonAnswer null = return null, JsonThrows = throw
@@ -147,7 +153,7 @@ namespace McvsOffline
         internal static readonly IlPatch[] DefaultGamePatches =
         {
             new HeadlessGamePatch(), new HeadlessEnginePatch(), new PhysicsPatch(), new NativeOnlinePatch(), new WaitsPatch(), new BotTilePatch(), new FinderPatch(),
-            new StorePatch(), new SignaturesPatch(), new AdminPagePatch(), new DebloatEnginePatch(), new AdminLinkPatch(), new GraphicsPatch(),
+            new StorePatch(), new SignaturesPatch(), new InboxPatch(), new AdminPagePatch(), new DebloatEnginePatch(), new AdminLinkPatch(), new GraphicsPatch(),
         };
 
         [Fact]

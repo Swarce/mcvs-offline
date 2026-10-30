@@ -78,7 +78,7 @@ The patcher prints every change it makes and finishes with a signature check. Us
 
 | Option | Meaning |
 |---|---|
-| `--patch nativeonline,waits,geo,bottile,finder,store,signatures,debloat,adminpage,adminlink,graphics,targetsdk,game` | The optional patches (this is the default set; `debloat` removes dead ad/analytics/social/push pieces, see ARCHITECTURE.md §2; `adminpage` and `adminlink` open the MCVS Offline page, section 7; `graphics` is needed for the graphics profile, section 7; `targetsdk` raises the app's target Android version, see `--target-sdk`; `game` marks the app as a game for Android's Game Mode, section 6). `none` keeps only the mandatory patches (the server hook, the headless-server fixes and the server physics), `all` adds `lan` and `forum`, `default,forum` adds only `forum`. |
+| `--patch nativeonline,waits,geo,bottile,finder,store,signatures,inbox,debloat,adminpage,adminlink,graphics,targetsdk,game` | The optional patches (this is the default set; `debloat` removes dead ad/analytics/social/push pieces, see ARCHITECTURE.md §2; `adminpage` and `adminlink` open the MCVS Offline page, section 7; `graphics` is needed for the graphics profile, section 7; `targetsdk` raises the app's target Android version, see `--target-sdk`; `game` marks the app as a game for Android's Game Mode, section 6). `none` keeps only the mandatory patches (the server hook, the headless-server fixes and the server physics), `all` adds `lan` and `forum`, `default,forum` adds only `forum`. |
 | `--target-sdk 29` | The Android version the app declares it was built for (`targetsdk` patch). The default, 35, avoids Play Protect's "built for an older version of Android" warning up to Android 17; 36 also covers Android 18. For both the patcher also fixes the game's own Java code (`classes.dex`) where a newer target would make Android refuse it. `--target-sdk 29` keeps the game's own value and files, exactly as builds 9 and earlier: the fallback if something misbehaves on 35. By Android's rules a 29 build installs over a 35 build signed with the same key, but this has not been tried on a phone yet. 35 and 36 need `debloat` (so `--patch` without `debloat` also needs `--target-sdk 29`), and 36 also needs `game`. |
 | `--game-log all` | The game's own log at every level in logcat (`mono-stdout`), for bug reports; this is the default while the offline build is being tested. `--game-log fatal` keeps the game's original setting (fatal errors only). |
 | `--keystore <file.p12>` | Your signing key. Without it a key is created once in `~/.config/McvsOffline/` (Windows: `%APPDATA%\McvsOffline\`) and reused. |
@@ -121,6 +121,11 @@ What the patches do:
   shop (and logged as `[McvsOffline] store item <id> threw ...`) instead of closing the game.
 - **signatures**: the kill-signature screen looks your owned items up in a set instead of a list, so it does not freeze
   when you own many of them (for example after `UNLOCKALL`).
+- **inbox**: the inbox froze after the big unlock codes (`UNLOCKALL`, `UNLOCKPAID`, `UNLOCKCAMOS`, `UNLOCKACCESSORIES`
+  and their parts): each code is one message with thousands of rewards, and the game built every one of them on opening
+  the inbox and again every 10 seconds while it was open. With the patch a message shows its first 30 rewards (plus any
+  gear), the inbox refreshes once per 10 seconds, and **Claim** still gives you every reward of the message (the
+  rewards popup lists the first 30). A profile that already holds such a message works again.
 - **debloat**: removes the parts of Gameloft's SDKs that are dead offline (ad screens, push, install-referrer and boot
   receivers, Crashlytics and Facebook start-up, location and legacy permissions) from the manifest and drops the
   Crashlytics/Fabric files; see ARCHITECTURE.md §2.
@@ -213,7 +218,8 @@ If you see that error anyway, the APK was patched by an older version of the pat
 ### Unlock codes (optional)
 
 Settings › Account › Redeem code. Each code works once per profile; add a number to redeem again (`UNLOCKALL2`). The
-rewards arrive as one inbox message and are claimed in order.
+rewards arrive as one inbox message and are claimed in order. A big code's message shows only its first 30 rewards in the
+inbox (the `inbox` patch, section 4); **Claim** gives you all of them.
 
 | Code | What you get |
 |---|---|
@@ -557,7 +563,7 @@ For reviewers (details and evidence: `docs/research/verify-C7-integrity-patching
   only; physics: `PhysicsComponent`'s constructor asks `McvsPhysics.UseMultithreading(this)` instead of reading the
   game option, and `UpdateSimulationSteps` runs inside a process-wide, time-bounded gate). Optional: `Gameloft.Engine.dll`
   (nativeonline, waits: `WaitHandle.WaitAny(handles)` -> `WaitAny(handles, 100)` in both `TaskExtension.WaitAndWork`
-  overloads, finder, lan), `Gameloft.Util.dll` (geo), `Game.dll` (bottile; store: `KillSignatureRewardItem.GetAvailableId` handles sounds, the `GameUnifiedStoreComponent.SelectItems` availability filter skips an item that throws; signatures: set lookups in `GetSignatureAssetsList`, one list per `GetKillSignItems` call; adminpage: `PlayerProfileComponent.GetAccountMenuButtonList` passes its list through `McvsOffline.AdminHooks.AccountMenuButtons`, and `ProcessAccountMenuButtonAction("mcvs_offline")` calls `AdminHooks.OpenPage`; forum: `UIComponent.GoToForum` calls `AdminHooks.OpenPage`), `Gameloft.Engine.dll` (adminlink: `BrowserComponent.OpenUrl` first asks `AdminHooks.OpenIfPageMarker`, which handles only the inbox message's fixed link; graphics: `GameOptionPerformanceProfileComponent.OnCreate` passes the GameOptions_android.json text through `McvsOffline.GraphicsHooks.GameOptionsJson` before the engine reads it, and reports the resolved options to `GraphicsHooks.GameOptionsApplied`). Each site is checked against the exact code
+  overloads, finder, lan), `Gameloft.Util.dll` (geo), `Game.dll` (bottile; store: `KillSignatureRewardItem.GetAvailableId` handles sounds, the `GameUnifiedStoreComponent.SelectItems` availability filter skips an item that throws; signatures: set lookups in `GetSignatureAssetsList`, one list per `GetKillSignItems` call; inbox: `InboxComponent.GenerateRewardsObjects` builds at most 30 rewards of a message plus its Gear rewards, each in try/catch, `GetObject` adds `RewardsTotal`, the claim popup of `ClaimRewardsForMessage` lists the first 30, `RefreshUI` refreshes once per 10 s window, and on PC `KillSignatureRewardItem.IsRandom` checks for a null id; adminpage: `PlayerProfileComponent.GetAccountMenuButtonList` passes its list through `McvsOffline.AdminHooks.AccountMenuButtons`, and `ProcessAccountMenuButtonAction("mcvs_offline")` calls `AdminHooks.OpenPage`; forum: `UIComponent.GoToForum` calls `AdminHooks.OpenPage`), `Gameloft.Engine.dll` (adminlink: `BrowserComponent.OpenUrl` first asks `AdminHooks.OpenIfPageMarker`, which handles only the inbox message's fixed link; graphics: `GameOptionPerformanceProfileComponent.OnCreate` passes the GameOptions_android.json text through `McvsOffline.GraphicsHooks.GameOptionsJson` before the engine reads it, and reports the resolved options to `GraphicsHooks.GameOptionsApplied`). Each site is checked against the exact code
   of 1.17.32 first (the device-test-2 patches against an IL fingerprint of the whole method); if anything differs, the
   patcher stops without writing.
 - `res/raw/args.txt` (with `--game-log all`, the default): `-LogCategoryFilter Fatal` is replaced by a line the game

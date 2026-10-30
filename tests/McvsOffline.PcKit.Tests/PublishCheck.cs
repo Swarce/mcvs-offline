@@ -49,6 +49,7 @@ namespace McvsOffline.PcKit.Tests
             new ServerHook("McvsOffline.GameHooks", "ExitPhysicsStep", "System.Void"),
             new ServerHook("McvsOffline.GameHooks", "AllowNativeOnlineInit", "System.Boolean", "System.String"),
             new ServerHook("McvsOffline.GameHooks", "StoreItemException", "System.Void", "System.Object", "System.Exception"),
+            new ServerHook("McvsOffline.GameHooks", "InboxRewardException", "System.Void", "System.Object", "System.Exception"),
             new ServerHook("McvsOffline.AdminHooks", "AccountMenuButtons", "System.Collections.Generic.IEnumerable`1<System.Object>",
                            "System.Collections.Generic.IEnumerable`1<System.Object>"),
             new ServerHook("McvsOffline.AdminHooks", "OpenPage", "System.Void", "System.String", "System.Object"),

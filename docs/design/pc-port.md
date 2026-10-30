@@ -412,7 +412,7 @@ works): the listing records its size and time without hashing it, and `collect` 
 |---|---|---|
 | `[boot] runtime: CLR <v>, mscorlib <file version>, Release <n> (<name>), <FrameworkDescription>; process x86, LAA no; OS <build>` | WP2 host | once at start (PC) |
 | `[boot] assemblies: EngineBridge <path> (McvsOffline\bin\|GAME FOLDER), Gameloft.Engine …, Game …, Gameloft.Util …, McvsOffline.Server …` | WP2 host | as each loads (`AppDomain.AssemblyLoad`); `GAME FOLDER` is a WARN (the redirect did not apply, Q1) |
-| `[boot] patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload yes, store yes` | WP2 host (`GamePatchProbe`, witnesses of §3.9) | once `Game` and `Gameloft.Engine` are loaded; a missing witness is `NO`, or `off (not applied)` when `install.json` `options.patches` does not list that patch (`--patch none` leaves out the default `store`) |
+| `[boot] patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload yes, store yes, inbox yes` (`inbox` since build 17) | WP2 host (`GamePatchProbe`, witnesses of §3.9) | once `Game` and `Gameloft.Engine` are loaded; a missing witness is `NO`, or `off (not applied)` when `install.json` `options.patches` does not list that patch (`--patch none` leaves out the default `store`) |
 | `[boot] <name>_args.txt present: the engine ignores args.txt` | WP2 host | WARN at start when a `*_args.txt` is in the game folder (also in the status) |
 | `[boot] install: current` / WARN `[boot] install: stale: …` | WP2 host | optional boot check (§6.2) |
 | `[pc] quicklaunch: …` | `PcHooks` | §8.3 |
@@ -1153,12 +1153,13 @@ access denial: a virus scanner holding the file) up to 10 times 100 ms apart (`P
 | `adminlink` | Gameloft.Engine.dll | default | new fingerprint | §8.7 |
 | `geo` | Gameloft.Util.dll | default | unchanged (shape) | [PP] §3 |
 | `bottile`, `store`, `signatures` | Game.dll | default | unchanged | [PP] §3 |
+| `inbox` | Game.dll | default | new (build 17): `GenerateRewardsObjects` and `GetObject` as Android's, PC fingerprints for `RefreshUI` and the `ClaimRewardsForMessage` state machine (anonymous-type numbers), and I5 (`KillSignatureRewardItem.IsRandom` gets Android's null check) on PC only | `patcher/Patches/InboxPatch.cs` |
 | `adminpage` | Game.dll | default | new fingerprints, A1 offsets, `op_Equality` source | §8.7 |
 | `forum` | Game.dll | optional | unchanged | [PP] §3 |
 | `hook`, `finder`, `lan`, `debloat`, `targetsdk`, `game` | — | **excluded** | Android only | X; [PP] §3 |
 
 Order inside a file (as `ApkPatcher.AllPatches`, `:66-71`, then the new ones): Game.dll `headless`, `bottile`, `store`,
-`signatures`, `adminpage`, `forum`; Gameloft.Engine.dll `headless-engine`, `physics`, `quicklaunch`, `headless-diag`,
+`signatures`, `inbox`, `adminpage`, `forum`; Gameloft.Engine.dll `headless-engine`, `physics`, `quicklaunch`, `headless-diag`,
 `nativeonline`, `waits`, `adminlink`, `graphics`, `gameload`. The PC list lives in `PatchPlan` only; `ApkPatcher.AllPatches` and its
 test (`PatchTests.cs:277-303`) are not touched by the PC work.
 

@@ -452,10 +452,10 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Equal(SignerChoice.BuiltIn, o.Signer);
             Assert.Equal(AotStripMode.All, o.StripAot);
             PatcherOptions defaults = McvsOffline.Patcher.Program.Parse(new[] { "--apk", "a", "--server", "s", "--out", "o" });
-            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "game", "geo", "graphics", "nativeonline", "signatures", "store", "targetsdk", "waits" }, defaults.Patches);
+            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "game", "geo", "graphics", "inbox", "nativeonline", "signatures", "store", "targetsdk", "waits" }, defaults.Patches);
             Assert.Null(defaults.TargetSdk);
             Assert.Equal(35, defaults.EffectiveTargetSdk);   // ManifestTargetSdk.DefaultTarget, with the classes.dex edits
-            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "forum", "game", "geo", "graphics", "nativeonline", "signatures", "store", "targetsdk", "waits" },
+            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "forum", "game", "geo", "graphics", "inbox", "nativeonline", "signatures", "store", "targetsdk", "waits" },
                          McvsOffline.Patcher.Program.Parse(new[] { "--apk", "a", "--server", "s", "--out", "o", "--patch", "default,forum" }).Patches);
             Assert.Equal(GameLogMode.All, defaults.GameLog);
             Assert.Equal(GameLogMode.Fatal, McvsOffline.Patcher.Program.Parse(new[] { "--apk", "a", "--server", "s", "--out", "o", "--game-log", "fatal" }).GameLog);

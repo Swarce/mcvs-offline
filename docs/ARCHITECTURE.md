@@ -117,7 +117,7 @@ inside a process-wide, time-bounded gate (`UpdateSimulationSteps`); settings `em
 runs.
 
 Recommended extra patches (all optional, `--patch`; the default set is `nativeonline`, `waits`, `geo`, `bottile`,
-`finder`, `store`, `signatures`, `debloat`, `adminpage`, `adminlink`, `graphics`, `targetsdk`; `lan` and `forum` only on
+`finder`, `store`, `signatures`, `inbox`, `debloat`, `adminpage`, `adminlink`, `graphics`, `targetsdk`; `lan` and `forum` only on
 request; `--art` is a separate option):
 - `waits` (default, hardening with no observed trigger): the pumping `TaskExtension.WaitAndWork` helpers wait in 100 ms
   slices (`WaitAny(handles, 100)`). This bounds the two wake-up gaps in the shipped code: a context re-enabled by
@@ -140,6 +140,15 @@ request; `--art` is a separate option):
   `HashSet<string>` (lists of more than 16 ids) instead of `List.Contains` per table row, and
   `GameOfflineStore.GetKillSignItems` builds the avatar/background list once per call instead of once per owned item
   (the kill-signature screen froze for minutes after unlock-all).
+- `inbox` (default, build 17, Android and PC): a redeem code is one inbox message with all its rewards (UNLOCKALL 11,368),
+  and opening the inbox built every reward of every message on the game thread (`InboxComponent.GetObject` →
+  `GenerateRewardsObjects` → `RewardItem.GetObject`), again on every constant frame of every 10th second. Now
+  `GenerateRewardsObjects` (through the added `Game.McvsInbox`) builds at most 30 rewards plus every Gear reward (Flash's
+  gear-inventory-full check), each in try/catch (a throwing reward is skipped and reported through
+  `GameHooks.InboxRewardException`); `GetObject` adds `RewardsTotal`; the claim popup's `Concat(...).ToList()` in
+  `ClaimRewardsForMessage` takes the first 30 (`ClaimRewardsForMessageRequest`, which claims every reward, is untouched);
+  `RefreshUI` also needs 9 s since `lastRefreshUIDone` (one refresh per 10 s window); PC's
+  `KillSignatureRewardItem.IsRandom` gets Android's null check. Witness `Game.McvsInbox` (`patches: … inbox yes`).
 - `debloat` (default, build 8): third-party SDK pieces that are dead offline, without touching any game feature.
   Manifest (`patcher/Manifest/ManifestDebloat.cs`, binary-XML element removal in `BinaryXml`): 44 exact elements go
   (the 20 ad activities, dead Facebook/Google Sign-In/AppInvite/AppLinks/GMP activities, GCM receiver/service/permissions,
