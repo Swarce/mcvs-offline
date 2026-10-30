@@ -39,6 +39,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             "System.Void McvsOffline.GameHooks::ExitPhysicsStep()",
             "System.Boolean McvsOffline.GameHooks::AllowNativeOnlineInit(System.String)",
             "System.Void McvsOffline.GameHooks::StoreItemException(System.Object,System.Exception)",
+            "System.Void McvsOffline.GameHooks::InboxRewardException(System.Object,System.Exception)",
             "System.Collections.Generic.IEnumerable`1<System.Object> McvsOffline.AdminHooks::AccountMenuButtons(System.Collections.Generic.IEnumerable`1<System.Object>)",
             "System.Void McvsOffline.AdminHooks::OpenPage(System.String,System.Object)",
             "System.Boolean McvsOffline.AdminHooks::OpenIfPageMarker(System.String,System.Object)",
@@ -112,6 +113,8 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             Assert.Equal("McvsGraphics", GraphicsPatch.HelperType);
             Assert.Equal("McvsStoreSafety", StorePatch.SafetyType);
             Assert.Equal("Game." + StorePatch.SafetyType, McvsOffline.Embedded.GamePatchProbe.StoreSafetyType);
+            Assert.Equal("McvsInbox", InboxPatch.HelperType);
+            Assert.Equal("Game." + InboxPatch.HelperType, McvsOffline.Embedded.GamePatchProbe.InboxType);
 
             // The copies: GamePatchProbe's constants (WP2) and PcInstaller.Witnesses (WP3), compared by value.
             Assert.Equal(EngineBridgeHookPatch.TypeName, McvsOffline.Embedded.GamePatchProbe.HookPcType);

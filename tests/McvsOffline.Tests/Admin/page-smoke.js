@@ -1086,6 +1086,29 @@ async function windowsRun(fx) {
   fx.state.platform = 'android';
 }
 
+// Status "client": Android's missing 'inbox' patch (banner + "Game patches" row), PC's NOT ACTIVE (banner, no row) (fixtures).
+async function clientRuns(fx) {
+  fx.state.client = { storePatch: true, inboxPatch: false, notActive: null };
+  const p = await new Page('run 4c (no inbox patch)', fx.origin, new CookieJar()).load(fx.origin + '/_mcvs/ui/#t=' + fx.mintTicket() + '&s=status');
+  check(p.isShown('banner-inactive') && /without MCVS Offline's 'inbox' patch: opening the inbox freezes the game/.test(p.text('banner-inactive-text')),
+        'run 4c: the missing inbox patch banner reads "' + p.text('banner-inactive-text') + '"');
+  check(/Game patches\s*missing: inbox \(big unlock codes freeze the inbox\)/.test(p.text('status-body')), 'run 4c: no "Game patches" row');
+  check(p.pageErrorsShown() === null, 'run 4c: page errors: ' + p.pageErrorsShown());
+  p.close();
+  fx.state.platform = 'windows';
+  fx.state.client = { storePatch: true, inboxPatch: false, notActive: "the 'inbox' patch is missing" };
+  const pc = await new Page('run 4d (PC not active)', fx.origin, new CookieJar()).load(fx.origin + '/_mcvs/ui/#t=' + fx.mintTicket() + '&s=status');
+  check(pc.isShown('banner-inactive') && /^MCVS Offline is installed, NOT ACTIVE \(the 'inbox' patch is missing\)/.test(pc.text('banner-inactive-text')),
+        'run 4d: the NOT ACTIVE banner reads "' + pc.text('banner-inactive-text') + '"');
+  check(/Install\s*installed, NOT ACTIVE/.test(pc.text('status-body')) && !/Game patches/.test(pc.text('status-body')),
+        'run 4d: the status rows are wrong: ' + pc.text('status-body').slice(0, 300));
+  check(pc.pageErrorsShown() === null, 'run 4d: page errors: ' + pc.pageErrorsShown());
+  pc.close();
+  fx.state.platform = 'android';
+  fx.state.client = null;
+  log('runs 4c-4d: missing patch and NOT ACTIVE banners ok');
+}
+
 // A used ticket without a cookie: "open from the game", and "the game did not save" after save-now (fixtures).
 async function edgeRuns(fx) {
   const ticket = fx.mintTicket();
@@ -1164,6 +1187,7 @@ async function main() {
       acornCheck(p.html);
       await repairRun(fx);
       await windowsRun(fx);
+      await clientRuns(fx);
       await edgeRuns(fx);
       for (const v of fx.state.violations) fail('contract: ' + v);
     } finally {
@@ -1263,6 +1287,8 @@ function startFixtures(html) {
     // Failure switches of the extras: export 413 ('parts' for 1,900-character parts, or 'bytes'), the text report's share
     // result, POST clipboard answering 501.
     exportTooLarge: null, exports: [], shareTextResult: null, clipboardFails: false,
+    // status "client" (absent while null): notActive (PC) or a Game.dll known to lack the 'store'/'inbox' patch.
+    client: null,
   };
   for (const k in keys) if (keys[k].editable) state.values[k] = keys[k].default;
   state.boot = Object.assign({}, state.values);
@@ -1299,6 +1325,7 @@ function startFixtures(html) {
     exit: { state: 'idle', last: { kind: 'restart', result: 'cancelled', at: ISO(Date.now() - 7200000), message: 'The game did not save, so it was not restarted.' } },
     problems: [{ time: ISO(Date.now() - 60000), level: 'WARN', category: 'crm', message: 'CRM document: 2 store items dropped\n  first: X\n  second: Y', source: 'server' }],
     crm: { built: ISO(Date.now() - 300000), chars: 89282, problems: 0, collectorPhase: 'Guard', collectorReason: 'live ops are off' },
+    ...(state.client ? { client: state.client } : {}),
     storage: storage ? { profiles: { files: 2, bytes: 1251000 }, backups: { files: 4, bytes: 2450000 }, blobs: { files: 0, bytes: 0 }, messages: { files: 2, bytes: 3000 }, logs: { files: 6, bytes: 30000000 }, admin: { files: 1, bytes: 107000 }, other: { files: 9, bytes: 40000 }, total: 33801000, scanCapped: false } : undefined,
   });
   const account = (id) => (id === ACCOUNT

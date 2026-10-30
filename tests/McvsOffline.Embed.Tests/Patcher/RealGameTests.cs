@@ -29,7 +29,7 @@ namespace McvsOffline.Embed.Tests.Patcher
         internal static readonly IReadOnlyDictionary<string, int> IlPatchNotes = new Dictionary<string, int>(StringComparer.Ordinal)
         {
             ["hook"] = 1, ["headless"] = 5, ["headless-engine"] = 3, ["physics"] = 2, ["nativeonline"] = 1, ["waits"] = 2, ["geo"] = 1,
-            ["bottile"] = 1, ["finder"] = 1, ["lan"] = 3, ["store"] = 2, ["signatures"] = 2, ["debloat"] = 7, ["adminpage"] = 2,
+            ["bottile"] = 1, ["finder"] = 1, ["lan"] = 3, ["store"] = 2, ["signatures"] = 2, ["inbox"] = 4, ["debloat"] = 7, ["adminpage"] = 2,
             ["adminlink"] = 1, ["forum"] = 1, ["graphics"] = 1,
         };
 

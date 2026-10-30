@@ -18,7 +18,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         {
             PatchIds ids = PatchPlan.Ids(Pc);
             Assert.Equal(new[] { "gameload", "graphics", "headless", "headless-diag", "headless-engine", "hook-pc", "physics", "quicklaunch" }, Sorted(ids.Mandatory));
-            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "geo", "nativeonline", "signatures", "store", "waits" }, Sorted(ids.Default));
+            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "geo", "inbox", "nativeonline", "signatures", "store", "waits" }, Sorted(ids.Default));
             Assert.Equal(new[] { "forum" }, Sorted(ids.Optional));
             Assert.Equal(new[] { "debloat", "finder", "game", "hook", "lan", "targetsdk" }, Sorted(ids.Excluded));
         }
@@ -33,7 +33,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             IReadOnlyList<IlPatch> full = PatchPlan.For(Pc, PatchPlan.Ids(Pc).Default.Concat(PatchPlan.Ids(Pc).Optional));
             Assert.Equal(new[]
             {
-                "hook-pc", "headless", "bottile", "store", "signatures", "adminpage", "forum",
+                "hook-pc", "headless", "bottile", "store", "signatures", "inbox", "adminpage", "forum",
                 "headless-engine", "physics", "quicklaunch", "headless-diag", "nativeonline", "waits", "adminlink", "graphics", "gameload",
                 "geo",
             }, full.Select(p => p.Id));

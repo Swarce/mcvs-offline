@@ -853,10 +853,15 @@ p { margin: 4px 0 8px; }
     banner('banner-probation', ptext && S.session && !S.dismissed[pkey], ptext || '');
     S.bannerKeys = { staged: key, restart: rkey, probation: pkey };
 
-    // PC (WR2 F2): the game did not run the patched files; not dismissible, it stays until a start that does.
-    var inactive = S.status && S.status.client ? S.status.client.notActive : null;
-    banner('banner-inactive', !!inactive, inactive ? 'MCVS Offline is installed, NOT ACTIVE (' + inactive + '): the game runs its own files, ' +
-           'so the offline fixes are missing. Close the game, run the kit\'s status, then install again.' : '');
+    // PC (WR2 F2): the game did not run the patched files; not dismissible, it stays until a start that does. Without notActive
+    // (Android) the same banner says the Game.dll lacks the 'inbox' patch: a big redeem-code message then freezes the inbox.
+    var cl = S.status && S.status.client ? S.status.client : null;
+    var inactive = cl ? cl.notActive : null;
+    var noInbox = !inactive && !!cl && cl.inboxPatch === false;
+    banner('banner-inactive', !!inactive || noInbox, inactive ? 'MCVS Offline is installed, NOT ACTIVE (' + inactive + '): the game runs its own files, ' +
+           'so the offline fixes are missing. Close the game, run the kit\'s status, then install again.'
+           : noInbox ? 'The game was patched without MCVS Offline\'s \'inbox\' patch: opening the inbox freezes the game while a big ' +
+           'redeem-code message (UNLOCKALL and the like) is unclaimed. Patch the game again with the current patcher.' : '');
   }
 
   // The text with a full stop, unless it already ends a sentence (server messages usually do).
@@ -1130,6 +1135,10 @@ p { margin: 4px 0 8px; }
       kv(body, 'Platform', h.platform === 'windows' ? 'windows (the Steam PC build)'
                                                      : (h.platform || '?') + (h.sdkInt ? ', Android API ' + h.sdkInt : ''));
       if (d.client && d.client.notActive) kv(body, 'Install', 'installed, NOT ACTIVE (' + d.client.notActive + ')', 'errt');
+      var missing = [];
+      if (d.client && !d.client.notActive && d.client.storePatch === false) missing.push('store (the cosmetic crate stays off)');
+      if (d.client && !d.client.notActive && d.client.inboxPatch === false) missing.push('inbox (big unlock codes freeze the inbox)');
+      if (missing.length) kv(body, 'Game patches', 'missing: ' + missing.join(', '), 'errt');
       kv(body, 'In-game browser', (h.browser || 'unknown') + (h.browserOpen ? ', open' : ''));
       kv(body, 'Watchdog', h.watchdog);
       kv(body, 'Log copies', h.mirror);

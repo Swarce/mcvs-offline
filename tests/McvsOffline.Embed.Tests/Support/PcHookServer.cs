@@ -100,6 +100,11 @@ namespace McvsOffline
         {
             HookLog.Record(""GameHooks.StoreItemException"", item, exception);
         }
+
+        public static void InboxRewardException(object reward, Exception exception)
+        {
+            HookLog.Record(""GameHooks.InboxRewardException"", reward, exception);
+        }
     }
 
     public static class AdminHooks

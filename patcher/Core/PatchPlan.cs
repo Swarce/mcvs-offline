@@ -40,14 +40,14 @@ namespace McvsOffline.Patcher.Core
         private static readonly string[] PcOrder =
         {
             "hook-pc",
-            "headless", "bottile", "store", "signatures", "adminpage", "forum",
+            "headless", "bottile", "store", "signatures", "inbox", "adminpage", "forum",
             "headless-engine", "physics", "quicklaunch", "headless-diag", "nativeonline", "waits", "adminlink", "graphics", "gameload",
             "geo",
         };
 
         private static readonly PatchIds PcIds = new PatchIds(
             new[] { "hook-pc", "headless", "headless-engine", "physics", "quicklaunch", "headless-diag", "graphics", "gameload" },
-            new[] { "nativeonline", "waits", "adminlink", "geo", "bottile", "store", "signatures", "adminpage" },
+            new[] { "nativeonline", "waits", "adminlink", "geo", "bottile", "store", "signatures", "inbox", "adminpage" },
             new[] { "forum" },
             new[] { "hook", "finder", "lan", "debloat", "targetsdk", "game" });
 
@@ -91,6 +91,7 @@ namespace McvsOffline.Patcher.Core
                 case "bottile": return new BotTilePatch();
                 case "store": return new StorePatch();
                 case "signatures": return new SignaturesPatch();
+                case "inbox": return new InboxPatch();
                 case "adminpage": return new AdminPagePatch();
                 case "forum": return new ForumPatch();
                 case "headless-engine": return new HeadlessEnginePatch();

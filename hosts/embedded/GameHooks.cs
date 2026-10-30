@@ -9,7 +9,7 @@ using McvsOffline.Server.Core;
 namespace McvsOffline
 {
     /// <summary>
-    /// Entry points the patched game code calls (patcher/Patches: NativeOnlinePatch, HeadlessEnginePatch, PhysicsPatch, StorePatch). Their
+    /// Entry points the patched game code calls (patcher/Patches: NativeOnlinePatch, HeadlessEnginePatch, PhysicsPatch, StorePatch, InboxPatch). Their
     /// signatures are part of the patch contract (the patcher looks them up by name and parameter types). They run on the game
     /// thread or a loading-pool thread: cheap, never throw (the patched IL also guards every call), and the only one that can
     /// wait is <see cref="EnterPhysicsStep"/>, for at most <c>embedded.physics.stepGateTimeoutMs</c>.
@@ -23,6 +23,8 @@ namespace McvsOffline
         private static int headlessReports;
         private static int storeReports;
         private static readonly System.Collections.Generic.HashSet<string> storeReported = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+        private static int inboxReports;
+        private static readonly System.Collections.Generic.HashSet<string> inboxReported = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
 
         // Physics (device test 2). The defaults are the fix; settings.json can revert each part for an A/B run.
         private static volatile bool serverPhysicsMultithreaded;
@@ -156,6 +158,42 @@ namespace McvsOffline
 
         /// <summary>Items the store safety net reported (distinct ids).</summary>
         public static int StoreReports { get { return storeReports; } }
+
+        /// <summary>
+        /// Called by the inbox patch (<c>Game.McvsInbox.Report</c>) when <c>RewardItem.GetObject</c> threw for one reward of an inbox
+        /// message, or while the claim popup's list was built; that reward is left out of what the inbox shows (a claim still
+        /// claims it). One line per reward id (the inbox rebuilds its list every 10 s while open), on stdout (logcat mono-stdout)
+        /// and in bootstrap.log.
+        /// </summary>
+        public static void InboxRewardException(object reward, Exception exception)
+        {
+            try
+            {
+                string id = ItemId(reward);
+                lock (inboxReported)
+                {
+                    if (inboxReported.Count >= 100 || !inboxReported.Add(id)) return;
+                }
+                Interlocked.Increment(ref inboxReports);
+                string text = "inbox reward " + id + " threw " + (exception == null ? "?" : exception.ToString());
+                try
+                {
+                    Console.WriteLine("[McvsOffline] " + text);
+                }
+                catch (Exception)
+                {
+                }
+                Log l = log;
+                if (l != null) l.Warn("inbox reward " + id + " is left out of the inbox list: building its entry threw", exception);
+                else SelfLog.Write(SelfLog.Warn, "[inbox] " + text);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>Inbox rewards the inbox patch reported (distinct ids).</summary>
+        public static int InboxReports { get { return inboxReports; } }
 
         private static string ItemId(object item)
         {

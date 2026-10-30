@@ -170,6 +170,8 @@ namespace McvsOffline.Server
                 log.Warn("client: Game.dll lacks the patcher's 'store' patch (left out with --patches): the collector stays off");
             else
                 log.Info("client: 'store' patch " + (client.StorePatch == true ? "present" : "unknown (assumed present)"));
+            if (client.InboxPatch == false)
+                log.Warn("client: Game.dll lacks the patcher's 'inbox' patch: a big redeem-code message freezes the inbox until it is claimed");
             var requestLogger = new RequestLogger(logger, Path.Combine(dataDir, "logs", "unknown-endpoints.jsonl"),
                                                   () => settings.LogBodyLimit,
                                                   options.FileLogOptions != null && options.FileLogOptions.NewFileAtStart);

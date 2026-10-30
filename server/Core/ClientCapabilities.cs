@@ -16,6 +16,13 @@ namespace McvsOffline.Server.Core
         public bool? StorePatch { get; set; }
 
         /// <summary>
+        /// The patcher's default <c>inbox</c> patch is in the client's Game.dll (it adds <c>Game.McvsInbox</c>): an inbox message
+        /// shows at most 30 rewards, so the big redeem codes no longer freeze the inbox. null: unknown. On PC a missing one is also
+        /// a <see cref="NotActive"/> reason ("the 'inbox' patch is missing") through the boot "patches:" line.
+        /// </summary>
+        public bool? InboxPatch { get; set; }
+
+        /// <summary>
         /// PC (WR2 F2): why the patched client is not the one running, e.g. "Game loaded from the game folder" (an assembly the
         /// .exe.config redirects came from elsewhere) or "the 'store' patch is missing" (a witness of §3.9); several reasons are
         /// joined with "; ". null: active, or unknown (Android, the standalone host, Game not loaded yet). The settings page and

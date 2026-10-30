@@ -42,17 +42,18 @@ namespace McvsOffline.Patcher
         /// default 35 (Manifest.ManifestTargetSdk.DefaultTarget), with the classes.dex edits that needs (Dex.DexTargetSdkEdits). "graphics" passes
         /// GameOptions_android.json through McvsOffline.GraphicsHooks (settings graphics.profile; auto leaves it unchanged) and
         /// logs the effective options. "game" is no IL patch either: android:isGame and android:appCategory="game" on
-        /// &lt;application&gt; (Manifest.ManifestGame), at any target; --target-sdk 36 needs it.
+        /// &lt;application&gt; (Manifest.ManifestGame), at any target; --target-sdk 36 needs it. "inbox" caps what an inbox message
+        /// builds (Patches.InboxPatch: the big redeem codes froze the inbox).
         /// </summary>
         public static readonly string[] DefaultPatches =
         {
-            "nativeonline", "waits", "geo", "bottile", "finder", "store", "signatures", "debloat", "adminpage", "adminlink", "graphics", "targetsdk", "game",
+            "nativeonline", "waits", "geo", "bottile", "finder", "store", "signatures", "inbox", "debloat", "adminpage", "adminlink", "graphics", "targetsdk", "game",
         };
 
         /// <summary>Every id --patch accepts; "lan" and "forum" are the ones not in <see cref="DefaultPatches"/>.</summary>
         public static readonly string[] OptionalPatches =
         {
-            "nativeonline", "waits", "geo", "bottile", "finder", "lan", "store", "signatures", "debloat", "adminpage", "adminlink", "targetsdk", "forum",
+            "nativeonline", "waits", "geo", "bottile", "finder", "lan", "store", "signatures", "inbox", "debloat", "adminpage", "adminlink", "targetsdk", "forum",
             "graphics", "game",
         };
 

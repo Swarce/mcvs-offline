@@ -63,12 +63,14 @@ namespace McvsOffline.Server.Services.Admin
             body["host"] = info == null ? null : Host(info);
 
             // WR2 F2: "client" only while the PC host says the patched client is not the one running ("notActive", the error
-            // "installed, NOT ACTIVE (...)"); only the PC host sets it, so Android's and the standalone host's payload is unchanged.
+            // "installed, NOT ACTIVE (...)"), or while the client's Game.dll is known to lack the 'store' or 'inbox' patch (Android
+            // has no notActive: an APK patched without them shows only there). Unknown/present: no section, the payload is unchanged.
             ClientCapabilities client = context.Features.Get<ClientCapabilities>();
-            if (client != null && !string.IsNullOrEmpty(client.NotActive))
+            if (client != null && (!string.IsNullOrEmpty(client.NotActive) || client.StorePatch == false || client.InboxPatch == false))
             {
                 var clientInfo = new Dictionary<string, object>(StringComparer.Ordinal);
                 clientInfo["storePatch"] = client.StorePatch;
+                clientInfo["inboxPatch"] = client.InboxPatch;
                 clientInfo["notActive"] = client.NotActive;
                 body["client"] = clientInfo;
             }
