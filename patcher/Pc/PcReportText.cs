@@ -81,7 +81,17 @@ namespace McvsOffline.Patcher.Pc
                 lines.Add("port     " + r.SettingsPort.Value.ToString(CultureInfo.InvariantCulture) + (dryRun ? " would be" : " is") + " the server port in " +
                           GameFolder.DataDirName + "\\" + PcSettingsPort.FileName + " (the game reads it there; your other settings are unchanged)");
             }
-            if (dryRun) lines.Add("dry run: every patch site verified, nothing written");
+            if (dryRun)
+            {
+                lines.Add("dry run: every patch site verified, nothing written");
+                return lines;
+            }
+            if (r.GameFolder != null)
+            {
+                lines.Add("exe      " + System.IO.Path.Combine(r.GameFolder, GameFolder.ExeName));
+                lines.Add("config   " + System.IO.Path.Combine(r.GameFolder, PcExeConfig.FileName) + " (Windows reads it when that exe starts)");
+            }
+            lines.Add("next     " + PcInstaller.StartThenStatus);
             return lines;
         }
 

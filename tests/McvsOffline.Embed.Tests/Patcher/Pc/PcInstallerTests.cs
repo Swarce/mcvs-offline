@@ -185,7 +185,19 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 SortedDictionary<string, string> before = copy.Tree();
                 PcInstallReport report = copy.Install();
                 Assert.True(report.ExitCode == 0, report.Error);
-                foreach (string line in PcReportText.Install(report, false)) output.WriteLine(line);
+                List<string> printed = PcReportText.Install(report, false);
+                foreach (string line in printed) output.WriteLine(line);
+                // The last lines: the exe and the config Windows must read, by full path, and how to check that it did (§7.6, F).
+                Assert.Equal(new[]
+                {
+                    "exe      " + Path.Combine(copy.Game, "ModernCombatVersus.exe"),
+                    "config   " + Path.Combine(copy.Game, "ModernCombatVersus.exe.config") + " (Windows reads it when that exe starts)",
+                    "next     start the game once, then run status: it must say activation: active",
+                }, printed.Skip(printed.Count - 3));
+                Assert.Equal(PcInstaller.NotVerified, copy.Status().Activation);
+                PcInstallOptions dry = copy.Options();
+                dry.DryRun = true;
+                Assert.DoesNotContain(PcReportText.Install(PcInstaller.Install(dry), true), l => l.StartsWith("next ", StringComparison.Ordinal));
                 SortedDictionary<string, string> after = copy.Tree();
 
                 // P1: every original unchanged, and exactly our seven files added.

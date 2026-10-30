@@ -68,6 +68,86 @@ namespace McvsOffline.PcKit.Tests
             }
         }
 
+        /// <summary>A failed install from the double-click menu says INSTALL FAILED, not only its exit code; other commands keep the code.</summary>
+        [Fact]
+        public void TheMenuSaysInstallFailed()
+        {
+            using (var box = new KitSandbox())
+            {
+                box.Env.Input = new ConsoleLines(new StringReader("1\n3\n1\n0\n"));
+                var codes = new Queue<int>(new[] { PcExitCodes.Refused, PcExitCodes.Io, PcExitCodes.Ok });
+                Assert.Equal(0, Program.Menu(box.Env, new KitOptions { GameDir = box.Game }, o => codes.Dequeue()));
+                string text = box.Out.ToString();
+                Assert.Contains("INSTALL FAILED (exit code 3): see the error above, fix it and run install again", text);
+                Assert.Contains("(finished with exit code 1)", text);   // status
+                Assert.Contains("(done)", text);
+                Assert.DoesNotContain("(finished with exit code 3)", text);
+                Assert.Equal("(done)", Program.MenuResult("install", PcExitCodes.Ok));
+            }
+        }
+
+        /// <summary>The end of a successful install: the exe and the config by full path, and "start the game once, then run status".</summary>
+        [Fact]
+        public void InstallEndsWithTheExeTheConfigAndWhatToCheck()
+        {
+            using (var box = new KitSandbox())
+            {
+                box.Env.Install = o => new PcInstallReport { GameFolder = o.GameFolder };
+                Assert.Equal(PcExitCodes.Ok, Program.Run(box.Env, box.Options("install")));
+                string text = box.Out.ToString();
+                Assert.Contains("exe      " + Path.Combine(box.Game, GameFolder.ExeName), text);
+                Assert.Contains("config   " + Path.Combine(box.Game, PcExeConfig.FileName) + " (Windows reads it when that exe starts)", text);
+                Assert.Contains("next     start the game once, then run status: it must say activation: active", text);
+            }
+        }
+
+        /// <summary>
+        /// The kit's status and verify read the kit's own %TEMP% (TempRoot): hook-pc's marker there, after the install, without a log
+        /// of our host, is "NOT ACTIVE: … the server did not start".
+        /// </summary>
+        [Fact]
+        public void StatusAndVerifyReadTheMarkerInTheKitsTemp()
+        {
+            using (var box = new KitSandbox())
+            {
+                WriteInstall(box.Game, "2026-11-02T18:00:00Z");
+                Assert.Equal(PcExitCodes.Ok, Program.Run(box.Env, box.Options("status")));
+                Assert.Contains("activation:  " + PcInstaller.NotVerified, box.Out.ToString());
+
+                Directory.CreateDirectory(Path.Combine(box.Temp, "McvsOffline"));
+                File.WriteAllText(Path.Combine(box.Temp, "McvsOffline", "hook.txt"),
+                                  "2026-11-02T18:10:00.000Z hook-pc start pid 7 exe x dll y\r\n" +
+                                  "2026-11-02T18:10:00.010Z hook-pc McvsOfflineInit failed (pid 7): System.IO.FileNotFoundException: McvsOffline.Server\r\n");
+                box.Out.GetStringBuilder().Clear();
+                Assert.Equal(PcExitCodes.Ok, Program.Run(box.Env, box.Options("status")));
+                string text = box.Out.ToString();
+                Assert.Contains("state:       installed, NOT ACTIVE (the server did not start)", text);
+                Assert.Contains("activation:  NOT ACTIVE: MCVS Offline's EngineBridge ran at 2026-11-02T18:10:00Z but the server did not start: " +
+                                "McvsOfflineInit failed (pid 7): System.IO.FileNotFoundException: McvsOffline.Server", text);
+                Assert.Equal(PcExitCodes.Io, Program.Run(box.Env, box.Options("verify")));
+            }
+        }
+
+        /// <summary>A made-up install of the sandbox's game files: bin copies, install.json written at <paramref name="writtenUtc"/>, our config.</summary>
+        private static void WriteInstall(string game, string writtenUtc)
+        {
+            Directory.CreateDirectory(GameFolder.BinDir(game));
+            var manifest = new InstallManifest { InstallerName = "tests", InstallerVersion = "0", WrittenUtc = writtenUtc, Port = 51780 };
+            var codeBases = new List<PcCodeBase>();
+            foreach (string file in GameFolder.PatchedFiles.Concat(new[] { GameFolder.ServerFile }))
+            {
+                string path = GameFolder.Resolve(game, GameFolder.BinRelative(file));
+                File.WriteAllText(path, "ours " + file);
+                manifest.Written.Add(new InstallWritten { Path = GameFolder.BinRelative(file), Sha256 = GameFolder.TrySha256(path) });
+                if (file != GameFolder.ServerFile) manifest.Originals.Add(new InstallOriginal { File = file, Sha256 = GameFolder.TrySha256(Path.Combine(game, file)) });
+                codeBases.Add(new PcCodeBase(Path.GetFileNameWithoutExtension(file), new Version(1, 0, 0, 0), GameFolder.BinRelative(file)));
+            }
+            byte[] config = PcExeConfig.Encode(PcExeConfig.Build(codeBases));
+            File.WriteAllBytes(Path.Combine(game, PcExeConfig.FileName), config);
+            manifest.Written.Add(new InstallWritten { Path = PcExeConfig.FileName, Sha256 = GameFolder.Sha256(config) });
+            File.WriteAllBytes(Path.Combine(GameFolder.DataDir(game), InstallManifest.FileName), manifest.ToBytes());
+        }
+
         [Fact]
         public void TheMenuEndsWithTheInput()
         {

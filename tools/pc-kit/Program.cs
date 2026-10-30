@@ -333,9 +333,21 @@ namespace McvsOffline.PcKit
                 options.Command = command == "status-listing" ? "status" : command;
                 options.Listing = command == "status-listing";
                 int code = run(options);
-                env.Out.WriteLine(code == PcExitCodes.Ok ? "(done)" : "(finished with exit code " + code + ")");
+                env.Out.WriteLine(MenuResult(command, code));
                 if (command == "watch") env.Input.DiscardPending();
             }
+        }
+
+        /// <summary>
+        /// The line after a menu choice: "(done)", or "(finished with exit code n)"; a failed install says so in capitals (the
+        /// error above is easy to miss in a double-clicked window, and a first install that failed leaves the game without MCVS
+        /// Offline).
+        /// </summary>
+        public static string MenuResult(string command, int code)
+        {
+            if (code == PcExitCodes.Ok) return "(done)";
+            if (command == "install") return "INSTALL FAILED (exit code " + code + "): see the error above, fix it and run install again";
+            return "(finished with exit code " + code + ")";
         }
 
         /// <summary>Asks for the game folder until one with the exe is given (an empty line keeps the current one).</summary>

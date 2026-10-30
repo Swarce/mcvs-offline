@@ -173,6 +173,9 @@ namespace McvsOffline.Patcher.Pc
 
         /// <summary>Install with --port: the port set in <c>McvsOffline\settings.json</c> (or to be set, in a dry run); else null.</summary>
         public int? SettingsPort { get; set; }
+
+        /// <summary>Install: the full path of the game folder installed into (null before it is known).</summary>
+        public string GameFolder { get; set; }
     }
 
     /// <summary>What <see cref="PcInstaller.Status"/> found in the game folder (§7.6).</summary>
@@ -291,6 +294,12 @@ namespace McvsOffline.Patcher.Pc
 
         public const string StaleAdvice = "Steam updated the game: run uninstall, wait for a kit that knows this build";
 
+        /// <summary>A failed install whose config is not (or not yet) ours: the game runs the stock files.</summary>
+        public const string NoRedirectWarning = "The game will start WITHOUT MCVS Offline until install succeeds";
+
+        /// <summary>The last line of a successful install (§7.6): how the player checks that Windows uses the config.</summary>
+        public const string StartThenStatus = "start the game once, then run status: it must say activation: active";
+
         /// <summary>STALE and the build-identity refusal, when a changed game file is byte for byte one of our McvsOffline\bin copies.</summary>
         public const string ManualCopyAdvice = "you copied MCVS Offline's DLLs over the game's own files; Steam > Verify integrity of game files restores them, then run install";
 
@@ -328,6 +337,7 @@ namespace McvsOffline.Patcher.Pc
             if (options.ServerDll == null || options.ServerDll.Length == 0) return Fail(report, PcExitCodes.Usage, "the PC McvsOffline.Server.dll is required (--server)");
             if (options.Port < 1 || options.Port > 65535) return Fail(report, PcExitCodes.Usage, "the port must be between 1 and 65535");
             string game = Path.GetFullPath(options.GameFolder);
+            report.GameFolder = game;
 
             // 1. The folder, the running game, a *_args.txt.
             string missing = GameFolder.MissingGameFiles(game);
@@ -562,8 +572,11 @@ namespace McvsOffline.Patcher.Pc
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
             {
+                // Before our config is in place (a first install, or this run's config write itself) nothing redirects the game.
+                bool noRedirect = step == PcExeConfig.FileName || (configKind != "ours" && step != PcSettingsPort.RelativePath);
                 return Fail(report, PcExitCodes.Io, "could not write " + step + ": " + ex.Message +
-                                                    " (is the game folder writable, and the game closed? 'status' shows what is there; 'uninstall' removes it)");
+                                                    " (is the game folder writable, and the game closed? 'status' shows what is there; 'uninstall' removes it)" +
+                                                    (noRedirect ? ". " + NoRedirectWarning : ""));
             }
             if (configKind == "spike") RemoveSpikeCopy(game, files, report, log);
 
