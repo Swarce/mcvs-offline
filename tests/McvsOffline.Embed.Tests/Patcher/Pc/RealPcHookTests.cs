@@ -139,7 +139,7 @@ namespace McvsOffline
                     // The exception text may hold line breaks of its own (the stack trace): one entry, ending the addition.
                     Assert.StartsWith(EngineBridgeHookPatch.MarkerFailed + pid + "): ", rest.Substring(24));
                     Assert.Contains(failure, rest);
-                    Assert.Equal(1, Regex.Matches(rest, " hook-pc ").Count);
+                    Assert.Single(Regex.Matches(rest, " hook-pc "));
                 }
             }
             finally
