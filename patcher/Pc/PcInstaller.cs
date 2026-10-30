@@ -291,6 +291,31 @@ namespace McvsOffline.Patcher.Pc
 
         public const string StaleAdvice = "Steam updated the game: run uninstall, wait for a kit that knows this build";
 
+        /// <summary>STALE and the build-identity refusal, when a changed game file is byte for byte one of our McvsOffline\bin copies.</summary>
+        public const string ManualCopyAdvice = "you copied MCVS Offline's DLLs over the game's own files; Steam > Verify integrity of game files restores them, then run install";
+
+        /// <summary>
+        /// The names of <paramref name="files"/> (game-folder file names) whose SHA-256 is that of our copy of the same name: the one
+        /// <paramref name="manifest"/> records (when there is one) or the one in McvsOffline\bin now. A hand copy of bin into the game
+        /// folder, which Steam's own files never are.
+        /// </summary>
+        public static List<string> CopiesOfOurs(string game, InstallManifest manifest, IEnumerable<string> files)
+        {
+            var copied = new List<string>();
+            foreach (string file in files)
+            {
+                string now = GameFolder.TrySha256(Path.Combine(game, file));
+                if (now == null) continue;
+                string relative = GameFolder.BinRelative(file);
+                InstallWritten recorded = manifest == null ? null : manifest.FindWritten(relative);
+                string bin = GameFolder.Resolve(game, relative);
+                if ((recorded != null && string.Equals(recorded.Sha256, now, StringComparison.Ordinal)) ||
+                    (File.Exists(bin) && string.Equals(GameFolder.TrySha256(bin), now, StringComparison.Ordinal)))
+                    copied.Add(file);
+            }
+            return copied;
+        }
+
         // ================================================================================================ install
 
         public static PcInstallReport Install(PcInstallOptions options)
@@ -318,6 +343,14 @@ namespace McvsOffline.Patcher.Pc
             if (unknown.Count > 0)
             {
                 string what = string.Join("; ", unknown.Select(u => u.ToString()));
+                // Our own copies in the game folder (a hand copy of McvsOffline\bin): never a source to patch, even with --force.
+                List<string> copied = CopiesOfOurs(game, TryReadManifest(game), unknown.Select(u => u.File).Where(f => GameFolder.PatchedFiles.Contains(f)));
+                if (copied.Count > 0)
+                {
+                    return Fail(report, PcExitCodes.Refused, string.Join(", ", copied) + (copied.Count == 1 ? " is" : " are") + " MCVS Offline's own " +
+                                                             (copied.Count == 1 ? "copy" : "copies") + " from " + GameFolder.DataDirName + "\\" + GameFolder.BinDirName +
+                                                             ", not the game's: " + ManualCopyAdvice + ". Nothing was written");
+                }
                 if (!options.Force)
                 {
                     return Fail(report, PcExitCodes.Refused, "this is not the verified Steam build 6372049 (" + what + "). Nothing was written; " +
@@ -967,8 +1000,14 @@ namespace McvsOffline.Patcher.Pc
                     if (stale.Count > 0)
                     {
                         r.State = PcInstallState.Stale;
-                        r.Problems.AddRange(stale.Select(s => s + " differs from the one the install was made from"));
-                        r.StateDetail = "STALE (" + string.Join(", ", stale) + " changed): " + StaleAdvice;
+                        List<string> copied = CopiesOfOurs(game, r.Manifest, stale);
+                        foreach (string s in stale)
+                        {
+                            r.Problems.Add(copied.Contains(s)
+                                ? s + " is MCVS Offline's copy from " + GameFolder.DataDirName + "\\" + GameFolder.BinDirName + " (copied over the game's own file)"
+                                : s + " differs from the one the install was made from");
+                        }
+                        r.StateDetail = "STALE (" + string.Join(", ", stale) + " changed): " + (copied.Count > 0 ? ManualCopyAdvice : StaleAdvice);
                     }
                     else
                     {
@@ -996,6 +1035,9 @@ namespace McvsOffline.Patcher.Pc
             }
             if (Directory.Exists(GameFolder.Resolve(game, GameFolder.SpikeCopyFolder)))
                 r.Leftovers.Add(GameFolder.SpikeCopyFolder.Replace('/', '\\') + "\\ (the WP0 spike's copy folder)");
+            if (CopiesOfOurs(game, r.Manifest, new[] { GameFolder.ServerFile }).Count > 0)
+                r.Leftovers.Add(GameFolder.ServerFile + " in the game folder is a hand copy of ours from " + GameFolder.DataDirName + "\\" + GameFolder.BinDirName +
+                                " (Steam's Verify keeps it): delete it");
             if (!string.IsNullOrEmpty(spikeDataFolder) && Directory.Exists(spikeDataFolder))
                 r.Leftovers.Add("the WP0 spike's data folder " + spikeDataFolder + " (delete it by hand once you no longer need its logs)");
 
@@ -1293,6 +1335,21 @@ namespace McvsOffline.Patcher.Pc
         }
 
         // ================================================================================================ helpers
+
+        /// <summary>install.json of <paramref name="game"/>, or null when it is absent or unreadable.</summary>
+        private static InstallManifest TryReadManifest(string game)
+        {
+            string path = Path.Combine(GameFolder.DataDir(game), InstallManifest.FileName);
+            if (!File.Exists(path)) return null;
+            try
+            {
+                return InstallManifest.Parse(ReadShared(path));
+            }
+            catch (Exception ex) when (ex is FormatException || ex is ArgumentException)
+            {
+                return null;
+            }
+        }
 
         /// <summary>"absent", "ours", "spike" or "foreign" (an unreadable file counts as foreign: it is never touched).</summary>
         public static string ConfigKind(string configPath)

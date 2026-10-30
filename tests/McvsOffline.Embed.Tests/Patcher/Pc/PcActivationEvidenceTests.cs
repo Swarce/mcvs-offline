@@ -339,6 +339,71 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             Assert.Null(PcBootActivation.ParseUtc("not a time"));
         }
 
+        /// <summary>
+        /// The build-14 owner's work-around: McvsOffline\bin copied next to the exe. Status calls it a hand copy (not "Steam updated
+        /// the game") and says how to undo it; a Steam update of the same file keeps the STALE advice; the server's copy is a leftover.
+        /// </summary>
+        [Fact]
+        public void AHandCopyOfBinIsNamedAndUndoneThroughSteam()
+        {
+            using (var fake = new FakePcInstall())
+            {
+                foreach (string file in GameFolder.PatchedFiles.Concat(new[] { GameFolder.ServerFile })) fake.Write(file, FakePcInstall.Ours(file));
+                PcStatusReport status = fake.Status();
+                List<string> text = Print(status);
+                Assert.Equal(PcInstallState.Stale, status.State);
+                Assert.Equal("STALE (EngineBridge.dll, Game.dll, Gameloft.Engine.dll, Gameloft.Util.dll changed): " + PcInstaller.ManualCopyAdvice, status.StateDetail);
+                Assert.EndsWith("you copied MCVS Offline's DLLs over the game's own files; Steam > Verify integrity of game files restores them, then run install",
+                                status.StateDetail);
+                Assert.Contains("Game.dll is MCVS Offline's copy from McvsOffline\\bin (copied over the game's own file)", status.Problems);
+                Assert.DoesNotContain(text, l => l.Contains(PcInstaller.StaleAdvice));
+                Assert.Contains(status.Leftovers, l => l.StartsWith("McvsOffline.Server.dll in the game folder is a hand copy of ours", StringComparison.Ordinal));
+
+                // Steam's own update of the files: the STALE advice, no hand copy.
+                foreach (string file in GameFolder.PatchedFiles) fake.Write(file, "a newer Steam build of " + file);
+                File.Delete(Path.Combine(fake.Game, GameFolder.ServerFile));
+                status = fake.Status();
+                Assert.Equal(PcInstallState.Stale, status.State);
+                Assert.EndsWith(PcInstaller.StaleAdvice, status.StateDetail);
+                Assert.Contains("Game.dll differs from the one the install was made from", status.Problems);
+                Assert.DoesNotContain(status.Leftovers, l => l.Contains("hand copy"));
+            }
+        }
+
+        /// <summary>Install refuses a game folder holding our copies before anything is written, even with --force.</summary>
+        [Fact]
+        public void InstallRefusesAHandCopyEvenWithForce()
+        {
+            using (var fake = new FakePcInstall())
+            {
+                fake.Write("EngineBridge.dll", FakePcInstall.Ours("EngineBridge.dll"));
+                fake.Write("Gameloft.Util.dll", FakePcInstall.Ours("Gameloft.Util.dll"));
+                foreach (bool force in new[] { false, true })
+                {
+                    PcInstallReport report = PcInstaller.Install(new PcInstallOptions
+                    {
+                        GameFolder = fake.Game, ServerDll = new byte[] { 1 }, BclDirectory = fake.Temp, GameRunning = () => false, Force = force,
+                    });
+                    output.WriteLine(report.Error);
+                    Assert.Equal(PcExitCodes.Refused, report.ExitCode);
+                    Assert.Equal("EngineBridge.dll, Gameloft.Util.dll are MCVS Offline's own copies from McvsOffline\\bin, not the game's: " +
+                                 PcInstaller.ManualCopyAdvice + ". Nothing was written", report.Error);
+                    Assert.Empty(report.Written);
+                }
+                // Without install.json (an interrupted install): the files in McvsOffline\bin tell it.
+                File.Delete(Path.Combine(GameFolder.DataDir(fake.Game), InstallManifest.FileName));
+                PcInstallReport noManifest = PcInstaller.Install(new PcInstallOptions { GameFolder = fake.Game, ServerDll = new byte[] { 1 }, GameRunning = () => false });
+                Assert.Equal(PcExitCodes.Refused, noManifest.ExitCode);
+                Assert.Contains(PcInstaller.ManualCopyAdvice, noManifest.Error);
+                // Another unknown file is the usual refusal.
+                fake.Write("EngineBridge.dll", FakePcInstall.Stock("EngineBridge.dll"));
+                fake.Write("Gameloft.Util.dll", "something else");
+                PcInstallReport other = PcInstaller.Install(new PcInstallOptions { GameFolder = fake.Game, ServerDll = new byte[] { 1 }, GameRunning = () => false });
+                Assert.Equal(PcExitCodes.Refused, other.ExitCode);
+                Assert.StartsWith("this is not the verified Steam build 6372049", other.Error);
+            }
+        }
+
         /// <summary>The path list status reads is the kit's watch list (StallDumps reuses it).</summary>
         [Fact]
         public void TheBootstrapLogsAreTheGameFoldersAndTheTempFallback()

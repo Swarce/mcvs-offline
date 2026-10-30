@@ -451,6 +451,43 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             }
         }
 
+        /// <summary>
+        /// The build-14 owner's work-around on a real install: every file of McvsOffline\bin copied next to the exe. Status names it
+        /// (not "Steam updated the game"), install refuses it before any write, and putting the game's files back is "current" again.
+        /// </summary>
+        [Fact]
+        public void AHandCopyOfBinOverTheGameFilesIsNamedAndRefused()
+        {
+            using (PcGameCopy copy = PcGameCopy.Create(output))
+            {
+                if (copy == null) return;
+                Assert.Equal(0, copy.Install().ExitCode);
+                var originals = new Dictionary<string, byte[]>();
+                foreach (string file in GameFolder.PatchedFiles.Concat(new[] { GameFolder.ServerFile }))
+                {
+                    if (File.Exists(copy.Path_(file))) originals[file] = File.ReadAllBytes(copy.Path_(file));
+                    File.Copy(copy.Path_(GameFolder.BinRelative(file)), copy.Path_(file), true);
+                }
+                PcStatusReport status = copy.Status();
+                Assert.Equal(PcInstallState.Stale, status.State);
+                Assert.EndsWith(PcInstaller.ManualCopyAdvice, status.StateDetail);
+                Assert.Contains("EngineBridge.dll is MCVS Offline's copy from McvsOffline\\bin (copied over the game's own file)", status.Problems);
+                Assert.Contains(status.Leftovers, l => l.StartsWith("McvsOffline.Server.dll in the game folder is a hand copy of ours", StringComparison.Ordinal));
+
+                SortedDictionary<string, string> before = copy.Tree();
+                PcInstallReport refused = copy.Install();
+                Assert.Equal(PcExitCodes.Refused, refused.ExitCode);
+                Assert.Equal("EngineBridge.dll, Game.dll, Gameloft.Engine.dll, Gameloft.Util.dll are MCVS Offline's own copies from McvsOffline\\bin, not the game's: " +
+                             PcInstaller.ManualCopyAdvice + ". Nothing was written", refused.Error);
+                Assert.Equal(before, copy.Tree());
+
+                // Steam's Verify puts the game's files back (and leaves the server copy, which the player deletes).
+                foreach (KeyValuePair<string, byte[]> o in originals) File.WriteAllBytes(copy.Path_(o.Key), o.Value);
+                File.Delete(copy.Path_(GameFolder.ServerFile));
+                Assert.Equal(PcInstallState.Current, copy.Status().State);
+            }
+        }
+
         [Fact]
         public void TheRunningGameStopsInstallAndUninstall()
         {
