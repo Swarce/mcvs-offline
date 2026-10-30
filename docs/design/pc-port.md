@@ -2030,11 +2030,11 @@ default patch set, port 51780. A second install gave the same bytes, and the val
 
 | written | sha256 | mvid |
 |---|---|---|
-| `McvsOffline/bin/EngineBridge.dll` | `debb51d93062b3345ebb149d6b100d32c0abb5e56244324d3b9bcd0f518f17cb` | `0c4102a5-807f-409d-9211-c65bbf44eb2f` |
-| `McvsOffline/bin/Game.dll` | `ca3d94d97cca353c99a233b6aa7962ed11bc74c5923e5be39d6fef164a648b1a` | `1fcecc62-c265-4471-bfc5-b4e63742ee34` |
-| `McvsOffline/bin/Gameloft.Engine.dll` | `ab8ce00e033238a2f67dc4d6221dbbb03e47f0fa1f8f5479b459b85acc39abf4` | `23831d0d-df5a-4885-8217-65d2f01aa164` |
-| `McvsOffline/bin/Gameloft.Util.dll` | `9c6b69ca922e8ec9f424aaff3a01c6c57ad27b13d70bf7eb1c2467bc028cc32a` | `af07eaf9-a0a3-4918-8bc6-47640c89c2dc` |
-| `McvsOffline/bin/McvsOffline.Server.dll` | `074d7b2b83e8caea2040b7c4e3990de538e5e7170c8ee6e85cffdea97d007695` | `8a2cc39d-3198-4437-b4b0-a49e76ebeed1` |
+| `McvsOffline/bin/EngineBridge.dll` | `be6d7723712fc8d8e91ba7ae61cb0a7211f1e4e2c0e2cae7596fe6e9b7e062fb` | `cd307bc0-65e9-4cff-8598-cadf0b70c1c8` |
+| `McvsOffline/bin/Game.dll` | `30ce7f1ab564c2424194ec4410eb5eb12b4479a0780594f7844161297bfbfafc` | `bff81f79-10e3-4838-933f-4857925ffaa0` |
+| `McvsOffline/bin/Gameloft.Engine.dll` | `cb29b7ceed1c86c2c5702c0a18b0e72702982bb567d90d44405b791184efbef7` | `ea3a2faf-f488-4711-be40-f4e4912c05d5` |
+| `McvsOffline/bin/Gameloft.Util.dll` | `0af2d767639728e5c3aaad2e65e9a16020845f8eff1554e017f2b4d4e0709396` | `83ee1636-03f3-47b4-b8f7-207518b039cf` |
+| `McvsOffline/bin/McvsOffline.Server.dll` | `d90ba116a5fe16ffd21c64c46be3fcdb948150ebad9c484fce5a6539d7e23157` | `2bd09d2f-4244-42fb-88a9-5c6b529ff3c7` |
 | `ModernCombatVersus.exe.config` | `3ebe99b3c93a9540cd7f7b03da55fc048a544501c17e8621457884eae456f94c` | — |
 
 * Applied patches: `hook-pc, headless, bottile, store, signatures, inbox, adminpage, headless-engine, physics,
@@ -2053,12 +2053,13 @@ default patch set, port 51780. A second install gave the same bytes, and the val
   embedded server DLL) says in `status` `installed, OLDER BUILD - OLDER BUILD (18; this kit installs build 19): run
   install to update it (your saves and settings stay)`, and `verify` fails with exit 1 on the same sentence. Its
   `install` over it exits 0 and writes exactly the bytes of the table above (`serverBuild` `19`); then `verify` exits 0
-  and `status` says `installed, current`.
+  and `status` says `installed, current`. (Run with build 19's first kit, `effcc07a…0aef` at `922ce02`; not repeated for
+  the review fixes at `41c1407`, which change no installer code; the table and the fresh install below are theirs.)
 * A fresh install on a second temp copy: `install`, `verify` (exit 0, every written file, witness and the config read
   back), `status` (`installed, current`, `activation: NOT VERIFIED` before a start), a second `install` with the same
   bytes, and `uninstall`, which restored the exact listing and every SHA-256 outside `McvsOffline\` and removed
   `McvsOffline\` (nothing of the player's in it).
-* The kit: `McvsOffline.PcKit.exe`, SHA-256 `effcc07ae46c77ea2bebc07ac4b760ce09461e34e20f2a059b00c42838fa0aef`; its
+* The kit: `McvsOffline.PcKit.exe`, SHA-256 `9f7302dde8bc829df1346989a81d1d947ad2e99b7a20d220dabb29dbcdf56089`; its
   publish check passed on the embedded DLL (every PC hook (17), `Gameloft.Logs`, only allowed references), and the
   kit's assembly carries the server DLL above byte for byte.
 * ILVerify of the four patched assemblies against the net452 refs (`RealFolderEndToEnd`, this run) reports exactly the
@@ -2070,11 +2071,11 @@ default patch set, port 51780. A second install gave the same bytes, and the val
   with its `ERROR:` line (F2); with the first 22 lines of the owner's build-17 start (2026-10-30, `gameload yes`),
   `installed, NOT ACTIVE (Game loaded from the game folder; the 'store' patch is missing; the 'inbox' patch is
   missing)`.
-* Android (§12.6): the APK `mcvs-offline-922ce02.apk` (SHA-256
-  `dd88801724faf20a50a9f71a6f9ad3a27ed1632ba7bf239572807468b49ad3bf`; cert SHA-256 `fc0db84e…7d16`, targetSdk 35,
+* Android (§12.6): the APK `mcvs-offline-41c1407.apk` (SHA-256
+  `72a40d9c50933492f0b4ad1a574c3ac5024b84e4aefff05341205ad74d38bde6`; cert SHA-256 `fc0db84e…7d16`, targetSdk 35,
   both ABIs, `isGame` and `appCategory=0`, zipalign OK), compared entry by entry with build 18's
   `mcvs-offline-9e21ead.apk` (same key and options): same 952 entries in the same order; changed only
-  `assemblies/McvsOffline.Server.dll` (2,562,560 → 2,649,600 bytes), `META-INF/1.RSA`, `1.SF`, `MANIFEST.MF`, and
+  `assemblies/McvsOffline.Server.dll` (2,562,560 → 2,650,112 bytes), `META-INF/1.RSA`, `1.SF`, `MANIFEST.MF`, and
   `Game.dll`, `Gameloft.Engine.dll`, `Gameloft.Util.dll`, `NicePlaySDK.dll` in their 16 MVID bytes only.
 
 ### 13.2 WR2 values (build 13, archived)

@@ -54,12 +54,13 @@ the HD textures and the graphics profiles work, at the same frame rate as before
 
 ### What build 19 contains
 
-`922ce02` on `wip/pc-port` (`McvsVersion.Build` is `19`; the code is the merges of `wip/b19-contracts`, `-registry`,
-`-grid`, `-page` and `-backend` plus the integration commit `6d02c28`). APK: `mcvs-offline-922ce02.apk` (SHA-256
-`dd88801724faf20a50a9f71a6f9ad3a27ed1632ba7bf239572807468b49ad3bf`; default patch set, unchanged since build 17; the same key as every build: certificate SHA-256
+`41c1407` on `wip/pc-port` (`McvsVersion.Build` is `19`; the code is the merges of `wip/b19-contracts`, `-registry`,
+`-grid`, `-page` and `-backend`, the integration commit `6d02c28` and the review fixes `41c1407`, below; the first
+build-19 APK `mcvs-offline-922ce02.apk` and kit `effcc07a…0aef` are replaced, and either installs over them). APK: `mcvs-offline-41c1407.apk` (SHA-256
+`72a40d9c50933492f0b4ad1a574c3ac5024b84e4aefff05341205ad74d38bde6`; default patch set, unchanged since build 17; the same key as every build: certificate SHA-256
 `fc0db84e…7d16`, targetSdk 35, both ABIs, `isGame` and `appCategory`, zipalign OK); it installs over build 18 as
-usual. Compared entry by entry with build 18's `mcvs-offline-9e21ead.apk`: the same 952 entries in the same order; changed only the server DLL (2,562,560 → 2,649,600 bytes), the signature files and the 16 MVID bytes of `Game.dll`, `Gameloft.Engine.dll`, `Gameloft.Util.dll` and `NicePlaySDK.dll` ([design/pc-port.md](design/pc-port.md) §13.1). The PC kit
-`McvsOffline.PcKit.exe` (win-x64, one file, SHA-256 `effcc07ae46c77ea2bebc07ac4b760ce09461e34e20f2a059b00c42838fa0aef`) replaces build 18's; build 18's Windows checks (whether
+usual. Compared entry by entry with build 18's `mcvs-offline-9e21ead.apk`: the same 952 entries in the same order; changed only the server DLL (2,562,560 → 2,650,112 bytes), the signature files and the 16 MVID bytes of `Game.dll`, `Gameloft.Engine.dll`, `Gameloft.Util.dll` and `NicePlaySDK.dll` ([design/pc-port.md](design/pc-port.md) §13.1). The PC kit
+`McvsOffline.PcKit.exe` (win-x64, one file, SHA-256 `9f7302dde8bc829df1346989a81d1d947ad2e99b7a20d220dabb29dbcdf56089`) replaces build 18's; build 18's Windows checks (whether
 `Game` now comes from `McvsOffline\bin`) still stand and come first. The design is
 [design/settings-menu.md](design/settings-menu.md).
 
@@ -103,7 +104,7 @@ menu functions while the game runs (no new patch; the APK's game files are build
 back) and `admin.settingsMenu.performance` (Settings › Gameplay › **PERFORMANCE in the Settings menu**, phone only: off
 removes the tile, puts the two Gameplay rows back, and from the next start the game's own 30/60/UNLIMITED list with the
 stored choice mapped back). The values themselves are on the phone's settings page under Graphics: `graphics.msaa`,
-`graphics.renderScale`, `graphics.lowResMaps` (`auto` = the profile's own); a bad value can be fixed there. When the
+`graphics.renderScale`, `graphics.lowResMaps` (`auto` = the profile's own; a change there applies at the next start); a bad value can be fixed there. When the
 grid cannot be laid out, it stays as the game draws it, the two Gameplay rows stay, and `server.log` says why in a
 `settings menu: … not laid out (…)` line; a page that cannot be built shows the stock rows and logs `performance page
 not built (…)`.
@@ -120,7 +121,7 @@ design review's E1), so opening the page never stores anything.
 **Checked**: `McvsOffline.sln` (Release), the Android embedded DLL against the APK's assemblies and the PC DLL with
 `Gameloft.Logs`; all four test projects with `MCVS_REFS`, `MCVS_PC_REFS`, `MCVS_APK`, `MCVS_DATAPACK`,
 `MCVS_BUILD_TOOLS`, `MCVS_REQUIRE_REAL_CLIENT=1`, `MCVS_REQUIRE_PC=1`, `MCVS_REQUIRE_PC_E2E=1`, `MCVS_REQUIRE_EMBEDDED=1`,
-`MCVS_REQUIRE_BUILD_TOOLS=1` and `MCVS_REQUIRE_NODE=1`, at `922ce02`: **McvsOffline.Tests 1576/1576, McvsOffline.Embed.Tests 1141/1141, McvsOffline.PcKit.Tests 63/63, McvsOffline.PcSpike.Tests 62/62, 0 skipped** (2,842; build 18's run was 2,623). New tests: the native registry on a
+`MCVS_REQUIRE_BUILD_TOOLS=1` and `MCVS_REQUIRE_NODE=1`, at `922ce02`: **McvsOffline.Tests 1576/1576, McvsOffline.Embed.Tests 1141/1141, McvsOffline.PcKit.Tests 63/63, McvsOffline.PcSpike.Tests 62/62, 0 skipped** (2,842; build 18's run was 2,623); after the review fixes, at `41c1407`: 1577/1577, 1142/1142, 63/63, 62/62 (2,844). New tests: the native registry on a
 fake native table with the engine's dispatch rules (re-registration, one delegate per name, a throwing step, the forum
 tap, no host), every game member used resolved by signature in the real Android and Steam assemblies, the grid plans
 and their all-or-nothing writes on a fake Flash tree of both panels, the page transform on the real row order (the
@@ -137,6 +138,19 @@ build 19): run install …` and `verify` fails (exit 1); `install` over it write
 `installed, current`. The expected `verify` values are re-recorded in [design/pc-port.md](design/pc-port.md) §13.1 and
 [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7 (build 18's are in §13.2): every DLL changed with the server DLL, the config
 is build 16's (`3ebe99b3…f94c`), `serverBuild` is `19`.
+
+**Review fixes (`41c1407`).** (1) On the settings page, Screen scale and Low resolution maps were marked `live` and
+`menu`, but nothing applies a save of the page's copy of `settings.json` to the running engine: the host reads its own
+copy at start, and only the game's PERFORMANCE page applies its own changes live. Both are `restart` keys now, with help
+saying so (a test pins every Graphics key to `restart`; the game's page still applies SCREEN SCALE at once and LOW
+RESOLUTION MAPS from the next match). (2) The restart prompt now follows the values the game started with: a GRAPHICS
+or ANTIALIASING change put back before leaving the page asks for no restart (it used to stay pending and restart for
+nothing). Both new tests fail on the code before the fix. The APK, the kit and the §13.1 values were rebuilt and
+re-recorded from the same runs as above (APK compared entry by entry with build 18's and with `922ce02`'s: only the
+server DLL, the signature files and the four MVIDs differ; the PC end to end, fresh install, ILVerify, second install
+and uninstall repeated; the upgrade run from build 18 was not repeated, no installer code changed). Integrator note:
+the five build-19 package merges (`3fc37a4`, `54e247f`, `3c4175d`, `0836cae`, `3dc44ea`) lack the `Co-Authored-By` and
+`Claude-Session` trailers; the branch is pushed, so history is not rewritten, and later `--no-ff` merges carry them.
 
 **Not checked (untested)**: **nothing ran on a phone or on Windows.** In particular: the layout and centring on real
 screens and whether the stock grid flashes for one frame before ours; whether the hidden tiles can still be reached (a
