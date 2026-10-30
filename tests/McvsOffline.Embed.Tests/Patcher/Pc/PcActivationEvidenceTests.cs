@@ -111,6 +111,30 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             File.WriteAllText(path, text);
         }
 
+        /// <summary>A hook.txt start line of a process of this game: the exe and our EngineBridge.dll in its folder.</summary>
+        public string MarkerStart(string utc, int pid)
+        {
+            return utc + " hook-pc start pid " + pid + " exe " + Path.Combine(Game, GameFolder.ExeName) + " dll " +
+                   Path.Combine(GameFolder.BinDir(Game), "EngineBridge.dll") + "\r\n";
+        }
+
+        /// <summary>A build-14/15 install: the config gets the five qualifyAssembly lines, and install.json records its hash.</summary>
+        public void UseBuild14Config()
+        {
+            byte[] old = PcExeConfig.Encode(PcExeConfigTests.Build14Config(File.ReadAllText(ConfigPath)));
+            File.WriteAllBytes(ConfigPath, old);
+            string manifestPath = Path.Combine(GameFolder.DataDir(Game), InstallManifest.FileName);
+            InstallManifest manifest = InstallManifest.Parse(File.ReadAllText(manifestPath));
+            manifest.FindWritten(PcExeConfig.FileName).Sha256 = GameFolder.Sha256(old);
+            File.WriteAllBytes(manifestPath, manifest.ToBytes());
+        }
+
+        /// <summary>The build-14 owner's work-around: every file of McvsOffline\bin copied next to the exe.</summary>
+        public void CopyBinOverTheGame()
+        {
+            foreach (string file in GameFolder.PatchedFiles.Concat(new[] { GameFolder.ServerFile })) Write(file, Ours(file));
+        }
+
         public PcStatusReport Status()
         {
             return PcInstaller.Status(Game, () => false, null, Temp);
@@ -210,7 +234,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 Assert.Equal(PcInstaller.NotVerified, running.Activation);
 
                 // With a marker from before the install: it says when our EngineBridge last ran.
-                fake.Log(fake.Marker, "2026-11-01T10:00:00.000Z hook-pc start pid 4242 exe C:\\Games\\ModernCombatVersus.exe dll C:\\Games\\McvsOffline\\bin\\EngineBridge.dll\r\n");
+                fake.Log(fake.Marker, fake.MarkerStart("2026-11-01T10:00:00.000Z", 4242));
                 status = fake.Status();
                 Assert.Equal(PcInstallState.NotActive, status.State);
                 Assert.Equal("hook.txt: the last start of MCVS Offline's EngineBridge was at 2026-11-01T10:00:00Z, before the install: it has not run since",
@@ -283,7 +307,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             {
                 fake.GameWrote("OF_PP.bin", After);
                 fake.Log(fake.Marker,
-                         "2026-11-02T18:29:00.000Z hook-pc start pid 4242 exe C:\\Games\\ModernCombatVersus.exe dll C:\\Games\\McvsOffline\\bin\\EngineBridge.dll\r\n" +
+                         fake.MarkerStart("2026-11-02T18:29:00.000Z", 4242) +
                          "2026-11-02T18:29:00.050Z hook-pc McvsOfflineInit failed (pid 4242): System.IO.FileNotFoundException: Could not load file or assembly " +
                          "'McvsOffline.Server, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null'\r\n" +
                          "   at EngineBridge.Class1.McvsOfflineInit()\r\n");
@@ -298,9 +322,97 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 Assert.Contains(status.Errors, e => e.StartsWith("MCVS Offline's EngineBridge ran (" + fake.Marker + ") but its server did not start", StringComparison.Ordinal));
                 Assert.DoesNotContain(text, l => l.Contains("Windows did not use"));
 
+                // While the game runs, a recorded failure is still the verdict (Init threw).
+                PcStatusReport running = PcInstaller.Status(fake.Game, () => true, null, fake.Temp);
+                Assert.Equal(PcInstallState.NotActive, running.State);
+                Assert.StartsWith("NOT ACTIVE: MCVS Offline's EngineBridge ran at 2026-11-02T18:29:00Z but the server did not start: McvsOfflineInit failed",
+                                  running.Activation);
+
                 // Without the failure line (a crash before the catch): still NOT ACTIVE, "no exception recorded".
-                fake.Log(fake.Marker, "2026-11-02T18:29:00.000Z hook-pc start pid 4242 exe x dll y\r\n");
+                fake.Log(fake.Marker, fake.MarkerStart("2026-11-02T18:29:00.000Z", 4242));
                 Assert.EndsWith("but the server did not start: no exception recorded", fake.Status().Activation);
+
+                // The same while the game runs: the start line comes before McvsOfflineInit and the host's first line, so it may
+                // still be starting; evidence only, no verdict, no error.
+                running = PcInstaller.Status(fake.Game, () => true, null, fake.Temp);
+                List<string> runningText = Print(running);
+                Assert.Equal(PcInstallState.Current, running.State);
+                Assert.Equal("NOT VERIFIED: MCVS Offline's EngineBridge ran at 2026-11-02T18:29:00Z; the game is still running: run status after closing it",
+                             running.Activation);
+                Assert.StartsWith("hook.txt: our EngineBridge ran at 2026-11-02T18:29:00Z (start pid 4242 exe ", running.HookEvidence);
+                Assert.Empty(running.Errors);
+                Assert.DoesNotContain(runningText, l => l.Contains("NOT ACTIVE"));
+
+                // Another process's failure (another pid) is not this start's.
+                fake.Log(fake.Marker, fake.MarkerStart("2026-11-02T18:29:00.000Z", 4242) +
+                                      "2026-11-02T18:29:00.050Z hook-pc McvsOfflineInit failed (pid 777): System.Exception: elsewhere\r\n");
+                Assert.EndsWith("but the server did not start: no exception recorded", fake.Status().Activation);
+            }
+        }
+
+        /// <summary>
+        /// hook.txt is shared by every copy of the game this user runs: a start of another game folder says nothing about this one,
+        /// not even "the last start was before the install".
+        /// </summary>
+        [Fact]
+        public void TheMarkerCountsOnlyStartsFromThisGameFolder()
+        {
+            using (var fake = new FakePcInstall())
+            using (var other = new FakePcInstall())
+            {
+                fake.Log(fake.Marker, other.MarkerStart("2026-11-02T18:29:00.000Z", 4242) +
+                                      "2026-11-02T18:29:00.050Z hook-pc McvsOfflineInit failed (pid 4242): System.Exception: the other copy\r\n");
+                PcStatusReport status = fake.Status();
+                Print(status);
+                Assert.Equal(PcInstallState.Current, status.State);
+                Assert.Equal(PcInstaller.NotVerified, status.Activation);
+                Assert.Null(status.HookEvidence);
+                Assert.Empty(status.Errors);
+
+                // The game ran stock afterwards: NOT ACTIVE from its files, and the marker has no start of this folder.
+                fake.GameWrote("dr0.bin", After);
+                status = fake.Status();
+                Assert.Equal(PcInstallState.NotActive, status.State);
+                Assert.Equal(PcInstaller.StartedWithoutUs + fake.ConfigPath, status.Activation);
+                Assert.Equal("hook.txt: no start of MCVS Offline's EngineBridge from this game folder", status.HookEvidence);
+
+                // A start whose exe is in this folder counts, whatever the dll path (a hand copy loads EngineBridge.dll next to the exe).
+                fake.Log(fake.Marker, "2026-11-02T18:31:00.000Z hook-pc start pid 5 exe " + Path.Combine(fake.Game, GameFolder.ExeName) +
+                                      " dll " + Path.Combine(fake.Game, "EngineBridge.dll") + "\r\n");
+                Assert.StartsWith("NOT ACTIVE: MCVS Offline's EngineBridge ran at 2026-11-02T18:31:00Z", fake.Status().Activation);
+
+                Assert.True(PcHookMarker.Under("C:\\Games\\MCVS\\McvsOffline\\bin\\EngineBridge.dll", "c:\\games\\mcvs"));
+                Assert.True(PcHookMarker.Under("C:/Games/MCVS/EngineBridge.dll", "C:\\Games\\MCVS\\"));
+                Assert.False(PcHookMarker.Under("C:\\Games\\MCVS2\\EngineBridge.dll", "C:\\Games\\MCVS"));
+                Assert.False(PcHookMarker.Under(null, "C:\\Games\\MCVS"));
+            }
+        }
+
+        /// <summary>
+        /// PARTIAL with install.json but no config (the install stopped at the config write): the game ran stock because there is
+        /// no config, not because Windows ignored one.
+        /// </summary>
+        [Fact]
+        public void AStockStartWithoutTheConfigNamesTheMissingConfig()
+        {
+            using (var fake = new FakePcInstall())
+            {
+                File.Delete(fake.ConfigPath);
+                fake.GameWrote("dr0.bin", After);
+                PcStatusReport status = fake.Status();
+                List<string> text = Print(status);
+                Assert.Equal(PcInstallState.Partial, status.State);
+                Assert.Equal("NOT ACTIVE: the game started without MCVS Offline: " + fake.ConfigPath + " is missing (install did not finish)", status.Activation);
+                Assert.Equal(PcInstaller.StartedWithoutUsNoConfig + fake.ConfigPath + " is missing (install did not finish)", status.Activation);
+                Assert.Contains(status.Errors, e => e.EndsWith("but MCVS Offline did not start: " + fake.ConfigPath + " is missing (install did not finish)",
+                                                               StringComparison.Ordinal));
+                Assert.DoesNotContain(text, l => l.Contains("Windows did not use"));
+
+                // A foreign config in its place: named as not ours.
+                File.WriteAllText(fake.ConfigPath, "<configuration />");
+                status = fake.Status();
+                Assert.Equal(PcInstallState.Partial, status.State);
+                Assert.Equal(PcInstaller.StartedWithoutUsNoConfig + fake.ConfigPath + " is not ours", status.Activation);
             }
         }
 
@@ -353,7 +465,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         {
             using (var fake = new FakePcInstall())
             {
-                foreach (string file in GameFolder.PatchedFiles.Concat(new[] { GameFolder.ServerFile })) fake.Write(file, FakePcInstall.Ours(file));
+                fake.CopyBinOverTheGame();
                 PcStatusReport status = fake.Status();
                 List<string> text = Print(status);
                 Assert.Equal(PcInstallState.Stale, status.State);
@@ -373,6 +485,97 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 Assert.Contains("Game.dll differs from the one the install was made from", status.Problems);
                 Assert.DoesNotContain(status.Leftovers, l => l.Contains("hand copy"));
             }
+        }
+
+        /// <summary>
+        /// The owner's own case: a build-14/15 install (its config has qualifyAssembly lines, install.json records that config) with
+        /// McvsOffline\bin hand-copied over the game's files. Status leads with the hand copy (install would refuse it), not with
+        /// "run install again"; once Steam's Verify has restored the game's files, the old config alone is DAMAGED and install fixes it.
+        /// </summary>
+        [Fact]
+        public void ABuild14InstallWithAHandCopyLeadsWithTheHandCopy()
+        {
+            using (var fake = new FakePcInstall())
+            {
+                fake.UseBuild14Config();
+                Assert.Equal(PcInstallState.Damaged, fake.Status().State);
+                fake.CopyBinOverTheGame();
+                PcStatusReport status = fake.Status();
+                List<string> text = Print(status);
+                Assert.Equal(PcInstallState.Damaged, status.State);
+                Assert.Equal("EngineBridge.dll is MCVS Offline's copy from McvsOffline\\bin (copied over the game's own file)", status.Problems[0]);
+                Assert.Equal(new[] { "EngineBridge.dll", "Game.dll", "Gameloft.Engine.dll", "Gameloft.Util.dll" },
+                             status.Problems.Take(4).Select(p => p.Substring(0, p.IndexOf(' '))));
+                Assert.Equal(PcExeConfig.FileName + " " + PcExeConfig.QualifyLeftoverProblem, status.Problems[4]);
+                Assert.StartsWith("DAMAGED (EngineBridge.dll is MCVS Offline's copy", status.StateDetail);
+                Assert.EndsWith("an old build-14/15 config): " + PcInstaller.ManualCopyAdvice, status.StateDetail);
+                Assert.DoesNotContain("run install again", status.StateDetail);
+                Assert.Contains(text, l => l.Contains(PcInstaller.ManualCopyAdvice));
+
+                // Install, as status says, refuses (the hand copy) before anything is written.
+                PcInstallReport install = PcInstaller.Install(new PcInstallOptions { GameFolder = fake.Game, ServerDll = new byte[] { 1 }, GameRunning = () => false });
+                Assert.Equal(PcExitCodes.Refused, install.ExitCode);
+                Assert.Contains(PcInstaller.ManualCopyAdvice, install.Error);
+
+                // Steam's Verify: the game's files back; the server copy next to the exe stays (a leftover). The old config remains.
+                foreach (string file in GameFolder.PatchedFiles) fake.Write(file, FakePcInstall.Stock(file));
+                status = fake.Status();
+                Assert.Equal(PcInstallState.Damaged, status.State);
+                Assert.Equal("DAMAGED: " + PcExeConfig.FileName + " " + PcExeConfig.QualifyLeftoverProblem + ": run install again", status.StateDetail);
+                Assert.Contains(status.Leftovers, l => l.StartsWith("McvsOffline.Server.dll in the game folder is a hand copy of ours", StringComparison.Ordinal));
+            }
+        }
+
+        /// <summary>
+        /// Uninstall after a hand copy would delete bin and install.json, the only proof of it, and leave the game running our
+        /// copies with status saying "not installed": it refuses until Steam's Verify; then it also removes our server DLL next to the exe.
+        /// </summary>
+        [Fact]
+        public void UninstallRefusesAHandCopyAndRemovesTheServerCopyAfterVerify()
+        {
+            using (var fake = new FakePcInstall())
+            {
+                fake.CopyBinOverTheGame();
+                SortedDictionary<string, string> before = Tree(fake.Game);
+                PcInstallReport refused = PcInstaller.Uninstall(new PcUninstallOptions { GameFolder = fake.Game, GameRunning = () => false });
+                output.WriteLine(refused.Error);
+                Assert.Equal(PcExitCodes.Refused, refused.ExitCode);
+                Assert.Equal("EngineBridge.dll, Game.dll, Gameloft.Engine.dll, Gameloft.Util.dll are MCVS Offline's own copies from McvsOffline\\bin, not the game's: " +
+                             PcInstaller.ManualCopyUndo + ", then run uninstall again. Nothing was removed", refused.Error);
+                Assert.Equal(before, Tree(fake.Game));
+                Assert.Empty(refused.Removed);
+
+                // Without install.json (an interrupted install): the files in McvsOffline\bin tell it.
+                string manifest = Path.Combine(GameFolder.DataDir(fake.Game), InstallManifest.FileName);
+                byte[] manifestBytes = File.ReadAllBytes(manifest);
+                File.Delete(manifest);
+                Assert.Equal(PcExitCodes.Refused, PcInstaller.Uninstall(new PcUninstallOptions { GameFolder = fake.Game, GameRunning = () => false }).ExitCode);
+                File.WriteAllBytes(manifest, manifestBytes);
+
+                // Steam's Verify restores the game's files and keeps our server DLL next to the exe: uninstall removes it with the rest.
+                foreach (string file in GameFolder.PatchedFiles) fake.Write(file, FakePcInstall.Stock(file));
+                PcInstallReport done = PcInstaller.Uninstall(new PcUninstallOptions { GameFolder = fake.Game, GameRunning = () => false });
+                Assert.True(done.ExitCode == 0, done.Error);
+                Assert.Contains("McvsOffline.Server.dll (a hand copy of ours next to the exe)", done.Removed);
+                Assert.False(File.Exists(Path.Combine(fake.Game, GameFolder.ServerFile)));
+                Assert.False(File.Exists(fake.ConfigPath));
+                foreach (string file in GameFolder.PatchedFiles)
+                    Assert.Equal(FakePcInstall.Stock(file), File.ReadAllText(Path.Combine(fake.Game, file)));
+                Assert.Equal(PcInstallState.NotInstalled, fake.Status().State);
+
+                // A server DLL next to the exe that is not ours is left alone.
+                File.WriteAllText(Path.Combine(fake.Game, GameFolder.ServerFile), "somebody else's");
+                Assert.Equal(0, PcInstaller.Uninstall(new PcUninstallOptions { GameFolder = fake.Game, GameRunning = () => false }).ExitCode);
+                Assert.True(File.Exists(Path.Combine(fake.Game, GameFolder.ServerFile)));
+            }
+        }
+
+        private static SortedDictionary<string, string> Tree(string folder)
+        {
+            var tree = new SortedDictionary<string, string>(StringComparer.Ordinal);
+            foreach (string file in Directory.GetFiles(folder, "*", SearchOption.AllDirectories))
+                tree[Path.GetRelativePath(folder, file)] = GameFolder.Sha256(File.ReadAllBytes(file));
+            return tree;
         }
 
         /// <summary>Install refuses a game folder holding our copies before anything is written, even with --force.</summary>

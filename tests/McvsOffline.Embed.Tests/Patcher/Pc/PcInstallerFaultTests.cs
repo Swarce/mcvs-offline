@@ -148,6 +148,34 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             }
         }
 
+        /// <summary>
+        /// An upgrade from build 14/15: the config in place is ours but has qualifyAssembly entries, which .NET most likely ignores
+        /// as a whole, so the game already runs stock; a failure before this run's config write says so, as on a first install.
+        /// </summary>
+        [Fact]
+        public void AFailedUpgradeFromABuild14ConfigSaysTheGameRunsWithoutUs()
+        {
+            using (PcGameCopy copy = PcGameCopy.Create(output))
+            {
+                if (copy == null) return;
+                Assert.Equal(0, copy.Install().ExitCode);
+                string configPath = copy.Path_(PcExeConfig.FileName);
+                byte[] old = PcExeConfig.Encode(PcExeConfigTests.Build14Config(File.ReadAllText(configPath)));
+                File.WriteAllBytes(configPath, old);
+                foreach (string step in new[] { "McvsOffline/bin/Game.dll", "McvsOffline/install.json" })
+                {
+                    PcInstallReport failed = copy.Install(new FaultyFileOps { FailRenameTo = copy.Path_(step) });
+                    output.WriteLine(failed.Error);
+                    Assert.Equal(PcExitCodes.Io, failed.ExitCode);
+                    Assert.StartsWith("could not write " + step + ": ", failed.Error);
+                    Assert.EndsWith(". " + PcInstaller.NoRedirectWarning, failed.Error);
+                    Assert.Equal(old, File.ReadAllBytes(configPath));   // the old config is still the one in place
+                }
+                Assert.Equal(0, copy.Install().ExitCode);
+                Assert.Equal(PcExeConfigTests.Expected, File.ReadAllText(configPath));
+            }
+        }
+
         [Fact]
         public void UninstallWorksFromDamagedAndStale()
         {

@@ -302,14 +302,25 @@ namespace McvsOffline.Patcher.Pc
         /// <summary>The last line of a successful install (§7.6): how the player checks that Windows uses the config.</summary>
         public const string StartThenStatus = "start the game once, then run status: it must say activation: active";
 
-        /// <summary>STALE and the build-identity refusal, when a changed game file is byte for byte one of our McvsOffline\bin copies.</summary>
-        public const string ManualCopyAdvice = "you copied MCVS Offline's DLLs over the game's own files; Steam > Verify integrity of game files restores them, then run install";
+        /// <summary>How a hand copy of McvsOffline\bin over the game's own files is undone (<see cref="ManualCopyAdvice"/>, uninstall's refusal).</summary>
+        public const string ManualCopyUndo = "you copied MCVS Offline's DLLs over the game's own files; Steam > Verify integrity of game files restores them";
+
+        /// <summary>
+        /// STALE, DAMAGED and the build-identity refusal, when a changed game file is byte for byte one of our McvsOffline\bin copies.
+        /// </summary>
+        public const string ManualCopyAdvice = ManualCopyUndo + ", then run install";
 
         /// <summary>
         /// The names of <paramref name="files"/> (game-folder file names) whose SHA-256 is that of our copy of the same name: the one
         /// <paramref name="manifest"/> records (when there is one) or the one in McvsOffline\bin now. A hand copy of bin into the game
         /// folder, which Steam's own files never are.
         /// </summary>
+        /// <summary>A status problem: <paramref name="file"/> in the game folder is one of our McvsOffline\bin copies.</summary>
+        private static string CopyProblem(string file)
+        {
+            return file + " is MCVS Offline's copy from " + GameFolder.DataDirName + "\\" + GameFolder.BinDirName + " (copied over the game's own file)";
+        }
+
         public static List<string> CopiesOfOurs(string game, InstallManifest manifest, IEnumerable<string> files)
         {
             var copied = new List<string>();
@@ -377,6 +388,9 @@ namespace McvsOffline.Patcher.Pc
             if (configKind == "foreign")
                 return Fail(report, PcExitCodes.Refused, "a " + PcExeConfig.FileName + " that is not ours exists; move it away and run install again");
             if (configKind == "spike") report.Notes.Add(PcExeConfig.FileName + " is the WP0 spike's redirect test: replaced by ours");
+            // Whether the config already in place redirects the game to McvsOffline\bin: ours, but not a build-14/15 one with
+            // qualifyAssembly entries (most likely ignored by .NET as a whole, §7.4).
+            bool configRedirects = configKind == "ours" && !PcExeConfig.HasQualifyAssembly(ReadShared(configPath));
 
             // 3b. --port: the game listens on settings.json "port"; a settings.json it cannot read is refused before anything is written.
             string settingsPath = GameFolder.Resolve(game, PcSettingsPort.RelativePath);
@@ -574,8 +588,9 @@ namespace McvsOffline.Patcher.Pc
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
             {
-                // Before our config is in place (a first install, or this run's config write itself) nothing redirects the game.
-                bool noRedirect = step == PcExeConfig.FileName || (configKind != "ours" && step != PcSettingsPort.RelativePath);
+                // Before our config is in place (a first install, an upgrade from a build-14/15 config, or this run's config write
+                // itself) nothing redirects the game.
+                bool noRedirect = step == PcExeConfig.FileName || (!configRedirects && step != PcSettingsPort.RelativePath);
                 return Fail(report, PcExitCodes.Io, "could not write " + step + ": " + ex.Message +
                                                     " (is the game folder writable, and the game closed? 'status' shows what is there; 'uninstall' removes it)" +
                                                     (noRedirect ? ". " + NoRedirectWarning : ""));
@@ -731,6 +746,19 @@ namespace McvsOffline.Patcher.Pc
             if ((options.GameRunning ?? GameFolder.IsGameRunning)())
                 return Fail(report, PcExitCodes.GameRunning, "the game is running: quit it (wait until ModernCombatVersus.exe is gone from the Task Manager), then run uninstall again");
 
+            // A hand copy of McvsOffline\bin over the game's own files (build 14's work-around): deleting bin and install.json would
+            // remove the only proof of it and leave the game running our copies, with status saying "not installed". Steam's
+            // Verify first. Our server DLL next to the exe (Verify keeps it) is ours byte for byte: removed with the rest.
+            InstallManifest recorded = TryReadManifest(game);
+            List<string> copied = CopiesOfOurs(game, recorded, GameFolder.PatchedFiles);
+            if (copied.Count > 0)
+            {
+                return Fail(report, PcExitCodes.Refused, string.Join(", ", copied) + (copied.Count == 1 ? " is" : " are") + " MCVS Offline's own " +
+                                                         (copied.Count == 1 ? "copy" : "copies") + " from " + GameFolder.DataDirName + "\\" + GameFolder.BinDirName +
+                                                         ", not the game's: " + ManualCopyUndo + ", then run uninstall again. Nothing was removed");
+            }
+            bool serverCopy = CopiesOfOurs(game, recorded, new[] { GameFolder.ServerFile }).Count > 0;
+
             // The config first: from here on nothing redirects to a file we are about to delete.
             string configPath = Path.Combine(game, PcExeConfig.FileName);
             string kind = ConfigKind(configPath);
@@ -745,6 +773,7 @@ namespace McvsOffline.Patcher.Pc
                 }
             }
             else if (kind == "foreign") report.Notes.Add(PcExeConfig.FileName + " is not ours: left as it is");
+            if (serverCopy) Delete(files, Path.Combine(game, GameFolder.ServerFile), GameFolder.ServerFile + " (a hand copy of ours next to the exe)", report, log);
 
             string bin = GameFolder.BinDir(game);
             if (Directory.Exists(bin))
@@ -996,39 +1025,39 @@ namespace McvsOffline.Patcher.Pc
                     else if (!string.Equals(GameFolder.TrySha256(path), w.Sha256, StringComparison.Ordinal)) r.Problems.Add(w.Path + " changed");
                 }
                 if (PcExeConfig.HasQualifyAssembly(ReadShared(configPath))) r.Problems.Add(PcExeConfig.FileName + " " + PcExeConfig.QualifyLeftoverProblem);
+                var stale = new List<string>();
+                foreach (InstallOriginal o in r.Manifest.Originals)
+                {
+                    string now = GameFolder.TrySha256(Path.Combine(game, o.File));
+                    if (!string.Equals(now, o.Sha256, StringComparison.Ordinal)) stale.Add(o.File);
+                }
+                if (r.Manifest.ExeSha256 != null &&
+                    !string.Equals(GameFolder.TrySha256(Path.Combine(game, GameFolder.ExeName)), r.Manifest.ExeSha256, StringComparison.Ordinal))
+                    stale.Add(GameFolder.ExeName);
+                // A hand copy of bin over the game's files (build 14's work-around) is named whatever else is wrong: install
+                // refuses it, so its advice (Steam's Verify first) comes before any "run install again".
+                List<string> copied = CopiesOfOurs(game, r.Manifest, stale);
                 if (r.Problems.Count > 0)
                 {
                     r.State = PcInstallState.Damaged;
-                    r.StateDetail = "DAMAGED: " + string.Join("; ", r.Problems) + ": run install again";
+                    if (copied.Count > 0)
+                    {
+                        r.Problems.InsertRange(0, copied.Select(CopyProblem));
+                        r.StateDetail = "DAMAGED (" + string.Join("; ", r.Problems) + "): " + ManualCopyAdvice;
+                    }
+                    else r.StateDetail = "DAMAGED: " + string.Join("; ", r.Problems) + ": run install again";
+                }
+                else if (stale.Count > 0)
+                {
+                    r.State = PcInstallState.Stale;
+                    foreach (string s in stale)
+                        r.Problems.Add(copied.Contains(s) ? CopyProblem(s) : s + " differs from the one the install was made from");
+                    r.StateDetail = "STALE (" + string.Join(", ", stale) + " changed): " + (copied.Count > 0 ? ManualCopyAdvice : StaleAdvice);
                 }
                 else
                 {
-                    var stale = new List<string>();
-                    foreach (InstallOriginal o in r.Manifest.Originals)
-                    {
-                        string now = GameFolder.TrySha256(Path.Combine(game, o.File));
-                        if (!string.Equals(now, o.Sha256, StringComparison.Ordinal)) stale.Add(o.File);
-                    }
-                    if (r.Manifest.ExeSha256 != null &&
-                        !string.Equals(GameFolder.TrySha256(Path.Combine(game, GameFolder.ExeName)), r.Manifest.ExeSha256, StringComparison.Ordinal))
-                        stale.Add(GameFolder.ExeName);
-                    if (stale.Count > 0)
-                    {
-                        r.State = PcInstallState.Stale;
-                        List<string> copied = CopiesOfOurs(game, r.Manifest, stale);
-                        foreach (string s in stale)
-                        {
-                            r.Problems.Add(copied.Contains(s)
-                                ? s + " is MCVS Offline's copy from " + GameFolder.DataDirName + "\\" + GameFolder.BinDirName + " (copied over the game's own file)"
-                                : s + " differs from the one the install was made from");
-                        }
-                        r.StateDetail = "STALE (" + string.Join(", ", stale) + " changed): " + (copied.Count > 0 ? ManualCopyAdvice : StaleAdvice);
-                    }
-                    else
-                    {
-                        r.State = PcInstallState.Current;
-                        r.StateDetail = "installed, current";
-                    }
+                    r.State = PcInstallState.Current;
+                    r.StateDetail = "installed, current";
                 }
             }
 
@@ -1108,8 +1137,10 @@ namespace McvsOffline.Patcher.Pc
         /// from the game folder)") and the reason is an error. A start older than install.json's writtenUtc ran another install.
         /// With no start of our host recorded since the install (<paramref name="lastRecord"/>, the newest line of either
         /// bootstrap.log): a file the stock game writes in its folder that is newer than the install says the game ran without
-        /// us (<see cref="StartedWithoutUs"/>); hook-pc's marker since the install says our EngineBridge ran but the server did
-        /// not start; neither is <see cref="NotVerified"/>.
+        /// us (<see cref="StartedWithoutUs"/>, or <see cref="StartedWithoutUsNoConfig"/> when the config is missing or not
+        /// ours); hook-pc's marker (a start from this game folder since the install) says our EngineBridge ran but the server did
+        /// not start (while the game runs and that process recorded no failure: NOT VERIFIED, it may still be starting); neither
+        /// is <see cref="NotVerified"/>. The game's files count only once the game is closed.
         /// </summary>
         private static void Activation(PcStatusReport r, string game, string bootstrap, DateTime? lastRecord)
         {
@@ -1146,6 +1177,9 @@ namespace McvsOffline.Patcher.Pc
         /// <summary>The start of the activation line when the game ran after the install and our host did not.</summary>
         public const string StartedWithoutUs = "NOT ACTIVE: the game started without MCVS Offline; Windows did not use ";
 
+        /// <summary>The same when the config is not ours or missing (PARTIAL): the config's path and what is wrong with it follow.</summary>
+        public const string StartedWithoutUsNoConfig = "NOT ACTIVE: the game started without MCVS Offline: ";
+
         /// <summary>No line of our host since the install: NOT VERIFIED, or NOT ACTIVE with the game's own files or the marker as evidence.</summary>
         private static void NoStartSinceTheInstall(PcStatusReport r, string game, DateTime installed, DateTime? lastRecord)
         {
@@ -1172,13 +1206,20 @@ namespace McvsOffline.Patcher.Pc
             }
             // While the game runs, our host may still be starting (no line yet): only a closed game's files are evidence.
             bool gameRan = gameFile != null && gameTime > installed && (!lastRecord.HasValue || gameTime > lastRecord.Value) && !r.GameRunning;
-            PcHookEntry hookStart = PcHookMarker.LastStart(r.HookMarker, installed);
-            PcHookEntry hookFailure = PcHookMarker.LastFailure(r.HookMarker, installed);
+            // Only this game folder's starts (hook.txt is shared by every copy of the game), and only their own process's failure.
+            PcHookEntry hookStart = PcHookMarker.LastStart(r.HookMarker, installed, game);
+            PcHookEntry hookFailure = hookStart == null ? null : PcHookMarker.FailureOf(r.HookMarker, hookStart);
             string config = Path.Combine(game, PcExeConfig.FileName);
             if (hookStart != null)
             {
                 // Our EngineBridge ran (so the config applied to it), but no line of the host followed: the server did not start.
                 r.HookEvidence = EngineBridgeHookPatch.MarkerFile + ": our EngineBridge ran at " + hookStart.Time + " (" + hookStart.Text + ")";
+                if (hookFailure == null && r.GameRunning)
+                {
+                    // The start line comes before McvsOfflineInit, the host's first line after the server DLL loads: still starting.
+                    r.Activation = "NOT VERIFIED: MCVS Offline's EngineBridge ran at " + hookStart.Time + "; the game is still running: run status after closing it";
+                    return;
+                }
                 string why = hookFailure != null ? hookFailure.Text : "no exception recorded";
                 r.Activation = "NOT ACTIVE: MCVS Offline's EngineBridge ran at " + hookStart.Time + " but the server did not start: " + why;
                 MarkNotActive(r, "the server did not start", "MCVS Offline's EngineBridge ran (" + r.HookMarkerPath + ") but its server did not start (" + why +
@@ -1190,20 +1231,25 @@ namespace McvsOffline.Patcher.Pc
                 r.Activation = NotVerified;
                 return;
             }
-            r.Activation = StartedWithoutUs + config;
+            // Our config in place and the game still ran stock: Windows did not use it. Without one (PARTIAL: the install stopped
+            // before the config write, or a foreign one), that is the reason.
+            string notUsed = r.Config == "ours" ? "Windows did not use " + config
+                                                : config + (r.Config == "absent" ? " is missing (install did not finish)" : " is not ours");
+            r.Activation = r.Config == "ours" ? StartedWithoutUs + config : StartedWithoutUsNoConfig + notUsed;
             if (r.HookMarkerPath == null)
             {
                 r.HookEvidence = "no " + EngineBridgeHookPatch.MarkerFile + " in %TEMP%\\" + GameFolder.DataDirName + ": MCVS Offline's EngineBridge has never run as this user";
             }
             else
             {
-                PcHookEntry last = r.HookMarker.OrderBy(e => e.Utc).LastOrDefault();
-                r.HookEvidence = EngineBridgeHookPatch.MarkerFile + ": " + (last == null ? "no start recorded" : "the last start of MCVS Offline's EngineBridge was at " + last.Time) +
-                                 ", before the install: it has not run since";
+                PcHookEntry last = PcHookMarker.LastStart(r.HookMarker, DateTime.MinValue, game);
+                r.HookEvidence = EngineBridgeHookPatch.MarkerFile + ": " + (last == null
+                    ? "no start of MCVS Offline's EngineBridge from this game folder"
+                    : "the last start of MCVS Offline's EngineBridge was at " + last.Time + ", before the install: it has not run since");
             }
             MarkNotActive(r, "the game started without MCVS Offline",
                           "the game ran after the install (" + gameFile + " written " + Iso(gameTime) + ", the install " + r.Manifest.WrittenUtc +
-                          ") but MCVS Offline did not start: Windows did not use " + config);
+                          ") but MCVS Offline did not start: " + notUsed);
             r.Problems.Add(gameFile + " written by the game at " + Iso(gameTime) + ", after the install (" + r.Manifest.WrittenUtc + "); no start of MCVS Offline since");
         }
 
