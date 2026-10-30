@@ -174,6 +174,27 @@ namespace McvsOffline.Patcher.Pc
             return Path.Combine(new[] { game }.Concat(relative.Split('/')).ToArray());
         }
 
+        /// <summary>The host's start log, below <see cref="DataDir"/> and below the %TEMP% fallback: logs\bootstrap.log.</summary>
+        public const string BootstrapLogName = "bootstrap.log";
+
+        /// <summary>
+        /// Where the host writes bootstrap.log: <c>&lt;game&gt;\McvsOffline\logs\</c>, and <c>%TEMP%\McvsOffline\logs\</c> before it knows
+        /// the game folder or when that one is not writable (WindowsPlatform.FallbackLogDirectory). Status and the kit's watch read both.
+        /// </summary>
+        public static List<string> BootstrapLogs(string game, string tempRoot)
+        {
+            var list = new List<string>();
+            if (!string.IsNullOrEmpty(game)) list.Add(Path.Combine(DataDir(game), "logs", BootstrapLogName));
+            if (!string.IsNullOrEmpty(tempRoot)) list.Add(Path.Combine(tempRoot, DataDirName, "logs", BootstrapLogName));
+            return list;
+        }
+
+        /// <summary>hook-pc's marker, <c>%TEMP%\McvsOffline\hook.txt</c> (EngineBridgeHookPatch), or null without a %TEMP%.</summary>
+        public static string HookMarker(string tempRoot)
+        {
+            return string.IsNullOrEmpty(tempRoot) ? null : Path.Combine(tempRoot, McvsOffline.Patcher.Patches.EngineBridgeHookPatch.MarkerFolder, McvsOffline.Patcher.Patches.EngineBridgeHookPatch.MarkerFile);
+        }
+
         /// <summary>The bin path of one written assembly, relative with '/': "McvsOffline/bin/Game.dll".</summary>
         public static string BinRelative(string file)
         {

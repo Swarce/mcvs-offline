@@ -101,6 +101,31 @@ namespace McvsOffline.Patcher.Pc
             return any ? result : null;
         }
 
+        /// <summary>
+        /// The UTC time of the newest timestamped line of <paramref name="log"/> (only our host writes bootstrap.log, so any line of
+        /// it is a start of MCVS Offline that got that far), or null when there is none.
+        /// </summary>
+        public static DateTime? LastLineUtc(string log)
+        {
+            if (string.IsNullOrEmpty(log)) return null;
+            string[] lines = log.Replace("\r", "").Split('\n');
+            for (int i = lines.Length - 1; i >= 0; i--)
+            {
+                DateTime? at = ParseUtc(Timestamp(lines[i]));
+                if (at.HasValue) return at;
+            }
+            return null;
+        }
+
+        /// <summary>An ISO-8601 time ("2026-10-29T17:53:17.425Z", install.json's "2026-10-29T17:53:17Z") as UTC, or null.</summary>
+        public static DateTime? ParseUtc(string text)
+        {
+            DateTime parsed;
+            if (string.IsNullOrEmpty(text)) return null;
+            const DateTimeStyles styles = DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal;
+            return DateTime.TryParse(text, CultureInfo.InvariantCulture, styles, out parsed) ? parsed : (DateTime?)null;
+        }
+
         /// <summary>The leading ISO-8601 timestamp of a log line, or null.</summary>
         private static string Timestamp(string line)
         {

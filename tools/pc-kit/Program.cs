@@ -166,7 +166,7 @@ namespace McvsOffline.PcKit
             if (game == null) return NoGame(problem, log);
             try
             {
-                PcStatusReport status = PcInstaller.Status(game.Directory, env.GameRunning, SpikeDataFolder(env));
+                PcStatusReport status = PcInstaller.Status(game.Directory, env.GameRunning, SpikeDataFolder(env), env.TempRoot);
                 Print(log, PcReportText.Status(status), true);
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
@@ -192,7 +192,7 @@ namespace McvsOffline.PcKit
             PcInstallReport report;
             try
             {
-                report = PcInstaller.Verify(game.Directory, options.Bcl ?? env.DefaultBcl(), env.GameRunning);
+                report = PcInstaller.Verify(game.Directory, options.Bcl ?? env.DefaultBcl(), env.GameRunning, SpikeDataFolder(env), env.TempRoot);
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
             {
@@ -209,7 +209,7 @@ namespace McvsOffline.PcKit
             {
                 try
                 {
-                    status = PcReportText.Status(PcInstaller.Status(game.Directory, env.GameRunning, SpikeDataFolder(env)));
+                    status = PcReportText.Status(PcInstaller.Status(game.Directory, env.GameRunning, SpikeDataFolder(env), env.TempRoot));
                 }
                 catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
                 {

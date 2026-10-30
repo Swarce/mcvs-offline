@@ -52,6 +52,7 @@ namespace McvsOffline.Patcher.Pc
                 lines.Add(ports);
             }
             if (r.Activation != null) lines.Add("activation:  " + r.Activation);
+            if (r.HookEvidence != null) lines.Add("hook:        " + r.HookEvidence);
             if (r.LastBootstrapLine != null) lines.Add("last boot:   " + r.LastBootstrapLine);
             foreach (string e in r.Errors) lines.Add("ERROR: " + e);
             foreach (string l in r.Leftovers) lines.Add("leftover: " + l);
