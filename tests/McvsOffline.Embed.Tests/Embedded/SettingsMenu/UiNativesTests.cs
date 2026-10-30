@@ -271,7 +271,11 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.True(env.Ui.Tap("btn_forum"));
             Assert.Equal(1, env.Ui.Game.ForumCalls);   // PERFORMANCE: ours only
             Assert.Equal(1, env.Steps.Count("Open"));
-            Assert.Equal(1, env.Ui.Pushed.Count(p => p == "menu_gameplaySettings"));
+            Assert.Same(env.Host, env.Steps.Hosts.Last());
+            Assert.Same(env.Natives.State, env.Steps.States.Last());
+            // The push is the page step's (the recorded Open pushes nothing): the delegate itself adds none, so no double push.
+            // The real step's one push is checked in TheTileOpensTheRealPageStepWhenWpCIsIn.
+            Assert.Empty(env.Ui.Pushed.Where(p => p == "menu_gameplaySettings"));
 
             // The switch read on the tap: off is the game's forum again, even with the tile still showing PERFORMANCE.
             env.Host.PerformanceSetting = false;
@@ -292,8 +296,10 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         [Fact]
         public void TheTileOpensTheRealPageStepWhenWpCIsIn()
         {
-            // The same tap through the default steps: PerformancePage.Open posts exactly one push of Gameplay Settings. Until WP-C's
-            // body is merged, Open is a skeleton and this test only checks that our delegate keeps the forum shut.
+            // T-A4 through the default steps: PerformancePage.Open posts exactly one push of Gameplay Settings and enters the mode.
+            // WP-C INTEGRATION: delete the skeleton branch below once WP-C is merged, so these assertions always run (and check
+            // that they fail with Open reverted to the skeleton). Until then the branch is taken only while Open AND LeaveMode are
+            // both the WP0 skeleton; WP-C merged with Open still a skeleton fails here instead of skipping.
             var env = new Env(recordSteps: false);
             env.Natives.Ensure();
             env.Ui.OpenSettings();
@@ -301,9 +307,16 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.True(env.Ui.Tap("btn_forum"));
             env.Host.Drain();
             Assert.Equal(0, env.Ui.Game.ForumCalls);
-            if (!PageIsImplemented())
+            bool openIsSkeleton = IsWp0Skeleton(() => PerformancePage.Open(new FakeSettingsMenuHost(), new SettingsMenuState()));
+            bool leaveIsSkeleton = IsWp0Skeleton(() => PerformancePage.LeaveMode(new SettingsMenuState()));
+            Assert.False(openIsSkeleton && !leaveIsSkeleton, "WP-C is merged but PerformancePage.Open is still the WP0 skeleton");
+            if (openIsSkeleton)
             {
-                output.WriteLine("PerformancePage.Open is the WP0 skeleton: the push is checked once WP-C is merged");
+                // The skeleton's throw was swallowed and logged by our delegate: no push, no mode, still not the forum.
+                Assert.Empty(env.Ui.Pushed.Where(p => p == "menu_gameplaySettings"));
+                Assert.False(env.Natives.State.PerformanceMode);
+                Assert.Single(env.Host.Lines("settings menu: GoToForum failed (NotImplementedException: WP-C: "));
+                output.WriteLine("SKIPPED until WP-C: PerformancePage.Open is the WP0 skeleton, the one-push check does not run yet");
                 return;
             }
             Assert.Equal(1, env.Ui.Pushed.Count(p => p == "menu_gameplaySettings"));
@@ -575,20 +588,21 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
 
         // ------------------------------------------------------------------ helpers
 
-        private static bool PageIsImplemented()
+        /// <summary>True only for the WP0 skeleton's own throw (NotImplementedException "WP-C: ..."); any other outcome is a real body.</summary>
+        private static bool IsWp0Skeleton(Action call)
         {
             try
             {
-                PerformancePage.Open(new FakeSettingsMenuHost(), new SettingsMenuState());
-                return true;
-            }
-            catch (NotImplementedException)
-            {
+                call();
                 return false;
+            }
+            catch (NotImplementedException ex)
+            {
+                return ex.Message.StartsWith("WP-C:", StringComparison.Ordinal);
             }
             catch (Exception)
             {
-                return true;
+                return false;
             }
         }
 
@@ -600,7 +614,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
                 Ui = new FakeFlashTree(windows);
                 Host = new FakeSettingsMenuHost(Ui, windows);
                 Natives = new UiNatives(() => HostUp ? Host : null, new SettingsMenuState());
-                Steps = new RecordingSteps(Ui);
+                Steps = new RecordingSteps();
                 if (recordSteps) Natives.Steps = Steps.Steps;
             }
 
@@ -635,22 +649,14 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         /// <summary>The steps the natives hand on, recorded (and throwing or answering as the test sets).</summary>
         private sealed class RecordingSteps
         {
-            private readonly FakeFlashTree ui;
-
-            public RecordingSteps(FakeFlashTree ui = null)
+            public RecordingSteps()
             {
-                this.ui = ui;
                 Steps = new MenuSteps
                 {
                     Schedule = (h, s) => Record("Schedule", h, s),
                     LeaveMode = s => { Record("LeaveMode", null, s); s.PerformanceMode = false; },
                     ShowRestartPromptIfPending = (h, s) => Record("ShowRestartPromptIfPending", h, s),
-                    Open = (h, s) =>
-                    {
-                        Record("Open", h, s);
-                        h.Post(() => { if (this.ui != null) this.ui.PushMenu("menu_gameplaySettings"); });
-                        ((FakeSettingsMenuHost)h).Drain();
-                    },
+                    Open = (h, s) => Record("Open", h, s),
                     CanChangeGraphicSetting = (h, s) => { Record("CanChangeGraphicSetting", h, s); return CanChange; },
                     CanChangeMaxFramerate = (h, s) => { Record("CanChangeMaxFramerate", h, s); return CanChange; },
                     OnSetUserPreference = (h, s, k, v) => { Record("OnSetUserPreference", h, s); Keys.Add(k); Values.Add(v); },
