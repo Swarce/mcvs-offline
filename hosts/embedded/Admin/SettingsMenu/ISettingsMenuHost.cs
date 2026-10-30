@@ -317,6 +317,8 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
     /// <summary>
     /// <see cref="IPerformanceSettings"/> over a server's <see cref="Settings"/> (<see cref="AdminHost.PerformanceSettings"/>). A save
     /// runs on <see cref="Run"/> (the thread pool; the tests run it inline); until it is done the getters return the value being saved.
+    /// Saves of one key may run in any order: each writes the key's latest pending value (one write at a time), so the file never
+    /// ends with an older value than the last <see cref="Save"/>.
     /// </summary>
     internal sealed class PerformanceSettingsStore : IPerformanceSettings
     {
@@ -329,6 +331,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         private readonly Settings settings;
         private readonly Log log;
         private readonly object gate = new object();
+        private readonly object writeGate = new object();
         private readonly Dictionary<string, object> saving = new Dictionary<string, object>(StringComparer.Ordinal);
 
         public PerformanceSettingsStore(Settings settings, Log log)
@@ -389,7 +392,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 }
                 lock (gate) saving[key] = normalized;
                 Action<Action> run = Run;
-                run(() => Write(key, normalized));
+                run(() => Write(key));
                 return true;
             }
             catch (Exception)
@@ -398,8 +401,19 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             }
         }
 
-        private void Write(string key, object value)
+        /// <summary>The latest pending value of <paramref name="key"/>, if any (an earlier run may have written it already). Pool thread.</summary>
+        private void Write(string key)
         {
+            lock (writeGate) WriteLatest(key);
+        }
+
+        private void WriteLatest(string key)
+        {
+            object value;
+            lock (gate)
+            {
+                if (!saving.TryGetValue(key, out value)) return;
+            }
             try
             {
                 settings.SetAndSave(new Dictionary<string, object>(StringComparer.Ordinal) { { key, value } });

@@ -584,6 +584,29 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.Contains("settings menu: performance page: 5 rows", rig.Lines());
         }
 
+        [Fact]
+        public void AutoScreenScaleShowsTheMatchScaleAndTreatsThatValueAsNoChange()
+        {
+            // Integration of WP-D's AutoRenderScaleSlider: in the main menu the engine holds the menu scale (1.0), while the S22's
+            // matches render at 0.6. The slider shows 33 %, and the CHANGE the transform's own value write fires (or a drag that
+            // ends there) leaves graphics.renderScale at auto; with the menu scale shown, a move to 33 % would force 0.6 → 0.598.
+            var rig = new Rig();
+            rig.Engine.Scale = 1f;
+            rig.BackEnd.MatchScale = 0.6f;
+            rig.OpenPage();
+            FlashObject scale = rig.Ui.Row("mcvs.renderScale");
+            Assert.Equal(0.33f, scale.Child("mc_scrollbar").Num("value"), 3);
+            Assert.Equal(0.33f, PerformancePage.OnGetUserPreference(rig.Host, rig.State, "mcvs.renderScale"));
+            PerformancePage.OnSetUserPreference(rig.Host, rig.State, "mcvs.renderScale", 0.33f);
+            rig.Ui.Drag(scale, 0.8f);
+            rig.Ui.Drag(scale, 0.33f);
+            rig.Ui.Back();
+            Assert.Empty(rig.Settings.Saves);
+            Assert.Empty(rig.BackEnd.Calls);
+            Assert.Equal("auto", rig.Settings.RenderScale);
+            Assert.Equal(0.598f, rig.Engine.Scale.Value, 3);   // the drag applied live; nothing was stored
+        }
+
         // ------------------------------------------------------------------ T-C6: the write order
 
         [Fact]
@@ -920,9 +943,14 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
 
         public IEngineGraphics Engine { get { return EngineFake; } }
 
-        public int SliderOf(float scale)
+        /// <summary>The scale a match renders at (PerformancePrefs.AutoMatchScale); null: the engine's current one, as the real one falls back.</summary>
+        public float? MatchScale;
+
+        public int AutoRenderScaleSlider(IEngineGraphics engine)
         {
-            return (int)Math.Round(Math.Max(0, Math.Min(1, (scale - 0.4) / 0.6)) * 100);
+            float? scale = MatchScale ?? engine.RenderTargetSizeScale;
+            if (scale == null) return 100;
+            return (int)Math.Round(Math.Max(0, Math.Min(1, (scale.Value - 0.4) / 0.6)) * 100);
         }
 
         public float? ScaleOf(string renderScale)

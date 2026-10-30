@@ -42,7 +42,8 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
     /// could be written). E3: the <c>mc_content.alpha = 0</c> write inside the native is [G]; the posted transform puts 1 back in
     /// every outcome (also on the cached menu when another one is on top by then).</item>
     /// <item><b>Shown values.</b> A key at auto shows what the engine has now (design §2): GRAPHICS AUTO, the current MSAA samples,
-    /// the current scale on the slider (<see cref="PerformancePrefs.SliderOf"/>), the current LowResMaps.</item>
+    /// for SCREEN SCALE the scale a match renders at (<see cref="PerformancePrefs.AutoRenderScaleSlider"/>: the page lives in the
+    /// main menu, whose own scale is the menu's), the current LowResMaps.</item>
     /// <item><b>Writes.</b> <see cref="OnSetUserPreference"/>: a slider move of <c>mcvs.renderScale</c> is applied to the engine at
     /// once (every ENTER_FRAME of a drag sends one, ScrollBar.as:185-206) and only remembered; <see cref="OnSaveUserPreferences"/>
     /// stores the last one (one settings.json write per visit, never an older percent after a newer one: the page's own pop calls
@@ -725,7 +726,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
 
         /// <summary>
         /// What the row of <paramref name="type"/> shows now: the index of the stored choice, or for auto the engine's value (GRAPHICS:
-        /// AUTO; ANTIALIASING: the current samples; SCREEN SCALE: 0..100, the current scale; LOW RESOLUTION MAPS: the current flag).
+        /// AUTO; ANTIALIASING: the current samples; SCREEN SCALE: 0..100, the scale a match renders at; LOW RESOLUTION MAPS: the current flag).
         /// </summary>
         internal static int Shown(IPerformanceBackEnd backEnd, IEngineGraphics engine, IPerformanceSettings settings, string type)
         {
@@ -741,8 +742,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             {
                 int percent;
                 if (int.TryParse(settings.RenderScale, NumberStyles.None, CultureInfo.InvariantCulture, out percent)) return Math.Min(100, percent);
-                float? scale = engine == null ? null : engine.RenderTargetSizeScale;
-                return scale.HasValue ? Math.Max(0, Math.Min(100, backEnd.SliderOf(scale.Value))) : 100;
+                return Math.Max(0, Math.Min(100, backEnd.AutoRenderScaleSlider(engine)));
             }
             if (type == SettingsMenuNames.LowResMapsRow)
             {
@@ -812,9 +812,9 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         {
             public IEngineGraphics Engine { get { return PerformancePrefs.Engine; } }
 
-            public int SliderOf(float scale)
+            public int AutoRenderScaleSlider(IEngineGraphics engine)
             {
-                return PerformancePrefs.SliderOf(scale);
+                return PerformancePrefs.AutoRenderScaleSlider(engine);
             }
 
             public float? ScaleOf(string renderScale)
@@ -853,7 +853,8 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         /// <summary><see cref="PerformancePrefs.Engine"/>.</summary>
         IEngineGraphics Engine { get; }
 
-        int SliderOf(float scale);
+        /// <summary><see cref="PerformancePrefs.AutoRenderScaleSlider"/>: SCREEN SCALE's slider (0..100) while the key is auto.</summary>
+        int AutoRenderScaleSlider(IEngineGraphics engine);
 
         /// <summary><see cref="PerformancePrefs.ScaleOf"/>: the engine scale of a stored percent (the page's live apply during a drag).</summary>
         float? ScaleOf(string renderScale);

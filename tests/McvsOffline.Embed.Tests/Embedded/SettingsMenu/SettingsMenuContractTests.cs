@@ -176,6 +176,27 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         }
 
         [Fact]
+        public void SavesOfOneKeyThatRunOutOfOrderLeaveTheLatestValue()
+        {
+            // Two visits whose writes overlap: the pool may run the second save first. Each run writes the latest pending value.
+            using (var env = new HostEnvironment("sm-order"))
+            {
+                PerformanceSettingsStore store = env.Host.PerformanceSettingsStore;
+                var queued = new List<Action>();
+                store.Run = work => queued.Add(work);
+                string file = env.Server.Context.Settings.FilePath;
+                Assert.True(store.Save(SettingsSchema.GraphicsRenderScaleKey, "40"));
+                Assert.True(store.Save(SettingsSchema.GraphicsRenderScaleKey, "90"));
+                Assert.Equal(2, queued.Count);
+                queued[1]();
+                Assert.Equal("90", Settings.Load(file, null).GetString(SettingsSchema.GraphicsRenderScaleKey, null));
+                queued[0]();   // the older save, last
+                Assert.Equal("90", Settings.Load(file, null).GetString(SettingsSchema.GraphicsRenderScaleKey, null));
+                Assert.Equal("90", store.RenderScale);
+            }
+        }
+
+        [Fact]
         public void AFailedSaveIsLoggedAndTheStoredValueComesBack()
         {
             var logs = new MemoryLogSink();

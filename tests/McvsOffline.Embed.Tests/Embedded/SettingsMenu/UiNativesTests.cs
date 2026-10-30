@@ -10,7 +10,6 @@ using McvsOffline.Embedded.Admin.SettingsMenu;
 using McvsOffline.Server;
 using McvsOffline.Server.Core;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
 {
@@ -22,13 +21,6 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
     [Collection("GameHooks")]
     public class UiNativesTests
     {
-        private readonly ITestOutputHelper output;
-
-        public UiNativesTests(ITestOutputHelper output)
-        {
-            this.output = output;
-        }
-
         // ------------------------------------------------------------------ T-A1, T-A2: the registrations
 
         [Fact]
@@ -294,12 +286,9 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         }
 
         [Fact]
-        public void TheTileOpensTheRealPageStepWhenWpCIsIn()
+        public void TheTileOpensTheRealPageStep()
         {
             // T-A4 through the default steps: PerformancePage.Open posts exactly one push of Gameplay Settings and enters the mode.
-            // WP-C INTEGRATION: delete the skeleton branch below once WP-C is merged, so these assertions always run (and check
-            // that they fail with Open reverted to the skeleton). Until then the branch is taken only while Open AND LeaveMode are
-            // both the WP0 skeleton; WP-C merged with Open still a skeleton fails here instead of skipping.
             var env = new Env(recordSteps: false);
             env.Natives.Ensure();
             env.Ui.OpenSettings();
@@ -307,18 +296,6 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.True(env.Ui.Tap("btn_forum"));
             env.Host.Drain();
             Assert.Equal(0, env.Ui.Game.ForumCalls);
-            bool openIsSkeleton = IsWp0Skeleton(() => PerformancePage.Open(new FakeSettingsMenuHost(), new SettingsMenuState()));
-            bool leaveIsSkeleton = IsWp0Skeleton(() => PerformancePage.LeaveMode(new SettingsMenuState()));
-            Assert.False(openIsSkeleton && !leaveIsSkeleton, "WP-C is merged but PerformancePage.Open is still the WP0 skeleton");
-            if (openIsSkeleton)
-            {
-                // The skeleton's throw was swallowed and logged by our delegate: no push, no mode, still not the forum.
-                Assert.Empty(env.Ui.Pushed.Where(p => p == "menu_gameplaySettings"));
-                Assert.False(env.Natives.State.PerformanceMode);
-                Assert.Single(env.Host.Lines("settings menu: GoToForum failed (NotImplementedException: WP-C: "));
-                output.WriteLine("SKIPPED until WP-C: PerformancePage.Open is the WP0 skeleton, the one-push check does not run yet");
-                return;
-            }
             Assert.Equal(1, env.Ui.Pushed.Count(p => p == "menu_gameplaySettings"));
             Assert.True(env.Natives.State.PerformanceMode);
         }
@@ -587,24 +564,6 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         }
 
         // ------------------------------------------------------------------ helpers
-
-        /// <summary>True only for the WP0 skeleton's own throw (NotImplementedException "WP-C: ..."); any other outcome is a real body.</summary>
-        private static bool IsWp0Skeleton(Action call)
-        {
-            try
-            {
-                call();
-                return false;
-            }
-            catch (NotImplementedException ex)
-            {
-                return ex.Message.StartsWith("WP-C:", StringComparison.Ordinal);
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-        }
 
         /// <summary>A fake UI and host (Android unless <c>windows</c>), a registry over them and recorded steps.</summary>
         private sealed class Env
