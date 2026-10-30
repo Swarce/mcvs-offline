@@ -7,6 +7,7 @@ using System.Globalization;
 using System.Reflection;
 using System.Text;
 using System.Threading;
+using McvsOffline.Embedded.Admin.SettingsMenu;
 using McvsOffline.Embedded.Graphics;
 using McvsOffline.Server.Core;
 
@@ -18,9 +19,11 @@ namespace McvsOffline
     /// <list type="bullet">
     /// <item><see cref="GameOptionsJson"/> gets the JSON text between <c>AssetStream.ReadAllText</c> and
     /// <c>GameOptionManager.InitializeGameOption</c> (once per process: the native options are initialised once) and returns what
-    /// the engine uses, rewritten by <see cref="GameOptionsProfile"/> for settings.json <c>graphics.profile</c>;</item>
+    /// the engine uses, rewritten by <see cref="GameOptionsProfile"/> for settings.json <c>graphics.profile</c> and, on Android, by
+    /// <see cref="PerformancePrefs"/> for the PERFORMANCE page's <c>graphics.msaa</c> and FRAME RATE LIMIT list;</item>
     /// <item><see cref="GameOptionsApplied"/> gets <c>m_options</c> after <c>ApplyGameOptions</c> (every OnCreate) and logs the
-    /// effective profile and options once as the "[boot] graphics:" line.</item>
+    /// effective profile and options once as the "[boot] graphics:" line; on Android it then applies the page's SCREEN SCALE and LOW
+    /// RESOLUTION MAPS after every call and schedules the FPS index migration once (docs/design/settings-menu.md §3.4).</item>
     /// </list>
     /// The signatures are part of the patch contract
     /// (GraphicsHooksContractTests). Both run on the game thread, are cheap and never throw (the patched IL guards them too).
@@ -98,13 +101,31 @@ namespace McvsOffline
                 if (rewrite.MemRule != null) memRule = rewrite.MemRule;
                 forcedProfile = rewrite.Profile;
                 rewriteSummary = rewrite.Summary;
-                if (n <= 3) Mark("graphics: " + rewrite.Summary + (rewrite.Changed ? "" : " (text unchanged)"));
-                return rewrite.Json ?? json;
+                string text = rewrite.Json ?? json;
+                string performance = windows ? null : RewritePerformance(ref text);
+                bool changed = !string.Equals(text, json, StringComparison.Ordinal);
+                if (n <= 3) Mark("graphics: " + rewrite.Summary + (changed ? "" : " (text unchanged)") + (performance != null ? "; " + performance : ""));
+                return text;
             }
             catch (Exception)
             {
                 return json;
             }
+        }
+
+        /// <summary>
+        /// Android: the PERFORMANCE page's start-time values on top of the profile rewrite (<see cref="PerformancePrefs.RewriteJson"/>:
+        /// <c>graphics.msaa</c>, and the longer FRAME RATE LIMIT list while <c>admin.settingsMenu.performance</c> is on), from the
+        /// host's copy of the settings; the phrase for the boot line, or null before <see cref="PerformancePrefs.Configure"/>.
+        /// </summary>
+        private static string RewritePerformance(ref string text)
+        {
+            IPerformanceSettings values = PerformancePrefs.HostValues;
+            if (values == null) return null;
+            string phrase;
+            string rewritten = PerformancePrefs.RewriteJson(text, values.Msaa, PerformancePrefs.HostPerformanceSwitch, out phrase);
+            if (rewritten != null) text = rewritten;
+            return phrase;
         }
 
         /// <summary>
@@ -117,18 +138,38 @@ namespace McvsOffline
             try
             {
                 int n = Interlocked.Increment(ref appliedCalls);
-                if (n > 1) return;
-                IDictionary resolved = options as IDictionary;
-                if (resolved == null && options != null) resolved = ReadNativeOptions(FindType(options, "Gameloft.Engine.GameOptionManager"),
-                                                                                        FindType(options, "Gameloft.Engine.MoreMarshal"));
-                string line = DescribeApplied(resolved, NativeProfiles());
-                effective = line;
-                Mark(line);
-                if (windows) CaptureInGame();
+                if (n == 1)
+                {
+                    IDictionary resolved = options as IDictionary;
+                    if (resolved == null && options != null) resolved = ReadNativeOptions(FindType(options, "Gameloft.Engine.GameOptionManager"),
+                                                                                            FindType(options, "Gameloft.Engine.MoreMarshal"));
+                    string line = DescribeApplied(resolved, NativeProfiles());
+                    effective = line;
+                    Mark(line);
+                    if (windows) CaptureInGame();
+                }
+                // After every ApplyGameOptions (each one adds its layer entry to World.GlobalExcludeLayers and builds a new m_options).
+                if (!windows) ApplyPerformance(options as IDictionary, n == 1);
             }
             catch (Exception)
             {
             }
+        }
+
+        /// <summary>
+        /// Android, after the profile set its values: the PERFORMANCE page's SCREEN SCALE (also into <paramref name="options"/>, which
+        /// every level load reads again) and LOW RESOLUTION MAPS from the host's copy of the settings, logged the first time; the FPS
+        /// index migration is scheduled then (<see cref="PerformancePrefs.ScheduleFpsMigration"/>). Nothing before
+        /// <see cref="PerformancePrefs.Configure"/>.
+        /// </summary>
+        private static void ApplyPerformance(IDictionary options, bool first)
+        {
+            IPerformanceSettings values = PerformancePrefs.HostValues;
+            if (values == null) return;
+            string line = PerformancePrefs.Apply(PerformancePrefs.Engine, values, options, false);
+            if (!first) return;
+            if (line != null) Mark("graphics: " + line);
+            PerformancePrefs.ScheduleFpsMigration(text => Mark("graphics: " + text));
         }
 
         /// <summary>One status-line part: the setting and what the engine got.</summary>
@@ -142,7 +183,8 @@ namespace McvsOffline
             string game = windows ? CaptureInGame() : null;
             return "graphics: graphics.profile " + c + (forced == null ? " (the game's own choice)" : ", forced " + forced) +
                    (fullProfile ? ", fullProfile" : "") + (mem != null ? ", MEM rule " + mem : "") + "; " + (NativeSummary ?? "native profile unknown") +
-                   (windows ? "; " + (game ?? "in-game graphics options not read yet") : "");
+                   (windows ? "; " + (game ?? "in-game graphics options not read yet") : "") +
+                   (!windows && PerformancePrefs.Summary != null ? "; " + PerformancePrefs.Summary : "");
         }
 
         /// <summary>
@@ -586,6 +628,7 @@ namespace McvsOffline
             memRule = null;
             inGame = null;
             inGameMarked = 0;
+            PerformancePrefs.ResetForTests();
         }
     }
 }
