@@ -1260,7 +1260,8 @@ namespace McvsOffline.Patcher.Pc
         /// The re-read of install step 6 and verify: every written file has the recorded SHA-256 and (assemblies) the recorded
         /// MVID read with Cecil, the witness of every applied patch that has one is present, and the config parses back to the
         /// five codeBases whose hrefs exist, each naming the assembly of the file it points to, and has no
-        /// <c>&lt;qualifyAssembly&gt;</c> (builds 14 and 15 wrote them; they make .NET ignore the whole file, §7.4).
+        /// <c>&lt;qualifyAssembly&gt;</c> (builds 14 and 15 wrote them; most likely they make .NET ignore the whole file: SSCLI
+        /// evidence, WR3 confirms, §7.4).
         /// </summary>
         public static List<string> CheckWritten(string game, InstallManifest manifest, string bclDirectory)
         {

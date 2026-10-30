@@ -61,9 +61,10 @@ namespace McvsOffline.Patcher.Pc
     /// <c>&lt;probing&gt;</c>, no <c>&lt;loadFromRemoteSources&gt;</c>, and no <c>&lt;qualifyAssembly&gt;</c>. Builds 14 and 15
     /// added one <c>&lt;qualifyAssembly partialName="X" fullName="X, …, PublicKeyToken=null"/&gt;</c> per assembly; fusion's
     /// parser (the SSCLI source) refuses a fullName whose token is the empty "null" one, fails the whole file and keeps nothing
-    /// of it, codeBases included, so the stock EngineBridge.dll loads and none of our code runs (strong evidence, confirmed
-    /// only by WR3). The bare-name load of Game the entries were for is a full reference through the <c>gameload</c> IL patch
-    /// alone. UTF-8 without BOM, CRLF, final CRLF.
+    /// of it, codeBases included, so the stock EngineBridge.dll loads and none of our code runs (strong evidence, not proof:
+    /// confirmed only by WR3). The bare-name load of Game the entries were for becomes a full display name through the
+    /// <c>gameload</c> IL patch alone, which by the same SSCLI reading is a full reference that gets the codeBase (expected;
+    /// unconfirmed on Windows until WR3 step 4 shows Game loaded from McvsOffline\bin). UTF-8 without BOM, CRLF, final CRLF.
     /// </summary>
     public static class PcExeConfig
     {
@@ -77,11 +78,11 @@ namespace McvsOffline.Patcher.Pc
 
         /// <summary>
         /// Status and verify, for a config that still has <c>&lt;qualifyAssembly&gt;</c> entries (after the file name; the callers
-        /// add ": run install again"): the whole file is ignored by .NET, so the game starts without MCVS Offline. Install
-        /// rewrites it (it is ours).
+        /// add ": run install again"): most likely .NET ignores the whole file (SSCLI evidence; WR3 confirms), so Windows loads the
+        /// game folder's DLLs, not McvsOffline\bin's. Install rewrites it (it is ours).
         /// </summary>
-        public const string QualifyLeftoverProblem = "has <qualifyAssembly> entries, which make .NET ignore the whole file (the game starts without MCVS Offline): " +
-                                                     "an old build-14/15 config";
+        public const string QualifyLeftoverProblem = "has <qualifyAssembly> entries, which most likely make .NET ignore the whole file " +
+                                                     "(then Windows loads the game folder's DLLs, not McvsOffline\\bin's): an old build-14/15 config";
 
         /// <summary>The folder of our copies, relative to the exe folder.</summary>
         public const string BinHrefFolder = "McvsOffline/bin/";

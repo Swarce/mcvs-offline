@@ -429,7 +429,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
 
         /// <summary>
         /// A build-14/15 install: its config has the five qualifyAssembly lines and install.json records that config's hash, so
-        /// every hash matches. Status and verify still report it (.NET ignores the whole file), and install rewrites it (it is ours).
+        /// every hash matches. Status and verify still report it (most likely .NET ignores the whole file), and install rewrites it (it is ours).
         /// </summary>
         [Fact]
         public void ABuild14ConfigIsReportedAndInstallRewritesIt()
