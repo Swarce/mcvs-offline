@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using Mono.Cecil;
+using Mono.Cecil.Cil;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -166,6 +167,89 @@ namespace McvsOffline.Tests
             // The Mono thread dump is replaced by the no-op stub (ThreadDumpStub.cs): no libc behind it.
             TypeDefinition dump = types.FirstOrDefault(t => t.Name == "ThreadDump");
             if (dump != null) Assert.DoesNotContain(dump.Methods, m => m.IsPInvokeImpl);
+        }
+
+        /// <summary>The one type of the PC DLL that may bind a type by name: RuntimeInfo (mscorlib's RuntimeInformation, §3.8).</summary>
+        private const string ByNameAllowed = "McvsOffline.Embedded.Windows.RuntimeInfo";
+
+        /// <summary>
+        /// A call that can make the runtime load an assembly by name or from a file: <c>Type.GetType(string…)</c>,
+        /// <c>Assembly.Load*</c>/<c>LoadFrom</c>/<c>LoadWithPartialName</c>, <c>AppDomain.Load</c>/<c>CreateInstance*</c>/<c>ExecuteAssembly*</c>,
+        /// <c>Activator.CreateInstance*(string…)</c> and <c>new AssemblyName(string)</c>. A loaded <c>Assembly</c>'s own
+        /// <c>GetType(string)</c> loads nothing and is not one.
+        /// </summary>
+        private static bool IsRuntimeLoad(MethodReference m)
+        {
+            string type = m.DeclaringType.FullName;
+            bool stringFirst = m.Parameters.Count > 0 && m.Parameters[0].ParameterType.FullName == "System.String";
+            switch (type)
+            {
+                case "System.Type":
+                    return m.Name == "GetType" && stringFirst;
+                case "System.Reflection.Assembly":
+                    return m.Name.StartsWith("Load", StringComparison.Ordinal) || m.Name == "UnsafeLoadFrom" ||
+                           m.Name.StartsWith("ReflectionOnlyLoad", StringComparison.Ordinal);
+                case "System.AppDomain":
+                    return m.Name == "Load" || m.Name.StartsWith("CreateInstance", StringComparison.Ordinal) ||
+                           m.Name.StartsWith("ExecuteAssembly", StringComparison.Ordinal);
+                case "System.Activator":
+                    return m.Name.StartsWith("CreateInstance", StringComparison.Ordinal) && stringFirst;
+                case "System.Reflection.AssemblyName":
+                    return m.Name == ".ctor" && stringFirst;
+                default:
+                    return false;
+            }
+        }
+
+        private static string Outermost(TypeDefinition type)
+        {
+            while (type.DeclaringType != null) type = type.DeclaringType;
+            return type.FullName;
+        }
+
+        /// <summary>Every runtime-load call of the module as "Caller::Method -> callee", lambdas and iterators under their outer type.</summary>
+        private static List<(string Owner, string Line)> RuntimeLoads(ModuleDefinition module)
+        {
+            var found = new List<(string, string)>();
+            foreach (TypeDefinition type in module.GetTypes())
+            foreach (MethodDefinition method in type.Methods)
+            {
+                if (!method.HasBody) continue;
+                foreach (Instruction i in method.Body.Instructions)
+                {
+                    var callee = i.Operand as MethodReference;
+                    if (callee == null || (i.OpCode.Code != Code.Call && i.OpCode.Code != Code.Callvirt && i.OpCode.Code != Code.Newobj &&
+                                           i.OpCode.Code != Code.Ldftn && i.OpCode.Code != Code.Ldvirtftn)) continue;
+                    if (IsRuntimeLoad(callee)) found.Add((Outermost(type), type.FullName + "::" + method.Name + " -> " + callee.FullName));
+                }
+            }
+            return found;
+        }
+
+        /// <summary>
+        /// Build 18 (docs/design/pc-port.md §8.9): the PC DLL never makes the runtime load an assembly by name. The .exe.config
+        /// codeBase applies to full references only, so a partial name (build 17's <c>Type.GetType("Game.PlayerProfileComponent, Game")</c>)
+        /// loads the STOCK file next to the exe. This is the PC build as shipped (MCVS_WINDOWS), which the embed tests do not
+        /// compile: in particular <c>LoadedTypes.EngineType</c> has no partial-name fallback here.
+        /// </summary>
+        [Fact]
+        public void OnlyRuntimeInfoLoadsByName()
+        {
+            using ModuleDefinition module = Read();
+            List<(string Owner, string Line)> loads = RuntimeLoads(module);
+            foreach ((string _, string line) in loads) output.WriteLine(line);
+            // The detector sees RuntimeInfo's two Type.GetType calls (the control).
+            Assert.Contains(loads, l => l.Owner == ByNameAllowed && l.Line.Contains("System.Type::GetType(System.String,System.Boolean)"));
+            Assert.Empty(loads.Where(l => l.Owner != ByNameAllowed).Select(l => l.Line));
+
+            TypeDefinition loadedTypes = module.GetType("McvsOffline.Embedded.LoadedTypes");
+            Assert.True(loadedTypes != null, "McvsOffline.Embedded.LoadedTypes missing");
+            MethodDefinition engineType = loadedTypes.Methods.Single(m => m.Name == "EngineType");
+            Assert.DoesNotContain(engineType.Body.Instructions, i => i.Operand is MethodReference m && m.DeclaringType.FullName == "System.Type" && m.Name == "GetType");
+            // ... and GameReflection binds through LoadedTypes, not by itself.
+            TypeDefinition reflection = module.GetTypes().Single(t => t.FullName == "McvsOffline.Embedded.Admin.GameReflection");
+            Assert.Contains(reflection.Methods.Where(m => m.HasBody).SelectMany(m => m.Body.Instructions),
+                            i => i.Operand is MethodReference m && m.DeclaringType.FullName == "McvsOffline.Embedded.LoadedTypes" && m.Name == "Find");
         }
 
         [Fact]

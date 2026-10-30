@@ -280,6 +280,12 @@ namespace McvsOffline.Embedded
         /// <summary>The "patches:" line once written, else null.</summary>
         public string PatchesLine { get; private set; }
 
+        /// <summary>The loading thread's managed stack instead of <c>Environment.StackTrace</c> (tests).</summary>
+        internal Func<string> StackOf { get; set; }
+
+        /// <summary>The most frames <see cref="LoadStack"/> keeps.</summary>
+        internal const int MaxStackFrames = 25;
+
         /// <summary>
         /// With a boot trace (PC), why the patched client is not the one running: "Game loaded from the game folder", "the
         /// 'store' patch is missing" (joined with "; "); null while everything seen so far is ours. Also in
@@ -312,7 +318,7 @@ namespace McvsOffline.Embedded
             {
                 if (watchLoads != null)
                 {
-                    Action stop = watchLoads(Loaded);
+                    Action stop = watchLoads(LoadedByEvent);
                     bool already;
                     lock (gate)
                     {
@@ -351,6 +357,17 @@ namespace McvsOffline.Embedded
         /// <summary>An assembly loaded (or found loaded). Never throws.</summary>
         public void Loaded(Assembly assembly)
         {
+            Loaded(assembly, false);
+        }
+
+        /// <summary>The load subscription's callback: it runs on the loading thread, inside the load, so its stack names the loader.</summary>
+        private void LoadedByEvent(Assembly assembly)
+        {
+            Loaded(assembly, true);
+        }
+
+        private void Loaded(Assembly assembly, bool byEvent)
+        {
             try
             {
                 if (assembly == null) return;
@@ -361,7 +378,7 @@ namespace McvsOffline.Embedded
                     if (seen.ContainsKey(name)) return;
                     seen[name] = assembly;
                 }
-                if (boot != null) ReportLocation(name, assembly);
+                if (boot != null) ReportLocation(name, assembly, byEvent);
                 if (name == GamePatchProbe.GameAssembly)
                 {
                     ClientCapabilities found = GamePatchProbe.Detect(new[] { assembly }, log);
@@ -433,8 +450,11 @@ namespace McvsOffline.Embedded
                        "status, then install again (docs/PLAYER-SETUP-PC.md)");
         }
 
-        /// <summary>"assemblies: Game C:\...\McvsOffline\bin\Game.dll (McvsOffline\bin)"; a WARN when it came from elsewhere.</summary>
-        private void ReportLocation(string name, Assembly assembly)
+        /// <summary>
+        /// "assemblies: Game C:\...\McvsOffline\bin\Game.dll (McvsOffline\bin)"; a WARN when it came from elsewhere, and from the
+        /// game folder also the "load stack:" WARN (<see cref="ReportLoader"/>).
+        /// </summary>
+        private void ReportLocation(string name, Assembly assembly, bool byEvent)
         {
             string location = null;
             try
@@ -457,9 +477,97 @@ namespace McvsOffline.Embedded
                 return;
             }
             boot.Warn(line + ": the .exe.config redirect did not apply");
+            if (where == GameFolder) ReportLoader(name, byEvent);
             bool reported;
             lock (gate) reported = patchesDone;
             AddNotActive(name + (where == GameFolder ? " loaded from the game folder" : " loaded from outside " + BinFolder + " (" + where + ")"), reported);
+        }
+
+        /// <summary>
+        /// Who loaded a redirected assembly from the game folder: the managed stack of the load (this runs inside the
+        /// AssemblyLoad event, on the loading thread), from the loader's caller on, so the next log names it. Build 17's line came
+        /// from our own GameReflection.Load (a partial-name Type.GetType) and was only found by reading the code.
+        /// </summary>
+        private void ReportLoader(string name, bool byEvent)
+        {
+            try
+            {
+                string header = "load stack: " + name + " (" + GameFolder + ")";
+                if (!byEvent)
+                {
+                    boot.Warn(header + ": already loaded when the host started watching, so its loader is unknown");
+                    return;
+                }
+                Func<string> stackOf = StackOf;
+                string frames = LoadStack(stackOf != null ? stackOf() : Environment.StackTrace, MaxStackFrames);
+                boot.Warn(header + " was loaded by (innermost first):" + (frames == null ? " (no managed frames)" : "\n" + frames));
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>
+        /// The frames of <paramref name="stackTrace"/> (Environment.StackTrace inside the AssemblyLoad event) from the code that
+        /// asked for the load on: our handler's frames (Environment, this class, the platform's WatchAssemblyLoads, up to
+        /// AppDomain.OnAssemblyLoadEvent) and then the runtime's loader internals (System.Reflection.*, System.AppDomain.*,
+        /// System.RuntimeType*, System.Runtime.Loader.*) are cut, at most <paramref name="maxFrames"/> are kept ("... n more
+        /// frames" after them). One frame per line, indented by three spaces; null when nothing is left.
+        /// </summary>
+        internal static string LoadStack(string stackTrace, int maxFrames)
+        {
+            if (string.IsNullOrEmpty(stackTrace)) return null;
+            var frames = new List<string>();
+            foreach (string raw in stackTrace.Replace("\r", "").Split('\n'))
+            {
+                string frame = raw.Trim();
+                if (frame.Length > 0) frames.Add(frame);
+            }
+            int start = -1;
+            for (int i = 0; i < frames.Count && start < 0; i++)
+            {
+                if (Method(frames[i]).StartsWith("System.AppDomain.OnAssemblyLoadEvent", StringComparison.Ordinal)) start = i + 1;
+            }
+            if (start < 0)
+            {
+                start = 0;
+                while (start < frames.Count && IsHandlerFrame(Method(frames[start]))) start++;
+            }
+            while (start < frames.Count && IsLoaderFrame(Method(frames[start]))) start++;
+            if (start >= frames.Count) return null;
+            var sb = new StringBuilder();
+            int kept = Math.Min(frames.Count - start, Math.Max(1, maxFrames));
+            for (int i = start; i < start + kept; i++)
+            {
+                if (sb.Length > 0) sb.Append('\n');
+                sb.Append("   ").Append(frames[i]);
+            }
+            int more = frames.Count - start - kept;
+            if (more > 0) sb.Append("\n   ... ").Append(more).Append(more == 1 ? " more frame" : " more frames");
+            return sb.ToString();
+        }
+
+        /// <summary>A frame without its leading "at" (localized on some Windows installs: "bei", "à").</summary>
+        private static string Method(string frame)
+        {
+            int space = frame.IndexOf(' ');
+            return space > 0 ? frame.Substring(space + 1) : frame;
+        }
+
+        private static bool IsHandlerFrame(string method)
+        {
+            return method.StartsWith("System.Environment.", StringComparison.Ordinal) ||
+                   method.StartsWith("System.Diagnostics.StackTrace", StringComparison.Ordinal) ||
+                   method.StartsWith("McvsOffline.Embedded.PatchWatcher.", StringComparison.Ordinal) ||
+                   method.IndexOf("WatchAssemblyLoads", StringComparison.Ordinal) >= 0;
+        }
+
+        private static bool IsLoaderFrame(string method)
+        {
+            return method.StartsWith("System.Reflection.", StringComparison.Ordinal) ||
+                   method.StartsWith("System.AppDomain.", StringComparison.Ordinal) ||
+                   method.StartsWith("System.RuntimeType", StringComparison.Ordinal) ||
+                   method.StartsWith("System.Runtime.Loader.", StringComparison.Ordinal);
         }
 
         /// <summary>McvsOffline\bin, GAME FOLDER (the stock copy next to the exe) or "elsewhere".</summary>
