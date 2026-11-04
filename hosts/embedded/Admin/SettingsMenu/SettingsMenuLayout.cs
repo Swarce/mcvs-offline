@@ -156,6 +156,16 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         /// </summary>
         public static LayoutPlan Plan(bool windows, bool performance)
         {
+            return Plan(windows, performance, false);
+        }
+
+        /// <summary>
+        /// Build 23: with <paramref name="aboutOnMoreGames"/> (Android only; <see cref="PreDress"/> decides it per run) ABOUT is drawn on
+        /// MORE GAMES' button: btn_more is kept at setup()'s own <see cref="SettingsMenuNames.StockMoreGamesX"/> (AND-AS :212) and
+        /// btn_credits is removed (off the panel, its x at <see cref="SettingsMenuNames.AboutMarkerX"/>). Otherwise build 22's grid.
+        /// </summary>
+        public static LayoutPlan Plan(bool windows, bool performance, bool aboutOnMoreGames)
+        {
             if (windows)
             {
                 return new LayoutPlan(SettingsMenuNames.SteamMainFrame, new[]
@@ -178,7 +188,11 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 new Placement(SettingsMenuNames.CustomizeTile, AndroidRow1[2], Row1Y),
                 new Placement(SettingsMenuNames.AccountTile, AndroidRow1[3], Row1Y),
             };
-            var hidden = new List<string> { SettingsMenuNames.SocialTile, SettingsMenuNames.CustomerButton, SettingsMenuNames.MoreGamesButton };
+            bool about = aboutOnMoreGames;
+            var hidden = new List<string>
+            {
+                SettingsMenuNames.SocialTile, SettingsMenuNames.CustomerButton, about ? SettingsMenuNames.AboutButton : SettingsMenuNames.MoreGamesButton,
+            };
             if (performance)
             {
                 kept.Add(new Placement(SettingsMenuNames.HelpTile, AndroidRow2[0], Row2Y));
@@ -191,16 +205,21 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 kept.Add(new Placement(SettingsMenuNames.LanguageTile, AndroidRow2Pair[1], Row2Y));
                 hidden.Insert(1, SettingsMenuNames.ForumTile);
             }
-            // Build 22: ABOUT where setup() puts it (AND-AS :213), so its last stock write draws nothing new (ThinBtn's timeline moves
-            // its children, so they cannot be shifted to centre the plate; SettingsMenuNames.AndroidAboutX).
-            kept.Add(new Placement(SettingsMenuNames.AboutButton, SettingsMenuNames.AndroidAboutX, ButtonsY));
+            // Build 23: MORE GAMES' button, titled ABOUT by the remap, where setup() puts it (AND-AS :212). Build 22: ABOUT where setup()
+            // puts it (:213), so its last stock write draws nothing new (ThinBtn's timeline moves its children, so they cannot be
+            // shifted to centre the plate; SettingsMenuNames.AndroidAboutX).
+            if (about) kept.Add(new Placement(SettingsMenuNames.MoreGamesButton, SettingsMenuNames.StockMoreGamesX, ButtonsY));
+            else kept.Add(new Placement(SettingsMenuNames.AboutButton, SettingsMenuNames.AndroidAboutX, ButtonsY));
             return new LayoutPlan(SettingsMenuNames.AndroidMainFrame, kept, hidden, performance);
         }
 
-        /// <summary>A BtnSetting of the plan (width-checked); ABOUT is the one ThinBtn.</summary>
+        /// <summary>
+        /// A BtnSetting of the plan (width-checked); the ThinBtn kept below the tiles is not (ABOUT, or build 23's MORE GAMES drawn as
+        /// ABOUT, whose runtime width is about 401: grid.md:83).
+        /// </summary>
         public static bool IsTile(Placement placement)
         {
-            return placement != null && placement.Name != SettingsMenuNames.AboutButton;
+            return placement != null && placement.Name != SettingsMenuNames.AboutButton && placement.Name != SettingsMenuNames.MoreGamesButton;
         }
 
         // ------------------------------------------------------------------ the run (one per focus-in)
@@ -381,7 +400,8 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 if (ui == null) return new Outcome { Kind = OutcomeKind.Wait, Text = "no UI", Redress = redress, Remapped = remapped };
                 using (var flash = new FlashScope(ui))
                 {
-                    LayoutPlan plan = Plan(windows, redress);
+                    // Build 23: the bottom row the dress before setup() chose for this run (ABOUT on MORE GAMES, or build 22's).
+                    LayoutPlan plan = Plan(windows, redress, !windows && state.AboutOnMoreGames);
                     found = new Dictionary<string, object>(StringComparer.Ordinal);
                     int frame;
                     bool gone;
@@ -408,7 +428,15 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                     }
                     // Without the remap the tile reads FORUM until the writes below have all succeeded.
                     if (!remapped) state.TileActive = false;
-                    WriteGrid(flash, state, plan, found, trim, redress, !windows);
+                    var title = new TitleReport();
+                    try
+                    {
+                        WriteGrid(flash, state, plan, found, trim, redress, !windows, title);
+                    }
+                    finally
+                    {
+                        ReportTitle(host, state, title);
+                    }
                     return new Outcome { Kind = OutcomeKind.Wrote, Text = done, Redress = redress, Watchable = trim, Restocked = verify && trim && !placed, Remapped = remapped };
                 }
             }
@@ -1056,7 +1084,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                     if (panel == null || Frame(flash, panel) != SettingsMenuNames.AndroidMainFrame) return null;
                     object tile = flash.Child(panel, SettingsMenuNames.ForumTile);
                     if (tile == null || DressedIcon(flash, tile) == null) return null;
-                    Undress(flash, tile);
+                    Undress(flash, tile, true);
                     return "settings menu: FORUM icon put back after setup()";
                 }
             }
@@ -1257,15 +1285,27 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 if (strict)
                 {
                     if (shown || !off) return false;
-                    if (hidden != SettingsMenuNames.MoreGamesButton) continue;
+                    double? marker = MarkerX(hidden);
+                    if (marker == null) continue;
                     double? x = flash.Number(found[hidden], "x");
-                    if (x == null || Math.Abs(x.Value - SettingsMenuNames.MoreGamesMarkerX) > PlaceTolerance) return false;
+                    if (x == null || Math.Abs(x.Value - marker.Value) > PlaceTolerance) return false;
                     continue;
                 }
                 if (shown && !off) return false;
                 if (shown) offPanel.Add(hidden);
             }
             return true;
+        }
+
+        /// <summary>
+        /// The x our writes leave on a removed bottom-row button (a value setup() never writes, so the same-frame gate sees setup()'s
+        /// own write come back): MORE GAMES in build 22's grid, ABOUT in build 23's; null for any other instance.
+        /// </summary>
+        private static double? MarkerX(string hidden)
+        {
+            if (hidden == SettingsMenuNames.MoreGamesButton) return SettingsMenuNames.MoreGamesMarkerX;
+            if (hidden == SettingsMenuNames.AboutButton) return SettingsMenuNames.AboutMarkerX;
+            return null;
         }
 
         /// <summary>
@@ -1400,20 +1440,23 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         /// Returns the icon's state ("icon slot null" or "icon slot kept (...)"), or null without the re-dress.</para>
         /// </summary>
         private static string WriteGrid(FlashScope flash, SettingsMenuState state, LayoutPlan plan, Dictionary<string, object> found,
-                                        bool trim, bool redress, bool android)
+                                        bool trim, bool redress, bool android, TitleReport title)
         {
             object forum = redress ? found[SettingsMenuNames.ForumTile] : null;
+            object help;
+            if (!found.TryGetValue(SettingsMenuNames.HelpTile, out help)) help = null;
             string icon = null;
             if (redress)
             {
                 if (!android || flash.Get(forum, SettingsMenuNames.IconSlot) != null)
                 {
-                    flash.Call(forum, "setup", Dress(SettingsMenuNames.PerformanceTitle, SettingsMenuNames.PerformanceIcon));
+                    ForumSetup(flash, state, forum, help, Dress(SettingsMenuNames.PerformanceTitle, SettingsMenuNames.PerformanceIcon), android, title);
                     if (android) icon = SlotOut(flash, forum);
                 }
                 else
                 {
-                    if (!state.ForumRemapped) flash.Call(forum, "setup", Title(SettingsMenuNames.PerformanceTitle));
+                    if (!state.ForumRemapped) ForumSetup(flash, state, forum, help, Title(SettingsMenuNames.PerformanceTitle), android, title);
+                    else if (android) TitleRepair(flash, state, forum, help, null, true, title);
                     icon = "icon slot null";
                 }
             }
@@ -1429,7 +1472,8 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                         flash.Set(found[hidden], "mouseChildren", false);
                         flash.Set(found[hidden], "alpha", 0f);
                         flash.Set(found[hidden], "y", (float)SettingsMenuNames.OffPanelY);
-                        if (hidden == SettingsMenuNames.MoreGamesButton) flash.Set(found[hidden], "x", (float)SettingsMenuNames.MoreGamesMarkerX);
+                        double? marker = MarkerX(hidden);
+                        if (marker != null) flash.Set(found[hidden], "x", (float)marker.Value);
                     }
                     // Absolute, as float (an AS Number; ASValue.SetObject makes a double a managed object): this ends Steam's drift.
                     foreach (Placement p in plan.Kept)
@@ -1450,7 +1494,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 catch (Exception)
                 {
                     // The tile must not read PERFORMANCE while a tap on it still reaches the game's GoToForum.
-                    if (redress && !state.ForumRemapped) Undress(flash, forum);
+                    if (redress && !state.ForumRemapped) Undress(flash, forum, android);
                     throw;
                 }
                 state.CountLayout();
@@ -1498,18 +1542,174 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             return new Dictionary<string, object>(StringComparer.Ordinal) { { "title", title } };
         }
 
-        /// <summary>The stock FORUM dress back, the icon's slot and name first (<see cref="SlotOut"/> undone). Never throws.</summary>
-        private static void Undress(FlashScope flash, object forum)
+        /// <summary>
+        /// The stock FORUM dress back, the icon's slot and name first (<see cref="SlotOut"/> undone); on Android through
+        /// <see cref="ForumSetup"/> (needAlign off first, so the title stays at the tile's own height). Never throws.
+        /// </summary>
+        private static void Undress(FlashScope flash, object forum, bool android)
         {
             try
             {
                 object icon = DressedIcon(flash, forum);
                 if (icon != null) PutIconBack(flash, forum, icon);
-                flash.Call(forum, "setup", Dress(ForumTitle, ForumIcon));
+                ForumSetup(flash, null, forum, null, Dress(ForumTitle, ForumIcon), android, null);
             }
             catch (Exception)
             {
             }
+        }
+
+        // ------------------------------------------------------------------ build 23: the PERFORMANCE tile's title (P1)
+
+        /// <summary>What <see cref="ForumSetup"/> and <see cref="TitleRepair"/> did to btn_forum's title, for the focus-in line.</summary>
+        internal sealed class TitleReport
+        {
+            /// <summary>"needAlign off, title y 294.2", "title y put back (177.53 to 294.2; ...)", "title y kept (290.7)", or null.</summary>
+            public string Note;
+
+            /// <summary>Why a centred title could not be put back ("Type: message", "reads 177.53 after write"), or null.</summary>
+            public string Failure;
+
+            /// <summary>btn_help's title y next to ours, once per process ("title ref 294.2, btn_help 294.2"), or null.</summary>
+            public string Reference;
+
+            /// <summary>The notes joined for the details of the focus-in line, or null.</summary>
+            public string Text
+            {
+                get
+                {
+                    if (Note == null) return Reference;
+                    return Reference == null ? Note : Note + ", " + Reference;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Build 23 (owner, build 22 on the S22: "the PERFORMANCE title is drawn in the middle of the tile over its icon"): every
+        /// <c>btn_forum.setup(dict)</c> of ours. BtnSimple.setup centres the title while <c>needAlign</c> is true (BtnSimple.as:92-95:
+        /// <c>txt.y = height / 2</c>, 177.5 for this tile, which has neither mc_hitzone nor mc_bg), and needAlign defaults to true
+        /// (:25); the stock code sets it false just before its own setup (AND-AS MenuSettings.as:110-120), but our dress before
+        /// setup() runs first, on the new instances of the first entry, and no stock code writes that txt.y again. So on Android:
+        /// <list type="number">
+        /// <item><c>needAlign = false</c> first and read back (BtnSetting is a dynamic class, swc/settings/BtnSetting.as:6, so a
+        /// write that skipped the setter would make a dynamic member the getter ignores: only the read-back tells).</item>
+        /// <item>The setup itself, as before (it throws as before).</item>
+        /// <item><see cref="TitleRepair"/>: a title read as centred (below <see cref="SettingsMenuNames.TitleCentredBelow"/>) gets
+        /// <see cref="SettingsMenuNames.TileTitleY"/> back, read back too.</item>
+        /// </list>
+        /// Steps 1 and 3 never throw and never change the outcome of the caller (the run's verify does not read the title, so a
+        /// refusal costs only the cosmetic title of build 22). On PC (<paramref name="android"/> false) exactly <c>setup(dict)</c>.
+        /// </summary>
+        private static void ForumSetup(FlashScope flash, SettingsMenuState state, object forum, object help, Dictionary<string, object> dict,
+                                       bool android, TitleReport title)
+        {
+            if (!android)
+            {
+                flash.Call(forum, "setup", dict);
+                return;
+            }
+            string align = null;
+            try
+            {
+                flash.Set(forum, SettingsMenuNames.NeedAlign, false);
+                object back = flash.Get(forum, SettingsMenuNames.NeedAlign);
+                if (!(back is bool) || (bool)back) align = "needAlign not taken (reads " + Shown(back) + ")";
+            }
+            catch (Exception ex)
+            {
+                align = "needAlign refused: " + Reason(ex);
+            }
+            flash.Call(forum, "setup", dict);
+            TitleRepair(flash, state, forum, help, align, false, title);
+        }
+
+        /// <summary>
+        /// Build 23: btn_forum's title back at the tile's own height when it reads as centred, never otherwise (285 to 300 is the
+        /// timeline's animated 290.7 to 294.2 with a margin; the target is the constant 294.2, never btn_help's y, which animates
+        /// too). <paramref name="align"/>: null when needAlign was taken, else what happened to it; <paramref name="kept"/>: no
+        /// setup ran now (the dress before setup() found the tile laid out). Fills <paramref name="title"/> (may be null). Never throws.
+        /// </summary>
+        private static void TitleRepair(FlashScope flash, SettingsMenuState state, object forum, object help, string align, bool kept,
+                                        TitleReport title)
+        {
+            string note;
+            try
+            {
+                object txt = TitleOf(flash, forum);
+                double? y = txt == null ? null : flash.Number(txt, "y");
+                if (y == null)
+                {
+                    note = (align == null ? kept ? "" : "needAlign off, " : align + ", ") + "title y unreadable";
+                }
+                else if (y.Value >= SettingsMenuNames.TitleCentredBelow)
+                {
+                    string at = FlashInterop.Text(y.Value);
+                    note = kept ? "title y kept (" + at + ")" : (align == null ? "needAlign off" : align) + ", title y " + at;
+                }
+                else
+                {
+                    string failure = null;
+                    try
+                    {
+                        flash.Set(txt, "y", (float)SettingsMenuNames.TileTitleY);
+                        double? after = flash.Number(txt, "y");
+                        if (after == null || Math.Abs(after.Value - SettingsMenuNames.TileTitleY) > PlaceTolerance)
+                            failure = "reads " + (after == null ? "nothing" : FlashInterop.Text(after.Value)) + " after write";
+                    }
+                    catch (Exception ex)
+                    {
+                        failure = Reason(ex);
+                    }
+                    string from = FlashInterop.Text(y.Value) + " to " + FlashInterop.Text(SettingsMenuNames.TileTitleY);
+                    string why = align == null ? kept ? "" : "; needAlign off" : "; " + align;
+                    if (failure == null)
+                    {
+                        note = "title y put back (" + from + why + ")";
+                    }
+                    else
+                    {
+                        note = "title y not put back (" + failure + why + ")";
+                        if (title != null) title.Failure = failure;
+                    }
+                }
+                if (state != null && help != null && title != null && state.BeginTitleRef())
+                {
+                    object helpTxt = TitleOf(flash, help);
+                    double? helpY = helpTxt == null ? null : flash.Number(helpTxt, "y");
+                    title.Reference = "title ref " + FlashInterop.Text(SettingsMenuNames.TileTitleY) + ", " + SettingsMenuNames.HelpTile + " " +
+                                      (helpY == null ? "unreadable" : FlashInterop.Text(helpY.Value));
+                }
+            }
+            catch (Exception ex)
+            {
+                note = "title y unreadable (" + Reason(ex) + ")";
+            }
+            if (title != null) title.Note = note;
+        }
+
+        /// <summary>BtnBase's title field: the member <c>txt</c>, else the child of that name; null when neither reads. Reads only.</summary>
+        private static object TitleOf(FlashScope flash, object tile)
+        {
+            object txt = flash.Get(tile, SettingsMenuNames.TitleSlot);
+            if (txt == null || txt is string || txt is bool || FlashInterop.Number(txt) != null) txt = flash.Child(tile, SettingsMenuNames.TitleSlot);
+            return txt;
+        }
+
+        /// <summary>A read value for a log line ("true", "null", "3", "String x").</summary>
+        private static string Shown(object value)
+        {
+            if (value == null) return "null";
+            if (value is bool) return (bool)value ? "true" : "false";
+            double? number = FlashInterop.Number(value);
+            if (number != null) return FlashInterop.Text(number.Value);
+            return value.GetType().Name;
+        }
+
+        /// <summary>Once per process: "settings menu: PERFORMANCE title y not put back (...); the title stays centred as in build 22".</summary>
+        private static void ReportTitle(ISettingsMenuHost host, SettingsMenuState state, TitleReport title)
+        {
+            if (title == null || title.Failure == null || !state.BeginTitleFailLog()) return;
+            Write(host, "settings menu: PERFORMANCE title y not put back (" + title.Failure + "); the title stays centred as in build 22");
         }
 
         private static string Reason(Exception ex)

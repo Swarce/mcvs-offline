@@ -47,6 +47,20 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         /// </summary>
         bool SettingsMenuPerformance { get; }
 
+        /// <summary>
+        /// settings <c>admin.settingsMenu.aboutCentre</c> (server copy, read per call; default true) on Android; always false on PC
+        /// (build 23): with the trim on, Android's ABOUT is drawn on MORE GAMES' button at setup()'s own centred x (the MORE GAMES
+        /// remap, <see cref="MoreGamesRemap"/>), the real ABOUT goes off the panel and MORE GAMES' tap opens ABOUT
+        /// (<see cref="AboutRedirect"/>); off, ABOUT stays at setup()'s 208 (build 22).
+        /// </summary>
+        bool SettingsMenuAboutCentre { get; }
+
+        /// <summary>
+        /// Game thread: <c>GameApplication.Instance.ApplicationDeltaTime</c> in milliseconds (GameApplication.cs:569: the engine's
+        /// own length of the frame that is running now), or null when it cannot be read. Only for the timings in the log lines.
+        /// </summary>
+        double? FrameDeltaMs();
+
         /// <summary>The PC (Steam) host: <c>AdminHost.PlatformName</c> is <see cref="SettingsSchema.PlatformWindows"/>.</summary>
         bool IsWindows { get; }
 
@@ -121,6 +135,13 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         /// <summary>UIComponent.GoToForum(), <c>Action</c>; the FORUM tile (MenuSettings.as:282-284), Android's PERFORMANCE tile.</summary>
         public const string GoToForum = "GoToForum";
 
+        /// <summary>
+        /// UIComponent.GoToFreeGames(), <c>Action</c> (UIComponent.cs:384-387, registered by AddBrowserOverrides :404 from OnStart
+        /// :1467): the MORE GAMES button (AND-AS MenuSettings.as:279-281) and the top bar's Gameloft button (FreemiumBar.as:566-570).
+        /// Build 23 on Android: replaced like <see cref="GoToForum"/>, so MORE GAMES' tap opens ABOUT while it reads ABOUT.
+        /// </summary>
+        public const string GoToFreeGames = "GoToFreeGames";
+
         /// <summary>GamePreferencesComponent, <c>Func&lt;bool&gt;</c> (MENU only); MenuGameplaySettings.setup :245.</summary>
         public const string CanChangeGraphicSetting = "CanChangeGraphicSetting";
 
@@ -174,6 +195,52 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         /// frames 15-44, focus_in to enabled_end), so a shift of the children cannot hold ABOUT centred.
         /// </summary>
         public const double AndroidAboutX = 208;
+
+        /// <summary>
+        /// Build 23: btn_credits.x as our writes leave it while ABOUT is drawn on MORE GAMES' button: a value setup() never writes,
+        /// so the same-frame gate sees setup()'s last bottom-row write (:213, <see cref="AndroidAboutX"/>) come back.
+        /// </summary>
+        public const double AboutMarkerX = 0;
+
+        /// <summary>The bottom row's y (both ThinBtn at ty 354.10, and_settings_frames.txt:34, :37).</summary>
+        public const double ThinButtonY = 354.1;
+
+        /// <summary>setup()'s title of MORE GAMES (AND-AS MenuSettings.as:161; one string in and_UI.swf, none in and_lib.swf).</summary>
+        public const string FreeGamesTitle = "setting.FreeGamesButton";
+
+        /// <summary>setup()'s title of ABOUT (AND-AS MenuSettings.as:145; MenuAbout.as:46 uses it too).</summary>
+        public const string CreditTitle = "setting.CreditButton";
+
+        /// <summary>The ABOUT menu (MenuConstants.MENU_ABOUT; MenuSettings.as:231-233 pushes it for btn_credits).</summary>
+        public const string AboutMenu = "menu_about";
+
+        /// <summary>gluic.utils.FocusManager: <c>componentWithFocus</c> is a static getter (gluic/utils/FocusManager.as:19-22).</summary>
+        public const string FocusManagerPackage = "gluic.utils";
+
+        public const string FocusManagerClass = "FocusManager";
+        public const string FocusMember = "componentWithFocus";
+
+        // ------------------------------------------------------------------ build 23: the PERFORMANCE tile's title (BtnSimple)
+
+        /// <summary>BtnBase's title field (<c>txt</c>), whose y BtnSimple.setup centres while needAlign is true (BtnSimple.as:92-95).</summary>
+        public const string TitleSlot = "txt";
+
+        /// <summary>BtnSimple's <c>needAlign</c> (a getter and setter over <c>_needAlign</c>, default true: BtnSimple.as:25, :98-106).</summary>
+        public const string NeedAlign = "needAlign";
+
+        /// <summary>
+        /// A BtnSetting's title y as its timeline leaves it (sprite 6716: frame 1 txt ty 294.20; frames 19 and 25-29, focus_in_end
+        /// and pressed, ty 290.70 at sx 0.970).
+        /// </summary>
+        public const double TileTitleY = 294.2;
+
+        /// <summary>A title y below this is centred by BtnSimple.setup (about 177.5 = 355.05 / 2): the only y the repair writes over.</summary>
+        public const double TitleCentredBelow = 260;
+
+        /// <summary>The timeline's own title y, 290.7 to 294.2, with a margin: read as right.</summary>
+        public const double TitleOkMin = 285;
+
+        public const double TitleOkMax = 300;
 
         /// <summary>BtnBase's icon (<c>public var mc_image:ImageContainer</c>, BtnBase.as:33; set at :130-134 when it reads true).</summary>
         public const string IconSlot = "mc_image";
@@ -333,6 +400,18 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         private volatile string preDressText;
         private volatile string preDressDone;
         private int preDressRun;
+        private int preDressSealed;
+        private volatile string sealProblem;
+        private volatile bool freeGamesReplaced;
+        private volatile bool aboutOnMoreGames;
+        private volatile string moreGamesReported;
+        private int titleFailLogged;
+        private int titleRefLogged;
+        private int focusUnreadableLogged;
+        private int timingsFailed;
+        private int timedFocusIns;
+        private volatile ISettingsMenuClock clock;
+        private volatile SettingsMenuTimings timings;
 
         /// <summary>
         /// Android: btn_forum reads PERFORMANCE on the grid shown now (set by <see cref="SettingsMenuLayout"/> after every write of a
@@ -470,6 +549,101 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         {
             get { return preDressDone; }
             set { preDressDone = value; }
+        }
+
+        // ------------------------------------------------------------------ build 23: the seal, ABOUT on MORE GAMES, the title, the timings
+
+        /// <summary>
+        /// The run (<see cref="LayoutRun"/>) whose dress before setup() left nothing for a look after setup() to do
+        /// (<see cref="SettingsMenuLayout.PreDress"/>: every removed instance and the bottom row read back as the plan wants, the
+        /// FORUM remap on and the icon out of setup()'s reach); UiNatives then disarms the same-frame step. 0 otherwise. Set only
+        /// from that proof, never inferred from <see cref="PreDressDone"/> or <see cref="ForumRemapped"/>.
+        /// </summary>
+        public int PreDressSealed
+        {
+            get { return Interlocked.CompareExchange(ref preDressSealed, 0, 0); }
+            set { Interlocked.Exchange(ref preDressSealed, value); }
+        }
+
+        /// <summary>Why <see cref="PreDressRun"/>'s dress did not seal the grid ("icon slot kept (...)", ...), for the focus-in line, or null.</summary>
+        public string SealProblem
+        {
+            get { return sealProblem; }
+            set { sealProblem = value; }
+        }
+
+        /// <summary>
+        /// This EnterSection found (or made) our GoToFreeGames the only delegate on the native (UiNatives, before the dress): only
+        /// then may PreDress draw ABOUT on MORE GAMES, so that its tap opens ABOUT.
+        /// </summary>
+        public bool FreeGamesReplaced
+        {
+            get { return freeGamesReplaced; }
+            set { freeGamesReplaced = value; }
+        }
+
+        /// <summary>The last dress before setup() drew ABOUT on MORE GAMES' button (the log text only; taps key on <see cref="MoreGamesRemap.IsOn"/>).</summary>
+        public bool AboutOnMoreGames
+        {
+            get { return aboutOnMoreGames; }
+            set { aboutOnMoreGames = value; }
+        }
+
+        /// <summary>The MORE GAMES remap state last logged ("installed", "removed" or the reason), so each change is one line.</summary>
+        public string MoreGamesReported
+        {
+            get { return moreGamesReported; }
+            set { moreGamesReported = value; }
+        }
+
+        /// <summary>True for the first caller only: the "PERFORMANCE title y not put back" line is written once per process.</summary>
+        public bool BeginTitleFailLog()
+        {
+            return Interlocked.CompareExchange(ref titleFailLogged, 1, 0) == 0;
+        }
+
+        /// <summary>True for the first caller only: btn_help's title y is read once per process, for the log.</summary>
+        public bool BeginTitleRef()
+        {
+            return Interlocked.CompareExchange(ref titleRefLogged, 1, 0) == 0;
+        }
+
+        /// <summary>True for the first caller only: "focus unreadable" is logged once per process.</summary>
+        public bool BeginFocusUnreadableLog()
+        {
+            return Interlocked.CompareExchange(ref focusUnreadableLogged, 1, 0) == 0;
+        }
+
+        /// <summary>
+        /// The clock of the timings in the log lines (<see cref="SettingsMenuClock"/>; UiNatives.Start sets it, the tests give their
+        /// own), or null: no timings, every line as in build 22.
+        /// </summary>
+        internal ISettingsMenuClock Clock
+        {
+            get { return clock; }
+            set { clock = value; }
+        }
+
+        /// <summary>The current focus-in's timings (<see cref="SettingsMenuTimings.Run"/> names its run), or null.</summary>
+        internal SettingsMenuTimings Timings
+        {
+            get { return timings; }
+            set { timings = value; }
+        }
+
+        /// <summary>True for the first caller only: the clock failed, "timings unavailable" is logged once and no line has timings again.</summary>
+        public bool BeginTimingsFailure()
+        {
+            return Interlocked.CompareExchange(ref timingsFailed, 1, 0) == 0;
+        }
+
+        /// <summary>The clock failed in this process: no timings from now on.</summary>
+        public bool TimingsFailed { get { return Interlocked.CompareExchange(ref timingsFailed, 0, 0) != 0; } }
+
+        /// <summary>Counts a timed focus-in; 1 for the first in this process (its JIT cost stands apart).</summary>
+        public int CountTimedFocusIn()
+        {
+            return Interlocked.Increment(ref timedFocusIns);
         }
 
         // ------------------------------------------------------------------ the same-frame step's breadcrumb (SameFrameBreadcrumb)
