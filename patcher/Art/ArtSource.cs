@@ -68,6 +68,33 @@ namespace McvsOffline.Patcher.Art
     }
 
     /// <summary>
+    /// --art-extra: a second folder laid over the art (built-in or --art). Its files win; the others come from the base.
+    /// For art that must not be in the repository (art/android/README.md §5): keep it outside, give it at patch time.
+    /// </summary>
+    public sealed class OverlayArtSource : ArtSource
+    {
+        private readonly ArtSource bottom;
+        private readonly ArtSource top;
+        private readonly List<string> files;
+
+        public OverlayArtSource(ArtSource bottom, ArtSource top)
+        {
+            this.bottom = bottom;
+            this.top = top;
+            files = bottom.Files.Union(top.Files, StringComparer.Ordinal).OrderBy(f => f, StringComparer.Ordinal).ToList();
+        }
+
+        public override string Description { get { return bottom.Description + " + " + top.Description; } }
+
+        public override IReadOnlyList<string> Files { get { return files; } }
+
+        public override byte[] Read(string path)
+        {
+            return top.Contains(path) ? top.Read(path) : bottom.Read(path);
+        }
+    }
+
+    /// <summary>
     /// The art built into the patcher: McvsOffline.Patcher.csproj embeds <c>art/android/**</c> as manifest resources named
     /// <c>art/&lt;path&gt;</c>. With no art in the repository there are no such resources, and the patcher keeps the stock icon.
     /// </summary>

@@ -1,0 +1,11 @@
+{
+  // The project's launcher icon (icon/: the owner's own art) and the Android 12+ launch screen.
+  // Spec: README.md in this folder.
+  "splash": {
+    // The deep red of Marketing Detail B's band (the data installer's background), dark like the installer that follows.
+    "background": "#3B1210",
+    "backgroundNight": "#3B1210",
+    "iconPreferred": true,
+    "windowBackground": false
+  }
+}

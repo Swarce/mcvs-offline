@@ -128,6 +128,12 @@ namespace McvsOffline.Patcher
         /// </summary>
         public string Art { get; set; } = "auto";
 
+        /// <summary>
+        /// --art-extra: a folder laid over the art of --art (Art.OverlayArtSource), for files kept out of the repository, such
+        /// as the data installer's background (installer/*.png); null = none.
+        /// </summary>
+        public string ArtExtra { get; set; }
+
         /// <summary>Patch even when the APK is not the verified 1.17.32 build (locators still verify every site).</summary>
         public bool Force { get; set; }
 

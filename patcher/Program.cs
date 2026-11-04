@@ -98,6 +98,10 @@ namespace McvsOffline.Patcher
                         o.Art = Value(args, ref i);
                         if (o.Art.Length == 0) throw new ArgumentException("--art needs auto, stock or a folder");
                         break;
+                    case "--art-extra":
+                        o.ArtExtra = Value(args, ref i);
+                        if (o.ArtExtra.Length == 0) throw new ArgumentException("--art-extra needs a folder");
+                        break;
                     case "--force": o.Force = true; break;
                     case "--dry-run": o.DryRun = true; break;
                     case "-v":
@@ -198,6 +202,8 @@ namespace McvsOffline.Patcher
                 "  --art <a>             launcher icon and launch screen: auto (default: the project's art built into this\n" +
                 "                        patcher from art/android/, if any; otherwise Gameloft's icon is kept), stock (never\n" +
                 "                        change them), or a folder laid out like art/android/ (see art/android/README.md)\n" +
+                "  --art-extra <dir>     a folder laid over that art, for files kept out of the repository (its files win),\n" +
+                "                        e.g. installer/*.png, the game's data installer background (art/android/README.md)\n" +
                 "  --dry-run             verify every patch site and report, write nothing\n" +
                 "  --force               patch an APK that is not the verified " + KnownBuild.Version + " build (sites are still verified)\n" +
                 "  -v, --verbose         more output\n\n" +

@@ -81,6 +81,12 @@ namespace McvsOffline.Patcher.Art
         {
             log = log ?? (s => { });
             ArtSource source = Resolve(options.Art, builtIn);
+            if (!string.IsNullOrEmpty(options.ArtExtra))
+            {
+                var extra = new DirectoryArtSource(options.ArtExtra);
+                if (extra.Files.Count == 0) throw new InvalidDataException("--art-extra: " + options.ArtExtra + " holds no art files (see art/android/README.md)");
+                source = source == null ? (ArtSource)extra : new OverlayArtSource(source, extra);
+            }
             if (source == null)
             {
                 if (options.Art != Stock) report.Warnings.Add("art: no project art built in (art/android/ has no files yet): Gameloft's icon and the stock launch screen are kept");
@@ -88,20 +94,28 @@ namespace McvsOffline.Patcher.Art
             }
             log("art: " + source.Description + " (" + source.Files.Count + " files)");
 
-            List<string> unknown = source.Files.Where(f => f != ArtSettings.FileName && !f.StartsWith("icon/", StringComparison.Ordinal)).ToList();
+            List<string> unknown = source.Files.Where(f => f != ArtSettings.FileName && !f.StartsWith("icon/", StringComparison.Ordinal) &&
+                                                           !InstallerArt.IsInstallerFile(f)).ToList();
             if (unknown.Count > 0)
-                throw new InvalidDataException("art: unknown file(s) " + string.Join(", ", unknown) + " in " + source.Description + " (expected art.json and icon/...; see art/android/README.md)");
+                throw new InvalidDataException("art: unknown file(s) " + string.Join(", ", unknown) + " in " + source.Description + " (expected art.json, icon/... and installer/...; see art/android/README.md)");
             ArtSettings settings = source.Contains(ArtSettings.FileName) ? ArtSettings.Parse(source.Read(ArtSettings.FileName)) : null;
             Dictionary<(IconLayer, IconDensity), IconArt.Export> icon = IconArt.Build(source, settings, report.Warnings);
             ArtSettings.SplashSettings splash = settings?.Splash;
             bool monochrome = icon != null && icon.Keys.Any(k => k.Item1 == IconLayer.Monochrome);
-            if (icon == null && splash == null)
+            List<(InstallerArt.StockEntry Stock, byte[] Data)> installer = InstallerArt.Build(source);
+            if (icon == null && splash == null && installer.Count == 0)
             {
-                report.Warnings.Add("art: " + source.Description + " has neither icon files nor a splash colour: nothing to change");
+                report.Warnings.Add("art: " + source.Description + " has neither icon files, a splash colour nor installer pictures: nothing to change");
                 return null;
             }
 
             var result = new ArtResult();
+            foreach (var (stock, data) in installer)
+            {
+                ZipEntry e = Original(input, stock.Name, stock.Bytes, stock.Crc, options, report);
+                result.Replaced[stock.Name] = data;
+                report.Notes.Add("art: " + stock.Name + " (data installer background): " + DescribePng(e.GetData()) + " -> " + DescribePng(data));
+            }
             if (icon != null)
             {
                 foreach (IconArt.StockEntry stock in IconArt.StockEntries)

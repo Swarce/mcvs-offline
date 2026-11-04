@@ -299,6 +299,8 @@ namespace McvsOffline.Embed.Tests.Patcher
             foreach (IconArt.StockEntry stock in IconArt.StockEntries)
                 entries.Add(ZipEntry.CreateStored(stock.Name, ArtFixtures.Gradient(stock.Density.Pixels(48)).Encode(), null));
             entries.Add(ZipEntry.CreateStored("res/mipmap-hdpi-v4/iconiab.png", ArtFixtures.Gradient(10).Encode(), null));
+            foreach (InstallerArt.StockEntry stock in InstallerArt.StockEntries)
+                entries.Add(ZipEntry.CreateStored(stock.Name, Picture(stock.Width, stock.Height, 40).Encode(), null));
             entries.Add(ZipEntry.CreateStored(ArtPatch.ArscEntry, SyntheticArsc.Build(), null));
             return ZipArchiveWriter.Write(entries);
         }
@@ -419,6 +421,106 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Contains(report.Notes, n => n.Contains("+v31 (windowSplashScreenBackground #000000)") && !n.Contains("night"));
             ArscPackage package = ArscTable.Parse(ZipArchiveReader.Read(Path.Combine(dir, "offline.apk")).Find(ArtPatch.ArscEntry).GetData()).Package(0x7f);
             Assert.Equal("v31", ArscConfig.Describe(package.Types(0x0b).Last().Config));
+        }
+
+        /// <summary>An opaque w x h picture (a diagonal ramp; <paramref name="seed"/> changes it).</summary>
+        private static Png Picture(int width, int height, int seed)
+        {
+            var rgba = new byte[width * height * 4];
+            for (int y = 0; y < height; y++)
+                for (int x = 0; x < width; x++)
+                {
+                    int i = (y * width + x) * 4;
+                    rgba[i] = (byte)(x + seed);
+                    rgba[i + 1] = (byte)(y + seed);
+                    rgba[i + 2] = (byte)(x + y);
+                    rgba[i + 3] = 0xFF;
+                }
+            return new Png(width, height, rgba);
+        }
+
+        private static MemoryArtSource InstallerPictures(int seed)
+        {
+            var art = new MemoryArtSource();
+            foreach (InstallerArt.StockEntry stock in InstallerArt.StockEntries)
+                art.Content[InstallerArt.Folder + stock.File] = Picture(stock.Width, stock.Height, seed).Encode();
+            return art;
+        }
+
+        [Fact]
+        public void InstallerPicturesFromAnExtraFolderReplaceTheGamesOwnInPlace_TheBuiltInIconStays()
+        {
+            // The icon from the built-in art (here a folder given with --art), the data installer's background from --art-extra
+            // (kept outside the repository): both applied, every other entry byte for byte.
+            string dir = TestEnvironment.NewTempDir("art-installer");
+            string artDir = ArtFixtures.WriteDirectory(ArtFixtures.IconMasters(), Path.Combine(dir, "art"));
+            MemoryArtSource pictures = InstallerPictures(7);
+            string extraDir = ArtFixtures.WriteDirectory(pictures, Path.Combine(dir, "extra"));
+            string apk = Path.Combine(dir, "in.apk");
+            File.WriteAllBytes(apk, SyntheticApk());
+            string server = Path.Combine(dir, "McvsOffline.Server.dll");
+            File.WriteAllBytes(server, Fixtures.Server());
+            var options = new PatcherOptions
+            {
+                InputApk = apk, ServerDll = server, OutputApk = Path.Combine(dir, "offline.apk"), Patches = PatcherOptions.ParsePatchList("none"),
+                Keystore = Path.Combine(dir, "key.p12"), Signer = SignerChoice.BuiltIn, Art = artDir, ArtExtra = extraDir, Force = true,
+                SkipServerReferenceCheck = true, TestOnlyHookIsMandatory = true,
+            };
+            PatchReport report = ApkPatcher.Run(options, s => output.WriteLine(s));
+            ZipArchiveReader.Archive input = ZipArchiveReader.Read(apk), patched = ZipArchiveReader.Read(options.OutputApk);
+            foreach (InstallerArt.StockEntry stock in InstallerArt.StockEntries)
+            {
+                ZipEntry e = patched.Find(stock.Name);
+                Assert.Equal(ZipEntry.MethodStored, e.Method);
+                Assert.True(e.GetData().AsSpan().SequenceEqual(pictures.Content[InstallerArt.Folder + stock.File]), stock.Name);
+                Assert.Contains(stock.Name, report.Modified);
+                Assert.Contains(report.Notes, n => n.StartsWith("art: " + stock.Name + " (data installer background): ", StringComparison.Ordinal));
+            }
+            foreach (IconArt.StockEntry stock in IconArt.StockEntries) Assert.Contains(stock.Name, report.Modified);
+            Assert.Equal(input.Entries.Select(e => e.Name).Where(n => !BuiltInSigner.IsSignatureFile(n)),
+                         patched.Entries.Select(e => e.Name).Where(n => !BuiltInSigner.IsSignatureFile(n) && input.Find(n) != null));
+        }
+
+        [Fact]
+        public void InstallerPicturesAreCheckedBeforeAnythingIsWritten()
+        {
+            var report = new PatchReport();
+            Func<MemoryArtSource, string> refused = art => Assert.Throws<InvalidDataException>(() =>
+                ArtPatch.Prepare(ZipArchiveReader.Read(SyntheticApk()), new PatcherOptions { Force = true }, new PatchReport(), null, art)).Message;
+
+            MemoryArtSource wrongSize = InstallerPictures(1);
+            wrongSize.Content["installer/installing_splash_bg.png"] = Picture(1024, 768, 1).Encode();
+            Assert.Contains("installer/installing_splash_bg.png is 1024x768; it must be 800x600", refused(wrongSize));
+
+            MemoryArtSource oneHalf = InstallerPictures(1);
+            oneHalf.Content.Remove("installer/installing_splash_bg_right.png");
+            Assert.Contains("come together", refused(oneHalf));
+
+            MemoryArtSource broken = InstallerPictures(1);
+            broken.Content["installer/installing_splash_bg_left.png"] = new byte[] { 1, 2, 3 };
+            Assert.Contains("installer/installing_splash_bg_left.png is not a usable PNG", refused(broken));
+
+            MemoryArtSource stray = InstallerPictures(1);
+            stray.Content["installer/loading.png"] = Picture(8, 8, 1).Encode();
+            Assert.Contains("unknown file(s) installer/loading.png", refused(stray));
+
+            // The single 800x600 picture alone is fine; so is the pair alone.
+            MemoryArtSource single = new MemoryArtSource();
+            single.Content["installer/installing_splash_bg.png"] = Picture(800, 600, 3).Encode();
+            ArtResult result = ArtPatch.Prepare(ZipArchiveReader.Read(SyntheticApk()), new PatcherOptions { Force = true }, report, null, single);
+            Assert.Equal(new[] { "res/drawable/installing_splash_bg.png" }, result.Replaced.Keys.ToArray());
+        }
+
+        [Fact]
+        public void TheOverlayFolderWinsAndKeepsTheBaseFiles()
+        {
+            MemoryArtSource bottom = ArtFixtures.IconMasters(), top = new MemoryArtSource();
+            top.Content["art.json"] = Encoding.UTF8.GetBytes("{\"splash\": {\"background\": \"#3B1210\"}}");
+            bottom.Content["art.json"] = Encoding.UTF8.GetBytes("{\"splash\": {\"background\": \"#000000\"}}");
+            var overlay = new OverlayArtSource(bottom, top);
+            Assert.Equal(bottom.Files.OrderBy(f => f, StringComparer.Ordinal), overlay.Files);
+            Assert.Equal(top.Content["art.json"], overlay.Read("art.json"));
+            Assert.Equal(bottom.Content["icon/legacy.png"], overlay.Read("icon/legacy.png"));
         }
 
         [Fact]
