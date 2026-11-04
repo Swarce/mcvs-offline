@@ -1,7 +1,13 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-Last updated for build 21 (November 2026, on `wip/pc-port`; APK and PC kit): build 20 fixed the stock Settings menu after
+Last updated for build 22 (November 2026, on `wip/pc-port`; APK and PC kit): on the owner's phone build 21 still flashed
+MORE GAMES and the FORUM tile on a return to Settings; build 22 no longer races the game's own `setup()`: on the phone
+its stock writes are made to draw nothing (the engine's text remap turns FORUM into PERFORMANCE, the icon is out of its
+reach, the removed tiles are off the panel, ABOUT stays at the game's own place on the bottom row), prepared before
+`setup()` runs; a new switch, **Lay out Settings before it is drawn** (`admin.settingsMenu.sameFrame`), turns that work
+off, and turns itself off after a start that ended inside it (one `same frame skipped` line); Steam is unchanged; not
+yet tested on a phone or on Windows; see "Build 22". Build 21: build 20 fixed the stock Settings menu after
 a return, but the stock menu still flashed for a split second before our layout; build 21 lays the grid out inside the
 frame of the return itself (from a Flash native the game's own `setup()` calls after its last stock write:
 `GetPlatformId` on the phone, `GetLanguage` on Steam), so no frame draws the stock grid, keeps build 20's run as the
@@ -35,7 +41,7 @@ play; see "Build 12 and device test 9". Before that: the build 11 device test (t
 12). The build 11 plan put HD textures into `Data/` ("Build 11 (plan)"). On build 10 the HD texture probe showed that
 route B fails and route A works. Build 10 targets Android 15 and adds graphics profiles and the PC test kit ("Build
 10"). Device test 8 tested the MCVS Offline page ("Device test 8", "Build 9"). The Cosmetic crate starts on 2026-11-09
-and is not yet tested on the phone. Not yet merged into `main-dev`: builds 13 to 21 (the PC port, the Android
+and is not yet tested on the phone. Not yet merged into `main-dev`: builds 13 to 22 (the PC port, the Android
 'game' manifest flags and build 17's unlock-code and inbox changes are on `wip/pc-port`). Earlier: device tests 6 and 7 on the same S22 ("Build 8", "Build 7", "Device test 6").
 
 **Summary:** the Federation server is complete for the offline single-player goals and passes its full test suite, including a
@@ -60,6 +66,177 @@ HD texture probe and a Windows test kit for the Steam version. Build 11 installs
 version into the game's own data. Build 12 accepts a full ASTC data pack with 2,215 PC textures in it: **device test 9:
 the HD textures and the graphics profiles work, at the same frame rate as before**, and builds 10 to 12 (target Android
 15) installed and played fine.
+
+## Build 22 (November 2026): the stock Settings writes draw nothing, and a switch with an automatic fallback
+
+### What build 22 contains
+
+`e1bb9b9` on `wip/pc-port` (`McvsVersion.Build` is `22`; the code is the merge of `wip/b22-switch`, `4a6d19a`:
+`9617e34`, `05a2028`, its docs `47c880a` and the review fixes `dd73b81`). APK: `mcvs-offline-e1bb9b9.apk` (SHA-256
+`45a67e8976d4ced03787fc69472610efbb3fab2f256eb5adc78599c9a09f66ed`; the default patch set; the same key as every build: certificate SHA-256 `fc0db84e…7d16`, targetSdk 35,
+both ABIs, `isGame` and `appCategory`, zipalign OK); it installs over build 21 as usual. Compared entry by entry with
+build 21's `mcvs-offline-d74a07a.apk`: the same 952 entries in the same order; changed only the server DLL (2,661,376 → 2,678,272 bytes, byte for byte the built
+one), the signature files and the 16 MVID bytes of `Game.dll`, `Gameloft.Engine.dll`, `Gameloft.Util.dll` and
+`NicePlaySDK.dll` (each difference lies inside the MVID; the patch set and the patches are build 21's). The PC kit `McvsOffline.PcKit.exe` (win-x64, one file, SHA-256
+`d147c06af47f1cd9f8d06109837f4234dcbf5aae3bb5e954315a6435a5662ea4`) replaces build 21's (kept as `McvsOffline.PcKit-d74a07a.exe`). The design is
+[design/settings-menu.md](design/settings-menu.md) §1.2, §3.2 ("Build 22") and §5 risks 2 and 11.
+
+**The owner's report (build 21, S22).** Back to Settings still showed MORE GAMES and the FORUM tile for a moment ("it
+flashes the more games and the forum button after, the trim remains"), then the shorter grid stayed. No device log
+came with it.
+
+**What the diagnosis established** (read only, five investigations against the decompiled C# and the exported
+ActionScript of both games):
+
+* What the owner saw is exactly the state Android's `setup()` leaves before any write of ours: on a return it writes
+  only the FORUM dress of `btn_forum` (title and icon), `btn_more.visible = true` and the bottom row's x (CUSTOMER CARE
+  -564, MORE GAMES -177, ABOUT 208); it never shows SOCIAL MEDIA or CUSTOMER CARE again, which matches the report.
+* **The render thread is ruled out.** In every render mode the menu draw waits for the update signal, which is set
+  after the managers' update, and natively Flash's advance and display hold the same gameswf mutex: no render can draw
+  the menu half way through `setup()`.
+* **The likely cause:** on the phone build 21's same-frame step did not land, or landed too early (about 70 %, by
+  elimination: the managed chain holds in the code and in the 61 tests). The candidates, in order: the look throwing
+  inside the `GetPlatformId` native, the observer never being called, the gate never matching, or the gate opening
+  early when ABOUT could not be read (build 21's gate then looked four times before the FORUM dress). Which one it was
+  only a device log can say.
+* **Why the fix does not depend on it:** build 22 no longer races `setup()`. Every visible effect of `setup()` goes
+  through a property it writes, so what we need moves onto properties it never writes, and its own writes produce our
+  state. However early or late a render comes, it cannot show MORE GAMES or FORUM.
+
+**The fix (phone)**:
+
+* **The title:** the engine's own text remap. `setting.ForumButton → setting.Performance` goes into the client
+  World's localisation remap table (a copy of the table with the entry replaces it; never changed in place), while
+  `admin.settingsMenu.performance` is on. `setup()`'s own FORUM dress then writes the translated PERFORMANCE, in the
+  same call, on every return, and a language change re-formats it the same way. A tap on the tile opens our page from
+  the first frame. One line: `settings menu: FORUM remap installed` (or `removed`, or `not installed (<why>)`; without
+  it build 21's re-dress stands).
+* **The icon:** once per tile it is dressed with PERFORMANCE's icon, then put out of `setup()`'s reach (the `mc_image`
+  slot set to null and the container renamed), so `setup()` skips its FORUM icon write and the icon neither changes nor
+  reloads. If gameswf still reaches the container, both are put back and the icon is re-dressed inside `setup()`'s own
+  call, after its write, as in build 21 (`icon slot kept (<why>)`).
+* **MORE GAMES, SOCIAL MEDIA, CUSTOMER CARE: off the panel** (y 4000, alpha 0, no mouse, hidden; MORE GAMES' x 0 as a
+  marker). `setup()` never writes y, alpha or the mouse flags, so its `btn_more.visible = true` and x writes draw
+  nothing, and the hidden MORE GAMES (above ABOUT) catches no tap.
+* **ABOUT stays at 208**, where `setup()` itself puts it, so its last write draws nothing new. That is a visible change:
+  **ABOUT now sits right of centre on the bottom row, its stock place**, not centred as in builds 19 to 21. Centring it
+  against that write would mean moving its children, and ABOUT's own button timeline moves them on every state (focus,
+  press), so the plate would snap back or freeze its press animation; that fallback (ABOUT at 208 by design) is what
+  build 22 does.
+* **When: before `setup()`.** All of it runs inside our `EnterSection("settings_main_screen")` delegate, which the game
+  calls before `setup()` in the same call stack (`before setup:` on the focus-in line). On a return the tiles are the
+  ones written before, so it only reads them back (`kept`); on the first entry the panel is still on frame 1, so it goes
+  to frame 3 first and dresses the new tiles (`dressed now`). The writes persist, so later returns draw nothing stock
+  whatever the timing.
+* Build 21's **same-frame step** stays, with a new gate: MORE GAMES back at -177 (`setup()`'s write), false whenever
+  something cannot be read. It only tidies now (MORE GAMES hidden again) or re-dresses an icon left within reach.
+  Build 20's **run per focus-in** stays as read-back and safety net.
+* **Steam:** unchanged (build 21's `GetLanguage` step; Steam's `setup()` writes every tile's x, so these per-tile tricks
+  would not survive there), now behind the switch and the breadcrumb below.
+
+**The switch: Lay out Settings before it is drawn** (`admin.settingsMenu.sameFrame`; the settings page, Settings ›
+Gameplay, right under **Shorter Settings menu**; on by default; both platforms; applies the next time Settings opens).
+It covers all our Flash work inside the game's natives: the dress before `setup()` (inside `EnterSection`) and the
+same-frame step (inside `GetPlatformId` on the phone, `GetLanguage` on Steam). Both are covered because both run
+ActionScript from inside a native, the one thing a device fault could come from; the text remap is plain C# and stays
+on. **Off** means build 20's path: the menu is still trimmed and PERFORMANCE is still there, laid out by the run from
+the next frame, so the first opening can show the stock menu for one frame; later returns still draw nothing stock,
+because the run's writes persist and the remap stays.
+
+**The breadcrumb.** Right before the first Flash work inside a native in a process, MCVS Offline writes
+`settings-menu-same-frame.txt` into its log folder (phone: `McvsOffline/logs/`, else the internal log folder the logs move
+to when that one cannot be written; PC: `McvsOffline\logs\`, else `%TEMP%\McvsOffline\logs\`, never a Steam folder that
+cannot be written), and deletes it one frame after the run's first frame (about two frames later, the return's render
+included). A normal exit, the watchdog (it only reports) and going to the background at any other moment never leave it. If the game dies inside that
+window, the next start finds the marker, switches `admin.settingsMenu.sameFrame` off in `settings.json` and logs one
+WARN line (also under "Recent problems" on the status page):
+`settings menu: same frame skipped: the last start ended during it (marker <path>); admin.settingsMenu.sameFrame is now
+off; switch it back on to retry`. If `settings.json` cannot be saved, the step stays off while the marker is there and
+the line ends `… could not be saved as off, so it stays off while the marker is there; delete <path> to retry`. A
+marker that cannot be written is said once on the focus-in line (`; breadcrumb not written (<why>)`) and changes
+nothing else; marker I/O never throws into the game.
+
+**If Settings ever crashes** (the game closes while opening Settings or right after a Back to it): start the game
+again. The `same frame skipped` line should then be in "Recent problems", the switch is off, and Settings opens
+trimmed (perhaps with one frame of the stock menu on the first opening). Send the crash start's logs (Downloads ›
+MCVS-Offline: the previous start's `-server.log.txt`, `-game.log.txt` and any `crash-*.txt`; on PC the `.1` logs in
+`McvsOffline\logs\`) and the new start's `server.log`. Switching it back on retries once; if it crashes again, leave it
+off and say so.
+
+**What the log says now** (`server.log`), per return to Settings on the phone:
+
+* `settings menu: focus-in N (layouts so far: L): on top menu_settings, …, panel frame 3, btn_social hidden; before
+  setup: kept (FORUM remap on, icon slot null, MORE GAMES off the panel, ABOUT 208); same frame: laid out (GetPlatformId
+  calls 40, looks 1)`; the first entry says `before setup: dressed now (panel frame 1 to 3, …)`;
+* `settings menu: frame 3, 7 tiles + ABOUT laid out in the focus-in frame; stock grid drawn 0 frames`;
+* if the phone still cannot run ActionScript from inside `GetPlatformId`, the tail reads `same frame: not laid out,
+  <why>` or `no look (…)` and the run line `… in the focus-in frame; MORE GAMES shown off the panel 1 frame; stock grid
+  drawn 0 frames`: shown off the panel means drawn as nothing, so still no flash;
+* `same frame: off (admin.settingsMenu.sameFrame off)`, or `off (a breadcrumb of the last start is still there)`;
+* once per start: `settings menu: FORUM remap installed`; on Steam the lines are build 21's (`same frame: laid out
+  (GetLanguage calls N, looks 1)`, `frame 1, 6 tiles + ABOUT laid out in the focus-in frame; stock grid drawn 0
+  frames`).
+
+**Known limits** (settings-menu.md §3.2, §5): whether gameswf accepts the icon rename (the read-back decides, and the
+fallback re-dresses inside `setup()`) and the S22's real render-thread mode are still to be confirmed from a device
+log. If `admin.settingsMenu.trim` is switched off while the same Settings screen stays open, the tiles already removed
+stay off the panel until Settings is next opened (build 21 had the same limit).
+
+**Checked**: `McvsOffline.sln` (Release), the Android embedded DLL against the APK's assemblies and the PC DLL with
+`Gameloft.Logs`; all four test projects with `MCVS_REFS`, `MCVS_PC_REFS`, `MCVS_APK`, `MCVS_DATAPACK`,
+`MCVS_BUILD_TOOLS`, `MCVS_REQUIRE_REAL_CLIENT=1`, `MCVS_REQUIRE_PC=1`, `MCVS_REQUIRE_PC_E2E=1`, `MCVS_REQUIRE_EMBEDDED=1`,
+`MCVS_REQUIRE_BUILD_TOOLS=1` and `MCVS_REQUIRE_NODE=1`, at `e1bb9b9`: **McvsOffline.Tests 1578/1578, McvsOffline.Embed.Tests
+1252/1252, McvsOffline.PcKit.Tests 63/63, McvsOffline.PcSpike.Tests 62/62, 0 skipped** (2,955; build 21's was 2,910). New
+tests: `SettingsMenuBuild22Tests` (36 cases on fakes that model `setup()`'s gotoAndStop, BtnBase's icon branch in three
+resolution models, the image reload, the remap and a language reload, a refused icon rename, what each render draws
+and a pipelined render thread: nothing stock drawable at the end of the return's update with the observer refused or
+throwing, the first entry, the trim off with PERFORMANCE on, the early gate, the R4 rows hidden in the focus-in frame,
+the tile kept again after PERFORMANCE was off: of the first 24, 21 fail on build 21's code and three are regression
+checks; the 12 of the review fail on the first cut `05a2028` but one regression check),
+`SameFrameBreadcrumbTests` (the marker's folders and fallback, written once, deleted one frame after the run's first
+frame, a leftover marker switching the key off with the one line, the line naming the marker when the save fails,
+nothing thrown) and the remap's real members (`RealSettingsMenuMembersTests`). The APK was built with `--build-tools`
+and verified as above; its server DLL is the built one byte for byte. The kit published three times (the first right after the full build) from the same build
+output with the same bytes, its `check-server` passed on the PC server DLL (every PC hook (17), `Gameloft.Logs`, only
+allowed references), and its assembly carries that DLL byte for byte. The PC end to end on Linux (§12.6) on a temp
+copy of the Steam files: `install`, `verify`, `status` (`installed, current`, `activation: NOT VERIFIED` before a
+start), a second install with the same bytes, `uninstall` restoring the exact listing and every SHA-256; ILVerify the
+same findings as the stock files, the server DLL clean. The upgrade over a build-21 install (made by a `d74a07a`
+patcher built in a separate folder) on another temp copy: the kit said `OLDER BUILD (21; this kit installs build 22)` and `verify` exit 1;
+`install` wrote the fresh install's bytes, then `verify` and `status` said `installed, current`. The expected `verify`
+values are re-recorded in [design/pc-port.md](design/pc-port.md) §13.1 and [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7
+(build 21's are in §13.2): the four game DLLs differ from a build-21 install's only in their MVID bytes (they change
+with the server DLL, as in every build; no patch changed), the config is build 16's (`3ebe99b3…f94c`),
+`serverBuild` is `22`.
+
+**Not tested** on a phone or on Windows.
+
+### Checklist (phone and PC)
+
+Phone:
+
+1. Open Settings from the main menu (the first entry of the start): the shorter grid with PERFORMANCE, no MORE GAMES,
+   FORUM, SOCIAL MEDIA or CUSTOMER CARE at any moment, ABOUT right of centre on the bottom row.
+2. Open each tile and press Back, each at least twice: GAMEPLAY SETTINGS, AUDIO, CUSTOMIZE CONTROLS, ACCOUNTS, HELP,
+   LANGUAGES, ABOUT and PERFORMANCE (our page). After every Back: **no MORE GAMES, no FORUM, and ABOUT does not jump**
+   (it stays where it was). Film at least a few of the returns in slow motion and say whether any frame shows MORE
+   GAMES or FORUM, and whether the PERFORMANCE icon blinks.
+3. Play a match, return to the main menu, open Settings, then a tab and Back: the same, each time.
+4. Change the language (LANGUAGES), then come back: the tile still reads PERFORMANCE (in the new language) with its
+   icon.
+5. Tap PERFORMANCE: our page opens (not the forum); change GRAPHICS SETTINGS and press Back: the restart prompt and,
+   behind it, the shorter grid with no flash; then No, and the grid stays.
+6. On the settings page (Settings › Gameplay) switch **Lay out Settings before it is drawn** off, then open Settings
+   and a tab and Back a few times: still the shorter grid with PERFORMANCE (the first opening may show the stock menu
+   for one frame). Switch it back on.
+7. Send `server.log` with every `settings menu:` line of the session (the `FORUM remap installed` line, and for each
+   return the `focus-in N … before setup: … ; same frame: …` line and the `… laid out in the focus-in frame; stock grid
+   drawn 0 frames` line, or whatever they say instead), and say for which return anything flashed or was wrong. If
+   Settings ever crashed, see "If Settings ever crashes" above.
+
+PC: unchanged from build 21 (the shorter grid with no flash after every tab and Back, no drift after five round
+trips). Send the `settings menu:` lines of one return from `McvsOffline\logs\server.log` (expected `same frame: laid
+out (GetLanguage calls N, looks 1)` and `… laid out in the focus-in frame; stock grid drawn 0 frames`).
 
 ## Build 21 (November 2026): the Settings grid in the same frame as the return, and no Practice tile
 

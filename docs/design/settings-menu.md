@@ -5,7 +5,7 @@ Status: built in build 19 (`hosts/embedded/Admin/SettingsMenu/`, `hosts/embedded
 stock menu again after a tab and Back on both platforms; the device cause is not known, and build 20's log names it. Build
 21 (`d74a07a`, APK and PC kit) lays the grid out in the focus-in frame itself (§3.2, "Build 21"), after the owner saw build
 20's stock grid flash "for a split second" on every return to Settings (the Back bug itself was fixed by build 20); the run
-per focus-in stays as the safety net. Build 22 (branch `wip/b22-switch`) makes Android's `setup()` stock writes draw nothing,
+per focus-in stays as the safety net. Build 22 (`e1bb9b9`, APK and PC kit; merged from `wip/b22-switch`) makes Android's `setup()` stock writes draw nothing,
 after the owner saw build 21 still flash MORE GAMES and the FORUM tile on a return (§3.2, "Build 22"), and adds the switch
 `admin.settingsMenu.sameFrame` with its automatic fallback (§5 risk 2). Build 22 has not yet been seen on a phone or on
 Windows. This is the final design: the review corrections (A1-A3, B1-B2, C1, D1-D2, E1-E7, F1

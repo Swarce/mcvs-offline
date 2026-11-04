@@ -1,6 +1,6 @@
 # Player setup: MCVS Offline on the Steam (PC) version
 
-**Status: draft for the third Windows round (WR3), build 21** (build 14's PC fixes; build 15 added only server features: the Special Events and an optional Practice tile (removed again in build 21); build 16 removes the config lines that most likely made Windows start the game without MCVS Offline in builds 14 and 15, and says when the game starts without it; build 17 delivers the unlock codes without the inbox and adds the `inbox` patch, which keeps a big redeem-code message from freezing the inbox; build 18 stops MCVS Offline itself from loading the game's own `Game.dll` at start, most likely the cause of build 17's `Game loaded from the game folder` and of WR2's; build 19 shortens the game's Settings menu, see section 4; build 20 keeps it short after a return from a submenu, where build 19 showed the stock menu again; build 21 lays it out in the same frame as the return, so the stock menu no longer flashes before it, and removes the Practice tile and its `bottile` patch). The second round (WR2, build 13) showed that the
+**Status: draft for the third Windows round (WR3), build 22** (build 14's PC fixes; build 15 added only server features: the Special Events and an optional Practice tile (removed again in build 21); build 16 removes the config lines that most likely made Windows start the game without MCVS Offline in builds 14 and 15, and says when the game starts without it; build 17 delivers the unlock codes without the inbox and adds the `inbox` patch, which keeps a big redeem-code message from freezing the inbox; build 18 stops MCVS Offline itself from loading the game's own `Game.dll` at start, most likely the cause of build 17's `Game loaded from the game folder` and of WR2's; build 19 shortens the game's Settings menu, see section 4; build 20 keeps it short after a return from a submenu, where build 19 showed the stock menu again; build 21 lays it out in the same frame as the return, so the stock menu no longer flashes before it, and removes the Practice tile and its `bottile` patch; build 22 changes nothing you see on PC: it adds the switch **Lay out Settings before it is drawn**, which turns that step off, and turns it off by itself after a start that ended inside it). The second round (WR2, build 13) showed that the
 install and the game start work, but the game kept loading its own `Game.dll` instead of our patched copy, so every
 fix in that file was missing: the two inbox crashes, the missing "MCVS Offline" button in Settings › Account, the bot
 match running the old way and probably the long freezes. Build 14 makes the game load our copy and says
@@ -120,10 +120,10 @@ The setting `admin.openVia` in `McvsOffline\settings.json` picks the route: `aut
 settings page's unlock tools grant. On a Steam account that never played MCVS on PC, the game's first start resets this
 game's Steam stats (stock behaviour).
 
-**The game's Settings menu** (builds 19 to 21): SOCIAL MEDIA, FORUM and CUSTOMER CARE, which cannot work offline, are hidden;
+**The game's Settings menu** (builds 19 to 22): SOCIAL MEDIA, FORUM and CUSTOMER CARE, which cannot work offline, are hidden;
 the six tiles left (GAMEPLAY SETTINGS, AUDIO, ACCOUNTS / HELP, LANGUAGES, PERFORMANCE) stand in two centred rows of three
 with ABOUT alone below them, also after Back from any page behind them (build 19 showed the stock menu again after a
-page and Back; build 20 could show the stock menu for a split second first; if build 21 still shows it at all, send the
+page and Back; build 20 could show the stock menu for a split second first; if build 21 or 22 still shows it at all, send the
 `settings menu:` lines of `McvsOffline\logs\server.log`). Every page
 behind them is Steam's own, unchanged; so is the Settings panel during a match.
 The settings page's **Shorter Settings menu** (`admin.settingsMenu.trim`, Settings › Gameplay) brings the stock menu
@@ -269,26 +269,26 @@ the bot match: in WR2 they caused the long freezes, which would hide everything 
 | 18 | optional: Steam › Verify integrity of game files while installed, then `status` | the state | still `installed, current` |
 | 19 | question: had this Steam account played MCVS on PC before this project? | yes / no | — |
 
-Expected `verify` values for step 3 (build 21: the Linux run of the same kit on Steam build 6372049; `install.json`
+Expected `verify` values for step 3 (build 22: the Linux run of the same kit on Steam build 6372049; `install.json`
 itself is not listed because it holds the install time):
 
 | file | sha256 |
 |---|---|
-| `McvsOffline/bin/EngineBridge.dll` | `40194015993b0192b874d83145cd3a06654304e927c436f37196d9313dc707fb` |
-| `McvsOffline/bin/Game.dll` | `98a0642e6624edcebbe43d570a0277cdc53d24e46c9179e62be54571e555ab92` |
-| `McvsOffline/bin/Gameloft.Engine.dll` | `c37b58f9ddcabcd3e02c71328eb1cc6aea0a066d0f4a0041c5ae293af96a0155` |
-| `McvsOffline/bin/Gameloft.Util.dll` | `e578dae19499c1c5b9fe24554223653ff09f8a117947fe160844d6ea56ca061a` |
-| `McvsOffline/bin/McvsOffline.Server.dll` | `8a211365c8b3c9c9a5de1922a68a0c50dad9ad97fa73b5b0428c2809b30d65a1` |
+| `McvsOffline/bin/EngineBridge.dll` | `6309bef10d51eb20964e2cd39118c17477b343fa4a5576ba68cfe62a72b00e24` |
+| `McvsOffline/bin/Game.dll` | `501da9f8b780139b4937bdb54e1e558e6c54e0b13c1d8e1d6e466fd9a1157662` |
+| `McvsOffline/bin/Gameloft.Engine.dll` | `8ff58b12c5578b534b68fcd43be4552b8ada5ec8b8c43217e7feb8ba7e286980` |
+| `McvsOffline/bin/Gameloft.Util.dll` | `9963c636a9b4692e1fcfe42973f0e9caa1f515535f0e552e3ab3388e9578440b` |
+| `McvsOffline/bin/McvsOffline.Server.dll` | `c3e6d77a09f373de0871eac71b38d533446dcaab9b703692ee1121134dec2560` |
 | `ModernCombatVersus.exe.config` | `3ebe99b3c93a9540cd7f7b03da55fc048a544501c17e8621457884eae456f94c` |
 
 Any difference in this table stops the round until it is explained: the bytes you run must be the bytes we tested.
 (The config is the one WR2 ran and build 16 wrote, with no `<qualifyAssembly>` lines: builds 14 and 15 wrote
-`fda12aef…c4b6`, which has five of them. Build 21 changed the server DLL and dropped the `bottile` patch, so
-`Game.dll` has one instruction back to the game's own; the four game DLLs change with the server DLL, as in every
-build. Over an older install (build 20 or before), this kit's `status` and `verify` say `installed, OLDER BUILD -
-OLDER BUILD (<n>; this kit installs build 21): run install to update it`: run it; the install then writes exactly
-these values (checked over a build-20 install on Linux). A saved command line with `bottile` in `--patch` still works:
-the kit prints `warn: patch 'bottile' was removed in build 21 (...): ignored` and installs the same bytes.)
+`fda12aef…c4b6`, which has five of them. Build 22 changed only the server DLL; the four game DLLs change with it in
+their MVID only, as in every build. Over an older install (build 21 or before), this kit's `status` and `verify` say
+`installed, OLDER BUILD - OLDER BUILD (<n>; this kit installs build 22): run install to update it`: run it; the
+install then writes exactly these values (checked over a build-21 install on Linux). A saved command line with
+`bottile` in `--patch` (build 20 or before) still works: the kit prints `warn: patch 'bottile' was removed in build 21
+(...): ignored` and installs the same bytes.)
 
 ## 8. What to send back
 
