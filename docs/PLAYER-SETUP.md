@@ -390,8 +390,11 @@ Settings menu** (`admin.settingsMenu.performance`) removes the PERFORMANCE tile 
 game draws it, so MORE GAMES and FORUM never flash on a return; off, the first opening can show the stock menu for one
 frame. It turns itself off when the game closed during that step at the last start (the status page's "Recent problems"
 then has a `same frame skipped` line): switch it back on to try again (if settings.json could not be saved, the line
-names the marker file to delete instead). With build 22 ABOUT sits at the right of the
-bottom row, where the game itself puts it. If the menu cannot be rearranged, it stays as the game draws it and
+names the marker file to delete instead). From build 23 ABOUT sits in the middle of the bottom row: it is drawn on the
+button the game itself centres (the one MORE GAMES used), and a tap on it opens ABOUT; the Gameloft logo in the top bar
+still does what it did. A fourth setting, **ABOUT centred in the Settings menu** (`admin.settingsMenu.aboutCentre`, on by
+default), switches that off: ABOUT then sits at the right of the bottom row, where the game puts it (build 22). If the menu
+cannot be rearranged, it stays as the game draws it and
 `server.log` says why in a `settings menu:` line.
 
 **Chrome is not supported.** Open the page only from the game. In Chrome (or any other browser)

@@ -7,8 +7,10 @@ stock menu again after a tab and Back on both platforms; the device cause is not
 20's stock grid flash "for a split second" on every return to Settings (the Back bug itself was fixed by build 20); the run
 per focus-in stays as the safety net. Build 22 (`e1bb9b9`, APK and PC kit; merged from `wip/b22-switch`) makes Android's `setup()` stock writes draw nothing,
 after the owner saw build 21 still flash MORE GAMES and the FORUM tile on a return (§3.2, "Build 22"), and adds the switch
-`admin.settingsMenu.sameFrame` with its automatic fallback (§5 risk 2). Build 22 has not yet been seen on a phone or on
-Windows. This is the final design: the review corrections (A1-A3, B1-B2, C1, D1-D2, E1-E7, F1
+`admin.settingsMenu.sameFrame` with its automatic fallback (§5 risk 2). Build 23 (`wip/b23-phone`) answers the owner's build-22
+report from the S22 (§3.2, "Build 23"): the PERFORMANCE title back at the tiles' height, ABOUT drawn centred on MORE GAMES'
+button with the switch `admin.settingsMenu.aboutCentre`, no same-frame look when the dress before `setup()` proved it
+needless, and timings in the log lines. Build 23 has not yet been seen on a phone or on Windows. This is the final design: the review corrections (A1-A3, B1-B2, C1, D1-D2, E1-E7, F1
 of the design review) are folded in, and each place says which one it is.
 
 Tags: [V] checked in the exported ActionScript, the decompiled C#, the game data or the repo code. [I] inferred from the
@@ -93,15 +95,15 @@ ABOUT is a `ThinBtn`, centred on its 365.8-wide plate, not on its runtime `.widt
 ```
   [ GAMEPLAY SETTINGS ] [ AUDIO ] [ CUSTOMIZE CONTROLS ] [ ACCOUNTS ]
           [ HELP ] [ LANGUAGES ] [ PERFORMANCE ]
-                                    ( ABOUT )
+                          ( ABOUT )
 ```
 
 | row | tile (instance) | x | y |
 |---|---|---|---|
 | 1 | GAMEPLAY SETTINGS (`btn_general`) · AUDIO (`btn_audio`) · CUSTOMIZE CONTROLS (`btn_customize`) · ACCOUNTS (`btn_account`) | -948 · -471.05 · 6.85 · 484 | -427.9 |
 | 2 | HELP (`btn_help`) · LANGUAGES (`btn_language`) · **PERFORMANCE** (`btn_forum`, re-dressed) | -709.4 · -232.0 · 245.4 | -50.9 |
-| bottom | ABOUT (`btn_credits`) | 208 (build 22; -182.9, centred, until build 21) | 354.1 |
-| hidden | `btn_social`, `btn_customer`, `btn_more` (build 22: also off the panel, y 4000, alpha 0) | | |
+| bottom | ABOUT: build 23 `btn_more` titled ABOUT (`admin.settingsMenu.aboutCentre` on); `btn_credits` with it off | -177 (build 23, setup()'s own centre); 208 (build 22 and the switch off); -182.9 until build 21 | 354.1 |
+| hidden | `btn_social`, `btn_customer`, and `btn_credits` (build 23) or `btn_more` (switch off, build 22) (build 22: also off the panel, y 4000, alpha 0) | | |
 
 * **Order.** The PC order with CUSTOMIZE CONTROLS after AUDIO, so both platforms read the same way and PERFORMANCE
   comes last, as on Steam.
@@ -113,7 +115,9 @@ ABOUT is a `ThinBtn`, centred on its 365.8-wide plate, not on its runtime `.widt
   timeline moves them on every button state (`_library.swf` sprite 1047: `mc_bg` x 0 on frames 1-14, 8.85 to 17.25 on
   frames 15-44 from `focus_in` to `enabled_end`; `txt` -2.9 to 2.25) [V], so a tap or a focus change would snap the plate
   back or freeze its press animation. BtnBase and BtnSimple themselves write no child x (only `txt.y`, BtnSimple.as:85-88)
-  [V]. ABOUT therefore sits right of centre on the bottom row, its stock place.
+  [V]. ABOUT therefore sits right of centre on the bottom row, its stock place. **Build 23:** ABOUT is drawn on MORE GAMES'
+  button instead, which `setup()` itself shows at its one-button centre -177 (:210, :212); see §3.2, "Build 23". The plate
+  is 5.9 units (about 5 px on the S22) right of builds 19-21's -182.9: exact centring would need a write after `setup()`.
 * With `admin.settingsMenu.performance` off and the trim on, FORUM stays hidden and row 2 is HELP and LANGUAGES under
   row 1's two middle columns (-471.05, 6.85).
 * **The PERFORMANCE tile** is `btn_forum` re-labelled from C#: `setup({title:"setting.Performance",
@@ -440,6 +444,83 @@ Title PERFORMANCE (`setting.Performance`, translated). No category headers, as o
     panel, the icon put back without the rename or the same-frame switch, the marker across the render thread) fail on
     05a2028's code but one regression check, as do the two changed breadcrumb cases; `SameFrameBreadcrumbTests` for the members alone, and
     the real-assembly check of the remap's members (`RealSettingsMenuMembersTests`).
+* **Build 23: the PERFORMANCE title, ABOUT centred, and the gear's stutter (Android; PC only gains log text).** The owner's
+  build-22 report from the S22: (P1) the PERFORMANCE tile's title is drawn in the middle of the tile over its icon; (P2)
+  ABOUT sits right of centre; (P3) a small stutter on the gear tap. `menu_settings` is a disposable menu (SwfMain.as:606,
+  MenusStack createMenu :225-252), so every gear tap builds a new panel on frame 1 and is a first entry for PreDress.
+  * **P1, cause [V]:** the only writer of the title's y is BtnSimple.setup: `if (this.needAlign) txt.y = … _loc2_.height / 2`
+    (AND-AS elements/BtnSimple.as:83-95; sprite 6716 has neither `mc_hitzone` nor `mc_bg`, so the tile itself, 355.05 / 2 =
+    177.5), and `_needAlign` defaults to true (:25). The stock code turns it off just before its own setup (AND-AS/MS:110-120),
+    but build 22's PreDress calls `btn_forum.setup` on the new instances first (UiNatives' EnterSection, before setup()), so
+    the title is centred and nothing writes it again (the only other `txt.y` writers are BtnSimpleProgress.as:36 and
+    BtnShop.as:33). Build 21 had no PreDress. **Fix:** every `btn_forum.setup` of ours on Android goes through
+    `ForumSetup`: `needAlign = false` first, read back (BtnSetting is dynamic, swc/settings/BtnSetting.as:6, so a write that
+    skips the setter would make a member the getter ignores; only the read-back tells), then the setup, then `TitleRepair`:
+    a title below 260 (centred) gets the constant 294.2 (sprite 6716's frame-1 `txt` ty; the timeline animates 290.7 to
+    294.2, which is left alone, so btn_help's y is read only for the log) and is read back. PreDress's "kept" branch repairs a
+    title a fallback centred earlier, outside the read-back: no title problem reaches `TileReads`, the verify, a re-dress or
+    `RedressFailed`. PC (`android` false) is the plain setup; PreDress never runs there. Notes in the focus-in line's
+    details: `needAlign off, title y 294.2`, `title y put back (177.52 to 294.2; needAlign refused: <Type: msg>)`,
+    `… needAlign not taken (reads true))`, `title y kept (<y>)` only for a y outside 285-300, and once per process `title ref
+    294.2, btn_help <y>`; one line per process when the repair fails: `settings menu: PERFORMANCE title y not put back (<why>);
+    the title stays centred as in build 22`. No switch: it runs only with PERFORMANCE, and its fallback is build 22.
+  * **P2, cause [V]:** `setup()` writes the bottom row by name on every focus-in (AND-AS/MS:208-213: `btn_more.visible =
+    !IsKayac()`, `btn_more.x = -177`, `btn_credits.x = 208` while MORE GAMES is shown); build 22 leaves ABOUT at that 208 on
+    purpose (above). The only centred x `setup()` writes is MORE GAMES' -177. **Fix (`admin.settingsMenu.aboutCentre`, on by
+    default, Android only):** MORE GAMES becomes ABOUT. Both are `swc.lib.Buttons.ThinBtn` at ty 354.10 with a title-only
+    setup and the same SFX (:143-166), so the button looks the same. PreDress, with the trim on and only while our
+    `GoToFreeGames` is the native's only delegate (EnterSection checks and re-registers it first: OnStart's
+    AddBrowserOverrides, UIComponent.cs:395-405, :1467, can put the stock one back up to 2 s before the re-ensure), dresses
+    the plan `Plan(false, performance, true)`: `btn_more` kept at -177, 354.1 (mouse back on; `setup()` writes its
+    `visible` and x itself) and `btn_credits` off the panel like the removed tiles, its x at the marker 0. After the strict
+    read-back it puts in a second remap entry, `setting.FreeGamesButton → setting.CreditButton` (`MoreGamesRemap`, the same
+    copy and swap as FORUM's; the id is used only at :161, one string in and_UI.swf; single-hop, LocalizationFormatterComponent.cs:260-265),
+    so `setup()`'s own dress titles MORE GAMES' button ABOUT, translated, and ReloadStringTable re-formats it. Any failure
+    (`no GoToFreeGames`, `dress refused: <why>`, `read-back <instance>`, `remap refused: <why>`) takes the remap out and
+    dresses build 22's bottom row in the same call, and every EnterSection whose PreDress does not draw it (switch off,
+    same-frame switch off, breadcrumb, frame 4 or 5, no UI) takes the remap out. `IsTile` leaves `btn_more` out of the
+    width check (its runtime width is about 401). The same-frame gate becomes `setup()`'s last bottom-row write,
+    `btn_credits.x` 208 over our marker 0 (:213). **The tap:** `GoToFreeGames` is replaced like `GoToForum` (registered by
+    `Ensure` with replace, re-ensured every 2 s). While the remap is in (`MoreGamesRemap.IsOn`: the title and the tap key on
+    the same thing), `AboutRedirect.Tap` reads the focus inside the native, only while Flash work inside natives is allowed
+    and after the breadcrumb: `gluic.utils.FocusManager.componentWithFocus` (a static getter, FocusManager.as:19-22), which
+    ButtonSimple gives the button it releases (ButtonSimple.as:265, :302; RELEASE :329; cleared only at :342), compared by
+    ASCharacter.Equals with Settings' `btn_more`. Focus on `btn_more`: ABOUT is pushed in a posted step while Settings is on
+    top (`menu_about`; a double tap finds ABOUT on top, one push); focus on anything else (the top bar's Gameloft button,
+    FreemiumBar.as:566-570): the game's `UIComponent.GoToFreeGames()` at once; focus unreadable (anything but a display
+    object, or an exception): the posted step decides by the top menu (Settings → ABOUT, ABOUT → not opened, else the game's).
+    With the remap out the tap is the game's, with no line. Lines: `settings menu: MORE GAMES remap installed | removed | not
+    installed (<why>)`; details `ABOUT on MORE GAMES (-177), ABOUT tile off the panel` or `MORE GAMES off the panel, ABOUT 208
+    (<why>)` (with the switch off build 22's text exactly); `settings menu: ABOUT opened from MORE GAMES (focus btn_more |
+    focus unreadable: <type>, Settings on top)`, `… ABOUT not opened (<why>)`, `… MORE GAMES tap passed to the game (focus on
+    <name> | Settings not on top)`, and once per process `settings menu: focus unreadable (<type>); MORE GAMES taps decided by
+    the top menu`. Kayac (frame 4) and the Chinese build (5) are not dressed (PreDress dresses frame 3 only). Steam: unchanged
+    (no remap, no registration, ABOUT at -182.9; PC's `setup()` hides MORE GAMES itself, PC-AS/MS:255).
+  * **P3, F1, the sealed skip [I: nothing is measured yet].** Every gear tap builds the whole stock menu and then, in the
+    focus-in frame, PreDress, about 40 calls of our GetPlatformId observer with the gate, and one look (a full read and
+    tidy). After its last write PreDress now proves from reads that a look after `setup()` would change nothing: the trim on,
+    the FORUM remap on and the icon out of reach (`DressedIcon` found) or no re-dress, every kept and removed instance in the
+    strict read-back, and with ABOUT on MORE GAMES its remap in; ABOUT wanted but not drawn there keeps build 22's look (the
+    safe side of a fallback). Only then `SettingsMenuState.PreDressSealed` names the run, and EnterSection disarms the step
+    and skips the observer (in the fake: 195 Flash handles in the focus-in frame instead of 696). It is never inferred from
+    `PreDressDone` (also set when the icon slot was kept). Without ABOUT on MORE GAMES, MORE GAMES' tidy moves to the run's
+    first frame (`; MORE GAMES shown off the panel 1 frame`: drawn as nothing, no taps). Lines: `; same frame: not needed
+    (dressed before setup)`, or build 22's `; same frame: laid out (…)` with ` (not skipped: <why>)`. PC: never sealed.
+  * **P3, M, the timings (both platforms, log text only).** `SettingsMenuClock` (the instance Stopwatch API the game uses,
+    PlayerComponent.cs:1172-1173 and :546, reached only through `SettingsMenuTimer.Now`, whose try/catch logs once
+    `settings menu: timings unavailable (<Type>: <message>)` and leaves every line as in build 22) is made in
+    `UiNatives.Start`. The focus-in line gains `; ms: EnterSection 4.2 (page 0.0, remap 0.1, grid 0.0, before setup 3.6, watch
+    0.3, prompt 0.0), same frame 0.0, breadcrumb 1.9; focus-in frame dt 41.0; to the run's first frame 38.0; first in this
+    process` (dt is `GameApplication.ApplicationDeltaTime`, GameApplication.cs:569, read at the run's first frame; "to the run's
+    first frame" includes frame pacing); the laid-out line `; ours 31.5 ms over 47 frames (max 1.1 at frame 1); frame gaps
+    median 16.7, max 38.0 at frame 2`; with both switches off one `settings menu: focus-in N timings (stock): focus-in frame dt
+    X, to the run's first frame Y ms`. No decision reads a time. Deferred until these numbers exist: caching the reflection
+    (F2), a JIT warm-up off the game thread (F3), a cheaper read-back (F4), a cheaper breadcrumb (F5).
+  * **Tests** (`SettingsMenuBuild23Tests`, on fakes that now model needAlign and `txt.y` with refusals, the focus, the top
+    bar's Gameloft button and the stock GoToFreeGames): 29 cases, 22 fail on build 22's code (e1bb9b9) and 7 are marked
+    regression checks; `EmbeddedDllResolutionTests` walks Stopwatch's members in the trimmed assemblies. The earlier tests run
+    with the switch off in the fake host (its own default), so they check that the switch off is build 22; their Android
+    same-frame cases use an unsealed rig.
 * `admin.settingsMenu.trim` off: no relayout; with `admin.settingsMenu.performance` on, only the re-dress, in place.
 
 ### 3.3 R2's tap and R3: Performance mode and the page (`SettingsMenu/PerformancePage.cs`)
@@ -566,6 +647,18 @@ Title PERFORMANCE (`setting.Performance`, translated). No category headers, as o
   the run; a second focus-in in the same frame replaces the step. `RealSettingsMenuMembersTests` adds
   `RemoveNativeFunctionOverride(object)`, `UIComponent.GetPlatformId() : int` and `MenuComponent.NativeGetLanguage() :
   string` on both platforms.
+* **Build 23 `SettingsMenuBuild23Tests`** (§3.2, "Build 23"; the fake tile has BtnSimple's needAlign and centres `txt.y`
+  while it is true, the fake `setup()` turns it off before each tile's setup, and the host's needAlign or `txt.y` write can
+  throw or be ignored; a FocusManager set by a press and cleared after the RELEASE; the top bar's Gameloft button; the
+  game's own GoToFreeGames from AddBrowserOverrides): the PERFORMANCE title at 294.2 on every gear tap with and without
+  the remap and through the undress, put back when needAlign is refused or not taken, one line when neither write takes and
+  nothing else changes; one ABOUT drawn at (-177, 354.1) on every render of five gear taps and two returns from ABOUT, also
+  sampled between the dress and `setup()`; its tap opens ABOUT, the Gameloft logo still runs the game's GoToFreeGames, an
+  unreadable focus opens ABOUT while Settings is on top with one line, a double tap one push, a failed dress or read-back
+  build 22's row without the remap, two ABOUTs both open ABOUT, the stock GoToFreeGames back from OnStart repaired, a
+  language reload; F1's seal (no observer, fewer Flash handles) and its refusals; the timings with a fake clock, a failing
+  clock and both switches off. 29 cases, 22 fail on e1bb9b9 and 7 are regression checks (Kayac and the match panel, the
+  switch or the same-frame switch off, Steam).
 
 ## 5. Risks and what only a device can tell
 
@@ -589,7 +682,20 @@ Title PERFORMANCE (`setting.Performance`, translated). No category headers, as o
    33 ms of the tap or Back and the app swiped away before it drew twice more); normal exits, backgrounding at any other time and watchdog
    reports leave no marker.
 11. **ABOUT is not centred on Android** (build 22, by design, §1.2): it stays at `setup()`'s own 208, as ThinBtn's
-    timeline moves its children on every button state.
+    timeline moves its children on every button state. Build 23 draws it on MORE GAMES' button at -177, 5.9 units (about
+    5 px) right of the plate's true centre; exact centring needs a write after `setup()`.
+12. **needAlign's setter** (build 23, P1) [G]: the read-back tells a write that made a dynamic member beside the accessor
+    (`needAlign not taken`); the repair then writes `txt.y`, and whether gameswf keeps a script-written `txt.y` across the
+    tile's own timeline states is [G] (the line says `title y put back` or `not put back`).
+13. **FocusManager's static getter read from C#** (build 23, P2) [G]: unreadable means the top menu decides, so a Gameloft
+    logo tap in the top bar while Settings is on top opens ABOUT (harmless offline; logged once).
+14. **The stock GoToFreeGames back for up to 2 s** after OnStart: EnterSection repairs it before the dress; a MORE GAMES tap
+    in that window runs ShowMoreGames, a no-op offline. ABOUT also opens one frame later than a stock ABOUT tap (posted, as
+    the PERFORMANCE tile).
+15. **The seal** (build 23, F1) [I]: it rests on reads after the last write and on `setup()` writing nothing a look would
+    change; if a future game build adds such a write, the look must come back (the seal's conditions name the plan).
+16. **Stopwatch in the trimmed BCL** (build 23, M): walked in the trimmed assemblies by a test; any failure on the phone is
+    one line and build 22's text.
 3. **Hidden tiles taking taps:** `visible=false` + `mouseEnabled=false`, as Gameloft hides MORE GAMES itself (PC-AS/MS:255)
    [I strong]. On PC, keyboard and gamepad focus must not reach them either: nothing of ours changes focus navigation, so
    only the device check can tell [G].
@@ -616,7 +722,10 @@ Title PERFORMANCE (`setting.Performance`, translated). No category headers, as o
   menu and in a match; each Performance row changes the engine (the `[boot] graphics:` line, a visible scale change); the
   restart prompt; FPS 90/120 measured on the 120 Hz panel; the R3-A spike line. Build 21: no stock grid on any return
   (slow-motion video), and per return the `focus-in` line's `same frame: …` part and the laid-out line's `in the focus-in
-  frame; stock grid drawn 0 frames`.
+  frame; stock grid drawn 0 frames`. Build 23: the PERFORMANCE title under its icon at the other tiles' height on five gear
+  taps (pressed, it shrinks like the others: needAlign worked), one ABOUT centred on the bottom row that opens ABOUT, the
+  top bar's Gameloft logo as in build 22, `same frame: not needed (dressed before setup)` and the `ms:` parts of the lines
+  (every tap or only the first after start; the FRAME RATE LIMIT), `admin.settingsMenu.aboutCentre` off giving build 22's row.
 * **PC:** the grid at 1920×1080 and at a 16:10 size, also after Back from every tile (build 20, with the same log lines);
   PERFORMANCE still opens Steam's page; build 21: no stock grid on any return, `same frame: laid out (GetLanguage calls N,
   looks 1)` and `stock grid drawn 0 frames` in the log; hidden tiles cannot be reached
