@@ -57,7 +57,9 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             if (registerGameNatives) Game.RegisterAll(this);
             classes["gluic.components.menus.MenusStack"] = new Dictionary<string, Func<object[], object>>
             {
-                { "getMenuOnTopOfStack", a => Top },
+                { "getMenuOnTopOfStack", a => StackTop },
+                { "getMenuIndexInStack", a => (float)IndexInStack(a.Length > 0 ? a[0] : null) },
+                { "getMenuByName", a => MenuByName(a.Length > 0 ? a[0] as string : null) },
             };
             classes["managers.MenusManager"] = new Dictionary<string, Func<object[], object>>
             {
@@ -97,6 +99,69 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         public List<FlashObject> Stack { get; } = new List<FlashObject>();
 
         public FlashObject Top { get { return Stack.Count == 0 ? null : Stack[Stack.Count - 1]; } }
+
+        // ------------------------------------------------------------------ the Back sequence (what a return may look like)
+
+        /// <summary>
+        /// Hypothesis 1 of the build-19 report: a popped menu still answers <c>MenusStack.getMenuOnTopOfStack()</c> for this many
+        /// frames (its out-transition) although the menu below has had its focus-in. 0: the real gluic order (MenusStack.popMenu
+        /// pops before <c>focusGiven</c>).
+        /// </summary>
+        public int PoppedStaysOnTopFrames { get; set; }
+
+        /// <summary>
+        /// Hypothesis 2: this many frames after a return to Settings (a focus-in from a pop), something runs the stock positioning
+        /// and visibility of <c>setup()</c> once more (a transition end, a late handler). 0: nothing does.
+        /// </summary>
+        public int RestockFramesOnReturn { get; set; }
+
+        /// <summary>
+        /// Steam's <c>setup()</c> goes to panel frame 3 and back to 1 (PC-AS MenuSettings.as:44-52): the timeline places new tile
+        /// instances (frames 1 and 3 hold them at other depths), so nothing written to the old ones survives a focus-in.
+        /// </summary>
+        public bool SteamReplacesInstances { get; set; }
+
+        /// <summary>Flash frames run (<see cref="AdvanceFrame"/>).</summary>
+        public int FramesAdvanced { get; private set; }
+
+        private FlashObject leaving;
+        private int leavingFrames;
+        private int restockIn;
+
+        /// <summary>What getMenuOnTopOfStack answers: a popped menu still leaving (<see cref="PoppedStaysOnTopFrames"/>), else <see cref="Top"/>.</summary>
+        public FlashObject StackTop { get { return leaving != null && leavingFrames > 0 ? leaving : Top; } }
+
+        /// <summary>
+        /// The Flash part of a game frame (World.Update, after the context drain): a leaving menu's frames count down, and a pending
+        /// re-stock runs.
+        /// </summary>
+        public void AdvanceFrame()
+        {
+            FramesAdvanced++;
+            if (leaving != null && --leavingFrames <= 0) leaving = null;
+            if (restockIn > 0 && --restockIn == 0)
+            {
+                FlashObject panel = Panel;
+                if (panel != null && Stack.Any(m => m.Name == McvsMenuNames.Settings)) Setup(panel);
+            }
+        }
+
+        private int IndexInStack(object menu)
+        {
+            string name = menu as string ?? (menu as FlashObject)?.Name;
+            for (int i = 0; i < Stack.Count; i++)
+            {
+                if (ReferenceEquals(Stack[i], menu) || Stack[i].Name == name) return i;
+            }
+            return -1;
+        }
+
+        private FlashObject MenuByName(string name)
+        {
+            FlashObject menu = Stack.LastOrDefault(m => m.Name == name);
+            if (menu == null && leaving != null && leaving.Name == name) menu = leaving;
+            return menu;
+        }
 
         /// <summary>MenusManager.pushMenu names, in order (Flash's own pushes and the host's).</summary>
         public List<string> Pushed { get; } = new List<string>();
@@ -207,7 +272,16 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
                 CallFromFlash("SaveUserPreferences", null);
                 EmptyContent(top);
             }
-            if (Top != null) FocusIn(Top);
+            if (PoppedStaysOnTopFrames > 0)
+            {
+                leaving = top;
+                leavingFrames = PoppedStaysOnTopFrames;
+            }
+            if (Top != null)
+            {
+                FocusIn(Top);
+                if (Top.Name == McvsMenuNames.Settings && RestockFramesOnReturn > 0) restockIn = RestockFramesOnReturn;
+            }
         }
 
         /// <summary>Opens Settings (the platform's frame: in game 2, Kayac 4, Chinese 5, else 1 on Steam and 3 on Android).</summary>
@@ -475,6 +549,13 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             FlashObject panel = menu.Child("mc_panel");
             CallFromFlash("EnterSection", null, panel.Frame == 2 ? "pvp_settings_screen" : "settings_main_screen");
             CallFromFlash("MoveToCamera", null, "settings.voidLoaded", "VoidCamera");
+            Setup(panel);
+        }
+
+        /// <summary>MenuSettings.setup() on the panel: the tiles' dress, then each platform's positioning and visibility.</summary>
+        private void Setup(FlashObject panel)
+        {
+            if (Steam && SteamReplacesInstances && panel.Frame == 1) ReplaceInstances(panel);
             foreach (FlashObject item in panel.Children)
             {
                 string[] stock;
@@ -525,6 +606,14 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             // addButtonListeners: the last natives of setup() (AND-AS/MS:363, PC-AS/MS:530).
             CallFromFlash("GetPlatformId", Game.PlatformId);
             CallFromFlash("GetPlatformId", Game.PlatformId);
+        }
+
+        /// <summary>gotoAndStop(3) then gotoAndStop(1): every frame-1 timeline instance of the panel is a new one, at its timeline place.</summary>
+        private void ReplaceInstances(FlashObject panel)
+        {
+            var fresh = BuildSettingsMenu(1).Child("mc_panel");
+            foreach (FlashObject old in panel.Children.ToList()) panel.Children.Remove(old);
+            foreach (FlashObject item in fresh.Children.ToList()) panel.Add(item);
         }
 
         private static void SetX(FlashObject panel, string name, float x)
@@ -1332,7 +1421,9 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         {
             Assert.True(Disposals == 0, "ASClass " + fullName + " used after Dispose");
             object[] converted = (args ?? new object[0]).Select(a => FlashValue.In(tree, a)).ToArray();
-            if (methodName != "getMenuOnTopOfStack" && !methodName.StartsWith("getViewport", StringComparison.Ordinal))
+            // The stack's reads are not writes.
+            if (methodName != "getMenuOnTopOfStack" && methodName != "getMenuIndexInStack" && methodName != "getMenuByName" &&
+                !methodName.StartsWith("getViewport", StringComparison.Ordinal))
                 tree.HostWrites.Add(fullName + "." + methodName + "(" + string.Join(", ", converted.Select(FakeFlashTree.FormatAs)) + ")");
             return tree.Track(new FlashValue(tree, tree.CallStatic(fullName, methodName, converted)));
         }

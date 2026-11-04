@@ -886,6 +886,11 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             return inner.Post(action);
         }
 
+        public bool PostNextFrame(Action action)
+        {
+            return inner.PostNextFrame(action);
+        }
+
         public bool Exit(string reason, bool relaunch)
         {
             return inner.Exit(reason, relaunch);

@@ -216,6 +216,23 @@ Title PERFORMANCE (`setting.Performance`, translated). No category headers, as o
   out` or `… not laid out (<reason>)`.
 * `setup()` runs on every focus-in, including every return from a submenu (AND-AS/MS:468-473, PC-AS/MS:640-645), and our
   step follows it each time.
+* **Build 20: one run per focus-in, not one step.** Build 19's single step left the stock menu after a tab and Back (owner,
+  both platforms). `setup()` brings the stock grid back on every focus-in: on Android it re-dresses FORUM, shows MORE GAMES
+  and moves ABOUT and CUSTOMER CARE (AND-AS/MS:110-119, :208-212); on Steam it goes to panel frame 3 and back to 1
+  (PC-AS/MS:44-52), which places new tile instances (frames 1 and 3 hold them at other depths, frame 2 has other characters
+  there), and sets the 4-column x's (:253-345). So the screen after a return is only what our step makes of it, and a step
+  that did not land had no second chance. `SettingsMenuLayout.Schedule` now starts a run (the next focus-in's run supersedes
+  it):
+  * each frame it finds `menu_settings` on top of `MenusStack`, else by name while it is in the stack
+    (`getMenuIndexInStack`, `getMenuByName`), and reads the panel as before; a failed read is tried again on the next frame;
+  * once laid out it reads the grid back (slots ±0.5, removed instances invisible; on Android only while the tile is active)
+    until it has stayed laid out for 2 frames after a 45-frame settle window, and lays it out again when the stock grid came
+    back; at 120 frames it stops;
+  * the frames after the first are posted with `GameSynchronizationContext.DelayedPost` (`ISettingsMenuHost.PostNextFrame`):
+    a `Post` from a drained step runs in the same drain (`while (HasWorkItems)`), not on the next frame;
+  * one log line per run: `… laid out` (plus `after N frames (<why it waited>)`, `laid out again Kx …`) or
+    `… not laid out (<reason>; gave up after N frames)`. `RedressFailed` is set only by a run that never laid the grid out
+    (or a write that threw); while a run cannot read the grid, `TileActive` is false, so a tap reaches the game's FORUM.
 * `admin.settingsMenu.trim` off: no relayout; with `admin.settingsMenu.performance` on, only the re-dress, in place.
 
 ### 3.3 R2's tap and R3: Performance mode and the page (`SettingsMenu/PerformancePage.cs`)

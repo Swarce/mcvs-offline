@@ -11,16 +11,21 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
     /// <summary>
     /// R1 and R2 (docs/design/settings-menu.md §1.1, §1.2, §3.2; skeptic A1-A3): the main-menu Settings grid without SOCIAL MEDIA,
     /// FORUM, CUSTOMER CARE and MORE GAMES, the tiles left centred and ABOUT alone below them; on Android btn_forum re-dressed as
-    /// PERFORMANCE. <see cref="UiNatives"/> posts <see cref="Apply"/> from <c>EnterSection("settings_main_screen")</c>, which
-    /// MenuBase.onFocusIn calls before <c>MenuSettings.setup()</c>; the step runs at the start of the next frame, after setup().
-    /// <para>The step reads everything before it writes anything (the build-13 rule): the menu on top of <c>MenusStack</c> is
-    /// <c>menu_settings</c>, its <c>mc_panel.currentFrame</c> is 1 on Steam or 3 on Android (never the in-match 2, Kayac 4 or
+    /// PERFORMANCE. <see cref="UiNatives"/> starts a run (<see cref="Schedule"/>) from <c>EnterSection("settings_main_screen")</c>,
+    /// which MenuBase.onFocusIn calls before <c>MenuSettings.setup()</c> on every focus-in, the first entry and every return; the
+    /// run's first step is at the start of the next frame, after setup(). Build 20: setup() brings the stock grid back on every
+    /// focus-in (on Steam with new tile instances), so a single step that did not land left the stock menu; a run therefore tries
+    /// again on the next frames, finds Settings by name also below another menu, and reads the grid back until it has stayed laid
+    /// out, laying it out again when the stock grid came back (see <see cref="Schedule"/>).
+    /// <para>The step reads everything before it writes anything (the build-13 rule): <c>menu_settings</c> is on top of
+    /// <c>MenusStack</c> or in it, its <c>mc_panel.currentFrame</c> is 1 on Steam or 3 on Android (never the in-match 2, Kayac 4 or
     /// Chinese 5: any other frame fails the step like a missing instance), every instance the plan names exists and every tile is
     /// <see cref="SettingsMenuNames.TileWidth"/> wide (±2). It then writes: on Android first <c>btn_forum.setup({title, icon})</c>
     /// (if that throws, nothing else moves); <c>visible=false</c> and <c>mouseEnabled=false</c> on the removed instances; absolute
     /// <c>x</c>/<c>y</c> as floats on the kept ones (this also ends Steam's relative drift of CUSTOMER CARE and ABOUT, PC
     /// MenuSettings.as:253-258). <see cref="SettingsMenuState.TileActive"/> is set only
-    /// after every write succeeded. One log line: "settings menu: frame 3, 7 tiles + ABOUT laid out" or "... not laid out (reason)".</para>
+    /// after every write succeeded. One log line per run: "settings menu: frame 3, 7 tiles + ABOUT laid out" (with "after N frames
+    /// (why it waited)" and "laid out again Kx ..." when that happened) or "... not laid out (reason; gave up after N frames)".</para>
     /// <para>Settings (read per step): <c>admin.settingsMenu.trim</c> off → no relayout; <c>admin.settingsMenu.performance</c> on
     /// (Android) → the re-dress, in place when the trim is off (T-B7). Performance off with the trim on: FORUM stays hidden and row 2
     /// is HELP and LANGUAGES under row 1's middle columns.</para>
@@ -175,15 +180,49 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             return placement != null && placement.Name != SettingsMenuNames.AboutButton;
         }
 
-        // ------------------------------------------------------------------ the step
+        // ------------------------------------------------------------------ the run (one per focus-in)
 
-        /// <summary>Posts <see cref="Apply"/> to the game thread; one log line when it cannot. Never throws.</summary>
+        /// <summary>Frames a run tries or watches at most: about 2 s at 60 fps (4 s at 30).</summary>
+        public const int MaxFrames = 120;
+
+        /// <summary>
+        /// Frames a run keeps watching a laid-out grid at least (about 0.75 s at 60 fps): the menu transitions of a return end
+        /// within it (MenuBase.onAnimate's 0.3 and 0.5 s alpha tweens, AND-AS MenuBase.as:224-249; the companion's 0.4 s state
+        /// tweens plus delays, MenuBaseCompanion.as:44-104), so anything that puts the stock grid back by then is caught.
+        /// </summary>
+        public const int SettleFrames = 45;
+
+        /// <summary>Consecutive frames the grid must be read back as laid out before the run stops (once <see cref="SettleFrames"/> passed).</summary>
+        public const int StableFrames = 2;
+
+        /// <summary>How far (panel units) a kept instance may sit from its slot and still count as laid out (Flash keeps x/y in twips).</summary>
+        public const double PlaceTolerance = 0.5;
+
+        /// <summary>
+        /// <c>EnterSection("settings_main_screen")</c>: starts this focus-in's run (the previous run stops at its next frame) and posts
+        /// its first frame to the game thread (the start of the next frame, after the stock <c>setup()</c>). One log line when it
+        /// cannot. Never throws.
+        /// <para>A run, on each frame: finds <c>menu_settings</c> (on top of <c>MenusStack</c>, else by name while it is in the
+        /// stack: a submenu that is still leaving, or one opened already), reads the panel as <see cref="Apply"/> does, and lays the
+        /// grid out when it is not laid out; a read that fails (no Settings in the stack, another frame, a missing instance, a width)
+        /// is tried again on the next frame. Once laid out it reads the grid back every frame until it has been found laid out on
+        /// <see cref="StableFrames"/> frames in a row after <see cref="SettleFrames"/> frames, and lays it out again whenever the
+        /// stock grid came back (as <c>setup()</c> brings it back on every focus-in: AND-AS MenuSettings.as:42-215 re-dresses FORUM,
+        /// shows MORE GAMES and moves ABOUT and CUSTOMER CARE; PC-AS :42-345 goes to panel frame 3 and back to 1, which places new
+        /// tile instances, and sets the 4-column x's). It stops at <see cref="MaxFrames"/> at the latest. One log line per run: laid
+        /// out (after how many frames and why it waited; how often it had to lay the grid out again) or not laid out (why, after how
+        /// many frames). A run that never laid the grid out sets <see cref="SettingsMenuState.RedressFailed"/> as
+        /// <see cref="Apply"/> does; a write that throws ends the run at once. Every frame after the first is posted with
+        /// <see cref="ISettingsMenuHost.PostNextFrame"/>: <see cref="ISettingsMenuHost.Post"/> from a step would run in the same
+        /// drain, not on the next frame.</para>
+        /// </summary>
         public static void Schedule(ISettingsMenuHost host, SettingsMenuState state)
         {
             try
             {
                 if (host == null || state == null) return;
-                if (!host.Post(() => Apply(host, state))) Write(host, "settings menu: not laid out (no game thread)");
+                var run = new Run(host, state, state.BeginLayoutRun());
+                if (!host.Post(run.Step)) Write(host, "settings menu: not laid out (no game thread)");
             }
             catch (Exception)
             {
@@ -191,10 +230,10 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         }
 
         /// <summary>
-        /// Game thread, after MenuSettings.setup(): the step above on <see cref="ISettingsMenuHost.ClientUi"/>. Logs exactly one line
-        /// when it lays out or finds a reason not to (both switches off logs nothing). Any frame but the plan's is such a reason, the
-        /// in-match 2 too: only <c>settings_main_screen</c> posts the step (the pause panel enters <c>pvp_settings_screen</c>), so a
-        /// wrong frame here is an anomaly. Never throws; every wrapper it got is disposed.
+        /// One step at once, without a run (game thread, after MenuSettings.setup()): the read, then the writes, and exactly one log
+        /// line when it lays out or finds a reason not to (both switches off logs nothing). Any frame but the plan's is such a
+        /// reason, the in-match 2 too: only <c>settings_main_screen</c> starts a run (the pause panel enters
+        /// <c>pvp_settings_screen</c>), so a wrong frame here is an anomaly. Never throws; every wrapper it got is disposed.
         /// <para><see cref="SettingsMenuState.RedressFailed"/> is set (for the process: the R4 gate) whenever the step meant to re-dress
         /// the tile and did not, also for a reason found while reading: a game update that moved an instance would otherwise hide
         /// FRAME RATE LIMIT from Gameplay Settings with no page to reach it.</para>
@@ -202,60 +241,243 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         public static void Apply(ISettingsMenuHost host, SettingsMenuState state)
         {
             if (host == null || state == null) return;
+            state.TileActive = false;
+            Outcome outcome = Attempt(host, state, false);
+            if (outcome.Kind == OutcomeKind.Off) return;
+            if (outcome.Kind == OutcomeKind.Wrote) Write(host, outcome.Text);
+            else Fail(host, state, outcome.Redress, outcome.Text);
+        }
+
+        private enum OutcomeKind
+        {
+            /// <summary>Both switches off: nothing to do.</summary>
+            Off,
+
+            /// <summary>Not readable now (<see cref="Outcome.Text"/> says why): tried again on the next frame.</summary>
+            Wait,
+
+            /// <summary>A write or a read threw: the run ends.</summary>
+            Fail,
+
+            /// <summary>The grid was laid out now.</summary>
+            Wrote,
+
+            /// <summary>The grid was read back as laid out; nothing written.</summary>
+            InPlace,
+        }
+
+        private sealed class Outcome
+        {
+            public static readonly Outcome Off = new Outcome { Kind = OutcomeKind.Off };
+
+            public OutcomeKind Kind;
+
+            /// <summary>The log line (Wrote, InPlace) or the reason (Wait, Fail).</summary>
+            public string Text;
+
+            public bool Redress;
+
+            /// <summary>The trim is on: a laid-out grid can be read back (the re-dress alone cannot).</summary>
+            public bool Watchable;
+
+            /// <summary>Wait: menu_settings is not in the stack at all.</summary>
+            public bool Gone;
+        }
+
+        /// <summary>
+        /// One look at the grid: read everything, then write everything, unless <paramref name="verify"/> finds it laid out already.
+        /// The re-dress cannot be read back, so on Android the grid counts as laid out only while the tile is active.
+        /// </summary>
+        private static Outcome Attempt(ISettingsMenuHost host, SettingsMenuState state, bool verify)
+        {
             bool redress = false;
             try
             {
-                state.TileActive = false;
                 bool trim = host.SettingsMenuTrim;
                 bool windows = host.IsWindows;
                 redress = !windows && host.SettingsMenuPerformance;
-                if (!trim && !redress) return;
+                if (!trim && !redress) return Outcome.Off;
                 object ui = host.ClientUi();
-                if (ui == null)
-                {
-                    Fail(host, state, redress, "no UI");
-                    return;
-                }
+                if (ui == null) return new Outcome { Kind = OutcomeKind.Wait, Text = "no UI", Redress = redress };
                 using (var flash = new FlashScope(ui))
                 {
-                    string done;
-                    string problem = TryApply(flash, state, Plan(windows, redress), trim, redress, out done);
-                    if (problem == null) Write(host, done);
-                    else Fail(host, state, redress, problem);
+                    LayoutPlan plan = Plan(windows, redress);
+                    var found = new Dictionary<string, object>(StringComparer.Ordinal);
+                    int frame;
+                    bool gone;
+                    string problem = Read(flash, plan, trim, redress, found, out frame, out gone);
+                    if (problem != null) return new Outcome { Kind = OutcomeKind.Wait, Text = problem, Redress = redress, Gone = gone };
+                    string done = Done(plan, frame, trim);
+                    if (verify && trim && (!redress || state.TileActive) && InPlace(flash, plan, found))
+                        return new Outcome { Kind = OutcomeKind.InPlace, Text = done, Redress = redress, Watchable = true };
+                    // The tile reads FORUM until the writes below have all succeeded.
+                    state.TileActive = false;
+                    WriteGrid(flash, state, plan, found, trim, redress);
+                    return new Outcome { Kind = OutcomeKind.Wrote, Text = done, Redress = redress, Watchable = trim };
                 }
             }
             catch (Exception ex)
             {
                 Exception cause = ex is TargetInvocationException && ex.InnerException != null ? ex.InnerException : ex;
-                Fail(host, state, redress, cause.GetType().Name + ": " + cause.Message);
+                return new Outcome { Kind = OutcomeKind.Fail, Text = cause.GetType().Name + ": " + cause.Message, Redress = redress };
             }
         }
 
-        /// <summary>
-        /// Null when done (<paramref name="done"/> is the log line), else why not. Reads everything before it writes anything; a
-        /// write that throws after the re-dress puts the stock FORUM dress back and rethrows.
-        /// </summary>
-        private static string TryApply(FlashScope flash, SettingsMenuState state, LayoutPlan plan, bool trim, bool redress, out string done)
+        /// <summary>One focus-in's attempts, one per frame (game thread); see <see cref="Schedule"/>.</summary>
+        private sealed class Run
         {
-            done = null;
+            private readonly ISettingsMenuHost host;
+            private readonly SettingsMenuState state;
+            private readonly int id;
+            private int frames;
+            private int writes;
+            private int firstWrite;
+            private int stable;
+            private bool redress;
+            private string done;
+            private string firstProblem;
+            private string lastProblem;
+
+            public Run(ISettingsMenuHost host, SettingsMenuState state, int id)
+            {
+                this.host = host;
+                this.state = state;
+                this.id = id;
+            }
+
+            public void Step()
+            {
+                try
+                {
+                    // A newer focus-in owns the grid: no line and no flag from this run.
+                    if (state.LayoutRun != id) return;
+                    frames++;
+                    Outcome outcome = Attempt(host, state, true);
+                    redress = outcome.Redress;
+                    switch (outcome.Kind)
+                    {
+                        case OutcomeKind.Off:
+                            return;
+                        case OutcomeKind.Fail:
+                            Fail(host, state, redress, outcome.Text + Frames());
+                            return;
+                        case OutcomeKind.Wrote:
+                            writes++;
+                            if (firstWrite == 0) firstWrite = frames;
+                            stable = 0;
+                            done = outcome.Text;
+                            lastProblem = null;
+                            // Trim off: the re-dress in place cannot be read back, so there is nothing to watch.
+                            if (!outcome.Watchable)
+                            {
+                                Finish();
+                                return;
+                            }
+                            break;
+                        case OutcomeKind.InPlace:
+                            stable++;
+                            done = outcome.Text;
+                            lastProblem = null;
+                            if (stable >= StableFrames && frames >= SettleFrames)
+                            {
+                                Finish();
+                                return;
+                            }
+                            break;
+                        default:
+                            stable = 0;
+                            lastProblem = outcome.Text;
+                            if (writes == 0 && firstProblem == null) firstProblem = outcome.Text;
+                            if (writes > 0)
+                            {
+                                // Laid out, then Settings left the stack (Back to the main menu): nothing left to watch.
+                                if (outcome.Gone)
+                                {
+                                    lastProblem = null;
+                                    Finish();
+                                    return;
+                                }
+                                // Settings is there but cannot be read as laid out: its tile may read FORUM again.
+                                state.TileActive = false;
+                            }
+                            break;
+                    }
+                    if (frames >= MaxFrames)
+                    {
+                        End(null);
+                        return;
+                    }
+                    if (!host.PostNextFrame(Step)) End("no next frame");
+                }
+                catch (Exception)
+                {
+                }
+            }
+
+            /// <summary>The run stops before it could watch to the end: no next frame, or <see cref="MaxFrames"/>.</summary>
+            private void End(string why)
+            {
+                if (writes > 0)
+                {
+                    if (why != null && lastProblem == null) lastProblem = why;
+                    Finish();
+                    return;
+                }
+                string problem = lastProblem ?? firstProblem ?? "not readable";
+                Fail(host, state, redress, problem + (why == null ? "" : "; " + why) + Frames());
+            }
+
+            /// <summary>The laid-out line: when the first write waited, how long and why; how often the grid had to be laid out again.</summary>
+            private void Finish()
+            {
+                string line = done;
+                if (firstWrite > 1) line += " after " + firstWrite.ToString(CultureInfo.InvariantCulture) + " frames (" + firstProblem + ")";
+                if (writes > 1) line += "; laid out again " + (writes - 1).ToString(CultureInfo.InvariantCulture) + "x after the stock grid came back";
+                if (lastProblem != null) line += "; then " + lastProblem + Frames();
+                Write(host, line);
+            }
+
+            private string Frames()
+            {
+                return frames > 1 ? "; gave up after " + frames.ToString(CultureInfo.InvariantCulture) + " frames" : "";
+            }
+        }
+
+        // ------------------------------------------------------------------ the read and the writes
+
+        /// <summary>
+        /// Null when every instance the step needs is found (<paramref name="found"/>, <paramref name="frame"/>), else why not;
+        /// <paramref name="gone"/> when menu_settings is not in the stack at all. Reads only.
+        /// </summary>
+        private static string Read(FlashScope flash, LayoutPlan plan, bool trim, bool redress, Dictionary<string, object> found,
+                                   out int frame, out bool gone)
+        {
+            frame = 0;
+            gone = false;
             object stack = flash.Class("gluic.components.menus", "MenusStack");
             if (stack == null) return "no MenusStack";
-            object menu = flash.Call(stack, "getMenuOnTopOfStack");
-            if (menu == null) return "no menu on top";
-            string name = GameReflection.Property(menu, "Name") as string;
-            if (name != SettingsMenuNames.SettingsMenu)
+            object top = flash.Call(stack, "getMenuOnTopOfStack");
+            string topName = top == null ? null : NameOf(flash, top);
+            object menu = topName == SettingsMenuNames.SettingsMenu ? top : null;
+            if (menu == null)
             {
-                string asName = flash.Get(menu, "name") as string;
-                if (asName != null) name = asName;
+                // Below the menu on top (a submenu on its way out, or one opened already), by name while it is in the stack:
+                // MenusStack.getMenuIndexInStack(String) and getMenuByName (null for a disposable menu with no instance).
+                double? index = FlashInterop.Number(flash.Call(stack, "getMenuIndexInStack", SettingsMenuNames.SettingsMenu));
+                if (index.HasValue && index.Value >= 0) menu = flash.Call(stack, "getMenuByName", SettingsMenuNames.SettingsMenu);
+                if (menu == null)
+                {
+                    gone = true;
+                    if (top == null) return "no menu on top";
+                    return "the menu on top is " + (topName ?? "unnamed") + ", no " + SettingsMenuNames.SettingsMenu + " in the stack";
+                }
             }
-            if (name != SettingsMenuNames.SettingsMenu) return "the menu on top is " + (name ?? "unnamed");
             object panel = flash.Child(menu, SettingsMenuNames.Panel);
             if (panel == null) return "no " + SettingsMenuNames.Panel;
-            int frame = Frame(flash, panel);
+            frame = Frame(flash, panel);
             if (frame != plan.Frame) return "frame " + frame.ToString(CultureInfo.InvariantCulture);
 
             // Trim off: only the re-dress, in place (T-B7), so only btn_forum is read.
-            var found = new Dictionary<string, object>(StringComparer.Ordinal);
             foreach (Placement p in plan.Kept)
             {
                 if (!trim && p.Name != SettingsMenuNames.ForumTile) continue;
@@ -279,10 +501,45 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                     found[hidden] = item;
                 }
             }
-            object forum = null;
-            if (redress && (!plan.RedressForum || !found.TryGetValue(SettingsMenuNames.ForumTile, out forum))) return "no tile to re-dress";
+            if (redress && (!plan.RedressForum || !found.ContainsKey(SettingsMenuNames.ForumTile))) return "no tile to re-dress";
+            return null;
+        }
 
-            // The writes: the re-dress first (if it throws, nothing else moves), then hide, then place.
+        /// <summary>The menu's name: <c>ASCharacter.Name</c>, else the AS <c>name</c>.</summary>
+        private static string NameOf(FlashScope flash, object menu)
+        {
+            string name = GameReflection.Property(menu, "Name") as string;
+            if (name == SettingsMenuNames.SettingsMenu) return name;
+            string asName = flash.Get(menu, "name") as string;
+            return asName ?? name;
+        }
+
+        /// <summary>Every kept instance in its slot (±<see cref="PlaceTolerance"/>) and every removed one invisible. Reads only.</summary>
+        private static bool InPlace(FlashScope flash, LayoutPlan plan, Dictionary<string, object> found)
+        {
+            foreach (Placement p in plan.Kept)
+            {
+                double? x = flash.Number(found[p.Name], "x");
+                double? y = flash.Number(found[p.Name], "y");
+                if (x == null || y == null || Math.Abs(x.Value - (float)p.X) > PlaceTolerance || Math.Abs(y.Value - (float)p.Y) > PlaceTolerance)
+                    return false;
+            }
+            foreach (string hidden in plan.Hidden)
+            {
+                object visible = flash.Get(found[hidden], "visible");
+                if (!(visible is bool) || (bool)visible) return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// The writes: the re-dress first (if it throws, nothing else moves), then hide, then place; a write that throws after the
+        /// re-dress puts the stock FORUM dress back and rethrows. <see cref="SettingsMenuState.TileActive"/> only when all succeeded.
+        /// </summary>
+        private static void WriteGrid(FlashScope flash, SettingsMenuState state, LayoutPlan plan, Dictionary<string, object> found,
+                                      bool trim, bool redress)
+        {
+            object forum = redress ? found[SettingsMenuNames.ForumTile] : null;
             if (redress) flash.Call(forum, "setup", Dress(SettingsMenuNames.PerformanceTitle, SettingsMenuNames.PerformanceIcon));
             if (trim)
             {
@@ -309,20 +566,19 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 state.CountLayout();
             }
             if (redress) state.TileActive = true;
+        }
 
+        /// <summary>"settings menu: frame 3, 7 tiles + ABOUT laid out", or the trim-off re-dress line.</summary>
+        private static string Done(LayoutPlan plan, int frame, bool trim)
+        {
             string where = "settings menu: frame " + frame.ToString(CultureInfo.InvariantCulture) + ", ";
-            if (!trim)
-            {
-                done = where + "PERFORMANCE tile re-dressed in place (trim off)";
-                return null;
-            }
+            if (!trim) return where + "PERFORMANCE tile re-dressed in place (trim off)";
             int tiles = 0;
             foreach (Placement p in plan.Kept)
             {
                 if (IsTile(p)) tiles++;
             }
-            done = where + tiles.ToString(CultureInfo.InvariantCulture) + " tiles + ABOUT laid out";
-            return null;
+            return where + tiles.ToString(CultureInfo.InvariantCulture) + " tiles + ABOUT laid out";
         }
 
         /// <summary>

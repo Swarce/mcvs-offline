@@ -17,7 +17,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
     /// GameClientComponent.cs:3815-3816, :3878; GamePreferencesComponent.cs:146-151, :167-173). Natives:
     /// <list type="table">
     /// <item><term>EnterSection</term><description>append, returns nothing; both platforms. On <c>settings_main_screen</c>: clear
-    /// <see cref="SettingsMenuState.TileActive"/> and the Performance mode, post the grid step, show the restart prompt when one is
+    /// <see cref="SettingsMenuState.TileActive"/> and the Performance mode, start the grid's run, show the restart prompt when one is
     /// pending.</description></item>
     /// <item><term>GoToForum</term><description><b>replace</b> (true, false), Android: while the tile is active, the page opens
     /// (<see cref="PerformancePage.Open"/>); otherwise our delegate calls <c>UIComponent.GoToForum()</c> itself, so the stock body and
@@ -554,7 +554,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             OnSaveUserPreferences = PerformancePage.OnSaveUserPreferences;
         }
 
-        /// <summary>EnterSection("settings_main_screen"): post the grid step.</summary>
+        /// <summary>EnterSection("settings_main_screen"): start the grid's run (SettingsMenuLayout.Schedule).</summary>
         public Action<ISettingsMenuHost, SettingsMenuState> Schedule { get; set; }
 
         /// <summary>EnterSection("settings_main_screen"): the page has ended.</summary>

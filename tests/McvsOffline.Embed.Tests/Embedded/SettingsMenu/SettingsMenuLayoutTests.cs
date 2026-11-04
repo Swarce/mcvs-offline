@@ -74,6 +74,12 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             }
         }
 
+        /// <summary>The line of a run that never could lay the grid out (tried on every frame, <see cref="SettingsMenuLayout.MaxFrames"/>).</summary>
+        internal static string GaveUp(string reason)
+        {
+            return "settings menu: not laid out (" + reason + "; gave up after " + SettingsMenuLayout.MaxFrames + " frames)";
+        }
+
         // ------------------------------------------------------------------ T-B1: the plans
 
         private static void AssertPlacement(SettingsMenuLayout.Placement p, string name, double x, double y)
@@ -233,7 +239,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             else panel.Children.Remove(panel.Child(name));
             rig.Host.Drain();
             rig.AssertNoWrites();
-            Assert.Equal(new[] { "settings menu: not laid out (no " + name + ")" }, rig.Lines);
+            Assert.Equal(new[] { GaveUp("no " + name) }, rig.Lines);
             // Android: the tile stays FORUM, so R4 must leave the two rows in Gameplay Settings.
             Assert.Equal(!steam, rig.State.RedressFailed);
             rig.AssertClean();
@@ -268,8 +274,10 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             rig.AssertNoWrites();
             // Only settings_main_screen posts the step, so any other frame (the in-match 2 too) is an anomaly: a line, and on
             // Android the R4 gate keeps GRAPHICS SETTINGS and FRAME RATE LIMIT in Gameplay Settings.
-            Assert.All(rig.Lines, l => Assert.Equal("settings menu: not laid out (frame " + frame + ")", l));
-            Assert.NotEmpty(rig.Lines);
+            // The run tries again on every frame until it gives up; the direct step logs at once. The in-match panel enters
+            // pvp_settings_screen, which starts no run.
+            string direct = "settings menu: not laid out (frame " + frame + ")";
+            Assert.Equal(frame == 2 ? new[] { direct } : new[] { GaveUp("frame " + frame), direct }, rig.Lines);
             Assert.Equal(!steam, rig.State.RedressFailed);
             rig.AssertClean();
         }
@@ -308,14 +316,34 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         }
 
         [Fact]
-        public void AnotherMenuOnTopMeansNoWrite()
+        public void ASettingsMenuBelowAnotherIsFoundByNameAndLaidOut()
+        {
+            // A submenu opened (or still leaving) before the step runs: Settings is still in the stack, so its grid is laid out
+            // where it is (setup() already ran at its focus-in) and is right when the submenu goes.
+            var rig = new Rig(false);
+            rig.Ui.OpenSettings();
+            rig.Ui.PushMenu("menu_about");
+            rig.Host.Drain();
+            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out" }, rig.Lines);
+            Assert.Equal("menu_about", rig.Ui.Top.Name);
+            Assert.False((bool)rig.Ui.Instance("btn_social").Get("visible"));
+            Assert.True(rig.State.TileActive);
+            Assert.DoesNotContain(rig.Ui.HostWrites, w => w.Contains("getMenu"));   // the stack's reads are not writes
+            rig.AssertClean();
+        }
+
+        [Fact]
+        public void NoSettingsMenuInTheStackIsTriedUntilTheRunGivesUp()
         {
             var rig = new Rig(false);
             rig.Ui.OpenSettings();
-            rig.Ui.PushMenu("menu_about");   // before the posted step runs
+            rig.Ui.Stack.RemoveAt(0);
+            rig.Ui.PushMenu("menu_about");
             rig.Host.Drain();
             rig.AssertNoWrites();
-            Assert.Equal(new[] { "settings menu: not laid out (the menu on top is menu_about)" }, rig.Lines);
+            Assert.Equal(new[] { GaveUp("the menu on top is menu_about, no menu_settings in the stack") }, rig.Lines);
+            Assert.Equal(SettingsMenuLayout.MaxFrames, rig.Host.Frames);
+            Assert.True(rig.State.RedressFailed);
             rig.AssertClean();
         }
 
@@ -338,7 +366,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
                 return;
             }
             rig.AssertNoWrites();
-            Assert.Equal(new[] { "settings menu: not laid out (" + tile + " is " + width.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + " wide)" }, rig.Lines);
+            Assert.Equal(new[] { GaveUp(tile + " is " + width.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + " wide") }, rig.Lines);
         }
 
         [Fact]
@@ -602,7 +630,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             ui.OpenSettings();
             noUi.Host.Ui = null;
             noUi.Host.Drain();
-            Assert.Equal(new[] { "settings menu: not laid out (no UI)" }, noUi.Lines);
+            Assert.Equal(new[] { GaveUp("no UI") }, noUi.Lines);
             Assert.True(noUi.State.RedressFailed);
             Assert.Empty(ui.HostWrites);
         }

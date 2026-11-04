@@ -43,6 +43,13 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         /// <summary>Runs <paramref name="action"/> on the game thread at the start of the next frame; false when there is no game thread.</summary>
         bool Post(Action action);
 
+        /// <summary>
+        /// Runs <paramref name="action"/> on the game thread one drain after the current one (GameSynchronizationContext.DelayedPost):
+        /// from a step that is itself running in this frame's drain, at the start of the next frame, where <see cref="Post"/> would
+        /// run it in the same drain. The grid's retries (<see cref="SettingsMenuLayout"/>) go this way. False when it cannot.
+        /// </summary>
+        bool PostNextFrame(Action action);
+
         /// <summary><see cref="IAdminHost.Exit"/>: the restart of the PERFORMANCE page's prompt (§3.4).</summary>
         bool Exit(string reason, bool relaunch);
     }
@@ -240,6 +247,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         private volatile bool restartPending;
         private int layouts;
         private int registrations;
+        private int layoutRun;
 
         /// <summary>
         /// Android: btn_forum reads PERFORMANCE on the grid shown now (set by <see cref="SettingsMenuLayout"/> only after every write
@@ -306,6 +314,18 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         public int CountLayout()
         {
             return Interlocked.Increment(ref layouts);
+        }
+
+        /// <summary>
+        /// The grid's current run (<see cref="SettingsMenuLayout.Schedule"/>): every <c>EnterSection("settings_main_screen")</c> starts
+        /// a new one, and a run whose number is no longer this one stops at its next frame without a word (a newer focus-in owns
+        /// the grid).
+        /// </summary>
+        public int LayoutRun { get { return Interlocked.CompareExchange(ref layoutRun, 0, 0); } }
+
+        public int BeginLayoutRun()
+        {
+            return Interlocked.Increment(ref layoutRun);
         }
 
         /// <summary>Re-ensure steps that had to put one of our delegates back (the game re-registered or removed the name; risk 1).</summary>

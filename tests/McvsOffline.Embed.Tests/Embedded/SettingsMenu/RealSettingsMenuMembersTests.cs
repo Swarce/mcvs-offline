@@ -79,6 +79,15 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
                 Type world = resolve("Gameloft.Engine.World");
                 MethodInfo getUi = GameReflection.FindStaticMethod(resolve("Game.UISceneExtentions"), "GetUI", world);
                 Expect(problems, getUi != null && getUi.ReturnType == ui, "UISceneExtentions.GetUI(World) : UIComponent");
+
+                // The grid's frames after the first (GameReflection.PostNextFrame): GameApplication.Context is a
+                // GameSynchronizationContext with DelayedPost(SendOrPostCallback, object), found as the code finds it.
+                Type app = resolve("Gameloft.Engine.GameApplication");
+                PropertyInfo contextProperty = app.GetProperty("Context", BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance);
+                Type sync = resolve("Gameloft.Engine.GameSynchronizationContext");
+                Expect(problems, contextProperty != null && sync != null && contextProperty.PropertyType.IsAssignableFrom(sync), "GameApplication.Context : GameSynchronizationContext");
+                MethodInfo delayed = sync == null ? null : GameReflection.FindPlainMethod(sync, "DelayedPost", typeof(System.Threading.SendOrPostCallback), typeof(object));
+                Expect(problems, delayed != null && delayed.ReturnType == typeof(void), "GameSynchronizationContext.DelayedPost(SendOrPostCallback, object) : void");
             });
         }
 
