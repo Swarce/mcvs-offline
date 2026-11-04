@@ -3,9 +3,9 @@
 Status: built in build 19 (`hosts/embedded/Admin/SettingsMenu/`, `hosts/embedded/Graphics/PerformancePrefs.cs`); build
 20 (`4079f39`) replaces the grid's single step per focus-in with a run of frames (§3.2) after the owner saw build 19's
 stock menu again after a tab and Back on both platforms; the device cause is not known, and build 20's log names it. Build
-21 lays the grid out in the focus-in frame itself (§3.2, "Build 21"), after the owner saw build 20's stock grid flash "for
-a split second" on every return to Settings on the phone (the Back bug itself was fixed by build 20). Build 21 has not yet
-been seen working on a phone or on Windows. This is the final design: the review corrections (A1-A3, B1-B2, C1, D1-D2, E1-E7, F1
+21 (`d74a07a`, APK and PC kit) lays the grid out in the focus-in frame itself (§3.2, "Build 21"), after the owner saw build
+20's stock grid flash "for a split second" on every return to Settings (the Back bug itself was fixed by build 20); the run
+per focus-in stays as the safety net. Build 21 has not yet been seen working on a phone or on Windows. This is the final design: the review corrections (A1-A3, B1-B2, C1, D1-D2, E1-E7, F1
 of the design review) are folded in, and each place says which one it is.
 
 Tags: [V] checked in the exported ActionScript, the decompiled C#, the game data or the repo code. [I] inferred from the

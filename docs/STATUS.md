@@ -1,7 +1,13 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-Last updated for build 20 (November 2026, on `wip/pc-port`; APK and PC kit): on the owner's phone and PC build 19's
+Last updated for build 21 (November 2026, on `wip/pc-port`; APK and PC kit): build 20 fixed the stock Settings menu after
+a return, but the stock menu still flashed for a split second before our layout; build 21 lays the grid out inside the
+frame of the return itself (from a Flash native the game's own `setup()` calls after its last stock write:
+`GetPlatformId` on the phone, `GetLanguage` on Steam), so no frame draws the stock grid, keeps build 20's run as the
+safety net, and says per return whether it landed in the same frame (`same frame: laid out`, `stock grid drawn 0
+frames`); it also removes the Practice tile and its `bottile` patch (an old `settings.json` loads as before); not yet
+tested on a phone or on Windows; see "Build 21". Build 20: on the owner's phone and PC build 19's
 shorter Settings menu showed on the first entry, but the stock menu came back after a tab and Back; the game's code puts
 the stock grid back on every return and build 19 laid it out once per return, with no second try; why that one try failed
 on the device is not known; build 20 tries again on the following frames, lays the grid out again when the stock grid
@@ -17,7 +23,7 @@ codes froze the inbox (one inbox message with thousands of rewards); the codes n
 ledger, and the new `inbox` patch bounds the inbox for any message, also one already in a profile; see "Build 17". Build 16 (PC only, no APK): the
 build-14/15 PC config most likely made Windows start the game without MCVS Offline (the owner's "game fails to
 connect"); build 16 writes the WR2-proven config again and says when a start ran without us; see "Build 16 (PC only)". Build 15: rotating Special Events (the Battle menu's Arena box,
-filled with bots, a new mode every day, or one pinned mode), an optional Practice tile (off by default) and the
+filled with bots, a new mode every day, or one pinned mode), an optional Practice tile (off by default; removed in build 21) and the
 corrected match-mode docs (the full-reward bot match is Battle › Classic multiplayer); server only, not yet tested on
 a phone; see "Build 15". Build 14: the PC port's fixes after the second Windows round (WR2:
 the game ran its own `Game.dll`; build 14 loads ours and says when it does not, and captures crashes and freezes),
@@ -29,7 +35,7 @@ play; see "Build 12 and device test 9". Before that: the build 11 device test (t
 12). The build 11 plan put HD textures into `Data/` ("Build 11 (plan)"). On build 10 the HD texture probe showed that
 route B fails and route A works. Build 10 targets Android 15 and adds graphics profiles and the PC test kit ("Build
 10"). Device test 8 tested the MCVS Offline page ("Device test 8", "Build 9"). The Cosmetic crate starts on 2026-11-09
-and is not yet tested on the phone. Not yet merged into `main-dev`: builds 13 to 20 (the PC port, the Android
+and is not yet tested on the phone. Not yet merged into `main-dev`: builds 13 to 21 (the PC port, the Android
 'game' manifest flags and build 17's unlock-code and inbox changes are on `wip/pc-port`). Earlier: device tests 6 and 7 on the same S22 ("Build 8", "Build 7", "Device test 6").
 
 **Summary:** the Federation server is complete for the offline single-player goals and passes its full test suite, including a
@@ -54,6 +60,126 @@ HD texture probe and a Windows test kit for the Steam version. Build 11 installs
 version into the game's own data. Build 12 accepts a full ASTC data pack with 2,215 PC textures in it: **device test 9:
 the HD textures and the graphics profiles work, at the same frame rate as before**, and builds 10 to 12 (target Android
 15) installed and played fine.
+
+## Build 21 (November 2026): the Settings grid in the same frame as the return, and no Practice tile
+
+### What build 21 contains
+
+`d74a07a` on `wip/pc-port` (`McvsVersion.Build` is `21`; the code is the merges of `wip/b21-flicker`, `6f39e42`:
+`9b865c0` and its docs `1095c5e`, and of `wip/b21-practice`, `3c4373e`: `6c4083c`). APK: `mcvs-offline-d74a07a.apk`
+(SHA-256 `56af2e0c07ea1325ad7f6552ca7f352d61a02d577fce6670a2c4ea06bec283b5`; the default patch set less `bottile`; the
+same key as every build: certificate SHA-256 `fc0db84e…7d16`, targetSdk 35, both ABIs, `isGame` and `appCategory`,
+zipalign OK); it installs over build 20 as usual. Compared entry by entry with build 20's `mcvs-offline-4079f39.apk`: the
+same 952 entries in the same order; changed only the server DLL (2,656,768 → 2,661,376 bytes), the signature files, the
+16 MVID bytes of `Gameloft.Engine.dll`, `Gameloft.Util.dll` and `NicePlaySDK.dll`, and `Game.dll`, whose only
+difference, member by member, is `bottile`'s one instruction put back to the game's own (its bytes move by 16 after that
+method body; [design/pc-port.md](design/pc-port.md) §13.1). The PC kit `McvsOffline.PcKit.exe` (win-x64, one file,
+SHA-256 `4c2f42010941d910d6745616c4958cc3be29177e89ea73122433da16ef6fab26`) replaces build 20's. The design is
+[design/settings-menu.md](design/settings-menu.md) §3.2 ("Build 21").
+
+**The owner's report (build 20).** Back from a tab now returns to the shorter Settings menu (build 20 fixed build 19's
+stock menu after a return), but "the normal menu flashes for a split second before being set to our layout again".
+
+**What the investigation established: the frame order** (decompiled C# of both games, line for line the same here). Each
+frame `GameApplication.UpdateWorlds` runs (1) the managers' pre-update, (2) `GameApplication.Context`'s posted work (where
+our step ran), (3) each World's update: the client World's `MenuComponent` advances Flash, which delivers the input and
+runs every ActionScript handler; the Back runs `popMenu`, the focus-in, `EnterSection` and `MenuSettings.setup()` in one
+synchronous call stack there, (4) the managers' update and the render signal, (5) the render. Build 20's run was posted
+from `EnterSection`, after that frame's (2), so it ran at the start of the next frame, and the render of the return's own
+frame drew what `setup()` left: the stock grid for one frame (33 ms at 30 fps). Nothing else covers that frame (Settings
+has no fade or transition). On Steam this is the whole stock grid (new tile instances); on the phone FORUM's dress, MORE
+GAMES and the stock bottom row. So the only way never to draw the stock grid is to lay it out inside step (3), after
+`setup()`'s last stock write.
+
+**The hook, per platform.** At `EnterSection("settings_main_screen")` MCVS Offline now appends an observer to a Flash
+native that `setup()` calls after its last stock write; the game's own delegate still answers (the observer returns
+nothing), and the run's first frame removes it again, so no other menu pays for it:
+
+* **Steam: `GetLanguage`**, which `setup()` calls right after the last tile write; there the observer reads the grid and
+  lays it out when it is not.
+* **Phone: `GetPlatformId`**, called by `setup()`'s button listeners after the last stock write (Android's `setup()` has
+  no `GetLanguage`). The game calls it about 40 times per return (every label), so the observer only looks once ABOUT
+  stands where `setup()`'s last write puts it, which is after the FORUM dress and every other stock write.
+* The run per focus-in (build 20) stays unchanged as the safety net: it reads the grid back for its frames and lays it out
+  again when needed, and when the same-frame step could not lay it out, it does so on the next frame as in build 20.
+  Rejected: an IL hook in the engine's frame loop (a new patch of `Gameloft.Engine` on both platforms), a post to a later
+  World or the render context (not always there, or on the render thread).
+
+**What the log says now** (`server.log`; on the phone via the MCVS Offline page's Logs, on PC in
+`McvsOffline\logs\`), per return to Settings:
+
+* the focus-in line ends with what the same-frame step did: `settings menu: focus-in N (layouts so far: K): on top
+  menu_settings, …; same frame: laid out (GetPlatformId calls N, looks 1)` (Steam: `GetLanguage calls N`), or `; same
+  frame: not laid out, <why> (…)`, `; same frame: no look (…)`, `; same frame: not watched (<why>)`, `; same frame: off
+  (trim off)`;
+* every laid-out line ends with how many renders drew a grid that was not ours: **same frame** reads `settings menu:
+  frame 3, 7 tiles + ABOUT laid out in the focus-in frame; stock grid drawn 0 frames` (Steam: `frame 1, 6 tiles`);
+  **the safety net** reads `… laid out; stock grid drawn 1 frame` (no `in the focus-in frame`; build 20's path, a
+  one-frame flash) or `… laid out after N frames (<why>); stock grid drawn N frames`; `laid out again Kx after the stock
+  grid came back` still says the stock grid returned after the layout.
+
+**Not covered** (settings-menu.md §3.2): with the trim off and PERFORMANCE on (phone) only the re-dress runs, and it
+stays one frame late; a first read that has to wait is left to the run as before. The phone's PERFORMANCE icon may still
+blink: the stock `setup()` sets the FORUM icon and our re-dress sets PERFORMANCE back in the same frame, but the game's
+image container reloads on every change; that cannot be avoided while the stock `setup()` re-dresses FORUM. Only a device
+can confirm that ActionScript can be re-entered from inside these two natives (the game itself does it with
+`MoveToCamera`, so this is inferred) and that the S22's render-thread mode behaves as analysed.
+
+**The Practice tile is gone.** The owner reported that the tile never showed even with its setting on, and it is not
+needed (the full-reward bot match is Battle › Classic multiplayer). Removed: the setting **Practice tile in the main
+menu** (`crm.practiceTile`, no longer on the settings page) and the `bottile` patch (on both platforms; `Game.dll`'s
+bot-match lambda keeps the game's own value). An old `settings.json` that still has `crm.practiceTile` loads as it is
+(the key is kept and ignored; saving another setting keeps it), and the CRM document is build 20's byte for byte with
+the default settings and with the old key on or off. A saved command line with `bottile` in `--patch` (APK, `pc
+install`, the kit) still works: the id is left out with a warning (`patch 'bottile' was removed in build 21 (…):
+ignored`); unknown ids are still errors. On PC a build-20 install (which lists `bottile`) shows as `OLDER BUILD (20; this
+kit installs build 21)`, never DAMAGED, and the install over it writes exactly a fresh build-21 install's bytes.
+
+**Checked**: `McvsOffline.sln` (Release), the Android embedded DLL against the APK's assemblies and the PC DLL with
+`Gameloft.Logs`; all four test projects with `MCVS_REFS`, `MCVS_PC_REFS`, `MCVS_APK`, `MCVS_DATAPACK`,
+`MCVS_BUILD_TOOLS`, `MCVS_REQUIRE_REAL_CLIENT=1`, `MCVS_REQUIRE_PC=1`, `MCVS_REQUIRE_PC_E2E=1`, `MCVS_REQUIRE_EMBEDDED=1`,
+`MCVS_REQUIRE_BUILD_TOOLS=1` and `MCVS_REQUIRE_NODE=1`, at `d74a07a`: **McvsOffline.Tests 1578/1578,
+McvsOffline.Embed.Tests 1207/1207, McvsOffline.PcKit.Tests 63/63, McvsOffline.PcSpike.Tests 62/62, 0 skipped** (2,910;
+build 20's was 2,879). New tests: `SettingsMenuRenderTests` (the fake host now renders between frames, as the game's
+frame order does, and checks that no render draws the stock grid on the first entry, after every tab and Back, after the
+PERFORMANCE page and its restart prompt and after a match, on both platforms, while the game still gets its own platform
+and language; they fail on build 20's code) and `SettingsMenuSameFrameTests` (the observer after the game's delegate
+only until the next frame, other menus and the in-match panel untouched, Android's one look at the button listeners,
+Steam's look at every armed `GetLanguage`, a throwing step or write that reaches no Flash, a native without the game's
+delegate left to the run, the trim off, the log parts);
+`PracticeTileRemovedTests` (old `settings.json` with the key, the CRM document's bytes), `RemovedPatchTests` (the stale
+id's warning on every path, unknown ids still refused), `PcBuild20UpgradeTests` (a build-20 install on a copy of the real
+Steam files, then build 21 over it) and `AndroidOutputUnchangedTests` (build 21's `Game.dll` pinned). The APK was built
+with `--build-tools` and verified as above; its server DLL is the built one byte for byte. The kit published three times
+from the same build output with the same bytes, its `check-server` passed on the PC server DLL (every PC hook (17),
+`Gameloft.Logs`, only allowed references), and its assembly carries that DLL byte for byte. The PC end to end on Linux
+(§12.6) on a temp copy of the Steam files: `install`, `verify`, `status` (`installed, current`, `activation: NOT
+VERIFIED` before a start), a second install with the same bytes, `uninstall` restoring the exact listing and every
+SHA-256; ILVerify the same findings as the stock files, the server DLL clean. The upgrade over a build-20 install (made by
+a `4079f39` patcher) on another temp copy: the kit said `OLDER BUILD (20; this kit installs build 21)` and `verify` exit
+1; `install` wrote the fresh install's bytes, then `verify` and `status` said `installed, current`; an install with
+build 20's default `--patch` list gave the warning and the same bytes. The expected `verify` values are re-recorded in
+[design/pc-port.md](design/pc-port.md) §13.1 and [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7 (build 20's are in §13.2):
+every DLL changed with the server DLL, `Game.dll` also by `bottile`, the config is build 16's (`3ebe99b3…f94c`),
+`serverBuild` is `21`.
+
+**Not tested** on a phone or on Windows.
+
+### Checklist (phone and PC)
+
+1. Open Settings from the main menu: the shorter grid, with no flash of the stock grid (a slow-motion video helps).
+2. Open each tile and press Back, each one at least twice: GAMEPLAY SETTINGS, AUDIO, ACCOUNTS, HELP, LANGUAGES, ABOUT,
+   CUSTOMIZE CONTROLS (phone), PERFORMANCE (phone: our page; PC: Steam's). After every Back the shorter grid **with no
+   visible flash of the stock menu**, no SOCIAL MEDIA, FORUM, CUSTOMER CARE or MORE GAMES, ABOUT in its place (no drift
+   on PC after five round trips). On the phone, say whether the PERFORMANCE icon blinks.
+3. On the phone, change GRAPHICS SETTINGS on the PERFORMANCE page and press Back: the restart prompt and, behind it,
+   the shorter grid with no flash; then No, and the grid stays.
+4. Play a match, return to the main menu, open Settings, then a tab and Back: the shorter grid each time, no flash.
+5. The MCVS Offline settings page (Settings › Gameplay) has no "Practice tile in the main menu" option any more; the
+   main menu is the game's usual one.
+6. Send `server.log` with every `settings menu:` line of the session (for each return the `focus-in N … ; same frame:
+   …` line and the `… laid out in the focus-in frame; stock grid drawn 0 frames` line, or whatever it says instead), and
+   say for which return the screen flashed or was wrong, if any.
 
 ## Build 20 (November 2026): the Settings grid after a return to Settings (a mitigation and a diagnostic)
 
