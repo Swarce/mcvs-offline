@@ -20,9 +20,13 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
     /// Number reads as float, a double or long written becomes an opaque managed object (<see cref="FlashManaged"/>).</item>
     /// <item><b>menu_settings</b>: <c>mc_panel</c> with frames 1-5 of both SWFs (instance names and positions from the panel
     /// timelines, work/and_settings_frames.txt and work/pc_settings_frames.txt: Android sprite 6718, Steam 7035), and what
-    /// <c>MenuSettings.onFocusIn</c> does: <c>EnterSection</c> first, then <c>setup()</c> (the tiles' <c>setup({title, icon})</c>, Android's
-    /// absolute bottom row, Steam's 4-column x and the relative CUSTOMER CARE/ABOUT drift of PC MenuSettings.as:253-258), ending with
-    /// <c>GetPlatformId</c> twice. <see cref="Tap"/> runs <c>onButtonReleased</c> (hidden or mouse-disabled instances take no tap).</item>
+    /// <c>MenuSettings.onFocusIn</c> does: MenuBase.onFocusIn's <c>adjustToViewport</c> (Steam: <c>GetLanguage</c>) and
+    /// <c>addButtonListeners</c> (<c>GetPlatformId</c> twice), <c>EnterSection</c>, then <c>setup()</c> with its natives in the AS order
+    /// (the tiles' <c>setup({title, icon})</c>, each through setStringID: <c>GetPlatformId</c> 3 times on Android, twice on Steam;
+    /// Android's absolute bottom row; Steam's 4-column x and the relative CUSTOMER CARE/ABOUT drift of PC MenuSettings.as:253-258,
+    /// then <c>GetLanguage</c> at :367), ending with addButtonListeners' <c>GetPlatformId</c> twice; then the stack's STACK_CHANGED
+    /// (FreemiumBar's title through setStringID). <see cref="Tap"/> runs <c>onButtonReleased</c> (hidden or mouse-disabled instances
+    /// take no tap). <see cref="Render"/> records what a frame's render draws (<see cref="Renders"/>).</item>
     /// <item><b>menu_gameplaySettings</b>: <c>MenuGameplaySettings.setup()</c> as the Android AS builds it (AND-AS/MGS:82-436):
     /// <c>initOptions()</c>, <c>CanChangeMaxFramerate</c> (push of MaxFramerate) then <c>CanChangeGraphicSetting</c> (splice at 2), the
     /// row loop with <c>categoryMC</c> headers and <c>optionMC</c> rows (<c>item&lt;k&gt;</c>, <c>y += height + 8</c>), and the change
@@ -53,6 +57,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         public FakeFlashTree(bool steam = false, bool registerGameNatives = true)
         {
             Steam = steam;
+            FreemiumTitle = new FlashObject(this, "TextField", "tf_menuTitle");
             Game = new FakeGameNatives { PlatformId = steam ? 6 : 2 };
             if (registerGameNatives) Game.RegisterAll(this);
             classes["gluic.components.menus.MenusStack"] = new Dictionary<string, Func<object[], object>>
@@ -254,11 +259,12 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             FlashObject below = Top;
             if (below != null && below.Name == McvsMenuNames.Gameplay) EmptyContent(below);
             FlashObject menu;
-            if (name == McvsMenuNames.Settings) menu = BuildSettingsMenu(MainFrame());
+            if (name == McvsMenuNames.Settings) menu = Built(BuildSettingsMenu(MainFrame()));
             else if (name == McvsMenuNames.Gameplay) menu = BuildGameplayMenu();
             else menu = new FlashObject(this, "Menu", name);
             Stack.Add(menu);
             FocusIn(menu);
+            StackChanged();
             return menu;
         }
 
@@ -283,6 +289,20 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
                 FocusIn(Top);
                 if (Top.Name == McvsMenuNames.Settings && RestockFramesOnReturn > 0) restockIn = RestockFramesOnReturn;
             }
+            StackChanged();
+        }
+
+        /// <summary>The FreemiumBar title field (FreemiumBar.tf_menuTitle).</summary>
+        public FlashObject FreemiumTitle { get; private set; }
+
+        /// <summary>
+        /// MenusStack's STACK_CHANGED after a push or pop (MenusStack.as:319, :380): FreemiumBar.onMenuStackChange writes the title of
+        /// the menu on top through setStringID (AND FreemiumBar.as:440-452, PC :428-448), still in the same AS call.
+        /// </summary>
+        private void StackChanged()
+        {
+            FlashObject top = Top;
+            if (top != null) SetStringId(FreemiumTitle, top.Get("title") as string ?? top.Name, new object[0]);
         }
 
         /// <summary>Opens Settings (the platform's frame: in game 2, Kayac 4, Chinese 5, else 1 on Steam and 3 on Android).</summary>
@@ -295,9 +315,19 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         public FlashObject OpenSettingsAtFrame(int frame)
         {
             Pushed.Add(McvsMenuNames.Settings);
-            FlashObject menu = BuildSettingsMenu(frame);
+            FlashObject menu = Built(BuildSettingsMenu(frame));
             Stack.Add(menu);
             FocusIn(menu);
+            StackChanged();
+            return menu;
+        }
+
+        /// <summary>Runs on every new Settings menu before its focus-in (a test removes an instance the timeline places, say).</summary>
+        public Action<FlashObject> SettingsBuilt { get; set; }
+
+        private FlashObject Built(FlashObject menu)
+        {
+            if (SettingsBuilt != null) SettingsBuilt(menu);
             return menu;
         }
 
@@ -544,33 +574,62 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             { "btn_performance", new[] { "settingWindows.PerformanceTitle", "Menus/assets/png/icons/settings_performance.png" } },
         };
 
-        /// <summary>MenuSettings.onFocusIn: MenuBase.onFocusIn's EnterSection, then setup() (AND-AS/MS:468-473, PC-AS/MS:640-645).</summary>
+        /// <summary>
+        /// MenuSettings.onFocusIn: MenuBase.onFocusIn (MenuBase.as:318-351: adjustToViewport :330, whose Steam body calls GetLanguage
+        /// at PC-AS/MS:633; addButtonListeners :333; EnterSection :339), then MoveToCamera and setup() (AND-AS/MS:468-473,
+        /// PC-AS/MS:640-645).
+        /// </summary>
         private void FocusInSettings(FlashObject menu)
         {
             FlashObject panel = menu.Child("mc_panel");
+            if (Steam) CallFromFlash("GetLanguage", "en");
+            AddButtonListeners();
             CallFromFlash("EnterSection", null, panel.Frame == 2 ? "pvp_settings_screen" : "settings_main_screen");
             CallFromFlash("MoveToCamera", null, "settings.voidLoaded", "VoidCamera");
             Setup(panel);
         }
 
-        /// <summary>MenuSettings.setup() on the panel: the tiles' dress, then each platform's positioning and visibility.</summary>
+        /// <summary>Native.GetPlatformId() == <paramref name="id"/> as the AS evaluates it (one native call).</summary>
+        private bool PlatformIs(int id)
+        {
+            return ToFloat(CallFromFlash("GetPlatformId", (float)Game.PlatformId)) == id;
+        }
+
+        /// <summary>MenuSettings.addButtonListeners' natives: <c>GetPlatformId() == 4 || GetPlatformId() == 6</c> (AND-AS/MS:363, PC :530).</summary>
+        private void AddButtonListeners()
+        {
+            if (!PlatformIs(4)) PlatformIs(6);
+        }
+
+        /// <summary>setup()'s order of the dress (AND-AS/MS:52-163, PC the same): the tiles, then the thin buttons.</summary>
+        private static readonly string[] SetupOrder =
+        {
+            "btn_general", "btn_social", "btn_audio", "btn_customize", "btn_language", "btn_forum", "btn_help", "btn_account", "btn_credits",
+            "btn_customer", "btn_more",
+        };
+
+        /// <summary>
+        /// MenuSettings.setup() on the panel, its natives in the AS order: the dress (each label through setStringID), the platform
+        /// 4/6 test (AND-AS/MS:167, PC :185) and Steam's keyboard/gamepad/performance dress, then each platform's positioning and
+        /// visibility (Android :208-213; Steam :228-364), Steam's GetLanguage (:367), and addButtonListeners (:214, PC :372).
+        /// </summary>
         private void Setup(FlashObject panel)
         {
             if (Steam && SteamReplacesInstances && panel.Frame == 1) ReplaceInstances(panel);
-            foreach (FlashObject item in panel.Children)
+            FlashObject title = panel.Child("mc_title");
+            if (title != null) SetStringId(title, panel.Frame == 1 ? "menu.SettingButton" : "menu.PausedTitle", new object[0]);
+            foreach (string name in SetupOrder) Dress(panel.Child(name));
+            if (PlatformIs(4) || PlatformIs(6))
             {
-                string[] stock;
-                if (item.Name == "btn_keyboard" || item.Name == "btn_gamepad" || item.Name == "btn_performance")
+                foreach (string name in new[] { "btn_keyboard", "btn_gamepad", "btn_performance" }) Dress(panel.Child(name));
+                foreach (string name in new[] { "btn_keyboard", "btn_gamepad" })
                 {
-                    if (!Steam) continue;   // the platform 4/6 block (AND-AS/MS:167-207)
-                }
-                if (StockTiles.TryGetValue(item.Name ?? "", out stock))
-                {
-                    var data = new Dictionary<string, object>(StringComparer.Ordinal) { { "title", stock[0] } };
-                    if (stock[1] != null) data["icon"] = stock[1];
-                    item.Call("setup", new object[] { data });
+                    FlashObject item = panel.Child(name);
+                    if (item != null) item.Members["visible"] = panel.Frame != 1;
                 }
             }
+            // PC-AS/MS:228: GetPlatformId() != 4 && GetPlatformId() != 6 picks the branch (Android's AS has no test there).
+            if (Steam && !PlatformIs(4)) PlatformIs(6);
             FlashObject more = panel.Child("btn_more");
             FlashObject customer = panel.Child("btn_customer");
             FlashObject credits = panel.Child("btn_credits");
@@ -604,9 +663,20 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
                 SetX(panel, "btn_language", 6.85f);
                 SetX(panel, "btn_performance", 484f);
             }
-            // addButtonListeners: the last natives of setup() (AND-AS/MS:363, PC-AS/MS:530).
-            CallFromFlash("GetPlatformId", Game.PlatformId);
-            CallFromFlash("GetPlatformId", Game.PlatformId);
+            // PC-AS/MS:367: Native.GetLanguage() after the last tile write (:364); "id" moves CUSTOMER CARE's text only.
+            if (Steam) CallFromFlash("GetLanguage", "en");
+            // addButtonListeners: the last natives of setup() (AND-AS/MS:214 → :363, PC-AS/MS:372 → :530).
+            AddButtonListeners();
+        }
+
+        /// <summary>One btn.setup({title, icon}) of setup() with the stock strings, when the frame has the instance.</summary>
+        private static void Dress(FlashObject item)
+        {
+            string[] stock;
+            if (item == null || !StockTiles.TryGetValue(item.Name ?? "", out stock)) return;
+            var data = new Dictionary<string, object>(StringComparer.Ordinal) { { "title", stock[0] } };
+            if (stock[1] != null) data["icon"] = stock[1];
+            item.Call("setup", new object[] { data });
         }
 
         /// <summary>gotoAndStop(3) then gotoAndStop(1): every frame-1 timeline instance of the panel is a new one, at its timeline place.</summary>
@@ -994,14 +1064,51 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
 
         // ------------------------------------------------------------------ TextUtilities and conversions
 
-        /// <summary>TextUtilities.setStringID(obj, id, params): the text, then Native.GetPlatformId (TextUtilities.as:92-99).</summary>
+        /// <summary>
+        /// TextUtilities.setStringID(obj, id, params): Native.GetPlatformId as the AS tests it (Android TextUtilities.as:92 and :99,
+        /// three calls; Steam :92, two), then the text (FormatStringWithParameters).
+        /// </summary>
         internal void SetStringId(FlashObject target, object id, object[] parameters)
         {
             if (target == null) return;
+            if (!Steam) PlatformIs(2);
+            if (!PlatformIs(4)) PlatformIs(6);
             string text = id == null ? "null" : id is string ? (string)id : FormatAs(id);
             if (parameters != null && parameters.Length > 0) text += " " + string.Join(" ", parameters.Select(FormatAs));
             target.Members["text"] = text;
-            CallFromFlash("GetPlatformId", Game.PlatformId);
+        }
+
+        // ------------------------------------------------------------------ the render points
+
+        /// <summary>What every <see cref="Render"/> drew, in order.</summary>
+        public List<RenderPoint> Renders { get; } = new List<RenderPoint>();
+
+        /// <summary>
+        /// GameApplication.Render after a frame's UpdateWorlds (Render_private draws the Flash state the update left, in both render
+        /// thread modes): the menu on top and every instance of its Settings panel, as the player sees them.
+        /// </summary>
+        public RenderPoint Render(int frame)
+        {
+            FlashObject top = Top;
+            var point = new RenderPoint { Frame = frame, Top = top == null ? null : top.Name };
+            if (top != null && top.Name == McvsMenuNames.Settings)
+            {
+                FlashObject panel = top.Child("mc_panel");
+                point.PanelFrame = panel == null ? 0 : panel.Frame;
+                if (panel != null)
+                {
+                    foreach (FlashObject item in panel.Children)
+                    {
+                        point.Instances[item.Name ?? ""] = new RenderedInstance
+                        {
+                            X = item.Num("x"), Y = item.Num("y"), Visible = Truthy(item.Get("visible")), MouseEnabled = Truthy(item.Get("mouseEnabled")),
+                            Title = item.Get("title") as string,
+                        };
+                    }
+                }
+            }
+            Renders.Add(point);
+            return point;
         }
 
         internal T Track<T>(T wrapper) where T : IFlashWrapper
@@ -1101,6 +1208,34 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         {
             if (callback != null) callback(new Dictionary<string, object>(StringComparer.Ordinal) { { "result", yes } });
         }
+    }
+
+    /// <summary>One render (<see cref="FakeFlashTree.Render"/>): the host frame, the menu on top, the Settings panel when it is on top.</summary>
+    internal sealed class RenderPoint
+    {
+        public int Frame;
+
+        public string Top;
+
+        /// <summary>The panel's frame (0: Settings not on top).</summary>
+        public int PanelFrame;
+
+        public Dictionary<string, RenderedInstance> Instances { get; } = new Dictionary<string, RenderedInstance>(StringComparer.Ordinal);
+
+        public override string ToString()
+        {
+            return "render of frame " + Frame + " (" + (Top ?? "nothing") + " on top)";
+        }
+    }
+
+    /// <summary>A panel instance as a render drew it.</summary>
+    internal sealed class RenderedInstance
+    {
+        public float X;
+        public float Y;
+        public bool Visible;
+        public bool MouseEnabled;
+        public string Title;
     }
 
     /// <summary>A double or long the host wrote: ASValue.SetObject stores it as a managed object, not as an AS Number.</summary>

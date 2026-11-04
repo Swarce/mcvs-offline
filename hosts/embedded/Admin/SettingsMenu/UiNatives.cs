@@ -26,6 +26,10 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
     /// (<see cref="PerformancePage"/>, R4 and the page).</description></item>
     /// <item><term>SetUserPreference, SaveUserPreferences</term><description>append, nothing returned; Android (the page's
     /// writes).</description></item>
+    /// <item><term>GetPlatformId (Android), GetLanguage (PC)</term><description>build 21's same-frame grid step
+    /// (<see cref="SettingsMenuLayout.SameFrame"/>): appended by EnterSection("settings_main_screen") for the rest of that frame,
+    /// only next to the game's own delegate, returns null (the game's answer stands), removed again by the run's first frame;
+    /// not part of the re-ensure.</description></item>
     /// </list>
     /// Rules (pc-port P4): every delegate catches everything and never blocks, reads its settings on every call, and does nothing
     /// while the host function returns null (AdminHooks.Host before the server is up). On PC only EnterSection is registered.
@@ -54,6 +58,12 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
 
         /// <summary>The natives PC registers: Steam keeps its own PERFORMANCE tile, page and Gameplay rows.</summary>
         public static readonly string[] PcNames = { SettingsMenuNames.EnterSection };
+
+        /// <summary>
+        /// The natives the same-frame grid step watches (Android GetPlatformId, PC GetLanguage): registered only while a focus-in's
+        /// step is armed (<see cref="SettingsMenuLayout.SameFrame"/>), never by <see cref="Ensure"/>.
+        /// </summary>
+        public static readonly string[] ObservedNames = { SettingsMenuNames.GetPlatformId, SettingsMenuNames.GetLanguage };
 
         /// <summary>MenuComponent's per-instance table (MenuComponent.cs:70, PC :65): name → NativeEventOrFunction with <c>Delegates</c>.</summary>
         internal const string TableField = "nativeEventOrFunctions";
@@ -114,6 +124,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             this.state = state;
             Steps = new MenuSteps();
             foreach (string name in AndroidNames) slots[name] = new Slot(this, name);
+            foreach (string name in ObservedNames) slots[name] = new Slot(this, name);
         }
 
         public SettingsMenuState State { get { return state; } }
@@ -255,11 +266,19 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
 
         // ------------------------------------------------------------------ the delegates' bodies (each registered on its own target)
 
-        /// <summary>EnterSection(section), appended: the grid on <c>settings_main_screen</c>. Never throws.</summary>
+        /// <summary>
+        /// EnterSection(section), appended: the grid on <c>settings_main_screen</c> (its run, and its same-frame step with the
+        /// observer that drives it); any other section ends a same-frame step still armed. Never throws.
+        /// </summary>
         public void EnterSection(string section)
         {
             ISettingsMenuHost h = Host;
-            if (h == null || !string.Equals(section, SettingsMenuNames.MainSettingsSection, StringComparison.Ordinal)) return;
+            if (h == null) return;
+            if (!string.Equals(section, SettingsMenuNames.MainSettingsSection, StringComparison.Ordinal))
+            {
+                if (state.SameFrame != null) SettingsMenuLayout.Disarm(state);
+                return;
+            }
             try
             {
                 MenuSteps steps = Steps;
@@ -267,11 +286,74 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 state.TileActive = false;
                 if (!Run(h, "EnterSection (page)", () => steps.LeaveMode(state))) state.PerformanceMode = false;
                 Run(h, "EnterSection (grid)", () => steps.Schedule(h, state));
+                Run(h, "EnterSection (same frame)", () => Watch(h));
                 Run(h, "EnterSection (restart prompt)", () => steps.ShowRestartPromptIfPending(h, state));
             }
             catch (Exception)
             {
             }
+        }
+
+        /// <summary>
+        /// The same-frame step <see cref="MenuSteps.Schedule"/> armed: appends the observer on the native it watches, on the client
+        /// UI, with <c>(true, true)</c> (an observer left from an earlier focus-in is replaced), and sets the arm's Release to
+        /// remove it with <c>RemoveNativeFunctionOverride(object)</c>. Only next to one of the game's own delegates: alone ours
+        /// would answer null to Flash (no platform, no language). Game thread, inside the EnterSection dispatch (another name's
+        /// list; the dispatch runs a copy of its own).
+        /// </summary>
+        private void Watch(ISettingsMenuHost h)
+        {
+            SettingsMenuLayout.SameFrame arm = state.SameFrame;
+            if (arm == null || arm.Closed) return;
+            object ui = h.ClientUi();
+            if (ui == null)
+            {
+                arm.Refused = "no UI";
+                return;
+            }
+            Slot slot = slots[arm.Native];
+            IList<Delegate> list = Delegates(ui, arm.Native);
+            if (list == null)
+            {
+                arm.Refused = "the native table cannot be read";
+                return;
+            }
+            bool game = false;
+            foreach (Delegate d in list)
+            {
+                if (!ReferenceEquals(d.Target, slot)) game = true;
+            }
+            if (!game)
+            {
+                arm.Refused = "no game delegate on " + arm.Native;
+                return;
+            }
+            FlashInterop.OverrideNative(ui, arm.Native, slot.Delegate, true, true);
+            slot.Ui = ui;
+            arm.Watching = true;
+            Delegate ours = slot.Delegate;
+            arm.Release = () => FlashInterop.RemoveNativeDelegate(ui, ours);
+        }
+
+        /// <summary>
+        /// GetPlatformId() or GetLanguage(), appended while a same-frame step is armed: <see cref="MenuSteps.SameFrame"/>. Answers
+        /// nothing (the game's value stands); with nothing armed it returns after one field read. Never throws.
+        /// </summary>
+        public object Observed(string native)
+        {
+            try
+            {
+                SettingsMenuLayout.SameFrame arm = state.SameFrame;
+                if (arm == null || arm.Closed || arm.Busy) return null;
+                ISettingsMenuHost h = Host;
+                if (h == null) return null;
+                MenuSteps steps = Steps;
+                steps.SameFrame(h, state, native);
+            }
+            catch (Exception)
+            {
+            }
+            return null;
         }
 
         /// <summary>GoToForum(), replacing the game's: the page while the tile is active, else <c>UIComponent.GoToForum()</c> (E4). Never throws.</summary>
@@ -495,6 +577,8 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                     case SettingsMenuNames.CanChangeMaxFramerate: Delegate = new Func<object>(CanChangeMaxFramerate); break;
                     case SettingsMenuNames.SetUserPreference: Delegate = new Action<string, object>(SetUserPreference); break;
                     case SettingsMenuNames.SaveUserPreferences: Delegate = new Action(SaveUserPreferences); break;
+                    case SettingsMenuNames.GetPlatformId: Delegate = new Func<object>(PlatformId); break;
+                    case SettingsMenuNames.GetLanguage: Delegate = new Func<object>(Language); break;
                     default: throw new ArgumentException("not a Settings menu native: " + name, "name");
                 }
             }
@@ -533,6 +617,16 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             {
                 owner.SaveUserPreferences();
             }
+
+            public object PlatformId()
+            {
+                return owner.Observed(SettingsMenuNames.GetPlatformId);
+            }
+
+            public object Language()
+            {
+                return owner.Observed(SettingsMenuNames.GetLanguage);
+            }
         }
     }
 
@@ -552,10 +646,14 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             CanChangeMaxFramerate = PerformancePage.CanChangeMaxFramerate;
             OnSetUserPreference = PerformancePage.OnSetUserPreference;
             OnSaveUserPreferences = PerformancePage.OnSaveUserPreferences;
+            SameFrame = SettingsMenuLayout.OnNative;
         }
 
         /// <summary>EnterSection("settings_main_screen"): start the grid's run (SettingsMenuLayout.Schedule).</summary>
         public Action<ISettingsMenuHost, SettingsMenuState> Schedule { get; set; }
+
+        /// <summary>The watched native (GetPlatformId, GetLanguage) while a same-frame step is armed: SettingsMenuLayout.OnNative.</summary>
+        public Action<ISettingsMenuHost, SettingsMenuState, string> SameFrame { get; set; }
 
         /// <summary>EnterSection("settings_main_screen"): the page has ended.</summary>
         public Action<SettingsMenuState> LeaveMode { get; set; }

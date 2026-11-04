@@ -139,9 +139,13 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.Equal(6.35f, ui.Instance("btn_forum").Num("x"));
             Assert.Equal("setting.ForumButton", ui.Instance("btn_forum").Get("title"));
             Assert.Equal(465.35f, ui.Instance("btn_forum").Num("width"));
-            // EnterSection comes first (MenuBase.onFocusIn), then setup(), whose last natives are two GetPlatformId.
-            Assert.Equal("EnterSection", ui.Invoked.First());
-            Assert.Equal(new[] { "GetPlatformId", "GetPlatformId" }, ui.Invoked.Skip(ui.Invoked.Count - 2));
+            // MenuBase.onFocusIn: addButtonListeners (2 GetPlatformId), then EnterSection, then setup(): each of its 11 labels through
+            // setStringID (3 GetPlatformId on Android), the platform 4/6 test (2), the bottom row, and addButtonListeners (2) last;
+            // then STACK_CHANGED, FreemiumBar's title (3).
+            Assert.Equal(new[] { "GetPlatformId", "GetPlatformId", "EnterSection", "MoveToCamera (stub)" }, ui.Invoked.Take(4));
+            List<string> afterEnter = ui.Invoked.Skip(4).ToList();
+            Assert.All(afterEnter, n => Assert.Equal("GetPlatformId", n));
+            Assert.Equal(11 * 3 + 2 + 2 + 3, afterEnter.Count);
             Assert.Equal(new[] { "settings_main_screen" }, ui.Game.Sections);
             Assert.Empty(ui.HostWrites);
             // Its taps: FORUM reaches C# (GoToForum), GAMEPLAY SETTINGS is pure Flash.

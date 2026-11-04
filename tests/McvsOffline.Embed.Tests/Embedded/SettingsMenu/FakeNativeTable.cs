@@ -210,6 +210,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
     /// <summary>
     /// The game's own delegates on the natives the Settings menu code touches, with the game's behaviour (Android 1.17.32):
     /// <list type="bullet">
+    /// <item>The MenuComponent constructor (MenuComponent.cs:345): GetLanguage, never removed.</item>
     /// <item>UIComponent.OnStart (:402, :1449, :1455): GoToForum, EnterSection, GetPlatformId; OnStop (:416, :1578) removes them by name.</item>
     /// <item>GameClientComponent (:3815-3816): CanChangeMaxFramerate (GameOptions <c>canChangeMaxFramerate</c>, true on Android) and
     /// GetMaxFramerateValues (<c>GamePreferencesComponent.FpsValues</c>, "30 60 -1"); removed at :3878-3879.</item>
@@ -279,6 +280,20 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
 
         // ------------------------------------------------------------------ registration as the game's components do it
 
+        /// <summary>The MenuComponent constructor (MenuComponent.cs:345, PC :334): GetLanguage (NativeGetLanguage), default flags.</summary>
+        public void RegisterMenu(FakeNativeTable ui)
+        {
+            ui.OverrideNativeFunction("GetLanguage", new Func<string>(GetLanguage));
+        }
+
+        /// <summary>MenuComponent.NativeGetLanguage: the language code.</summary>
+        public string Language { get; set; } = "en";
+
+        public string GetLanguage()
+        {
+            return Language;
+        }
+
         /// <summary>UIComponent.OnStart: GoToForum (target: the UIComponent itself), EnterSection, GetPlatformId; default flags (clear).</summary>
         public void RegisterUi(FakeFlashTree ui)
         {
@@ -328,6 +343,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         /// <summary>Every component's OnStart, in the game's order.</summary>
         public void RegisterAll(FakeFlashTree ui)
         {
+            RegisterMenu(ui);
             RegisterUi(ui);
             RegisterClient(ui);
             RegisterPreferences(ui);
