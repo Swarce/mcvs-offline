@@ -868,6 +868,15 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
 
         public bool SettingsMenuTrim { get { return inner.SettingsMenuTrim; } }
 
+        public bool SettingsMenuSameFrame { get { return inner.SettingsMenuSameFrame; } }
+
+        public string[] SameFrameMarkerPaths { get { return inner.SameFrameMarkerPaths; } }
+
+        public bool SwitchSameFrameOff()
+        {
+            return inner.SwitchSameFrameOff();
+        }
+
         public bool SettingsMenuPerformance { get { return inner.SettingsMenuPerformance; } }
 
         public bool IsWindows { get { return inner.IsWindows; } }

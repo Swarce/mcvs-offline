@@ -191,6 +191,72 @@ namespace McvsOffline.Embedded.Admin
         }
 
         /// <summary>
+        /// settings admin.settingsMenu.sameFrame (server copy, read each time the game's Settings menu opens; default true): our Flash
+        /// work inside the game's natives (docs/design/settings-menu.md §3.2).
+        /// </summary>
+        public bool SettingsMenuSameFrame
+        {
+            get
+            {
+                try
+                {
+                    return context.Settings.GetBool(SettingsSchema.SettingsMenuSameFrameKey, true);
+                }
+                catch (Exception)
+                {
+                    return true;
+                }
+            }
+        }
+
+        /// <summary>
+        /// The same-frame breadcrumb's places: logs/settings-menu-same-frame.txt in <see cref="LogsDir"/>, then in
+        /// <see cref="FallbackLogsDir"/> (where the log files go when the first cannot be written: Android internal storage,
+        /// %TEMP%\McvsOffline\logs on PC, never a Steam folder that cannot be written).
+        /// </summary>
+        public string[] SameFrameMarkerPaths
+        {
+            get
+            {
+                var paths = new List<string>();
+                foreach (string dir in new[] { LogsDir, FallbackLogsDir })
+                {
+                    try
+                    {
+                        if (string.IsNullOrEmpty(dir)) continue;
+                        string path = Path.Combine(dir, SettingsMenuNames.SameFrameMarkerFile);
+                        if (!paths.Contains(path)) paths.Add(path);
+                    }
+                    catch (Exception)
+                    {
+                    }
+                }
+                return paths.ToArray();
+            }
+        }
+
+        /// <summary>admin.settingsMenu.sameFrame = false, saved now (the breadcrumb's fallback). False, with a WARN, when it cannot be saved.</summary>
+        public bool SwitchSameFrameOff()
+        {
+            try
+            {
+                context.Settings.SetAndSave(new Dictionary<string, object>(StringComparer.Ordinal) { { SettingsSchema.SettingsMenuSameFrameKey, false } });
+                return true;
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    log.Warn("admin: settings menu: " + SettingsSchema.SettingsMenuSameFrameKey + " could not be saved", ex);
+                }
+                catch (Exception)
+                {
+                }
+                return false;
+            }
+        }
+
+        /// <summary>
         /// settings admin.settingsMenu.performance (server copy, read on every call of the Settings menu natives; default true) on
         /// Android; false on PC, whose Steam PERFORMANCE tile and page stay as they are.
         /// </summary>

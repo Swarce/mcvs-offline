@@ -17,8 +17,9 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
     /// GameClientComponent.cs:3815-3816, :3878; GamePreferencesComponent.cs:146-151, :167-173). Natives:
     /// <list type="table">
     /// <item><term>EnterSection</term><description>append, returns nothing; both platforms. On <c>settings_main_screen</c>: clear
-    /// <see cref="SettingsMenuState.TileActive"/> and the Performance mode, start the grid's run, show the restart prompt when one is
-    /// pending.</description></item>
+    /// <see cref="SettingsMenuState.TileActive"/> and the Performance mode, put Android's FORUM remap in or out, start the grid's
+    /// run, dress Android's panel before <c>setup()</c> (build 22), watch the same-frame native, show the restart prompt when one
+    /// is pending.</description></item>
     /// <item><term>GoToForum</term><description><b>replace</b> (true, false), Android: while the tile is active, the page opens
     /// (<see cref="PerformancePage.Open"/>); otherwise our delegate calls <c>UIComponent.GoToForum()</c> itself, so the stock body and
     /// patch 'forum' run as before (E4).</description></item>
@@ -96,6 +97,8 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 if (admin == null) return null;
                 // AdminHooks.Host while it is this host: a registry left from an earlier host (tests start several) does nothing.
                 var natives = new UiNatives(() => ReferenceEquals(AdminHooks.Host, admin) ? admin : null, new SettingsMenuState());
+                // A breadcrumb of the last start (it ended inside our Flash work in a native): checked here, off the game thread.
+                SameFrameBreadcrumb.Check(admin, natives.State);
                 natives.StartTimer();
                 UiNatives previous = current;
                 current = natives;
@@ -282,10 +285,13 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             try
             {
                 MenuSteps steps = Steps;
-                // Every return to the grid: the tile reads FORUM until the grid step has re-dressed it, and the page has ended.
+                // Every return to the grid: the tile reads FORUM until the remap or a re-dress says otherwise, and the page has ended.
                 state.TileActive = false;
                 if (!Run(h, "EnterSection (page)", () => steps.LeaveMode(state))) state.PerformanceMode = false;
+                Run(h, "EnterSection (remap)", () => steps.Remap(h, state));
                 Run(h, "EnterSection (grid)", () => steps.Schedule(h, state));
+                // Before the observer: PreDress's own btn_forum.setup calls GetPlatformId, which must not reach the step.
+                Run(h, "EnterSection (before setup)", () => steps.PreDress(h, state));
                 Run(h, "EnterSection (same frame)", () => Watch(h));
                 Run(h, "EnterSection (restart prompt)", () => steps.ShowRestartPromptIfPending(h, state));
             }
@@ -639,6 +645,8 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         public MenuSteps()
         {
             Schedule = SettingsMenuLayout.Schedule;
+            Remap = SettingsMenuLayout.EnsureRemap;
+            PreDress = SettingsMenuLayout.PreDress;
             LeaveMode = PerformancePage.LeaveMode;
             ShowRestartPromptIfPending = PerformancePage.ShowRestartPromptIfPending;
             Open = PerformancePage.Open;
@@ -651,6 +659,12 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
 
         /// <summary>EnterSection("settings_main_screen"): start the grid's run (SettingsMenuLayout.Schedule).</summary>
         public Action<ISettingsMenuHost, SettingsMenuState> Schedule { get; set; }
+
+        /// <summary>EnterSection("settings_main_screen"), first: Android's FORUM remap in or out (SettingsMenuLayout.EnsureRemap).</summary>
+        public Action<ISettingsMenuHost, SettingsMenuState> Remap { get; set; }
+
+        /// <summary>EnterSection("settings_main_screen"), after Schedule: Android's dress before setup() (SettingsMenuLayout.PreDress).</summary>
+        public Action<ISettingsMenuHost, SettingsMenuState> PreDress { get; set; }
 
         /// <summary>The watched native (GetPlatformId, GetLanguage) while a same-frame step is armed: SettingsMenuLayout.OnNative.</summary>
         public Action<ISettingsMenuHost, SettingsMenuState, string> SameFrame { get; set; }

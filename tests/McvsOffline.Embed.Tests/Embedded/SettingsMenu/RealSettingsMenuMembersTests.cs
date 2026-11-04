@@ -163,6 +163,32 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             });
         }
 
+        [Fact]
+        public void TheForumRemapMembersResolve()
+        {
+            // Build 22 (ForumRemap): UIComponent.World → World.LocalizationFormatter → the private remapDictionary of LocId to LocId,
+            // and LocId from a string (LocalizationFormatterComponent.cs:34, World.cs:438, LocId.cs:128).
+            Inspect("android", (resolve, problems) =>
+            {
+                Type ui = resolve("Game.UIComponent");
+                PropertyInfo world = GameReflection.FindProperty(ui, "World", false);
+                Expect(problems, world != null, "UIComponent.World");
+                Type worldType = resolve("Gameloft.Engine.World");
+                PropertyInfo formatter = worldType == null ? null : GameReflection.FindProperty(worldType, "LocalizationFormatter", false);
+                Type formatterType = resolve("Gameloft.Engine.LocalizationFormatterComponent");
+                Expect(problems, formatter != null && formatter.PropertyType == formatterType, "World.LocalizationFormatter : LocalizationFormatterComponent");
+                FieldInfo map = formatterType == null ? null : formatterType.GetField(ForumRemap.Field, BindingFlags.Instance | BindingFlags.NonPublic);
+                Type locId = resolve("Gameloft.Engine.LocId");
+                Expect(problems, map != null && typeof(System.Collections.IDictionary).IsAssignableFrom(map.FieldType) && map.FieldType.GetConstructor(Type.EmptyTypes) != null,
+                       "LocalizationFormatterComponent." + ForumRemap.Field + " : a Dictionary with a parameterless constructor");
+                PropertyInfo item = map == null ? null : map.FieldType.GetProperty("Item", BindingFlags.Public | BindingFlags.Instance);
+                Expect(problems, item != null && item.GetIndexParameters().Length == 1 && item.GetIndexParameters()[0].ParameterType == locId && item.PropertyType == locId,
+                       "remapDictionary[LocId] : LocId");
+                MethodInfo convert = locId == null ? null : GameReflection.FindStaticMethod(locId, "op_Implicit", typeof(string));
+                Expect(problems, convert != null && convert.ReturnType == locId, "LocId.op_Implicit(string) : LocId");
+            });
+        }
+
         // ------------------------------------------------------------------ the assemblies
 
         /// <summary>Loads the platform's Gameloft.Engine.dll and Game.dll by path in a collectible context and runs the checks.</summary>

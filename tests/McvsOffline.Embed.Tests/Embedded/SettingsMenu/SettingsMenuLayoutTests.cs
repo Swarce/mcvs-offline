@@ -133,7 +133,8 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             AssertPlacement(plan.Kept[4], "btn_help", -709.4, -50.9);
             AssertPlacement(plan.Kept[5], "btn_language", -232.0, -50.9);
             AssertPlacement(plan.Kept[6], "btn_forum", 245.4, -50.9);   // re-dressed as PERFORMANCE
-            AssertPlacement(plan.Kept[7], "btn_credits", -182.9, 354.1);
+            // Build 22: ABOUT where Android's setup() puts it (AND-AS :213), by design: ThinBtn's timeline moves its children.
+            AssertPlacement(plan.Kept[7], "btn_credits", 208, 354.1);
             Assert.Equal(new[] { "btn_social", "btn_customer", "btn_more" }, plan.Hidden);
             Assert.Equal(11, plan.Lookups.Count);
             AssertGeometry(plan, false);
@@ -153,8 +154,9 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         }
 
         /// <summary>
-        /// Every row is centred on panel x 0 (±1), ABOUT's plate is centred, no two tiles overlap, every looked-up name is an instance
-        /// of the platform's main frame (from the timeline), and nothing is both kept and hidden.
+        /// Every row is centred on panel x 0 (±1), ABOUT's plate is centred on Steam and at setup()'s own 208 on Android (build 22),
+        /// no two tiles overlap, every looked-up name is an instance of the platform's main frame (from the timeline), and nothing is
+        /// both kept and hidden.
         /// </summary>
         private static void AssertGeometry(SettingsMenuLayout.LayoutPlan plan, bool steam)
         {
@@ -171,7 +173,8 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             }
             SettingsMenuLayout.Placement about = plan.Kept.Single(p => !SettingsMenuLayout.IsTile(p));
             Assert.Equal("btn_credits", about.Name);
-            Assert.Equal(0, about.X + SettingsMenuNames.ThinButtonPlateWidth / 2, 2);
+            if (steam) Assert.Equal(0, about.X + SettingsMenuNames.ThinButtonPlateWidth / 2, 2);
+            else Assert.Equal(SettingsMenuNames.AndroidAboutX, about.X);
         }
 
         // ------------------------------------------------------------------ the live step
@@ -191,7 +194,10 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.Equal("setting.Performance", forum.Get("title"));
             Assert.Equal("Menus/assets/png/icons/settings_performance.png", forum.Get("icon"));
             Assert.Equal("setting.Performance", forum.Child("txt").Get("text"));
+            Assert.Equal(SettingsMenuNames.PerformanceIcon, rig.Ui.TileIcon("btn_forum"));
             Assert.Equal(PerformanceSetup, rig.Ui.HostWrites.First());   // the re-dress runs first
+            // Build 22: then the icon goes out of setup()'s reach (the slot, and the container's name).
+            Assert.Equal(new[] { Forum + ".mc_image=null", Forum + ".mc_image.name=mcvs_perfIcon" }, rig.Ui.HostWrites.Skip(1).Take(2));
             Assert.True(rig.State.TileActive);
             Assert.True(rig.State.TileEverActive);
             Assert.False(rig.State.RedressFailed);
@@ -383,7 +389,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             rig.Ui.OpenSettings();
             Assert.Equal(FakeFlashTree.ThinButtonWidth, rig.Ui.Instance("btn_credits").Num("width"));
             rig.Host.Drain();
-            Assert.Equal(-182.9f, rig.At("btn_credits")[0]);   // the plate, not .width/2 (about 200)
+            Assert.Equal(208f, rig.At("btn_credits")[0]);   // Android: setup()'s own x (build 22); never .width/2 (about 200)
         }
 
         // ------------------------------------------------------------------ T-B4: absolute writes end Steam's drift
@@ -483,14 +489,20 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             rig.Open();
             Assert.Equal(1, rig.Ui.HostWrites.Count(w => w.StartsWith(Forum + ".setup(", StringComparison.Ordinal)));
             Assert.Contains(PerformanceSetup, rig.Ui.HostWrites);
-            // On every return to the grid (setup() puts FORUM back), once more.
+            // On every return to the grid (without the remap setup() puts FORUM's title back; its icon is out of reach), once more,
+            // the title alone (build 22).
+            int loads = rig.Ui.IconLoads;
             rig.Ui.Tap("btn_help");
             rig.Ui.Back();
-            Assert.Equal("setting.ForumButton", rig.Ui.Instance("btn_forum").Get("title"));
+            Assert.Equal("setting.ForumButton", rig.Ui.TileText("btn_forum"));
+            Assert.Equal(SettingsMenuNames.PerformanceIcon, rig.Ui.TileIcon("btn_forum"));
+            Assert.Equal(loads, rig.Ui.IconLoads);
             rig.Host.Drain();
-            Assert.Equal(2, rig.Ui.HostWrites.Count(w => w == PerformanceSetup));
+            Assert.Equal(1, rig.Ui.HostWrites.Count(w => w == PerformanceSetup));
+            Assert.Equal(Forum + ".setup({title:setting.Performance})", rig.Ui.HostWrites.Last(w => w.StartsWith(Forum + ".setup(", StringComparison.Ordinal)));
             Assert.Equal(2, rig.Ui.HostWrites.Count(w => w.StartsWith(Forum + ".setup(", StringComparison.Ordinal)));
-            Assert.Equal("setting.Performance", rig.Ui.Instance("btn_forum").Get("title"));
+            Assert.Equal("setting.Performance", rig.Ui.TileText("btn_forum"));
+            Assert.Equal(loads, rig.Ui.IconLoads);
             Assert.True(rig.State.TileActive);
         }
 
@@ -569,7 +581,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             FlashObject menu = rig.Ui.OpenSettings();
             menu.Child("mc_panel").Children.Remove(rig.Ui.Instance("btn_social"));   // only btn_forum is read
             rig.Host.Drain();
-            Assert.Equal(new[] { PerformanceSetup }, rig.Ui.HostWrites);
+            Assert.Equal(new[] { PerformanceSetup, Forum + ".mc_image=null", Forum + ".mc_image.name=mcvs_perfIcon" }, rig.Ui.HostWrites);
             Assert.Equal(new[] { 6.35f, -50.9f }, rig.At("btn_forum"));   // the stock slot
             Assert.True((bool)rig.Ui.Instance("btn_more").Get("visible"));
             Assert.True(rig.State.TileActive);

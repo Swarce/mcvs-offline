@@ -57,6 +57,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         public FakeFlashTree(bool steam = false, bool registerGameNatives = true)
         {
             Steam = steam;
+            World = new FakeUiWorld();
             FreemiumTitle = new FlashObject(this, "TextField", "tf_menuTitle");
             Game = new FakeGameNatives { PlatformId = steam ? 6 : 2 };
             if (registerGameNatives) Game.RegisterAll(this);
@@ -88,6 +89,21 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
 
         /// <summary>Steam (platform 6, main frame 1) rather than Android (platform 2, main frame 3).</summary>
         public bool Steam { get; private set; }
+
+        /// <summary>
+        /// UIComponent.World (GameReflection.WorldOf): its <c>LocalizationFormatter</c> with the engine's private LocId remap, which
+        /// every text of <see cref="SetStringId"/> goes through (null: no World).
+        /// </summary>
+        public FakeUiWorld World { get; set; }
+
+        /// <summary>
+        /// How BtnBase.setup's <c>this.mc_image</c> resolves (BtnBase.as:130) [G: gameswf's model is not known]: the declared var's
+        /// slot (default), a child by name (the slot ignores writes), or neither (it always reaches the container).
+        /// </summary>
+        public IconSlotMode IconSlot { get; set; }
+
+        /// <summary>ImageContainer.img loads (a new path: removeAllChilds and a new Loader, ImageContainer.as:66-108, 207-215).</summary>
+        public int IconLoads { get; private set; }
 
         /// <summary>GameSettings.isInGame: Settings opens on frame 2 and Gameplay Settings on its frame 2.</summary>
         public bool InGame { get; set; }
@@ -148,7 +164,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             if (restockIn > 0 && --restockIn == 0)
             {
                 FlashObject panel = Panel;
-                if (panel != null && Stack.Any(m => m.Name == McvsMenuNames.Settings)) Setup(panel);
+                if (panel != null && Stack.Any(m => m.Name == McvsMenuNames.Settings)) Setup(panel, panel.Frame);
             }
         }
 
@@ -252,14 +268,22 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
 
         // ------------------------------------------------------------------ menus
 
-        /// <summary>MenusManager.pushMenu(name): Settings and Gameplay Settings are built and focused in; any other name is a bare menu.</summary>
+        /// <summary>
+        /// MenusManager.pushMenu(name): Settings and Gameplay Settings are built and focused in; any other name is a bare menu. A new
+        /// Android main-menu Settings starts on panel frame 1, the timeline's first, and setup() goes to 3 (AND-AS MenuSettings.as:44).
+        /// </summary>
         public FlashObject PushMenu(string name)
         {
             Pushed.Add(name);
             FlashObject below = Top;
             if (below != null && below.Name == McvsMenuNames.Gameplay) EmptyContent(below);
             FlashObject menu;
-            if (name == McvsMenuNames.Settings) menu = Built(BuildSettingsMenu(MainFrame()));
+            if (name == McvsMenuNames.Settings)
+            {
+                int main = MainFrame();
+                menu = Built(BuildSettingsMenu(Steam || main == 2 ? main : 1));
+                menu.Members["mainFrame"] = (float)main;
+            }
             else if (name == McvsMenuNames.Gameplay) menu = BuildGameplayMenu();
             else menu = new FlashObject(this, "Menu", name);
             Stack.Add(menu);
@@ -311,7 +335,10 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             return PushMenu(McvsMenuNames.Settings);
         }
 
-        /// <summary>Opens Settings on a given panel frame (both SWFs have frames 1-5), e.g. Android's frame 1 or Steam's frame 3.</summary>
+        /// <summary>
+        /// Opens Settings on a given panel frame (both SWFs have frames 1-5), e.g. Android's frame 1 or Steam's frame 3; setup()
+        /// leaves the panel on it (no gotoAndStop).
+        /// </summary>
         public FlashObject OpenSettingsAtFrame(int frame)
         {
             Pushed.Add(McvsMenuNames.Settings);
@@ -322,7 +349,10 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             return menu;
         }
 
-        /// <summary>Runs on every new Settings menu before its focus-in (a test removes an instance the timeline places, say).</summary>
+        /// <summary>
+        /// Runs on every new Settings menu before its focus-in, and again after a gotoAndStop placed new instances (a test removes an
+        /// instance the timeline places, say).
+        /// </summary>
         public Action<FlashObject> SettingsBuilt { get; set; }
 
         private FlashObject Built(FlashObject menu)
@@ -349,6 +379,20 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         {
             FlashObject panel = Panel;
             return panel == null ? null : panel.Child(name);
+        }
+
+        /// <summary>A Settings instance's label as drawn (its txt after the remap), or null.</summary>
+        public string TileText(string name)
+        {
+            FlashObject txt = Instance(name) == null ? null : Instance(name).Child("txt");
+            return txt == null ? null : txt.Get("text") as string;
+        }
+
+        /// <summary>A Settings tile's icon as drawn (its ImageContainer's img, whatever the container is called now), or null.</summary>
+        public string TileIcon(string name)
+        {
+            FlashObject icon = IconContainer(Instance(name));
+            return icon == null ? null : icon.Get("img") as string;
         }
 
         /// <summary>MenuSettings.onButtonReleased for the instance (by name). False when it is absent, hidden or mouse-disabled.</summary>
@@ -511,6 +555,27 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             menu.Members["title"] = "menu.SettingButton";
             var panel = new FlashObject(this, "MovieClip", "mc_panel") { Frame = frame };
             menu.Add(panel);
+            panel.Methods["gotoAndStop"] = a => { GotoFrame(panel, a.Length > 0 && FakeNativeTable.IsNumber(a[0]) ? ToIndex(a[0]) : panel.Frame); return null; };
+            PlaceInstances(panel, frame);
+            return menu;
+        }
+
+        /// <summary>
+        /// mc_panel.gotoAndStop(frame) to another frame: the timeline places that frame's instances, new ones (the frames hold them
+        /// at other depths, and_settings_frames.txt), and nothing written to the old ones survives. The same frame is a no-op.
+        /// </summary>
+        public void GotoFrame(FlashObject panel, int frame)
+        {
+            if (panel.Frame == frame || frame < 1 || frame > 5) return;
+            foreach (FlashObject old in panel.Children.ToList()) panel.Children.Remove(old);
+            panel.Frame = frame;
+            PlaceInstances(panel, frame);
+            // A test's change to the timeline's instances applies to the new ones too.
+            if (SettingsBuilt != null && panel.Parent != null) SettingsBuilt(panel.Parent);
+        }
+
+        private void PlaceInstances(FlashObject panel, int frame)
+        {
             foreach (Placed p in (Steam ? SteamFrames : AndroidFrames)[frame - 1])
             {
                 string kind = p.Kind == 'S' ? "BtnSetting" : p.Kind == 'T' ? "ThinBtn" : p.Kind == 'C' ? "ButtonClose" : "MovieClip";
@@ -524,8 +589,13 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
                     item.Members["width"] = TileWidth * p.Scale;
                     item.Members["height"] = TileHeight * p.Scale;
                     item.Add(new FlashObject(this, "TextField", "txt"));
-                    item.Add(new FlashObject(this, "MovieClip", "mc_image"));
+                    FlashObject image = item.Add(NewImageContainer());
                     FlashObject tile = item;
+                    // BtnBase's public var mc_image (the timeline assigns the slot), or the child by name, or neither (IconSlot).
+                    if (IconSlot == IconSlotMode.Slot) item.Members["mc_image"] = image;
+                    else if (IconSlot == IconSlotMode.ChildByName) item.Getters["mc_image"] = () => tile.Child("mc_image");
+                    else item.Getters["mc_image"] = () => image;
+                    if (IconSlot != IconSlotMode.Slot) item.Setters["mc_image"] = v => { };
                     item.Methods["setup"] = a => { TileSetup(tile, a.Length > 0 ? a[0] : null); return null; };
                 }
                 else if (p.Kind == 'T')
@@ -538,10 +608,33 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
                 }
                 panel.Add(item);
             }
-            return menu;
         }
 
-        /// <summary>BtnBase.setup(dict): the title through TextUtilities.setStringID (a GetPlatformId native) and the icon.</summary>
+        /// <summary>gluic ImageContainer: <c>img</c> loads a new path and returns early for the same one (ImageContainer.as:207-215).</summary>
+        private FlashObject NewImageContainer()
+        {
+            var image = new FlashObject(this, "ImageContainer", "mc_image");
+            image.Setters["img"] = v =>
+            {
+                object current;
+                if (image.Members.TryGetValue("img", out current) && Equals(current, v)) return;
+                image.Members["img"] = v;
+                IconLoads++;
+            };
+            return image;
+        }
+
+        /// <summary>The tile's icon container, whatever its name now (the one the timeline placed), or null.</summary>
+        public static FlashObject IconContainer(FlashObject tile)
+        {
+            return tile == null ? null : tile.Children.FirstOrDefault(c => c.Kind == "ImageContainer");
+        }
+
+        /// <summary>
+        /// BtnBase.setup(dict) (BtnBase.as:114-135): the title through TextUtilities.setStringID (GetPlatformId natives, then the text
+        /// through the World's remap), then <c>if (Boolean(this.mc_image) &amp;&amp; Boolean(icon))</c> the icon, with
+        /// <c>this.mc_image</c> resolved as <see cref="IconSlot"/> says.
+        /// </summary>
         private void TileSetup(FlashObject tile, object data)
         {
             var dict = data as IDictionary<string, object>;
@@ -553,7 +646,16 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
                 SetStringId(tile.Child("txt"), title, new object[0]);
             }
             object icon;
-            if (dict.TryGetValue("icon", out icon)) tile.Members["icon"] = icon;
+            if (dict.TryGetValue("icon", out icon) && Truthy(icon))
+            {
+                var image = tile.Get("mc_image") as FlashObject;
+                if (image != null)
+                {
+                    image.Members["scaleMode"] = "exactFit";
+                    image.Set("img", icon);
+                    tile.Members["icon"] = icon;
+                }
+            }
         }
 
         private static readonly Dictionary<string, string[]> StockTiles = new Dictionary<string, string[]>(StringComparer.Ordinal)
@@ -582,11 +684,14 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         private void FocusInSettings(FlashObject menu)
         {
             FlashObject panel = menu.Child("mc_panel");
+            // A Stay-on-frame panel (OpenSettingsAtFrame) has no mainFrame: setup() leaves it where it is.
+            object main;
+            int goTo = menu.Members.TryGetValue("mainFrame", out main) ? ToIndex(main) : panel.Frame;
             if (Steam) CallFromFlash("GetLanguage", "en");
             AddButtonListeners();
             CallFromFlash("EnterSection", null, panel.Frame == 2 ? "pvp_settings_screen" : "settings_main_screen");
             CallFromFlash("MoveToCamera", null, "settings.voidLoaded", "VoidCamera");
-            Setup(panel);
+            Setup(panel, goTo);
         }
 
         /// <summary>Native.GetPlatformId() == <paramref name="id"/> as the AS evaluates it (one native call).</summary>
@@ -613,8 +718,10 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         /// 4/6 test (AND-AS/MS:167, PC :185) and Steam's keyboard/gamepad/performance dress, then each platform's positioning and
         /// visibility (Android :208-213; Steam :228-364), Steam's GetLanguage (:367), and addButtonListeners (:214, PC :372).
         /// </summary>
-        private void Setup(FlashObject panel)
+        private void Setup(FlashObject panel, int goTo)
         {
+            // AND-AS MenuSettings.as:44: this.mc_panel.gotoAndStop(GameSettings.isInGame ? 2 : 3) (a no-op on a return).
+            if (!Steam) GotoFrame(panel, goTo);
             if (Steam && SteamReplacesInstances && panel.Frame == 1) ReplaceInstances(panel);
             FlashObject title = panel.Child("mc_title");
             if (title != null) SetStringId(title, panel.Frame == 1 ? "menu.SettingButton" : "menu.PausedTitle", new object[0]);
@@ -1073,9 +1180,43 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             if (target == null) return;
             if (!Steam) PlatformIs(2);
             if (!PlatformIs(4)) PlatformIs(6);
-            string text = id == null ? "null" : id is string ? (string)id : FormatAs(id);
+            // MenuComponent.FormatString: the TextField is registered under the LocId it was given (MenuComponent.cs:1168-1205).
+            if (id is string)
+            {
+                Registered.RemoveAll(r => ReferenceEquals(r.Target, target) && r.Id == (string)id);
+                Registered.Add(new RegisteredText { Target = target, Id = (string)id, Parameters = parameters });
+            }
+            target.Members["text"] = Format(id, parameters);
+        }
+
+        /// <summary>What FormatString writes: the LocId through the World's remap (RemapLocId before the lookup; the fake's strings are their ids).</summary>
+        private string Format(object id, object[] parameters)
+        {
+            string text = id == null ? "null" : id is string ? Remapped((string)id) : FormatAs(id);
             if (parameters != null && parameters.Length > 0) text += " " + string.Join(" ", parameters.Select(FormatAs));
-            target.Members["text"] = text;
+            return text;
+        }
+
+        private string Remapped(string id)
+        {
+            var formatter = World == null ? null : World.LocalizationFormatter as FakeLocalizationFormatter;
+            return formatter == null ? id : formatter.RemapLocId(id);
+        }
+
+        /// <summary>One registered text (MenuComponent.mRegisteredStrings), in registration order.</summary>
+        internal sealed class RegisteredText
+        {
+            public FlashObject Target;
+            public string Id;
+            public object[] Parameters;
+        }
+
+        internal List<RegisteredText> Registered { get; } = new List<RegisteredText>();
+
+        /// <summary>MenuComponent.ReloadStringTable (a language change): every registered text formatted again, the remap applied.</summary>
+        public void ReloadStringTable()
+        {
+            foreach (RegisteredText r in Registered.ToList()) r.Target.Members["text"] = Format(r.Id, r.Parameters);
         }
 
         // ------------------------------------------------------------------ the render points
@@ -1099,10 +1240,13 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
                 {
                     foreach (FlashObject item in panel.Children)
                     {
+                        FlashObject txt = item.Child("txt");
+                        FlashObject icon = IconContainer(item);
                         point.Instances[item.Name ?? ""] = new RenderedInstance
                         {
                             X = item.Num("x"), Y = item.Num("y"), Visible = Truthy(item.Get("visible")), MouseEnabled = Truthy(item.Get("mouseEnabled")),
-                            Title = item.Get("title") as string,
+                            Title = item.Get("title") as string, Alpha = item.Num("alpha"), Text = txt == null ? null : txt.Get("text") as string,
+                            Icon = icon == null ? null : icon.Get("img") as string,
                         };
                     }
                 }
@@ -1236,6 +1380,109 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         public bool Visible;
         public bool MouseEnabled;
         public string Title;
+        public float Alpha;
+
+        /// <summary>The label as drawn (txt.text, after the remap).</summary>
+        public string Text;
+
+        /// <summary>The icon as drawn (the tile's ImageContainer img, whatever its name).</summary>
+        public string Icon;
+
+        /// <summary>Something of it reaches the screen: shown, not transparent, on the panel (the panel spans y about -430 to 420).</summary>
+        public bool Drawn { get { return Visible && Alpha > 0.001f && Y < 2000; } }
+
+        /// <summary>It catches taps (Flash hit-tests transparent objects too; mouseEnabled false and hidden ones not).</summary>
+        public bool TakesTaps { get { return Visible && MouseEnabled; } }
+    }
+
+    /// <summary>How BtnBase.setup's <c>this.mc_image</c> resolves in the fake (<see cref="FakeFlashTree.IconSlot"/>).</summary>
+    internal enum IconSlotMode
+    {
+        /// <summary>The declared var's slot: a null write empties it.</summary>
+        Slot,
+
+        /// <summary>A child by name: slot writes are ignored, a rename hides it.</summary>
+        ChildByName,
+
+        /// <summary>Neither a null write nor a rename keeps it from setup() (the fallback must re-dress after setup's dress).</summary>
+        Stuck,
+    }
+
+    /// <summary>UIComponent.World look-alike: what GameReflection.WorldOf and ForumRemap read.</summary>
+    internal sealed class FakeUiWorld
+    {
+        public FakeUiWorld()
+        {
+            LocalizationFormatter = new FakeLocalizationFormatter();
+        }
+
+        /// <summary>World.LocalizationFormatter (World.cs:438): a <see cref="FakeLocalizationFormatter"/>, or another object (no remap field).</summary>
+        public object LocalizationFormatter { get; set; }
+    }
+
+    /// <summary>
+    /// Gameloft.Engine.LocalizationFormatterComponent look-alike: the private <c>remapDictionary</c> of LocId to LocId
+    /// (LocalizationFormatterComponent.cs:34) and RemapLocId (:260-267), which FormatString applies before the lookup.
+    /// </summary>
+    internal sealed class FakeLocalizationFormatter
+    {
+        private Dictionary<FakeLocId, FakeLocId> remapDictionary = new Dictionary<FakeLocId, FakeLocId>();
+
+        /// <summary>The dictionary object now (copy and swap gives a new one).</summary>
+        public object Map { get { return remapDictionary; } }
+
+        /// <summary>A Remap.json entry of the game's own (the test's starting state).</summary>
+        public void Add(string from, string to)
+        {
+            remapDictionary.Add(from, to);
+        }
+
+        public bool Contains(string from)
+        {
+            return remapDictionary.ContainsKey(from);
+        }
+
+        public string RemapLocId(string id)
+        {
+            FakeLocId mapped;
+            return remapDictionary.TryGetValue(id, out mapped) ? mapped.FullId : id;
+        }
+    }
+
+    /// <summary>Gameloft.Engine.LocId look-alike: from a string (op_Implicit), equal by its full id (LocId.cs:128, :148-160).</summary>
+    internal struct FakeLocId
+    {
+        public FakeLocId(string fullId)
+        {
+            FullId = fullId ?? "";
+        }
+
+        public string FullId { get; private set; }
+
+        public static implicit operator string(FakeLocId locId)
+        {
+            return locId.FullId;
+        }
+
+        public static implicit operator FakeLocId(string stringId)
+        {
+            return new FakeLocId(stringId);
+        }
+
+        public override bool Equals(object obj)
+        {
+            return obj is FakeLocId && FullId == ((FakeLocId)obj).FullId;
+        }
+
+        public override int GetHashCode()
+        {
+            return FullId.GetHashCode();
+        }
+
+        public override string ToString()
+        {
+            return FullId;
+        }
     }
 
     /// <summary>A double or long the host wrote: ASValue.SetObject stores it as a managed object, not as an AS Number.</summary>
@@ -1297,6 +1544,9 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
 
         /// <summary>Every access through a handle throws (a native call that fails).</summary>
         public bool Throws { get; set; }
+
+        /// <summary>Every write through a handle throws (SetMember on it fails; reads work).</summary>
+        public bool ThrowsOnWrite { get; set; }
 
         public string Name
         {
@@ -1516,6 +1766,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         public void SetMember(string name, object value)
         {
             Check();
+            if (target.ThrowsOnWrite) throw new InvalidOperationException("probe: native write failed");
             object converted = FlashValue.In(target.Tree, value);
             if (converted is FlashManaged) target.Tree.ManagedWrites.Add(target.Path + "." + name);
             target.Tree.HostWrites.Add(target.Path + "." + name + "=" + FakeFlashTree.FormatAs(converted));
