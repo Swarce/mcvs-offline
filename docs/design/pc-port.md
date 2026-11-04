@@ -2020,9 +2020,9 @@ and the `AppCrash_ModernCombatVers_*` report folders; WP5b records the results i
 in from §12.6 before the kit is handed over): the `written` SHA-256 of the five DLLs and the config (§13.1); the
 `MEM rule on, removed <n>` count.
 
-### 13.1 Expected WR3 values (build 19)
+### 13.1 Expected WR3 values (build 20)
 
-From the §12.6 run on Linux (build 19: the kit's own Linux build, `McvsOffline.PcKit.dll install`, on a temp copy of
+From the §12.6 run on Linux (build 20, at `4079f39`: `McvsOffline.Patcher.dll pc install`, the `PcInstaller` the kit runs, on a temp copy of
 the read-only Steam files' managed assemblies, exe and `Data/MCVS.game`, with the PC server DLL the kit embeds,
 byte-identical; `RealFolderEndToEnd`, the same install through `PcInstaller` with ILVerify, passed in the full test run),
 default patch set, port 51780. A second install gave the same bytes, and the values do not depend on the commit they are built at
@@ -2030,24 +2030,25 @@ default patch set, port 51780. A second install gave the same bytes, and the val
 
 | written | sha256 | mvid |
 |---|---|---|
-| `McvsOffline/bin/EngineBridge.dll` | `be6d7723712fc8d8e91ba7ae61cb0a7211f1e4e2c0e2cae7596fe6e9b7e062fb` | `cd307bc0-65e9-4cff-8598-cadf0b70c1c8` |
-| `McvsOffline/bin/Game.dll` | `30ce7f1ab564c2424194ec4410eb5eb12b4479a0780594f7844161297bfbfafc` | `bff81f79-10e3-4838-933f-4857925ffaa0` |
-| `McvsOffline/bin/Gameloft.Engine.dll` | `cb29b7ceed1c86c2c5702c0a18b0e72702982bb567d90d44405b791184efbef7` | `ea3a2faf-f488-4711-be40-f4e4912c05d5` |
-| `McvsOffline/bin/Gameloft.Util.dll` | `0af2d767639728e5c3aaad2e65e9a16020845f8eff1554e017f2b4d4e0709396` | `83ee1636-03f3-47b4-b8f7-207518b039cf` |
-| `McvsOffline/bin/McvsOffline.Server.dll` | `d90ba116a5fe16ffd21c64c46be3fcdb948150ebad9c484fce5a6539d7e23157` | `2bd09d2f-4244-42fb-88a9-5c6b529ff3c7` |
+| `McvsOffline/bin/EngineBridge.dll` | `655eb0c9c5d977e5000288732b4dd20ad62822b8cab4f611ca1f41a29b6e8a9f` | `ca2c3637-d1d7-4ff4-b5b2-6335156eafcc` |
+| `McvsOffline/bin/Game.dll` | `b0cf406137c23acaddb5a2bc792c3186c851efabd4714e5b888838f895b76262` | `69e9bfc0-c384-4d80-93cf-b0971fe744f1` |
+| `McvsOffline/bin/Gameloft.Engine.dll` | `91f894848617e258baf74a79044f55b48595464e6c05c4aed5f65a9e3b81c254` | `3729fbd3-20d9-4840-b105-ec1207275a31` |
+| `McvsOffline/bin/Gameloft.Util.dll` | `4341f6f603950a682b2d6f75b7a84966ff546aaa0efdeea8afc10810bb8c4760` | `260976d1-001a-421c-baf3-c8c63ac4df9d` |
+| `McvsOffline/bin/McvsOffline.Server.dll` | `e9d16fb5001cd4a2cb948c89816df06e427b1f961a80d4a03f155d68ab4ee969` | `ae6561d4-1e87-4cc3-b0dc-0704d7124826` |
 | `ModernCombatVersus.exe.config` | `3ebe99b3c93a9540cd7f7b03da55fc048a544501c17e8621457884eae456f94c` | — |
 
 * Applied patches: `hook-pc, headless, bottile, store, signatures, inbox, adminpage, headless-engine, physics,
   quicklaunch, headless-diag, nativeonline, waits, adminlink, graphics, gameload, geo` (build 17's set); `install.json`
-  `installer.serverBuild` is `19`. Build 19 changes only the server DLL (the Settings menu trim, the Android PERFORMANCE
-  page and its back end, [settings-menu.md](settings-menu.md)); no patch changed, so `Game.dll`, EngineBridge,
+  `installer.serverBuild` is `20`. Build 20 changes only the server DLL (the Settings grid's run per focus-in,
+  [settings-menu.md](settings-menu.md) §3.2); no patch and no installer code changed, so `Game.dll`, EngineBridge,
   Gameloft.Engine and Gameloft.Util get new MVIDs and hashes with the server DLL only, as in every build. The config is
-  build 16's. Build 18's values are in §13.2.
+  build 16's. Build 19's values are in §13.2.
 * `MEM rule on, removed 1` (`GameOptionsWindowsTests.RealFileRemoved`, the real `GameOptions_windows.json`).
 * The config is §7.4's codeBase-only text (UTF-8 without BOM, CRLF, final CRLF; five `<dependentAssembly>` entries, no
   `<qualifyAssembly>`), byte for byte the config WR2 ran (§13.2; `PcExeConfigTests.ExpectedSha256`). Builds 14 and 15
   wrote the five `<qualifyAssembly>` entries after them (`fda12aef…c4b6`, §13.2).
-* **Upgrade from build 18** (the same Linux run): a build-18 install made by a `ce90194` patcher (built in a separate
+* **Upgrade from build 18** (build 19's Linux run; no upgrade run in build 20, which changes no installer code): a
+  build-18 install made by a `ce90194` patcher (built in a separate
   folder: its server DLL `ee0445fb…4803` differs from build 18's kit's `a6e3991c…ecb4` only as a build of another
   folder; config `3ebe99b3…f94c`, `serverBuild` `18`). This kit (its Linux build, `McvsOffline.PcKit.dll` with the same
   embedded server DLL) says in `status` `installed, OLDER BUILD - OLDER BUILD (18; this kit installs build 19): run
@@ -2059,23 +2060,23 @@ default patch set, port 51780. A second install gave the same bytes, and the val
   back), `status` (`installed, current`, `activation: NOT VERIFIED` before a start), a second `install` with the same
   bytes, and `uninstall`, which restored the exact listing and every SHA-256 outside `McvsOffline\` and removed
   `McvsOffline\` (nothing of the player's in it).
-* The kit: `McvsOffline.PcKit.exe`, SHA-256 `9f7302dde8bc829df1346989a81d1d947ad2e99b7a20d220dabb29dbcdf56089`; its
+* The kit: `McvsOffline.PcKit.exe`, SHA-256 `b87d585e449e16e6bb75ec8ff92de9055d459d754d1738bcd707f70c2e9d5d17`; its
   publish check passed on the embedded DLL (every PC hook (17), `Gameloft.Logs`, only allowed references), and the
   kit's assembly carries the server DLL above byte for byte.
 * ILVerify of the four patched assemblies against the net452 refs (`RealFolderEndToEnd`, this run) reports exactly the
   findings of the stock files (EngineBridge 0, Game 1, Gameloft.Engine 290, Gameloft.Util 3; none in a patched or added
-  method); the server DLL verifies clean. Build 18's run, not repeated by hand in build 19 (no installer code changed;
+  method); the server DLL verifies clean. Build 18's run, not repeated by hand in builds 19 and 20 (no installer code changed;
   the test suite covers both): with a bootstrap `args.txt` block and player data added before `uninstall`, only
   `McvsOffline\` with that data remained and `args.txt` was gone; with the first 20 lines of WR2's own `bootstrap.log` as the last start after
   the install, `status` said `installed, NOT ACTIVE (Game loaded from the game folder; the 'store' patch is missing)`
   with its `ERROR:` line (F2); with the first 22 lines of the owner's build-17 start (2026-10-30, `gameload yes`),
   `installed, NOT ACTIVE (Game loaded from the game folder; the 'store' patch is missing; the 'inbox' patch is
   missing)`.
-* Android (§12.6): the APK `mcvs-offline-41c1407.apk` (SHA-256
-  `72a40d9c50933492f0b4ad1a574c3ac5024b84e4aefff05341205ad74d38bde6`; cert SHA-256 `fc0db84e…7d16`, targetSdk 35,
-  both ABIs, `isGame` and `appCategory=0`, zipalign OK), compared entry by entry with build 18's
-  `mcvs-offline-9e21ead.apk` (same key and options): same 952 entries in the same order; changed only
-  `assemblies/McvsOffline.Server.dll` (2,562,560 → 2,650,112 bytes), `META-INF/1.RSA`, `1.SF`, `MANIFEST.MF`, and
+* Android (§12.6): the APK `mcvs-offline-4079f39.apk` (SHA-256
+  `2946029d8b8ebad632bfb8d3765996c0a85d6cb0839a0888a09a807c23b4da1e`; cert SHA-256 `fc0db84e…7d16`, targetSdk 35,
+  both ABIs, `isGame` and `appCategory=0`, zipalign OK), compared entry by entry with build 19's
+  `mcvs-offline-41c1407.apk` (same key and options): same 952 entries in the same order; changed only
+  `assemblies/McvsOffline.Server.dll` (2,650,112 → 2,656,768 bytes), `META-INF/1.RSA`, `1.SF`, `MANIFEST.MF`, and
   `Game.dll`, `Gameloft.Engine.dll`, `Gameloft.Util.dll`, `NicePlaySDK.dll` in their 16 MVID bytes only.
 
 ### 13.2 WR2 values (build 13, archived)
@@ -2102,6 +2103,9 @@ McvsOffline.Server `32019567…2675`, config `3ebe99b3…f94c`; kit `804dd546…
 Build 18 (`9e21ead`, the fifth WR3 kit): EngineBridge `956e2a53…19c7`, Game `7cd097ae…f798`, Gameloft.Engine
 `81b4a794…8f41`, Gameloft.Util `a7a1cd0e…8eba`, McvsOffline.Server `a6e3991c…ecb4`, config `3ebe99b3…f94c`; kit
 `186c1bcb…b28e`; APK `mcvs-offline-9e21ead.apk` (`5981f109…23b8`).
+Build 19 (`41c1407`, the sixth WR3 kit; its first cut `922ce02` had kit `effcc07a…0aef`): EngineBridge `be6d7723…62fb`,
+Game `30ce7f1a…fafc`, Gameloft.Engine `cb29b7ce…bef7`, Gameloft.Util `0af2d767…9396`, McvsOffline.Server
+`d90ba116…3157`, config `3ebe99b3…f94c`; kit `9f7302dd…6089`; APK `mcvs-offline-41c1407.apk` (`72a40d9c…bde6`).
 
 ---------------------------------------------------------------------------------------------------
 

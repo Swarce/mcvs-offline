@@ -101,7 +101,7 @@ the shop, the MCVS Offline page and the HD textures. A few newer features are bu
 | Graphics profiles | Works (tested on a phone) |
 | HD textures (ASTC and ETC packs) | Works: the ASTC pack on a Galaxy S22, at the same frame rate as the stock textures |
 | Game Mode flags (Android 'game' patch) | Built (build 13), waiting for a phone test |
-| Shorter Settings menu, Android PERFORMANCE page | Built (build 19), waiting for a phone and a Windows test |
+| Shorter Settings menu, Android PERFORMANCE page | Built (build 19; build 20 lays the grid out again after a return to Settings), waiting for a phone and a Windows test |
 | PC (Steam) port | Second Windows test done (install, start and menu work; the game ran its own `Game.dll`, fixed in build 14). Ready for the third: the kit and [docs/PLAYER-SETUP-PC.md](docs/PLAYER-SETUP-PC.md) on the `wip/pc-port` branch |
 | LAN multiplayer | Experimental: guests use the host's server for everything |
 | Internet multiplayer | Planned (overlay VPN guide first) |

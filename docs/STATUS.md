@@ -1,7 +1,12 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-Last updated for build 19 (October 2026, on `wip/pc-port`; APK and PC kit): the game's Settings menu without the tiles
+Last updated for build 20 (November 2026, on `wip/pc-port`; APK and PC kit): on the owner's phone and PC build 19's
+shorter Settings menu showed on the first entry, but the stock menu came back after a tab and Back; the game's code puts
+the stock grid back on every return and build 19 laid it out once per return, with no second try; why that one try failed
+on the device is not known; build 20 tries again on the following frames, lays the grid out again when the stock grid
+comes back, and logs per return what it found (`settings menu: focus-in …`); not yet tested on a phone or on Windows; see
+"Build 20". Build 19: the game's Settings menu without the tiles
 that cannot work offline (both platforms), and on the phone the Steam version's PERFORMANCE page (graphics, antialiasing,
 screen scale, frame rate limit up to 120, low resolution maps) with GRAPHICS SETTINGS and FRAME RATE LIMIT out of
 Gameplay Settings; not yet tested on a phone or on Windows; see "Build 19". Build 18: on the owner's PC build 17 still ran the
@@ -24,7 +29,7 @@ play; see "Build 12 and device test 9". Before that: the build 11 device test (t
 12). The build 11 plan put HD textures into `Data/` ("Build 11 (plan)"). On build 10 the HD texture probe showed that
 route B fails and route A works. Build 10 targets Android 15 and adds graphics profiles and the PC test kit ("Build
 10"). Device test 8 tested the MCVS Offline page ("Device test 8", "Build 9"). The Cosmetic crate starts on 2026-11-09
-and is not yet tested on the phone. Not yet merged into `main-dev`: builds 13 to 19 (the PC port, the Android
+and is not yet tested on the phone. Not yet merged into `main-dev`: builds 13 to 20 (the PC port, the Android
 'game' manifest flags and build 17's unlock-code and inbox changes are on `wip/pc-port`). Earlier: device tests 6 and 7 on the same S22 ("Build 8", "Build 7", "Device test 6").
 
 **Summary:** the Federation server is complete for the offline single-player goals and passes its full test suite, including a
@@ -49,6 +54,108 @@ HD texture probe and a Windows test kit for the Steam version. Build 11 installs
 version into the game's own data. Build 12 accepts a full ASTC data pack with 2,215 PC textures in it: **device test 9:
 the HD textures and the graphics profiles work, at the same frame rate as before**, and builds 10 to 12 (target Android
 15) installed and played fine.
+
+## Build 20 (November 2026): the Settings grid after a return to Settings (a mitigation and a diagnostic)
+
+### What build 20 contains
+
+`4079f39` on `wip/pc-port` (`McvsVersion.Build` is `20`; the code is the merge of `wip/b20-back`, `d07f861`: `ccfab84`,
+its review `a533ed9` and the test fix `383e54c`). APK: `mcvs-offline-4079f39.apk` (SHA-256
+`2946029d8b8ebad632bfb8d3765996c0a85d6cb0839a0888a09a807c23b4da1e`; default patch set, unchanged since build 17; the
+same key as every build: certificate SHA-256 `fc0db84e…7d16`, targetSdk 35, both ABIs, `isGame` and `appCategory`,
+zipalign OK); it installs over build 19 as usual. Compared entry by entry with build 19's `mcvs-offline-41c1407.apk`: the
+same 952 entries in the same order; changed only the server DLL (2,650,112 → 2,656,768 bytes), the signature files and
+the 16 MVID bytes of `Game.dll`, `Gameloft.Engine.dll`, `Gameloft.Util.dll` and `NicePlaySDK.dll`
+([design/pc-port.md](design/pc-port.md) §13.1). The PC kit `McvsOffline.PcKit.exe` (win-x64, one file, SHA-256
+`b87d585e449e16e6bb75ec8ff92de9055d459d754d1738bcd707f70c2e9d5d17`) replaces build 19's. Only the server DLL changed:
+no patch, no installer code, no game file. The design is [design/settings-menu.md](design/settings-menu.md) §3.2.
+
+**The owner's report (build 19, phone and Steam).** The shorter Settings menu appears on the first entry, but after a
+tab (for example GAMEPLAY SETTINGS) and Back the game's original Settings menu is there again.
+
+**The cause: what is established and what is not.** Established, from the exported ActionScript of both games:
+`MenuBase.onFocusIn` calls `EnterSection("settings_main_screen")` on every focus-in, the first entry and every return,
+and `MenuSettings.setup()` runs right after it and puts the stock grid back each time (on the phone it re-dresses FORUM,
+shows MORE GAMES and moves ABOUT and CUSTOMER CARE; on Steam it goes to panel frame 3 and back to 1, which places new tile
+instances, and sets the four-column positions). So the screen after a return is only what our step makes of it, and
+build 19 had one step, posted to the next frame, with no second chance: if that one step did not lay the grid out, the
+stock menu stayed. **Not established: why that step did not lay the grid out on the device.** The two likely-looking
+causes do not match the game's code: gluic's `MenusStack.popMenu` pops the submenu before it gives Settings the focus
+(so Settings is on top when `EnterSection` runs, not the closing submenu), and nothing in the ActionScript positions the
+panel again after `setup()`. In that order build 19's step works in the tests too. The device failure is not reproduced.
+
+**The change (a mitigation plus a diagnostic).** Each focus-in now starts a run instead of one step
+(`SettingsMenuLayout.Schedule`):
+
+* every frame it looks for `menu_settings` on top of `MenusStack` or, below another menu, by name in the stack, reads the
+  panel as before and lays the grid out when it is not; a failed read is tried again on the next frame;
+* once laid out it reads the grid back every frame and lays it out again if the stock grid came back, until it has stayed
+  laid out for 2 frames after a 45-frame settle window (about 0.75 s); it stops at 120 frames (about 2 s) at the latest;
+  the next focus-in's run replaces it; Back to the main menu before it could lay the grid out ends it at once;
+* phone: a tap on the PERFORMANCE tile opens our page while the tile is ours (if the game puts a stock FORUM tile back,
+  the tap is the game's forum until the run has re-dressed it); a run that never laid the grid out keeps the two
+  Gameplay rows (GRAPHICS SETTINGS, FRAME RATE LIMIT), as in build 19, since PERFORMANCE may then be out of reach.
+
+**The log lines to look for** (`server.log`; on the phone via the MCVS Offline page's Logs, on PC in
+`McvsOffline\logs\`), per return to Settings:
+
+* `settings menu: focus-in N (layouts so far: K): on top <menu>, menu_settings at I in the stack, panel frame F, btn_social
+  shown|hidden`, the diagnostic: what the run's first frame (after `setup()`) found. `btn_social shown` after a layout
+  means the game made new tile instances; `hidden` means the ones written before;
+* then one of: `settings menu: frame 3, 7 tiles + ABOUT laid out` (phone; Steam: `frame 1, 6 tiles`), with `after N
+  frames (<why it waited>)` when the first frames could not lay it out, `; laid out again Kx after the stock grid came
+  back` when the stock grid came back after it was laid out; or `settings menu: not laid out (<reason>; gave up after N
+  frames)` or `(<reason>; Settings left after N frames)`;
+* no `focus-in` line at all for a return means `EnterSection` never reached MCVS Offline on that return.
+
+Whatever the menu shows, these lines say which precondition failed on the device; send them with the report.
+
+**Flicker.** When the first frame lays the grid out (the order the game's code shows) the stock grid can show for one
+frame, as in build 19 (design risk 2). When the run had to wait, the stock grid shows for the N frames of `after N
+frames` (60 frames are about 1 s); when the stock grid came back after the layout, it shows until the next frame's
+read-back puts it right.
+
+**Checked**: `McvsOffline.sln` (Release), the Android embedded DLL against the APK's assemblies and the PC DLL with
+`Gameloft.Logs`; all four test projects with `MCVS_REFS`, `MCVS_PC_REFS`, `MCVS_APK`, `MCVS_DATAPACK`,
+`MCVS_BUILD_TOOLS`, `MCVS_REQUIRE_REAL_CLIENT=1`, `MCVS_REQUIRE_PC=1`, `MCVS_REQUIRE_PC_E2E=1`, `MCVS_REQUIRE_EMBEDDED=1`,
+`MCVS_REQUIRE_BUILD_TOOLS=1` and `MCVS_REQUIRE_NODE=1`, at `4079f39`: **McvsOffline.Tests 1577/1577,
+McvsOffline.Embed.Tests 1177/1177, McvsOffline.PcKit.Tests 63/63, McvsOffline.PcSpike.Tests 62/62, 0 skipped** (2,879;
+build 19's was 2,844). New tests (`SettingsMenuReturnTests` and additions to the layout, contract, registry and
+member tests): the fake host now runs frames as the game does (the context drain, delayed posts, the Flash frame), and
+the fake Flash tree models a return: `setup()` restocking the grid after `EnterSection`, Steam's new instances, a popped
+submenu still answering `getMenuOnTopOfStack` for K frames and the stock grid coming back K frames after the return
+(the last two have no source in the game's code; they pin what the run does if the device does that). They check the
+grid after the first entry and after every return (each tab, PERFORMANCE, ABOUT/HELP/LANGUAGES/ACCOUNTS, the restart
+prompt, after a match) on both platforms, the one line per run, the tile and the Gameplay rows across retries; 23 of
+the first set fail on build 19's code, and the review's 7 on the code before the review. The test
+`UninstallGivesBackTheOriginalTreePlusTheData` no longer depends on the date (it failed after 2026-11-02T18:00Z). The
+real Android and Steam assemblies have `GameSynchronizationContext.DelayedPost`, which the run uses for its later frames.
+The APK was built with `--build-tools` and verified as above; its server DLL is the built one byte for byte. The kit
+published, its `check-server` passed on the PC server DLL (every PC hook (17), `Gameloft.Logs`, only allowed references),
+and its assembly carries that DLL byte for byte. The PC end to end on Linux (§12.6) on a temp copy of the Steam files:
+`install`, `verify`, `status` (`installed, current`, `activation: NOT VERIFIED` before a start), a second install with
+the same bytes, `uninstall` restoring the exact listing and every SHA-256; ILVerify the same findings as the stock files,
+the server DLL clean. Not run in build 20 (no installer code changed): the upgrade over an older install (build 19's run
+over build 18 stands). The expected `verify` values are re-recorded in [design/pc-port.md](design/pc-port.md) §13.1 and
+[PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7 (build 19's are in §13.2): every DLL changed with the server DLL, the config
+is build 16's (`3ebe99b3…f94c`), `serverBuild` is `20`.
+
+**Not tested** on a phone or on Windows, like build 19 itself (every build-19 check below still applies).
+
+### Checklist (phone and PC)
+
+1. Open Settings from the main menu: the shorter grid (build 19's layout), with no visible flash of the stock grid, or
+   say how long it shows.
+2. Open each tile and press Back, each one at least twice: GAMEPLAY SETTINGS, AUDIO, ACCOUNTS, HELP, LANGUAGES, ABOUT,
+   CUSTOMIZE CONTROLS (phone), PERFORMANCE (phone: our page; PC: Steam's). After every Back the shorter grid, with no
+   SOCIAL MEDIA, FORUM, CUSTOMER CARE or MORE GAMES, and ABOUT in its place (no drift on PC after five round trips).
+3. On the phone, change GRAPHICS SETTINGS on the PERFORMANCE page and press Back: the restart prompt and, behind it,
+   the shorter grid; then No, and the grid stays.
+4. Play a match, return to the main menu, open Settings, then a tab and Back: the shorter grid each time.
+5. Phone: Gameplay Settings (main menu and in a match) still without GRAPHICS SETTINGS and FRAME RATE LIMIT; the
+   PERFORMANCE tile opens the PERFORMANCE page after every return.
+6. Send `server.log` with every `settings menu:` line of the session, and say for which return the screen was wrong,
+   if any.
 
 ## Build 19 (October 2026): a shorter Settings menu, and Steam's PERFORMANCE page on the phone
 

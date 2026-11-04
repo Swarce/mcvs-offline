@@ -1,7 +1,9 @@
 # The game's Settings menu: the trim and the Android PERFORMANCE page
 
-Status: built in build 19 (`hosts/embedded/Admin/SettingsMenu/`, `hosts/embedded/Graphics/PerformancePrefs.cs`); not
-yet seen on a phone or on Windows. This is the final design: the review corrections (A1-A3, B1-B2, C1, D1-D2, E1-E7, F1
+Status: built in build 19 (`hosts/embedded/Admin/SettingsMenu/`, `hosts/embedded/Graphics/PerformancePrefs.cs`); build
+20 (`4079f39`) replaces the grid's single step per focus-in with a run of frames (§3.2) after the owner saw build 19's
+stock menu again after a tab and Back on both platforms; the device cause is not known, and build 20's log names it. Not
+yet seen working on a phone or on Windows. This is the final design: the review corrections (A1-A3, B1-B2, C1, D1-D2, E1-E7, F1
 of the design review) are folded in, and each place says which one it is.
 
 Tags: [V] checked in the exported ActionScript, the decompiled C#, the game data or the repo code. [I] inferred from the
@@ -355,6 +357,14 @@ Title PERFORMANCE (`setting.Performance`, translated). No category headers, as o
   T-D6 GRAPHICS to the same value raises no restart.
 * **Store** (`SettingsMenuContractTests`): validation, never on the calling thread, a failed save logged and rolled
   back, two out-of-order saves of one key leave the latest.
+* **Build 20 `SettingsMenuReturnTests`** (the fake host runs frames as `UpdateWorlds` does: the context drain, the
+  `DelayedPost` items, then the Flash frame; the fake tree's `setup()` restocks the grid after `EnterSection`, Steam
+  places new instances, and two switches model a popped submenu still on top for K frames and the stock grid coming back
+  K frames after the return): the grid after the first entry and after every return (each tab, PERFORMANCE,
+  ABOUT/HELP/LANGUAGES/ACCOUNTS, the restart prompt, after a match) on both platforms; one line per run; a re-stock laid
+  out again; a newer focus-in superseding the run; `TileActive`/`RedressFailed` across retries and the R4 gate; the
+  `focus-in` diagnostic line; Back during the wait. 23 of the first 26 fail on build 19's step (the rows of the gluic
+  order pass on it too, §3.2), the review's 7 on the code before the review.
 
 ## 5. Risks and what only a device can tell
 
@@ -384,10 +394,12 @@ Title PERFORMANCE (`setting.Performance`, translated). No category headers, as o
 ## 6. Device checks
 
 * **Phone (S22):** the grid (centring, slow-motion video for the flash); taps on the hidden-tile areas do nothing; every
-  tile opens its page and PERFORMANCE opens the page, Back returns to the grid; Gameplay shows neither row, in the main
+  tile opens its page and PERFORMANCE opens the page, Back returns to the trimmed grid every time (build 20: each tile
+  twice, and the `settings menu: focus-in` and laid-out lines of each return); Gameplay shows neither row, in the main
   menu and in a match; each Performance row changes the engine (the `[boot] graphics:` line, a visible scale change); the
   restart prompt; FPS 90/120 measured on the 120 Hz panel; the R3-A spike line.
-* **PC:** the grid at 1920×1080 and at a 16:10 size; PERFORMANCE still opens Steam's page; hidden tiles cannot be reached
+* **PC:** the grid at 1920×1080 and at a 16:10 size, also after Back from every tile (build 20, with the same log lines);
+  PERFORMANCE still opens Steam's page; hidden tiles cannot be reached
   with the mouse, the keyboard or a gamepad; no drift of ABOUT after five submenu round trips.
 * **Per new game build:** a static check of the exported AS (the panel instance names per frame, the last native call in
   `MenuSettings.setup()`, `CanChangeMaxFramerate` before `CanChangeGraphicSetting`, the int-passing type list in

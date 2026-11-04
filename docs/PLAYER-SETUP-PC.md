@@ -1,6 +1,6 @@
 # Player setup: MCVS Offline on the Steam (PC) version
 
-**Status: draft for the third Windows round (WR3), build 19** (build 14's PC fixes; build 15 added only server features: the Special Events and an optional Practice tile; build 16 removes the config lines that most likely made Windows start the game without MCVS Offline in builds 14 and 15, and says when the game starts without it; build 17 delivers the unlock codes without the inbox and adds the `inbox` patch, which keeps a big redeem-code message from freezing the inbox; build 18 stops MCVS Offline itself from loading the game's own `Game.dll` at start, most likely the cause of build 17's `Game loaded from the game folder` and of WR2's; build 19 shortens the game's Settings menu, see section 4). The second round (WR2, build 13) showed that the
+**Status: draft for the third Windows round (WR3), build 20** (build 14's PC fixes; build 15 added only server features: the Special Events and an optional Practice tile; build 16 removes the config lines that most likely made Windows start the game without MCVS Offline in builds 14 and 15, and says when the game starts without it; build 17 delivers the unlock codes without the inbox and adds the `inbox` patch, which keeps a big redeem-code message from freezing the inbox; build 18 stops MCVS Offline itself from loading the game's own `Game.dll` at start, most likely the cause of build 17's `Game loaded from the game folder` and of WR2's; build 19 shortens the game's Settings menu, see section 4; build 20 keeps it short after a return from a submenu, where build 19 showed the stock menu again). The second round (WR2, build 13) showed that the
 install and the game start work, but the game kept loading its own `Game.dll` instead of our patched copy, so every
 fix in that file was missing: the two inbox crashes, the missing "MCVS Offline" button in Settings › Account, the bot
 match running the old way and probably the long freezes. Build 14 makes the game load our copy and says
@@ -120,9 +120,11 @@ The setting `admin.openVia` in `McvsOffline\settings.json` picks the route: `aut
 settings page's unlock tools grant. On a Steam account that never played MCVS on PC, the game's first start resets this
 game's Steam stats (stock behaviour).
 
-**The game's Settings menu** (build 19): SOCIAL MEDIA, FORUM and CUSTOMER CARE, which cannot work offline, are hidden;
+**The game's Settings menu** (builds 19 and 20): SOCIAL MEDIA, FORUM and CUSTOMER CARE, which cannot work offline, are hidden;
 the six tiles left (GAMEPLAY SETTINGS, AUDIO, ACCOUNTS / HELP, LANGUAGES, PERFORMANCE) stand in two centred rows of three
-with ABOUT alone below them. Every page behind them is Steam's own, unchanged; so is the Settings panel during a match.
+with ABOUT alone below them, also after Back from any page behind them (build 19 showed the stock menu again after a
+page and Back; if build 20 still does, send the `settings menu:` lines of `McvsOffline\logs\server.log`). Every page
+behind them is Steam's own, unchanged; so is the Settings panel during a match.
 The settings page's **Shorter Settings menu** (`admin.settingsMenu.trim`, Settings › Gameplay) brings the stock menu
 back the next time Settings opens.
 
@@ -262,24 +264,24 @@ the bot match: in WR2 they caused the long freezes, which would hide everything 
 | 18 | optional: Steam › Verify integrity of game files while installed, then `status` | the state | still `installed, current` |
 | 19 | question: had this Steam account played MCVS on PC before this project? | yes / no | — |
 
-Expected `verify` values for step 3 (build 19: the Linux run of the same kit on Steam build 6372049; `install.json`
+Expected `verify` values for step 3 (build 20: the Linux run of the same kit on Steam build 6372049; `install.json`
 itself is not listed because it holds the install time):
 
 | file | sha256 |
 |---|---|
-| `McvsOffline/bin/EngineBridge.dll` | `be6d7723712fc8d8e91ba7ae61cb0a7211f1e4e2c0e2cae7596fe6e9b7e062fb` |
-| `McvsOffline/bin/Game.dll` | `30ce7f1ab564c2424194ec4410eb5eb12b4479a0780594f7844161297bfbfafc` |
-| `McvsOffline/bin/Gameloft.Engine.dll` | `cb29b7ceed1c86c2c5702c0a18b0e72702982bb567d90d44405b791184efbef7` |
-| `McvsOffline/bin/Gameloft.Util.dll` | `0af2d767639728e5c3aaad2e65e9a16020845f8eff1554e017f2b4d4e0709396` |
-| `McvsOffline/bin/McvsOffline.Server.dll` | `d90ba116a5fe16ffd21c64c46be3fcdb948150ebad9c484fce5a6539d7e23157` |
+| `McvsOffline/bin/EngineBridge.dll` | `655eb0c9c5d977e5000288732b4dd20ad62822b8cab4f611ca1f41a29b6e8a9f` |
+| `McvsOffline/bin/Game.dll` | `b0cf406137c23acaddb5a2bc792c3186c851efabd4714e5b888838f895b76262` |
+| `McvsOffline/bin/Gameloft.Engine.dll` | `91f894848617e258baf74a79044f55b48595464e6c05c4aed5f65a9e3b81c254` |
+| `McvsOffline/bin/Gameloft.Util.dll` | `4341f6f603950a682b2d6f75b7a84966ff546aaa0efdeea8afc10810bb8c4760` |
+| `McvsOffline/bin/McvsOffline.Server.dll` | `e9d16fb5001cd4a2cb948c89816df06e427b1f961a80d4a03f155d68ab4ee969` |
 | `ModernCombatVersus.exe.config` | `3ebe99b3c93a9540cd7f7b03da55fc048a544501c17e8621457884eae456f94c` |
 
 Any difference in this table stops the round until it is explained: the bytes you run must be the bytes we tested.
 (The config is the one WR2 ran and build 16 wrote, with no `<qualifyAssembly>` lines: builds 14 and 15 wrote
-`fda12aef…c4b6`, which has five of them. Build 19 changed only the server DLL; the four game DLLs change with it, as
-in every build. An install over build 18 writes exactly these values too (checked on Linux). Over a build-18 install,
-this kit's `status` and `verify` say `installed, OLDER BUILD - OLDER BUILD (18; this kit installs build 19): run install
-to update it`: run it.)
+`fda12aef…c4b6`, which has five of them. Build 20 changed only the server DLL; the four game DLLs change with it, as
+in every build. Over an older install (build 19 or before), this kit's `status` and `verify` say `installed, OLDER
+BUILD - OLDER BUILD (<n>; this kit installs build 20): run install to update it`: run it; the install then writes
+exactly these values (build 19 checked this over build 18 on Linux; the installer code is unchanged since).)
 
 ## 8. What to send back
 
