@@ -19,7 +19,7 @@ References to the game's own code (not in the repo; they are game data):
 
 ## 0. Requirements and decisions
 
-The owner's requirements (October 2026) and his answers to the five open questions (all five: the recommended default):
+The owner's requirements (October 2026) and their answers to the five open questions (all five: the recommended default):
 
 | # | Requirement | Mechanism | IL patch | Game data edit |
 |---|---|---|---|---|
