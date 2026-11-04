@@ -29,9 +29,10 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             /// <summary>
             /// The real registry on the fake panels. <paramref name="sameFrame"/> false: the same-frame step and the dress before
             /// setup() do nothing (build 20's path: only the run lays the grid out, from the frame after the focus-in; the remap
-            /// stays), for the tests of the run itself.
+            /// stays), for the tests of the run itself. <paramref name="unsealed"/> (build 23): the dress before setup() never seals
+            /// the grid, so the same-frame step is armed and looks as in build 22 (for the tests of the step itself).
             /// </summary>
-            public Rig(bool steam, bool sameFrame = true)
+            public Rig(bool steam, bool sameFrame = true, bool unsealed = false)
             {
                 Steam = steam;
                 Ui = new FakeFlashTree(steam);
@@ -42,7 +43,22 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
                     Natives.Steps.SameFrame = (h, s, n) => { };
                     Natives.Steps.PreDress = (h, s) => { };
                 }
+                else if (unsealed)
+                {
+                    Natives.Steps.PreDress = (h, s) =>
+                    {
+                        SettingsMenuLayout.PreDress(h, s);
+                        Unseal(s);
+                    };
+                }
                 Natives.Ensure();
+            }
+
+            /// <summary>Build 23's PreDressSealed back to 0 (by name, so this file builds against build 22's sources too).</summary>
+            internal static void Unseal(SettingsMenuState state)
+            {
+                System.Reflection.PropertyInfo sealedRun = typeof(SettingsMenuState).GetProperty("PreDressSealed");
+                if (sealedRun != null) sealedRun.SetValue(state, 0);
             }
 
             public bool Steam { get; private set; }
@@ -93,6 +109,12 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
 
         /// <summary>The end of the laid-out line of a run whose focus-in frame laid the grid out and that never saw the stock grid.</summary>
         internal const string SameFrameDone = " in the focus-in frame; stock grid drawn 0 frames";
+
+        /// <summary>
+        /// Android since build 23: the dress before setup() sealed the grid (F1), so no look tidied MORE GAMES, which setup() showed
+        /// again off the panel (drawn as nothing, no taps): the run's first frame hides it again and says so.
+        /// </summary>
+        internal const string SealedDone = " in the focus-in frame; MORE GAMES shown off the panel 1 frame; stock grid drawn 0 frames";
 
         /// <summary>The trimmed grid of the platform, on the menu on top; on Android the PERFORMANCE tile active.</summary>
         private static void AssertLaidOut(Rig rig, string when)
@@ -183,7 +205,8 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             // title remapped, its icon out of reach, ABOUT where setup() puts it), so it is only tidied, not laid out again.
             Assert.Equal(steam
                              ? "settings menu: frame 1, 6 tiles + ABOUT laid out in the focus-in frame; laid out again 1x after the stock grid came back; stock grid drawn 1 frame"
-                             : "settings menu: frame 3, 7 tiles + ABOUT laid out in the focus-in frame; MORE GAMES shown off the panel 1 frame; stock grid drawn 0 frames",
+                             // Build 23: twice (the first entry and the return), as no look tidies it before the run (F1).
+                             : "settings menu: frame 3, 7 tiles + ABOUT laid out in the focus-in frame; MORE GAMES shown off the panel 2 frames; stock grid drawn 0 frames",
                          rig.GridLines.Last());
             Assert.Equal(steam ? 3 : 1, rig.State.Layouts);
         }
@@ -268,7 +291,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.Equal(writes, rig.Ui.HostWrites.Count);
             Assert.Equal(1, rig.State.Layouts);
             Assert.Equal(0, rig.Host.Pending);
-            Assert.Equal(new[] { "settings menu: frame " + (steam ? "1, 6" : "3, 7") + " tiles + ABOUT laid out" + SameFrameDone }, rig.GridLines);
+            Assert.Equal(new[] { "settings menu: frame " + (steam ? "1, 6" : "3, 7") + " tiles + ABOUT laid out" + (steam ? SameFrameDone : SealedDone) }, rig.GridLines);
         }
 
         [Fact]
@@ -281,7 +304,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.True(rig.Ui.Tap("btn_audio"));
             rig.Ui.Back();                          // the next focus-in before the first run is done
             rig.Host.Drain();
-            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out" + SameFrameDone }, rig.GridLines);
+            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out" + SealedDone }, rig.GridLines);
             Assert.Equal(1, rig.State.Layouts);     // build 22: the second focus-in found it in place before setup()
             AssertLaidOut(rig, "second entry");
         }
@@ -339,7 +362,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             var rig = new Rig(false);
             rig.Host.CanPostNextFrame = false;
             rig.Open();
-            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out" + SameFrameDone + "; then no next frame" }, rig.GridLines);
+            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out" + SealedDone + "; then no next frame" }, rig.GridLines);
             Assert.True(rig.State.TileActive);
 
             var waiting = new Rig(false, sameFrame: false);
@@ -399,7 +422,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.True(PerformancePage.HidesGameplayRows(rig.Host, rig.State));
             general.Members["width"] = width;
             rig.Host.Drain();
-            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out" + SameFrameDone }, rig.GridLines);
+            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out" + SealedDone }, rig.GridLines);
             Assert.Equal(1, rig.State.Layouts);
             AssertLaidOut(rig, "after the tween");
             Assert.True(rig.Ui.Tap("btn_forum"));

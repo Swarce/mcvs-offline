@@ -89,6 +89,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         /// </summary>
         public static void Enter(ISettingsMenuHost host, SettingsMenuState state, int run, string native)
         {
+            double? started = null;
             try
             {
                 if (host == null || state == null || !state.BeginBreadcrumb()) return;
@@ -97,6 +98,8 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 // A host that knows no log folder (tests) has no breadcrumb, and nothing to say about it.
                 string[] paths = Paths(host);
                 if (paths.Length == 0) return;
+                // Build 23: the write timed for the focus-in line ("breadcrumb 1.9"; log text only).
+                started = SettingsMenuTimer.Now(host, state);
                 string problem = null;
                 foreach (string path in paths)
                 {
@@ -118,6 +121,15 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             }
             catch (Exception)
             {
+            }
+            finally
+            {
+                if (started != null)
+                {
+                    SettingsMenuTimings timings = SettingsMenuTimer.Of(state, run);
+                    double? now = SettingsMenuTimer.Now(host, state);
+                    if (timings != null && now != null) timings.Breadcrumb = now.Value - started.Value;
+                }
             }
         }
 

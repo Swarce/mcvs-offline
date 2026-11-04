@@ -4,7 +4,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
-using System.Runtime.CompilerServices;
 
 namespace McvsOffline.Embedded.Admin.SettingsMenu
 {
@@ -18,10 +17,13 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
     /// <summary>
     /// Build 23 (owner, build 22 on the S22: "a small stutter when tapping the gear"; docs/design/settings-menu.md §3.2, "Build 23"):
     /// the one place that touches <see cref="Stopwatch"/>, with the instance API the game itself uses (<c>new Stopwatch()</c>,
-    /// <c>Start</c>; PlayerComponent.cs:1172-1173) and <c>Elapsed</c>, never the static <c>GetTimestamp</c> or <c>Frequency</c>. The
-    /// Stopwatch is kept as an object and every member is NoInlining, so a type that failed to load could only fail here, inside
-    /// the callers' try/catch (<see cref="SettingsMenuTimer"/>), never while the game compiles a delegate body of ours
-    /// (OnInvokeDelegate would rethrow that into Flash and abort setup(); MenuComponent.cs ~:905). No layout decision ever reads it.
+    /// <c>Start</c>, PlayerComponent.cs:1172-1173; the game reads <c>ElapsedMilliseconds</c>, :546, which is <c>Elapsed</c>'s path) and
+    /// <c>Elapsed</c>, never the static <c>GetTimestamp</c> or <c>Frequency</c> (raw ElapsedTicks would need Frequency to be ms). The
+    /// Stopwatch is kept as an object and reached only through <see cref="SettingsMenuTimer.Now"/>, whose try/catch also keeps the
+    /// JIT from inlining it (the trimmed mscorlib has no MethodImplAttribute(MethodImplOptions) to say NoInlining), so a type that
+    /// failed to load could only fail there, inside the callers' try/catch, never while the game compiles a delegate body of ours
+    /// (OnInvokeDelegate would rethrow that into Flash and abort setup(); MenuComponent.cs ~:905). EmbeddedDllResolutionTests walks
+    /// Stopwatch's members in the trimmed assemblies. No layout decision ever reads it.
     /// </summary>
     internal sealed class SettingsMenuClock : ISettingsMenuClock
     {
@@ -33,7 +35,6 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         }
 
         /// <summary>A running clock (UiNatives.Start, inside its try/catch).</summary>
-        [MethodImpl(MethodImplOptions.NoInlining)]
         public static ISettingsMenuClock Create()
         {
             var stopwatch = new Stopwatch();
@@ -41,10 +42,30 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             return new SettingsMenuClock(stopwatch);
         }
 
-        [MethodImpl(MethodImplOptions.NoInlining)]
         public double Milliseconds()
         {
             return ((Stopwatch)watch).Elapsed.TotalMilliseconds;
+        }
+
+        /// <summary>A clock that reads <paramref name="milliseconds"/> (the tests' clock, advanced by known amounts).</summary>
+        internal static ISettingsMenuClock Of(Func<double> milliseconds)
+        {
+            return new FuncClock(milliseconds);
+        }
+
+        private sealed class FuncClock : ISettingsMenuClock
+        {
+            private readonly Func<double> read;
+
+            public FuncClock(Func<double> read)
+            {
+                this.read = read;
+            }
+
+            public double Milliseconds()
+            {
+                return read();
+            }
         }
     }
 

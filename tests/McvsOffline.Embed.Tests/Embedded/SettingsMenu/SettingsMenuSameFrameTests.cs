@@ -25,7 +25,9 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         private const int AndroidCalls = 11 * 3 + 2 + 2 + 3;
 
         /// <summary>What Android's dress before setup() found or did (build 22), as the focus-in line says it.</summary>
-        internal const string Dressed = "dressed now (panel frame 1 to 3, FORUM remap on, icon slot null, MORE GAMES off the panel, ABOUT 208)";
+        /// Build 23: the first re-dress turns needAlign off first, and the process's first focus-in names btn_help's title y beside ours.
+        internal const string Dressed = "dressed now (panel frame 1 to 3, FORUM remap on, icon slot null, MORE GAMES off the panel, ABOUT 208, " +
+                                        "needAlign off, title y 294.2, title ref 294.2, btn_help 294.2)";
 
         internal const string Kept = "kept (FORUM remap on, icon slot null, MORE GAMES off the panel, ABOUT 208)";
 
@@ -34,7 +36,8 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
 
         private static SettingsMenuReturnTests.Rig NewRig(bool steam)
         {
-            var rig = new SettingsMenuReturnTests.Rig(steam);
+            // The step itself: build 23's seal (F1) would leave Android's focus-ins without it.
+            var rig = new SettingsMenuReturnTests.Rig(steam, unsealed: true);
             rig.Ui.SteamReplacesInstances = steam;
             return rig;
         }

@@ -54,6 +54,23 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
 
         public bool SettingsMenuPerformance { get { return !IsWindows && PerformanceSetting; } }
 
+        /// <summary>
+        /// admin.settingsMenu.aboutCentre (build 23); <see cref="SettingsMenuAboutCentre"/> is false on PC whatever it says (as
+        /// AdminHost). False here by default (the setting's own default is true): every earlier test then checks that the switch
+        /// off is build 22 exactly; SettingsMenuBuild23Tests switch it on.
+        /// </summary>
+        public bool AboutCentreSetting { get; set; }
+
+        public bool SettingsMenuAboutCentre { get { return !IsWindows && AboutCentreSetting; } }
+
+        /// <summary>What <see cref="FrameDeltaMs"/> answers (GameApplication.ApplicationDeltaTime in ms; null: unreadable).</summary>
+        public Func<double?> FrameDelta { get; set; } = () => null;
+
+        public double? FrameDeltaMs()
+        {
+            return FrameDelta == null ? null : FrameDelta();
+        }
+
         public bool IsWindows { get; set; }
 
         public Log Log { get; private set; }

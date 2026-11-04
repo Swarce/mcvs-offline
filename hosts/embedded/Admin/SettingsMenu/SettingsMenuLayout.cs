@@ -36,6 +36,14 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
     /// step then only tidies (its gate: MORE GAMES shown again at setup()'s x, false whenever unreadable) and the run reads back.
     /// <c>admin.settingsMenu.sameFrame</c> switches all Flash work inside natives off (PreDress and the same-frame step), and
     /// <see cref="SameFrameBreadcrumb"/> turns it off by itself after a start that ended inside it. Steam is unchanged.</para>
+    /// <para>Build 23 (owner, build 22 on the S22): P1, the PERFORMANCE title was centred on its tile, because our re-dress ran
+    /// before setup() turns BtnSimple's needAlign off (BtnSimple.as:92-95; MenuSettings.as:110-120): every btn_forum.setup of ours
+    /// on Android goes through <see cref="ForumSetup"/> (needAlign off first, a centred title put back). P2, ABOUT sat right of
+    /// centre at setup()'s 208: with <c>admin.settingsMenu.aboutCentre</c> on, <see cref="PreDress"/> draws ABOUT on MORE GAMES'
+    /// button, which setup() itself shows at its centred -177 (:210, :212) and titles through the remap
+    /// (<see cref="MoreGamesRemap"/>), the real ABOUT off the panel; the tap goes to <see cref="AboutRedirect"/>. P3, a stutter on
+    /// the gear: no same-frame look when the dress before setup() proves it has nothing left to do
+    /// (<see cref="SettingsMenuState.PreDressSealed"/>), and the lines carry timings (<see cref="SettingsMenuTimings"/>).</para>
     /// <para>The step reads everything before it writes anything (the build-13 rule): <c>menu_settings</c> is on top of
     /// <c>MenusStack</c> or in it, its <c>mc_panel.currentFrame</c> is 1 on Steam or 3 on Android (never the in-match 2, Kayac 4 or
     /// Chinese 5: any other frame fails the step like a missing instance), every instance the plan names exists and every tile is
@@ -287,6 +295,9 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 state.PreDressRun = 0;
                 state.PreDressText = null;
                 state.PreDressDone = null;
+                state.PreDressSealed = 0;
+                state.SealProblem = null;
+                state.AboutOnMoreGames = false;
                 bool inNative = InNativeAllowed(host, state);
                 if (host.SettingsMenuTrim && inNative) state.SameFrame = new SameFrame(id, host.IsWindows);
                 if (!host.Post(run.Step))
@@ -469,6 +480,8 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             private string firstProblem;
             private string lastProblem;
             private string heldProblem;
+            private double? frameStart;
+            private SettingsMenuTimings timings;
 
             public Run(ISettingsMenuHost host, SettingsMenuState state, int id)
             {
@@ -493,112 +506,133 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                     // A newer focus-in owns the grid: no line and no flag from this run.
                     if (state.LayoutRun != id) return;
                     frames++;
-                    if (frames == 1)
+                    // Build 23: this frame timed (log text only; nothing below reads a time).
+                    frameStart = SettingsMenuTimer.Now(host, state);
+                    timings = SettingsMenuTimer.Of(state, id);
+                    if (timings != null && frameStart != null) timings.FrameStarted(frameStart.Value);
+                    try
                     {
-                        // The focus-in frame is over (its render came after the same-frame step, if that ran): end the step and
-                        // count a layout it made, or the dress before setup() left, as this run's write at frame 0.
-                        SameFrame arm = TakeArm(state, id);
-                        string before = state.PreDressRun == id ? state.PreDressDone : null;
-                        // The focus-in as the first frame finds it (after setup() and the same-frame step), for the device logs.
-                        Write(host, Probe(host, state, id, arm));
-                        // PERFORMANCE switched off after a dress the dress before setup() did not undo (the same-frame switch off,
-                        // or no panel then): the FORUM icon back now, outside any native.
-                        Write(host, RestoreIcon(host, state));
-                        if (arm != null && arm.LaidOut)
-                        {
-                            sameFrame = true;
-                            writes = 1;
-                            done = arm.Done;
-                        }
-                        else if (before != null)
-                        {
-                            sameFrame = true;
-                            writes = 1;
-                            done = before;
-                        }
+                        Frame();
                     }
-                    Outcome outcome = Attempt(host, state, true);
-                    // Whether a run that never laid out sets RedressFailed: not while the remap covers a tile on the panel. Settings
-                    // gone after a frame found it keeps the reason of that frame (the line below says it too).
-                    if (!outcome.Gone || !seen) redress = outcome.Redress && !outcome.Covered;
-                    switch (outcome.Kind)
+                    finally
                     {
-                        case OutcomeKind.Off:
-                            return;
-                        case OutcomeKind.Fail:
-                            Fail(host, state, redress, outcome.Text + Frames());
-                            return;
-                        case OutcomeKind.Wrote:
-                            if (writes > 0 && outcome.Restocked) restocks++;
-                            if (writes == 0) firstWrite = frames;
-                            writes++;
-                            // The render before this frame showed a grid that is not ours (stock, or another panel).
-                            stockFrames++;
-                            stable = 0;
-                            done = outcome.Text;
-                            lastProblem = null;
-                            // Trim off: the re-dress in place cannot be read back, so there is nothing to watch.
-                            if (!outcome.Watchable)
-                            {
-                                Finish();
-                                return;
-                            }
-                            break;
-                        case OutcomeKind.InPlace:
-                            stable++;
-                            done = outcome.Text;
-                            lastProblem = null;
-                            if (outcome.OffPanel) offPanelFrames++;
-                            if (writes == 0) firstWrite = frames;
-                            writes = Math.Max(writes, 1);
-                            // Trim off: the tile read back (the remap and its icon) is all there is to watch.
-                            if (!outcome.Watchable || stable >= StableFrames && frames >= SettleFrames)
-                            {
-                                Finish();
-                                return;
-                            }
-                            break;
-                        default:
-                            stable = 0;
-                            lastProblem = outcome.Text;
-                            if (writes == 0 && firstProblem == null) firstProblem = outcome.Text;
-                            // Not laid out yet, or another panel: the render before this frame did not show our grid.
-                            if (!outcome.Gone && (writes == 0 || outcome.Changed)) stockFrames++;
-                            if (outcome.Gone)
-                            {
-                                // Laid out, then Settings left the stack (Back to the main menu): nothing left to watch.
-                                if (writes > 0)
-                                {
-                                    lastProblem = null;
-                                    Finish();
-                                    return;
-                                }
-                                // Never laid out, and Settings has left since a frame found it: nothing left to wait for. Still a
-                                // run that never laid the grid out (RedressFailed): Settings was read, and what failed is its panel.
-                                if (seen)
-                                {
-                                    Fail(host, state, redress, heldProblem + "; Settings left after " + frames.ToString(CultureInfo.InvariantCulture) + " frames");
-                                    return;
-                                }
-                                break;
-                            }
-                            seen = true;
-                            heldProblem = outcome.Text;
-                            // A different panel than the one laid out: its tile may read FORUM again. Not for a width: the
-                            // instances, and the tile's PERFORMANCE dress, are the ones written (a tap still opens the page).
-                            if (writes > 0 && outcome.Changed && !outcome.Remapped) state.TileActive = false;
-                            break;
+                        double? now = timings == null || frameStart == null ? null : SettingsMenuTimer.Now(host, state);
+                        if (now != null) timings.FrameCost(frames, now.Value - frameStart.Value);
                     }
-                    if (frames >= MaxFrames)
-                    {
-                        End(null);
-                        return;
-                    }
-                    if (!host.PostNextFrame(Step)) End("no next frame");
                 }
                 catch (Exception)
                 {
                 }
+            }
+
+            /// <summary>One frame of the run (see <see cref="Schedule"/>).</summary>
+            private void Frame()
+            {
+                if (frames == 1)
+                {
+                    // The focus-in frame is over (its render came after the same-frame step, if that ran): end the step and
+                    // count a layout it made, or the dress before setup() left, as this run's write at frame 0.
+                    SameFrame arm = TakeArm(state, id);
+                    string before = state.PreDressRun == id ? state.PreDressDone : null;
+                    // The focus-in as the first frame finds it (after setup() and the same-frame step), for the device logs.
+                    if (timings != null) timings.FocusInFrameDt = FrameDelta(host);
+                    string probe = Probe(host, state, id, arm);
+                    Write(host, probe == null || timings == null ? probe : probe + timings.FocusInText());
+                    // PERFORMANCE switched off after a dress the dress before setup() did not undo (the same-frame switch off,
+                    // or no panel then): the FORUM icon back now, outside any native.
+                    Write(host, RestoreIcon(host, state));
+                    if (arm != null && arm.LaidOut)
+                    {
+                        sameFrame = true;
+                        writes = 1;
+                        done = arm.Done;
+                    }
+                    else if (before != null)
+                    {
+                        sameFrame = true;
+                        writes = 1;
+                        done = before;
+                    }
+                }
+                Outcome outcome = Attempt(host, state, true);
+                // Whether a run that never laid out sets RedressFailed: not while the remap covers a tile on the panel. Settings
+                // gone after a frame found it keeps the reason of that frame (the line below says it too).
+                if (!outcome.Gone || !seen) redress = outcome.Redress && !outcome.Covered;
+                switch (outcome.Kind)
+                {
+                    case OutcomeKind.Off:
+                        if (frames == 1 && timings != null) Write(host, timings.StockText(id));
+                        return;
+                    case OutcomeKind.Fail:
+                        Fail(host, state, redress, outcome.Text + Frames());
+                        return;
+                    case OutcomeKind.Wrote:
+                        if (writes > 0 && outcome.Restocked) restocks++;
+                        if (writes == 0) firstWrite = frames;
+                        writes++;
+                        // The render before this frame showed a grid that is not ours (stock, or another panel).
+                        stockFrames++;
+                        stable = 0;
+                        done = outcome.Text;
+                        lastProblem = null;
+                        // Trim off: the re-dress in place cannot be read back, so there is nothing to watch.
+                        if (!outcome.Watchable)
+                        {
+                            Finish();
+                            return;
+                        }
+                        break;
+                    case OutcomeKind.InPlace:
+                        stable++;
+                        done = outcome.Text;
+                        lastProblem = null;
+                        if (outcome.OffPanel) offPanelFrames++;
+                        if (writes == 0) firstWrite = frames;
+                        writes = Math.Max(writes, 1);
+                        // Trim off: the tile read back (the remap and its icon) is all there is to watch.
+                        if (!outcome.Watchable || stable >= StableFrames && frames >= SettleFrames)
+                        {
+                            Finish();
+                            return;
+                        }
+                        break;
+                    default:
+                        stable = 0;
+                        lastProblem = outcome.Text;
+                        if (writes == 0 && firstProblem == null) firstProblem = outcome.Text;
+                        // Not laid out yet, or another panel: the render before this frame did not show our grid.
+                        if (!outcome.Gone && (writes == 0 || outcome.Changed)) stockFrames++;
+                        if (outcome.Gone)
+                        {
+                            // Laid out, then Settings left the stack (Back to the main menu): nothing left to watch.
+                            if (writes > 0)
+                            {
+                                lastProblem = null;
+                                Finish();
+                                return;
+                            }
+                            // Never laid out, and Settings has left since a frame found it: nothing left to wait for. Still a
+                            // run that never laid the grid out (RedressFailed): Settings was read, and what failed is its panel.
+                            if (seen)
+                            {
+                                Fail(host, state, redress, heldProblem + "; Settings left after " + frames.ToString(CultureInfo.InvariantCulture) + " frames");
+                                return;
+                            }
+                            break;
+                        }
+                        seen = true;
+                        heldProblem = outcome.Text;
+                        // A different panel than the one laid out: its tile may read FORUM again. Not for a width: the
+                        // instances, and the tile's PERFORMANCE dress, are the ones written (a tap still opens the page).
+                        if (writes > 0 && outcome.Changed && !outcome.Remapped) state.TileActive = false;
+                        break;
+                }
+                if (frames >= MaxFrames)
+                {
+                    End(null);
+                    return;
+                }
+                if (!host.PostNextFrame(Step)) End("no next frame");
             }
 
             /// <summary>The run stops before it could watch to the end: no next frame, or <see cref="MaxFrames"/>.</summary>
@@ -627,7 +661,25 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                     line += "; MORE GAMES shown off the panel " + offPanelFrames.ToString(CultureInfo.InvariantCulture) + (offPanelFrames == 1 ? " frame" : " frames");
                 line += "; stock grid drawn " + stockFrames.ToString(CultureInfo.InvariantCulture) + (stockFrames == 1 ? " frame" : " frames");
                 if (lastProblem != null) line += "; then " + lastProblem + Frames();
+                if (timings != null && frameStart != null)
+                {
+                    double? now = SettingsMenuTimer.Now(host, state);
+                    if (now != null) line += timings.RunText(now.Value - frameStart.Value, frames);
+                }
                 Write(host, line);
+            }
+
+            /// <summary>The engine's length of the frame running now, ms (the host's read), or null. Never throws.</summary>
+            private static double? FrameDelta(ISettingsMenuHost host)
+            {
+                try
+                {
+                    return host.FrameDeltaMs();
+                }
+                catch (Exception)
+                {
+                    return null;
+                }
             }
 
             private string Frames()
@@ -750,8 +802,11 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             /// whenever any of it cannot be read (build 21's gate looked then, and spent its looks before setup()). The panel is looked
             /// up once per arm and kept until <see cref="Close"/>; MORE GAMES is looked up on every call (a gotoAndStop places new
             /// instances). False without a UI.
+            /// <para>Build 23, with ABOUT drawn on MORE GAMES' button (<paramref name="about"/>): btn_more is ours and shown already, so
+            /// the gate is setup()'s last bottom-row write instead, <c>btn_credits.x = 208</c> (:213) over our marker
+            /// <see cref="SettingsMenuNames.AboutMarkerX"/> (±<see cref="MarkerTolerance"/>).</para>
             /// </summary>
-            internal bool MoreGamesShown(ISettingsMenuHost host)
+            internal bool MoreGamesShown(ISettingsMenuHost host, bool about)
             {
                 object ui = host.ClientUi();
                 if (ui == null) return false;
@@ -765,6 +820,12 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 using (var flash = new FlashScope(ui))
                 {
                     if (Frame(flash, panel) != SettingsMenuNames.AndroidMainFrame) return false;
+                    if (about)
+                    {
+                        object credits = flash.Child(panel, SettingsMenuNames.AboutButton);
+                        double? at = credits == null ? null : flash.Number(credits, "x");
+                        return at != null && Math.Abs(at.Value - SettingsMenuNames.AndroidAboutX) <= MarkerTolerance;
+                    }
                     object more = flash.Child(panel, SettingsMenuNames.MoreGamesButton);
                     if (more == null) return false;
                     object visible = flash.Get(more, "visible");
@@ -812,16 +873,19 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             SameFrame arm = state == null ? null : state.SameFrame;
             if (host == null || arm == null || arm.Closed || arm.Busy || native != arm.Native) return;
             arm.Busy = true;
+            double? started = null;
             try
             {
                 if (state.LayoutRun != arm.Run) return;
                 arm.Calls++;
+                // Build 23: the gate and the looks timed (log text only).
+                started = SettingsMenuTimer.Now(host, state);
                 if (arm.Looks >= MaxSameFrameLooks || arm.Failed) return;
                 // Our first Flash work inside a native in this process: the breadcrumb first (once; Android's PreDress wrote it).
                 SameFrameBreadcrumb.Enter(host, state, arm.Run, arm.Native);
                 if (!arm.Windows)
                 {
-                    if (!arm.MoreGamesShown(host)) return;
+                    if (!arm.MoreGamesShown(host, state.AboutOnMoreGames)) return;
                     // setup() ran since the last look, its FORUM dress (AND-AS MenuSettings.as:116-119) included: without the remap
                     // the tile reads FORUM until a look has re-dressed it.
                     if (!state.ForumRemapped) state.TileActive = false;
@@ -852,6 +916,16 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             }
             finally
             {
+                if (started != null)
+                {
+                    SettingsMenuTimings timings = SettingsMenuTimer.Of(state, arm.Run);
+                    double? now = SettingsMenuTimer.Now(host, state);
+                    if (timings != null && now != null)
+                    {
+                        timings.SameFrame += now.Value - started.Value;
+                        timings.SameFrameCalls++;
+                    }
+                }
                 arm.Busy = false;
             }
         }
@@ -882,7 +956,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         }
 
         /// <summary><c>menu_settings.mc_panel</c> (Settings on top of MenusStack, else by name in it), or null. Reads only.</summary>
-        private static object SettingsPanel(FlashScope flash)
+        internal static object SettingsPanel(FlashScope flash)
         {
             object stack = flash.Class("gluic.components.menus", "MenusStack");
             if (stack == null) return null;
@@ -950,7 +1024,12 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         /// <item>MORE GAMES (and SOCIAL MEDIA and CUSTOMER CARE, alike): off the panel (y, alpha, mouse, which setup() never
         /// writes), so its <c>btn_more.visible = true</c> and the bottom row's x (:210-212) draw nothing, and the hidden MORE GAMES
         /// cannot take ABOUT's taps (it is above ABOUT, depth 99 over 69).</item>
-        /// <item>ABOUT at <see cref="SettingsMenuNames.AndroidAboutX"/>, where :213 puts it anyway.</item>
+        /// <item>ABOUT at <see cref="SettingsMenuNames.AndroidAboutX"/>, where :213 puts it anyway. Build 23, with
+        /// <c>admin.settingsMenu.aboutCentre</c> on and our GoToFreeGames in place: ABOUT is drawn on MORE GAMES' button instead
+        /// (kept at setup()'s -177, titled ABOUT by <see cref="MoreGamesRemap"/>, put in only after the dress read back), and the
+        /// real ABOUT is off the panel like the removed tiles, its x at the marker <see cref="SettingsMenuNames.AboutMarkerX"/>. Any
+        /// failure takes the remap out and dresses build 22's bottom row in the same call; every EnterSection that does not draw it
+        /// takes the remap out.</item>
         /// <item>The kept tiles in their slots: setup() never moves them on Android.</item>
         /// </list>
         /// On a return the instances are the ones written before (setup()'s gotoAndStop(3) on frame 3 places none), so this only
@@ -960,13 +1039,19 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         /// <para>Only for the run <see cref="Schedule"/> allowed (<see cref="SettingsMenuState.PreDressRun"/>: the same-frame switch
         /// on, the run's first frame posted): this is Flash work inside a native (setters, gotoAndStop, btn_forum.setup), so the
         /// breadcrumb is written before its first read. What it did goes to the run's focus-in line ("before setup: ..."); it writes
-        /// no line itself and never throws.</para>
+        /// no line itself (but the MORE GAMES remap's and the PERFORMANCE title's own lines) and never throws.</para>
+        /// <para>Build 23 (F1): after its last write it proves from reads that a look after setup() would change nothing
+        /// (<see cref="SealProblem"/>), and only then sets <see cref="SettingsMenuState.PreDressSealed"/>; else the reason goes to the
+        /// focus-in line ("not skipped: ...") and the look runs as in build 22.</para>
         /// </summary>
         public static void PreDress(ISettingsMenuHost host, SettingsMenuState state)
         {
             if (host == null || state == null) return;
             int id = state.LayoutRun;
             string text = null;
+            // Build 23: the MORE GAMES remap stays in only when this call drew ABOUT on MORE GAMES' button and read it back.
+            bool aboutDrawn = false;
+            object ui = null;
             try
             {
                 if (host.IsWindows || state.PreDressRun != id) return;
@@ -975,7 +1060,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 // PERFORMANCE switched off after a dress: the icon goes back within setup()'s reach (its FORUM dress then shows).
                 bool restore = !redress && state.TileEverActive;
                 if (!trim && !redress && !restore) return;
-                object ui = host.ClientUi();
+                ui = host.ClientUi();
                 if (ui == null)
                 {
                     text = "not dressed (no UI)";
@@ -999,7 +1084,15 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                         frame = Frame(flash, panel);
                         moved = "panel frame 1 to " + frame.ToString(CultureInfo.InvariantCulture) + ", ";
                     }
-                    LayoutPlan plan = Plan(false, redress);
+                    // Build 23: ABOUT on MORE GAMES' button only while MORE GAMES' tap is ours (UiNatives checked it just now).
+                    bool about = trim && host.SettingsMenuAboutCentre;
+                    string aboutWhy = null;
+                    if (about && !state.FreeGamesReplaced)
+                    {
+                        about = false;
+                        aboutWhy = "no " + SettingsMenuNames.GoToFreeGames;
+                    }
+                    LayoutPlan plan = Plan(false, redress, about);
                     if (frame != plan.Frame)
                     {
                         text = "not dressed (" + moved + "frame " + frame.ToString(CultureInfo.InvariantCulture) + ")";
@@ -1029,19 +1122,60 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                     string done = Done(plan, frame, trim);
                     object forum = redress ? found[SettingsMenuNames.ForumTile] : null;
                     bool placed = !trim || InPlace(flash, plan, found, true, true, new List<string>());
+                    var title = new TitleReport();
                     string icon;
+                    bool kept;
                     if (placed && (!redress || TileReads(flash, state, forum)))
                     {
+                        kept = true;
                         if (redress) state.TileActive = true;
                         icon = redress ? (flash.Get(forum, SettingsMenuNames.IconSlot) == null ? "icon slot null" : "icon slot kept (still reachable)") : null;
-                        text = "kept (" + Details(state, trim, redress, icon) + ")";
+                        // Build 23: a title centred earlier in this menu (a fallback's setup) put back; never part of the read-back.
+                        if (redress) TitleRepair(flash, state, forum, Found(found, SettingsMenuNames.HelpTile), null, true, title);
                     }
                     else
                     {
+                        kept = false;
                         if (!state.ForumRemapped) state.TileActive = false;
-                        icon = WriteGrid(flash, state, plan, found, trim, redress, true);
-                        text = (moved.Length > 0 ? "dressed now (" + moved : "laid out (") + Details(state, trim, redress, icon) + ")";
+                        try
+                        {
+                            icon = WriteGrid(flash, state, plan, found, trim, redress, true, title);
+                        }
+                        catch (Exception ex)
+                        {
+                            // Build 23: a write of ABOUT's dress refused: build 22's dress below instead. Build 22's own rethrows.
+                            if (!about) throw;
+                            aboutWhy = "dress refused: " + Reason(ex);
+                            icon = null;
+                        }
                     }
+                    if (about)
+                    {
+                        // Build 23: read back, then the remap; any failure takes the remap out and dresses build 22's bottom row.
+                        if (aboutWhy == null && !InPlace(flash, plan, found, true, true, new List<string>())) aboutWhy = "read-back " + Misplaced(flash, plan, found);
+                        if (aboutWhy == null)
+                        {
+                            string refused = MoreGamesRemap.Ensure(ui, true);
+                            if (refused != null) aboutWhy = "remap refused: " + refused;
+                            ReportMoreGames(host, state, refused == null ? "installed" : "not installed (" + refused + ")");
+                        }
+                        if (aboutWhy != null)
+                        {
+                            about = false;
+                            MoreGamesRemap.Ensure(ui, false);
+                            plan = Plan(false, redress, false);
+                            kept = false;
+                            icon = WriteGrid(flash, state, plan, found, trim, redress, true, title);
+                        }
+                        else
+                        {
+                            aboutDrawn = true;
+                            state.AboutOnMoreGames = true;
+                        }
+                    }
+                    string details = Details(state, trim, redress, icon, about, aboutWhy, title.Text);
+                    text = kept ? "kept (" + details + ")" : (moved.Length > 0 ? "dressed now (" + moved : "laid out (") + details + ")";
+                    ReportTitle(host, state, title);
                     if (redress && !state.ForumRemapped)
                     {
                         // Without the remap setup()'s FORUM dress comes after this one: the look and the run re-dress after it.
@@ -1052,6 +1186,13 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                         // setup()'s writes now draw nothing: the run counts this as its write at frame 0.
                         state.PreDressDone = done;
                     }
+                    // Build 23 (F1): the seal, proven from reads after the last write; never inferred from PreDressDone alone.
+                    // ABOUT wanted on MORE GAMES' button but not drawn there: build 22's look stays (the safe side of a fallback).
+                    string unsealed = trim && host.SettingsMenuAboutCentre && !about
+                        ? "ABOUT " + FlashInterop.Text(SettingsMenuNames.AndroidAboutX) + " (" + (aboutWhy ?? "not dressed") + ")"
+                        : SealProblem(flash, state, plan, found, trim, redress, forum, about, ui);
+                    if (unsealed == null) state.PreDressSealed = id;
+                    else state.SealProblem = unsealed;
                 }
             }
             catch (Exception ex)
@@ -1060,8 +1201,92 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             }
             finally
             {
+                if (!aboutDrawn) MoreGamesOut(host, state, ui);
                 if (text != null && state.PreDressRun == id) state.PreDressText = text;
             }
+        }
+
+        /// <summary>A found instance, or null.</summary>
+        private static object Found(Dictionary<string, object> found, string name)
+        {
+            object item;
+            return found.TryGetValue(name, out item) ? item : null;
+        }
+
+        /// <summary>
+        /// Build 23 (F1): why this dress leaves the same-frame look something to do, or null when it does not: the FORUM remap on and
+        /// the icon out of setup()'s reach (or no re-dress), every kept and removed instance read back as the strict plan wants, and
+        /// with ABOUT on MORE GAMES its remap in. setup()'s other writes are then the plan's own values or properties it never writes
+        /// (title, btn_more.visible/x, btn_credits.x), so no look after setup() could change what is drawn. Reads only; never throws.
+        /// </summary>
+        private static string SealProblem(FlashScope flash, SettingsMenuState state, LayoutPlan plan, Dictionary<string, object> found, bool trim,
+                                          bool redress, object forum, bool about, object ui)
+        {
+            try
+            {
+                if (!trim) return "trim off";
+                if (redress && !state.ForumRemapped) return "FORUM remap off";
+                if (redress && DressedIcon(flash, forum) == null) return "icon within setup()'s reach";
+                if (!InPlace(flash, plan, found, true, true, new List<string>())) return "read-back " + Misplaced(flash, plan, found);
+                if (about && !MoreGamesRemap.IsOn(ui)) return "MORE GAMES remap off";
+                return null;
+            }
+            catch (Exception ex)
+            {
+                return Reason(ex);
+            }
+        }
+
+        /// <summary>The first instance the strict read-back finds out of place ("btn_credits.x 208", "btn_more.y"), for a log line. Reads only.</summary>
+        private static string Misplaced(FlashScope flash, LayoutPlan plan, Dictionary<string, object> found)
+        {
+            foreach (Placement p in plan.Kept)
+            {
+                double? x = flash.Number(found[p.Name], "x");
+                double? y = flash.Number(found[p.Name], "y");
+                if (x == null || Math.Abs(x.Value - (float)p.X) > PlaceTolerance) return p.Name + ".x " + (x == null ? "unreadable" : FlashInterop.Text(x.Value));
+                if (y == null || Math.Abs(y.Value - (float)p.Y) > PlaceTolerance) return p.Name + ".y " + (y == null ? "unreadable" : FlashInterop.Text(y.Value));
+                if (ReadsRemoved(flash, found[p.Name])) return p.Name + " reads removed";
+            }
+            foreach (string hidden in plan.Hidden)
+            {
+                var one = new LayoutPlan(plan.Frame, new Placement[0], new[] { hidden }, false);
+                if (!InPlace(flash, one, found, true, true, new List<string>())) return hidden + " not off the panel";
+            }
+            return "unknown";
+        }
+
+        /// <summary>
+        /// Build 23: the MORE GAMES remap out (every EnterSection whose dress did not draw ABOUT on MORE GAMES' button, so setup()
+        /// titles btn_more as the game does), and its state line once per change: "settings menu: MORE GAMES remap removed", "...
+        /// installed", "... not removed (why)". Android only. Never throws.
+        /// </summary>
+        private static void MoreGamesOut(ISettingsMenuHost host, SettingsMenuState state, object ui)
+        {
+            try
+            {
+                state.AboutOnMoreGames = false;
+                if (host.IsWindows) return;
+                if (ui == null) ui = host.ClientUi();
+                if (ui == null) return;
+                string problem = MoreGamesRemap.Ensure(ui, false);
+                ReportMoreGames(host, state, problem == null ? "removed" : "not removed (" + problem + ")");
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>One "settings menu: MORE GAMES remap ..." line per change of state (no removal line while it was never installed).</summary>
+        private static void ReportMoreGames(ISettingsMenuHost host, SettingsMenuState state, string report)
+        {
+            string before = state.MoreGamesReported;
+            if (report == before) return;
+            // A removal is news only after an install (or a removal that failed): otherwise nothing was ever in.
+            bool removal = report == "removed" || report.StartsWith("not removed", StringComparison.Ordinal);
+            if (removal && before != "installed" && (before == null || !before.StartsWith("not removed", StringComparison.Ordinal))) return;
+            state.MoreGamesReported = report;
+            Write(host, "settings menu: MORE GAMES remap " + report);
         }
 
         /// <summary>
@@ -1094,17 +1319,27 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             }
         }
 
-        /// <summary>"FORUM remap on, icon slot null, MORE GAMES off the panel, ABOUT 208" (the parts that apply).</summary>
-        private static string Details(SettingsMenuState state, bool trim, bool redress, string icon)
+        /// <summary>
+        /// "FORUM remap on, icon slot null, MORE GAMES off the panel, ABOUT 208" (the parts that apply). Build 23: "ABOUT on MORE GAMES
+        /// (-177), ABOUT tile off the panel" while ABOUT is drawn on MORE GAMES' button; "ABOUT 208 (why)" when the switch is on and
+        /// that could not be (with it off the text is build 22's); then what was done to the PERFORMANCE title, if anything.
+        /// </summary>
+        private static string Details(SettingsMenuState state, bool trim, bool redress, string icon, bool about, string aboutWhy, string title)
         {
             var parts = new List<string>();
             if (redress) parts.Add("FORUM remap " + (state.ForumRemapped ? "on" : "off"));
             if (icon != null) parts.Add(icon);
-            if (trim)
+            if (trim && about)
+            {
+                parts.Add("ABOUT on MORE GAMES (" + FlashInterop.Text(SettingsMenuNames.StockMoreGamesX) + ")");
+                parts.Add("ABOUT tile off the panel");
+            }
+            else if (trim)
             {
                 parts.Add("MORE GAMES off the panel");
-                parts.Add("ABOUT " + FlashInterop.Text(SettingsMenuNames.AndroidAboutX));
+                parts.Add("ABOUT " + FlashInterop.Text(SettingsMenuNames.AndroidAboutX) + (aboutWhy == null ? "" : " (" + aboutWhy + ")"));
             }
+            if (title != null) parts.Add(title);
             return string.Join(", ", parts.ToArray());
         }
 
@@ -1195,7 +1430,8 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             try
             {
                 if (!host.SettingsMenuTrim && !(host.SettingsMenuPerformance && !host.IsWindows)) return null;
-                tail = "; " + (arm != null ? arm.Describe()
+                tail = "; " + (arm != null ? arm.Describe() + NotSkipped(state, id)
+                    : id != 0 && state.PreDressSealed == id ? "same frame: not needed (dressed before setup)"
                     : !host.SettingsMenuTrim ? "same frame: off (trim off)"
                     : state.SameFrameBlocked ? "same frame: off (a breadcrumb of the last start is still there)"
                     : !host.SettingsMenuSameFrame ? "same frame: off (" + McvsOffline.Server.Services.Admin.SettingsSchema.SettingsMenuSameFrameKey + " off)"
@@ -1242,8 +1478,15 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             }
         }
 
+        /// <summary>Build 23 (F1): " (not skipped: why)" when this run's dress before setup() ran and did not seal the grid, else "".</summary>
+        private static string NotSkipped(SettingsMenuState state, int id)
+        {
+            string why = state.PreDressRun == id ? state.SealProblem : null;
+            return why == null ? "" : " (not skipped: " + why + ")";
+        }
+
         /// <summary>The menu's name: <c>ASCharacter.Name</c>, else the AS <c>name</c>.</summary>
-        private static string NameOf(FlashScope flash, object menu)
+        internal static string NameOf(FlashScope flash, object menu)
         {
             string name = GameReflection.Property(menu, "Name") as string;
             if (name == SettingsMenuNames.SettingsMenu) return name;
@@ -1337,7 +1580,8 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             {
                 flash.Set(found[name], "visible", false);
                 flash.Set(found[name], "mouseEnabled", false);
-                if (name == SettingsMenuNames.MoreGamesButton) flash.Set(found[name], "x", (float)SettingsMenuNames.MoreGamesMarkerX);
+                double? marker = MarkerX(name);
+                if (marker != null) flash.Set(found[name], "x", (float)marker.Value);
             }
         }
 
@@ -1639,12 +1883,14 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 double? y = txt == null ? null : flash.Number(txt, "y");
                 if (y == null)
                 {
-                    note = (align == null ? kept ? "" : "needAlign off, " : align + ", ") + "title y unreadable";
+                    note = (align == null ? (kept ? "" : "needAlign off, ") : align + ", ") + "title y unreadable";
                 }
                 else if (y.Value >= SettingsMenuNames.TitleCentredBelow)
                 {
+                    // Kept: a note only for a y outside the timeline's own band (no setup ran now, nothing was written).
                     string at = FlashInterop.Text(y.Value);
-                    note = kept ? "title y kept (" + at + ")" : (align == null ? "needAlign off" : align) + ", title y " + at;
+                    bool usual = y.Value >= SettingsMenuNames.TitleOkMin && y.Value <= SettingsMenuNames.TitleOkMax;
+                    note = kept ? (usual ? null : "title y kept (" + at + ")") : (align == null ? "needAlign off" : align) + ", title y " + at;
                 }
                 else
                 {
@@ -1661,7 +1907,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                         failure = Reason(ex);
                     }
                     string from = FlashInterop.Text(y.Value) + " to " + FlashInterop.Text(SettingsMenuNames.TileTitleY);
-                    string why = align == null ? kept ? "" : "; needAlign off" : "; " + align;
+                    string why = align == null ? (kept ? "" : "; needAlign off") : "; " + align;
                     if (failure == null)
                     {
                         note = "title y put back (" + from + why + ")";

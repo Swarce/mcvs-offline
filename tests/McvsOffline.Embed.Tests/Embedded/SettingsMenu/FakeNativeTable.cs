@@ -267,6 +267,9 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         /// <summary>The game's GoToForum body ran (UIComponent.GoToForum → Browser.ShowForum, or patch 'forum').</summary>
         public int ForumCalls { get; set; }
 
+        /// <summary>UIComponent.GoToFreeGames() ran (ShowMoreGames).</summary>
+        public int FreeGamesCalls { get; set; }
+
         /// <summary>Sections the game's EnterSection delegate got.</summary>
         public List<string> Sections { get; } = new List<string>();
 
@@ -300,6 +303,8 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             ui.OverrideNativeFunction("GoToForum", new Action(ui.GoToForum));
             ui.OverrideNativeFunction("EnterSection", new Action<string>(NativeEnterSection));
             ui.OverrideNativeFunction("GetPlatformId", new Func<int>(GetPlatformId));
+            // AddBrowserOverrides (UIComponent.cs:395-405, from OnStart :1467): the Settings and top bar natives of the browser.
+            ui.OverrideNativeFunction("GoToFreeGames", new Action(ui.GoToFreeGames));
         }
 
         public void StopUi(FakeNativeTable ui)
@@ -307,6 +312,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             ui.RemoveNativeFunctionOverride("GoToForum");
             ui.RemoveNativeFunctionOverride("EnterSection");
             ui.RemoveNativeFunctionOverride("GetPlatformId");
+            ui.RemoveNativeFunctionOverride("GoToFreeGames");
         }
 
         /// <summary>GameClientComponent: CanChangeMaxFramerate and GetMaxFramerateValues (lambdas, as the game registers them).</summary>

@@ -19,6 +19,8 @@ namespace McvsOffline.Tests.Admin
             || key == "diagnostics.publicLogCopy" || key == "diagnostics.threadDump"
             || key == SettingsSchema.AccountMenuHideDeadButtonsKey  // no effect on PC: no Facebook/Google/Restore entry
             // The Android PERFORMANCE page and its values: Steam keeps its own page (docs/design/settings-menu.md §1.1).
+            // Build 23: ABOUT drawn on MORE GAMES' button (Steam's setup() hides MORE GAMES, and its ABOUT is centred already).
+            || key == "admin.settingsMenu.aboutCentre"
             || key == "admin.settingsMenu.performance" || key == "graphics.msaa" || key == "graphics.renderScale"
             || key == "graphics.lowResMaps" || key == "graphics.fpsListVersion";
 
@@ -74,6 +76,7 @@ namespace McvsOffline.Tests.Admin
             Assert.Contains("admin.settingsMenu.trim", keys);
             Assert.Equal(keys.IndexOf("admin.settingsMenu.trim") + 1, keys.IndexOf("admin.settingsMenu.sameFrame"));
             Assert.DoesNotContain("admin.settingsMenu.performance", keys);
+            Assert.DoesNotContain("admin.settingsMenu.aboutCentre", keys);
             Assert.DoesNotContain("graphics.msaa", keys);
             Assert.DoesNotContain("graphics.fpsListVersion", keys);
             // The PC host deletes the logs of older starts the same way (McvsOffline\logs and %TEMP%\McvsOffline\logs).

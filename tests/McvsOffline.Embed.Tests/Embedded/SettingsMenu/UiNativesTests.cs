@@ -30,7 +30,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             var env = new Env();
             env.Natives.Ensure();
             env.AssertOursLast(UiNatives.AndroidNames);
-            Assert.Single(env.Host.Lines("settings menu: natives registered (EnterSection, GoToForum, CanChangeGraphicSetting, " +
+            Assert.Single(env.Host.Lines("settings menu: natives registered (EnterSection, GoToForum, GoToFreeGames, CanChangeGraphicSetting, " +
                                          "CanChangeMaxFramerate, SetUserPreference, SaveUserPreferences) on FakeFlashTree"));
 
             // Every component's OnStart again (a new level): the game's default flags clear each list, ours is gone.
@@ -39,7 +39,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             env.Natives.Ensure();
             env.AssertOursLast(UiNatives.AndroidNames);
             Assert.Equal(1, env.Natives.State.Registrations);
-            Assert.Single(env.Host.Lines("settings menu: natives put back (EnterSection, GoToForum, CanChangeGraphicSetting, " +
+            Assert.Single(env.Host.Lines("settings menu: natives put back (EnterSection, GoToForum, GoToFreeGames, CanChangeGraphicSetting, " +
                                          "CanChangeMaxFramerate, SetUserPreference, SaveUserPreferences; 1 so far)"));
 
             // GamePreferencesComponent.OnStop removes three names outright (the entries go, new FuncIDs come).
@@ -68,8 +68,8 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             foreach (string name in UiNatives.AndroidNames)
             {
                 Assert.Equal(1, env.Ours(name));
-                // GoToForum is ours alone (E4); every other name keeps the game's delegate before ours.
-                Assert.Equal(name == "GoToForum" ? 1 : 2, env.Ui.DelegatesOf(name).Count);
+                // GoToForum and GoToFreeGames (build 23) are ours alone (E4); every other name keeps the game's delegate before ours.
+                Assert.Equal(name == "GoToForum" || name == "GoToFreeGames" ? 1 : 2, env.Ui.DelegatesOf(name).Count);
             }
             Assert.Equal(0, env.Natives.State.Registrations);   // nothing had to be put back
             Assert.Single(env.Host.Lines("settings menu: natives registered"));
@@ -96,7 +96,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             {
                 Assert.Equal(1, table.CountWithTarget(name, natives.DelegateOf(name).Target));
                 Assert.Same(natives.DelegateOf(name).Target, table.DelegatesOf(name).Last().Target);
-                Assert.Equal(name == "GoToForum" ? 1 : 2, table.DelegatesOf(name).Count);
+                Assert.Equal(name == "GoToForum" || name == "GoToFreeGames" ? 1 : 2, table.DelegatesOf(name).Count);
             }
             Assert.Equal(0, natives.State.Registrations);
             table.Invoke("GoToForum");
@@ -537,7 +537,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
                 foreach (string name in UiNatives.AndroidNames) Assert.Equal(1, ui.CountWithTarget(name, first.DelegateOf(name).Target));
                 List<string> lines = logs.Snapshot().Select(e => e.Message).ToList();
                 Assert.DoesNotContain(lines, m => m.Contains("natives not started"));
-                Assert.Single(lines, "settings menu: natives registered (EnterSection, GoToForum, CanChangeGraphicSetting, " +
+                Assert.Single(lines, "settings menu: natives registered (EnterSection, GoToForum, GoToFreeGames, CanChangeGraphicSetting, " +
                                      "CanChangeMaxFramerate, SetUserPreference, SaveUserPreferences) on FakeFlashTree (World unknown)");
 
                 // Another host takes over (tests start several): the old registry is stopped and sees no host.
@@ -695,6 +695,8 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             public string[] SameFrameMarkerPaths { get { return inner.SameFrameMarkerPaths; } }
             public bool SwitchSameFrameOff() { return inner.SwitchSameFrameOff(); }
             public bool SettingsMenuPerformance { get { return inner.SettingsMenuPerformance; } }
+            public bool SettingsMenuAboutCentre { get { return inner.SettingsMenuAboutCentre; } }
+            public double? FrameDeltaMs() { return inner.FrameDeltaMs(); }
             public bool IsWindows { get { return inner.IsWindows; } }
             public Log Log { get { return inner.Log; } }
             public IPerformanceSettings PerformanceSettings { get { return inner.PerformanceSettings; } }

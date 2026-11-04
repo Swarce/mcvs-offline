@@ -18,7 +18,7 @@ namespace McvsOffline.Tests.Admin
         /// <summary>§3.1, in page order.</summary>
         private static readonly string[] EditableKeys =
         {
-            "instantBots", "admin.settingsMenu.trim", "admin.settingsMenu.sameFrame", "admin.settingsMenu.performance", "devMenu",
+            "instantBots", "admin.settingsMenu.trim", "admin.settingsMenu.sameFrame", "admin.settingsMenu.aboutCentre", "admin.settingsMenu.performance", "devMenu",
             "leaderboards.virtualPlayers", "geo.country",
             "graphics.profile", "graphics.fullProfile", "graphics.msaa", "graphics.renderScale", "graphics.lowResMaps", "hd.enabled",
             "economy.versusCoinsMultiplier", "economy.creditsMultiplier", "economy.xpMultiplier", "economy.priceMultiplier", "crm.dailyCapMultiplier",
@@ -166,6 +166,12 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal("bool", Def(SettingsSchema.SettingsMenuSameFrameKey).Type);
             Assert.Equal("Lay out Settings before it is drawn", Def(SettingsSchema.SettingsMenuSameFrameKey).Label);
             Assert.Contains("can flash briefly", Def(SettingsSchema.SettingsMenuSameFrameKey).Help);
+            Assert.Equal("admin.settingsMenu.aboutCentre", SettingsSchema.SettingsMenuAboutCentreKey);
+            Assert.Equal(true, Default(SettingsSchema.SettingsMenuAboutCentreKey));
+            Assert.Equal("live", Def(SettingsSchema.SettingsMenuAboutCentreKey).Apply);
+            Assert.Equal("bool", Def(SettingsSchema.SettingsMenuAboutCentreKey).Type);
+            Assert.Equal("ABOUT centred in the Settings menu", Def(SettingsSchema.SettingsMenuAboutCentreKey).Label);
+            Assert.Contains("build 22", Def(SettingsSchema.SettingsMenuAboutCentreKey).Help);
             Assert.Equal(true, Default(SettingsSchema.SettingsMenuPerformanceKey));
             Assert.Equal("live", Def(SettingsSchema.SettingsMenuPerformanceKey).Apply);
             Assert.Contains("FRAME RATE LIMIT", Def(SettingsSchema.SettingsMenuPerformanceKey).Help);

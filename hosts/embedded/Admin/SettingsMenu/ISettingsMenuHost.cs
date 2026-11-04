@@ -202,9 +202,6 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         /// </summary>
         public const double AboutMarkerX = 0;
 
-        /// <summary>The bottom row's y (both ThinBtn at ty 354.10, and_settings_frames.txt:34, :37).</summary>
-        public const double ThinButtonY = 354.1;
-
         /// <summary>setup()'s title of MORE GAMES (AND-AS MenuSettings.as:161; one string in and_UI.swf, none in and_lib.swf).</summary>
         public const string FreeGamesTitle = "setting.FreeGamesButton";
 

@@ -449,7 +449,8 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
                 Assert.True(File.Exists(marker));
                 rig.Stay();
                 Assert.False(File.Exists(marker));
-                Assert.EndsWith(" in the focus-in frame; stock grid drawn 0 frames", rig.GridLines.Last());
+                // Build 23 on Android: the seal (F1) leaves MORE GAMES' tidy to the run's first frame.
+                Assert.EndsWith(steam ? SettingsMenuReturnTests.SameFrameDone : SettingsMenuReturnTests.SealedDone, rig.GridLines.Last());
                 Assert.Single(rig.Host.Logs.Snapshot().Where(e => e.Level == LogLevel.Warn));
             }
             finally
@@ -499,7 +500,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
                 List<string> lines = rig.Host.Lines("settings menu: focus-in ");
                 Assert.EndsWith("; breadcrumb not written (DirectoryNotFoundException)", lines[0]);
                 Assert.DoesNotContain("breadcrumb", lines[1]);
-                Assert.All(rig.GridLines, l => Assert.EndsWith(" in the focus-in frame; stock grid drawn 0 frames", l));
+                Assert.All(rig.GridLines, l => Assert.EndsWith(SettingsMenuReturnTests.SealedDone, l));
             }
             finally
             {

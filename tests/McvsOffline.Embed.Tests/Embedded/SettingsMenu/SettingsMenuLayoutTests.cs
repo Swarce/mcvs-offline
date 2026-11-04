@@ -16,6 +16,9 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
     {
         private const string Forum = "menu_settings.mc_panel.btn_forum";
 
+        /// <summary>Build 23: BtnSimple's needAlign off right before each re-dress of ours (MenuSettings.as:110-120 does so before its own).</summary>
+        private const string NeedAlignOff = Forum + ".needAlign=false";
+
         private const string PerformanceSetup =
             Forum + ".setup({title:setting.Performance,icon:Menus/assets/png/icons/settings_performance.png})";
 
@@ -195,9 +198,10 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.Equal("Menus/assets/png/icons/settings_performance.png", forum.Get("icon"));
             Assert.Equal("setting.Performance", forum.Child("txt").Get("text"));
             Assert.Equal(SettingsMenuNames.PerformanceIcon, rig.Ui.TileIcon("btn_forum"));
-            Assert.Equal(PerformanceSetup, rig.Ui.HostWrites.First());   // the re-dress runs first
+            // The re-dress runs first (build 23: needAlign off just before it, so the title keeps the tile's own height).
+            Assert.Equal(new[] { NeedAlignOff, PerformanceSetup }, rig.Ui.HostWrites.Take(2));
             // Build 22: then the icon goes out of setup()'s reach (the slot, and the container's name).
-            Assert.Equal(new[] { Forum + ".mc_image=null", Forum + ".mc_image.name=mcvs_perfIcon" }, rig.Ui.HostWrites.Skip(1).Take(2));
+            Assert.Equal(new[] { Forum + ".mc_image=null", Forum + ".mc_image.name=mcvs_perfIcon" }, rig.Ui.HostWrites.Skip(2).Take(2));
             Assert.True(rig.State.TileActive);
             Assert.True(rig.State.TileEverActive);
             Assert.False(rig.State.RedressFailed);
@@ -514,7 +518,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             float[] help = rig.At("btn_help");
             rig.Ui.Instance("btn_forum").Methods["setup"] = a => { throw new InvalidOperationException("setup failed"); };
             rig.Host.Drain();
-            Assert.Equal(new[] { PerformanceSetup }, rig.Ui.HostWrites);
+            Assert.Equal(new[] { NeedAlignOff, PerformanceSetup }, rig.Ui.HostWrites);
             Assert.False(rig.State.TileActive);
             Assert.False(rig.State.TileEverActive);
             Assert.True(rig.State.RedressFailed);
@@ -581,7 +585,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             FlashObject menu = rig.Ui.OpenSettings();
             menu.Child("mc_panel").Children.Remove(rig.Ui.Instance("btn_social"));   // only btn_forum is read
             rig.Host.Drain();
-            Assert.Equal(new[] { PerformanceSetup, Forum + ".mc_image=null", Forum + ".mc_image.name=mcvs_perfIcon" }, rig.Ui.HostWrites);
+            Assert.Equal(new[] { NeedAlignOff, PerformanceSetup, Forum + ".mc_image=null", Forum + ".mc_image.name=mcvs_perfIcon" }, rig.Ui.HostWrites);
             Assert.Equal(new[] { 6.35f, -50.9f }, rig.At("btn_forum"));   // the stock slot
             Assert.True((bool)rig.Ui.Instance("btn_more").Get("visible"));
             Assert.True(rig.State.TileActive);
