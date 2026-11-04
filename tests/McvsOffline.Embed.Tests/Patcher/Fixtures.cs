@@ -57,42 +57,6 @@ namespace Gameloft.Util
     }
 }";
 
-        public const string Game = @"
-using System;
-using System.Threading;
-using System.Threading.Tasks;
-namespace Gameloft.Engine
-{
-    public class Component
-    {
-        public CancellationToken CancellationToken => CancellationToken.None;
-    }
-}
-namespace Game
-{
-    public class GameClientComponent : Gameloft.Engine.Component
-    {
-        public enum MatchConnectionType { Undefined, OnlineAndTutorial, OfflineMatchWithBots }
-        public MatchConnectionType Requested;
-        private void RunTask(Func<CancellationToken, Task> task, CancellationToken ct) { task(ct).Wait(); }
-        private void NativeStartMatchWithBots()
-        {
-            RunTask((CancellationToken ct) => StartAutoMatchAsync(base.CancellationToken, MatchConnectionType.OfflineMatchWithBots), base.CancellationToken);
-        }
-        private void StartAutoMatchSameAsPlayerLevel()
-        {
-            RunTask((CancellationToken ct) => StartAutoMatchAsync(base.CancellationToken, MatchConnectionType.OfflineMatchWithBots), base.CancellationToken);
-        }
-        private Task StartAutoMatchAsync(CancellationToken ct, MatchConnectionType matchConnection)
-        {
-            Requested = matchConnection;
-            return Task.CompletedTask;
-        }
-        public string BotTile() { NativeStartMatchWithBots(); return Requested.ToString(); }
-        public string SameLevel() { StartAutoMatchSameAsPlayerLevel(); return Requested.ToString(); }
-    }
-}";
-
         public const string GameloftEngine = @"
 using System.Net;
 using System.Threading;

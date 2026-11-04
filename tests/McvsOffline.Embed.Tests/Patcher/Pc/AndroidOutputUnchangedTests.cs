@@ -27,6 +27,10 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
     /// Build 17 changes the Android output on purpose with one new default patch, 'inbox' (Game.dll): the main-dev values hold
     /// for the default options without it, and the full default set equals them except for Game.dll, whose values with 'inbox'
     /// are pinned in <see cref="WithInbox"/> (recorded at build 17 by the same helper).
+    /// Build 21 removes the default 'bottile' (Game.dll) on purpose: with build 20's 'bottile' put back as a test stand-in
+    /// (<see cref="Build20BotTilePatch"/>, the same one-byte edit at the same place in the plan) the output is still exactly
+    /// the pinned values above, so the stand-in is that patch and its removal is the only change; build 21's own Game.dll
+    /// is pinned in <see cref="Build21"/>.
     /// Skipped without MCVS_REFS, unless MCVS_REQUIRE_REAL_CLIENT=1. On a mismatch the test prints the current values.
     /// </summary>
     public class AndroidOutputUnchangedTests
@@ -49,6 +53,12 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             ["Game.dll"] = new[] { "6f68d497be4021997b7b855db73264d9ee693f3674d1f03aba0f460b4c660279", "6169bdc7012954bc1f993930be10b7cf8424e684bce45e87ab350be8fca2fd4d", "023c53c26c859c5d55e17f7c29b2e13aa5836546c01431b331a7df2522f69465" },
         };
 
+        /// <summary>Game.dll patched for the full default set of build 21 (no 'bottile'; the other files equal <see cref="Expected"/>).</summary>
+        private static readonly Dictionary<string, string[]> Build21 = new Dictionary<string, string[]>(StringComparer.Ordinal)
+        {
+            ["Game.dll"] = new[] { "c65c94e96fea7156cd1edb9b6f36f45dfd3f19a37c261c55cd5c540cba0ce9bb", "6506627f7bbcee613092cb52b09ed99fa5f20bb7d2d0273d8c213b2150c48ae7", "023c53c26c859c5d55e17f7c29b2e13aa5836546c01431b331a7df2522f69465" },
+        };
+
         private readonly ITestOutputHelper output;
 
         public AndroidOutputUnchangedTests(ITestOutputHelper output)
@@ -56,13 +66,32 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             this.output = output;
         }
 
-        /// <summary>P5: the default options without the build-17 'inbox' patch give exactly the main-dev 7f24f82 output.</summary>
+        /// <summary>P5: the default options without the build-17 'inbox' patch, with build 20's 'bottile', give exactly the main-dev 7f24f82 output.</summary>
         [Fact]
         public void TheDefaultAndroidOutputWithoutInboxIsTheMainDevOutput()
         {
             string refs = Refs();
             if (refs == null) return;
-            AssertOutput(PatchDefault(refs, "inbox"), Expected);
+            AssertOutput(PatchDefault(refs, true, "inbox"), Expected);
+        }
+
+        /// <summary>
+        /// Build 21's default set: the build-17 output except Game.dll, which differs only by the missing 'bottile' (pinned
+        /// values): its references are unchanged, only one method's IL is.
+        /// </summary>
+        [Fact]
+        public void TheBuild21DefaultOutputIsTheBuild17OutputWithoutBotTile()
+        {
+            string refs = Refs();
+            if (refs == null) return;
+            Dictionary<string, byte[]> patched = PatchDefault(refs, false);
+            var expected = new Dictionary<string, string[]>(Expected, StringComparer.Ordinal);
+            foreach (var pair in Build21) expected[pair.Key] = pair.Value;
+            AssertOutput(patched, expected);
+            Assert.Equal(WithInbox["Game.dll"][2], Build21["Game.dll"][2]);
+            Assert.NotEqual(WithInbox["Game.dll"][1], Build21["Game.dll"][1]);
+            using (ModuleDefinition game = ModuleDefinition.ReadModule(new MemoryStream(patched["Game.dll"]), new ReaderParameters { InMemory = true }))
+                Assert.Equal(Mono.Cecil.Cil.OpCodes.Ldc_I4_2, PcBuild20UpgradeTests.ConnectionTypeSite(game).OpCode);   // the stock lambda
         }
 
         /// <summary>The full default set: the main-dev output except Game.dll, which differs only by the 'inbox' patch (pinned values).</summary>
@@ -72,7 +101,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             string refs = Refs();
             if (refs == null) return;
             Assert.Contains("inbox", new PatcherOptions().Patches);
-            Dictionary<string, byte[]> patched = PatchDefault(refs);
+            Dictionary<string, byte[]> patched = PatchDefault(refs, true);
             var expected = new Dictionary<string, string[]>(Expected, StringComparer.Ordinal);
             foreach (var pair in WithInbox) expected[pair.Key] = pair.Value;
             AssertOutput(patched, expected);
@@ -111,13 +140,17 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             Assert.True(problems.Count == 0, string.Join("\n", problems));
         }
 
-        /// <summary>The default options' IL patches (less <paramref name="without"/>) applied as ApkPatcher.Run applies them, with the fixed stand-in server.</summary>
-        internal static Dictionary<string, byte[]> PatchDefault(string refs, params string[] without)
+        /// <summary>
+        /// The default options' IL patches (less <paramref name="without"/>) applied as ApkPatcher.Run applies them, with the
+        /// fixed stand-in server; with <paramref name="build20BotTile"/> build 20's 'bottile' where build 20 had it (before 'finder').
+        /// </summary>
+        internal static Dictionary<string, byte[]> PatchDefault(string refs, bool build20BotTile, params string[] without)
         {
             byte[] server = FixtureCompiler.Compile("McvsOffline.Server", RealGamePatchTests.HookServerSource);
             var ids = new PatcherOptions().Patches;
             foreach (string id in without) Assert.True(ids.Remove(id), id + " is not a default patch");
             List<IlPatch> patches = ApkPatcher.SelectPatches(ids);
+            if (build20BotTile) patches.Insert(patches.FindIndex(p => p.Id == "finder"), new Build20BotTilePatch());
             var result = new Dictionary<string, byte[]>(StringComparer.Ordinal);
             using (var resolver = new DefaultAssemblyResolver())
             {

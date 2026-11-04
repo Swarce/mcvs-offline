@@ -17,6 +17,7 @@ first-class offline mode with full progression.
 > unless the tile is shown (our opt-in CRM setting `crm.practiceTile`). Evidence: the exported UI.swf ActionScript
 > (`MenuMainV2.as:631-688, 737-749`, `PopupSolo_Bot_Match.as:51-83`, `PopupMatchType.as`), `GM/MainMenuComponent.cs:436-480,
 > 642-660, 722-770`. The lines below are corrected in place where they named the tile.
+> (**Build 21:** removed in build 21: the `bottile` patch and the `crm.practiceTile` setting are gone, the tile stays hidden; the facts about the tile and its code path below are unchanged.)
 
 Paths are relative to `/home/user/mcvs-work`. Abbreviations:
 

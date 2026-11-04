@@ -40,14 +40,14 @@ namespace McvsOffline.Patcher.Core
         private static readonly string[] PcOrder =
         {
             "hook-pc",
-            "headless", "bottile", "store", "signatures", "inbox", "adminpage", "forum",
+            "headless", "store", "signatures", "inbox", "adminpage", "forum",
             "headless-engine", "physics", "quicklaunch", "headless-diag", "nativeonline", "waits", "adminlink", "graphics", "gameload",
             "geo",
         };
 
         private static readonly PatchIds PcIds = new PatchIds(
             new[] { "hook-pc", "headless", "headless-engine", "physics", "quicklaunch", "headless-diag", "graphics", "gameload" },
-            new[] { "nativeonline", "waits", "adminlink", "geo", "bottile", "store", "signatures", "inbox", "adminpage" },
+            new[] { "nativeonline", "waits", "adminlink", "geo", "store", "signatures", "inbox", "adminpage" },
             new[] { "forum" },
             new[] { "hook", "finder", "lan", "debloat", "targetsdk", "game" });
 
@@ -56,6 +56,23 @@ namespace McvsOffline.Patcher.Core
             PatcherOptions.DefaultPatches,
             PatcherOptions.OptionalPatches.Where(id => !PatcherOptions.DefaultPatches.Contains(id)),
             new[] { "hook-pc", "quicklaunch", "headless-diag", "gameload" });
+
+        /// <summary>
+        /// Patch ids earlier builds had, on either platform, and when they went: <c>--patch</c> (APK, <c>pc install</c>, the kit)
+        /// leaves one out with <see cref="RemovedWarning"/> instead of refusing the run, so a saved command line or an older
+        /// copy of the docs' list keeps working (without the patch, nothing it did is applied). <see cref="For"/> still refuses
+        /// them: the callers drop them first.
+        /// </summary>
+        public static readonly IReadOnlyDictionary<string, string> Removed = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["bottile"] = "removed in build 21 (the hidden PRACTICE tile it served is gone)",
+        };
+
+        /// <summary>"patch 'bottile' was removed in build 21 (...): ignored".</summary>
+        public static string RemovedWarning(string id)
+        {
+            return "patch '" + id + "' was " + Removed[id] + ": ignored";
+        }
 
         public static PatchIds Ids(BuildProfile build)
         {
@@ -88,7 +105,6 @@ namespace McvsOffline.Patcher.Core
             {
                 case "hook-pc": return new EngineBridgeHookPatch();
                 case "headless": return new HeadlessGamePatch();
-                case "bottile": return new BotTilePatch();
                 case "store": return new StorePatch();
                 case "signatures": return new SignaturesPatch();
                 case "inbox": return new InboxPatch();

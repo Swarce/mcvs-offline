@@ -31,6 +31,7 @@ namespace McvsOffline.Patcher
                 PrintUsage();
                 return 0;
             }
+            foreach (string w in options.Warnings) Console.Error.WriteLine("warning: " + w);
 
             try
             {
@@ -66,7 +67,7 @@ namespace McvsOffline.Patcher
                     case "--apk": o.InputApk = Value(args, ref i); break;
                     case "--server": o.ServerDll = Value(args, ref i); break;
                     case "--out": o.OutputApk = Value(args, ref i); break;
-                    case "--patch": o.Patches = PatcherOptions.ParsePatchList(Value(args, ref i)); break;
+                    case "--patch": o.Patches = PatcherOptions.ParsePatchList(Value(args, ref i), o.Warnings); break;
                     case "--port": o.Port = PatcherOptions.ParsePort(Value(args, ref i)); break;
                     case "--target-sdk": o.TargetSdk = PatcherOptions.ParseTargetSdk(Value(args, ref i)); break;
                     case "--keystore": o.Keystore = Value(args, ref i); break;
@@ -159,7 +160,6 @@ namespace McvsOffline.Patcher
                 "                                   is true (its network threads stalled boot with the internet on)\n" +
                 "                          waits    the engine's pumping waits (TaskExtension.WaitAndWork) re-check every 100 ms (hardening)\n" +
                 "                          geo      IP geolocation URL -> the embedded server (no DNS wait in the handshake)\n" +
-                "                          bottile  hidden PRACTICE tile -> bot-filled PvP (dormant unless the tile is shown)\n" +
                 "                          finder   LocalAnubis Finder on all interfaces (survives Wi-Fi changes)\n" +
                 "                          lan      LAN hosting helpers, implies finder (experimental)\n" +
                 "                          store    kill-signature store items: no null list for sounds, a failing item is skipped\n" +

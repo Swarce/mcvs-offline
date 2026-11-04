@@ -85,7 +85,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         {
             return new List<IlPatch>
             {
-                new StandInHookPcPatch(), new BotTilePatch(), new StorePatch(), new SignaturesPatch(), new InboxPatch(), new HeadlessEnginePatch(), new PhysicsPatch(),
+                new StandInHookPcPatch(), new StorePatch(), new SignaturesPatch(), new InboxPatch(), new HeadlessEnginePatch(), new PhysicsPatch(),
                 new GameAssemblyLoadPatch(), new GeoPatch(),
             };
         }
@@ -222,7 +222,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 Assert.Equal(OurFiles.Where(f => f != "McvsOffline/install.json"), m.Written.Select(w => w.Path));
                 foreach (InstallWritten w in m.Written) Assert.Equal(after[w.Path], w.Sha256);
                 Assert.Equal(new[] { "hook-pc" }, m.FindWritten("McvsOffline/bin/EngineBridge.dll").Patches);
-                Assert.Equal(new[] { "bottile", "store", "signatures", "inbox" }, m.FindWritten("McvsOffline/bin/Game.dll").Patches);
+                Assert.Equal(new[] { "store", "signatures", "inbox" }, m.FindWritten("McvsOffline/bin/Game.dll").Patches);
                 Assert.Equal(new[] { "geo" }, m.FindWritten("McvsOffline/bin/Gameloft.Util.dll").Patches);
                 InstallWritten server = m.FindWritten("McvsOffline/bin/McvsOffline.Server.dll");
                 Assert.Null(server.Patches);
