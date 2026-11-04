@@ -18,7 +18,7 @@ namespace McvsOffline.Tests.Admin
         /// <summary>§3.1, in page order.</summary>
         private static readonly string[] EditableKeys =
         {
-            "instantBots", "admin.settingsMenu.trim", "admin.settingsMenu.performance", "devMenu",
+            "instantBots", "admin.settingsMenu.trim", "admin.settingsMenu.sameFrame", "admin.settingsMenu.performance", "devMenu",
             "leaderboards.virtualPlayers", "geo.country",
             "graphics.profile", "graphics.fullProfile", "graphics.msaa", "graphics.renderScale", "graphics.lowResMaps", "hd.enabled",
             "economy.versusCoinsMultiplier", "economy.creditsMultiplier", "economy.xpMultiplier", "economy.priceMultiplier", "crm.dailyCapMultiplier",
@@ -159,6 +159,13 @@ namespace McvsOffline.Tests.Admin
             // owner can turn either off and get the game's own menus back.
             Assert.Equal(true, Default(SettingsSchema.SettingsMenuTrimKey));
             Assert.Equal("live", Def(SettingsSchema.SettingsMenuTrimKey).Apply);
+            // Build 22: the same-frame step has a switch of its own (off: build 20's one-frame-late layout, the trim stays).
+            Assert.Equal("admin.settingsMenu.sameFrame", SettingsSchema.SettingsMenuSameFrameKey);
+            Assert.Equal(true, Default(SettingsSchema.SettingsMenuSameFrameKey));
+            Assert.Equal("live", Def(SettingsSchema.SettingsMenuSameFrameKey).Apply);
+            Assert.Equal("bool", Def(SettingsSchema.SettingsMenuSameFrameKey).Type);
+            Assert.Equal("Lay out Settings before it is drawn", Def(SettingsSchema.SettingsMenuSameFrameKey).Label);
+            Assert.Contains("can flash briefly", Def(SettingsSchema.SettingsMenuSameFrameKey).Help);
             Assert.Equal(true, Default(SettingsSchema.SettingsMenuPerformanceKey));
             Assert.Equal("live", Def(SettingsSchema.SettingsMenuPerformanceKey).Apply);
             Assert.Contains("FRAME RATE LIMIT", Def(SettingsSchema.SettingsMenuPerformanceKey).Help);

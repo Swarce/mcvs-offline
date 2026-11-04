@@ -163,6 +163,14 @@ namespace McvsOffline.Server.Services.Admin
         public const string SettingsMenuTrimKey = "admin.settingsMenu.trim";
 
         /// <summary>
+        /// Read by the embedded host (AdminHost.SettingsMenuSameFrame) each time the game's Settings menu opens: with the trim on, the
+        /// grid is laid out in the frame that opens it, from inside a Flash native (build 21's same-frame step); off, one frame later
+        /// (build 20). The host sets it false by itself when the previous start ended during that step (docs/design/settings-menu.md
+        /// §3.2, §5 risk 2). Both platforms.
+        /// </summary>
+        public const string SettingsMenuSameFrameKey = "admin.settingsMenu.sameFrame";
+
+        /// <summary>
         /// Read by the embedded host (AdminHost.SettingsMenuPerformance) on every call of its Settings menu natives: the Android
         /// PERFORMANCE tile and page, and GRAPHICS SETTINGS and FRAME RATE LIMIT out of Gameplay Settings (§3.3, §3.5); read once
         /// at start for the 90 and 120 FPS limits (§3.4). Android only.
@@ -718,6 +726,11 @@ namespace McvsOffline.Server.Services.Admin
                      "Hides SOCIAL MEDIA, FORUM and CUSTOMER CARE (and MORE GAMES on phones) in the game's Settings menu, which "
                      + "cannot work offline, and centres the tiles that are left, with ABOUT alone below them. Applies the next time "
                      + "Settings opens."),
+                Bool("gameplay", SettingsMenuSameFrameKey, "Lay out Settings before it is drawn", true, Live,
+                     "With the shorter Settings menu on, lays the menu out in the same frame that opens it, so the stock menu never "
+                     + "shows. Off: the layout comes one frame later (build 20 behaviour) and the stock menu can flash briefly. Turns "
+                     + "itself off when the game closed during this step at the last start; switch it back on to try again. Applies "
+                     + "the next time Settings opens."),
                 Bool("gameplay", SettingsMenuPerformanceKey, "PERFORMANCE in the Settings menu", true, Live,
                      "Adds a PERFORMANCE tile to the game's Settings menu, as on Steam: GRAPHICS, ANTIALIASING, SCREEN SCALE, FRAME "
                      + "RATE LIMIT and LOW RESOLUTION MAPS. GRAPHICS SETTINGS and FRAME RATE LIMIT then leave Gameplay Settings, also "

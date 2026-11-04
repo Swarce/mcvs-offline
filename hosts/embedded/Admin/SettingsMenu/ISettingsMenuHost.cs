@@ -20,6 +20,25 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         bool SettingsMenuTrim { get; }
 
         /// <summary>
+        /// settings <c>admin.settingsMenu.sameFrame</c> (server copy, read per call; default true): with the trim on, the grid is laid
+        /// out in the focus-in frame (build 21's same-frame step, <see cref="SettingsMenuLayout.SameFrame"/>); off, only the run lays
+        /// it out, one frame later (build 20). Both platforms.
+        /// </summary>
+        bool SettingsMenuSameFrame { get; }
+
+        /// <summary>
+        /// The same-frame step's breadcrumb (<see cref="SameFrameBreadcrumb"/>): <c>logs/</c><see cref="SettingsMenuNames.SameFrameMarkerFile"/>
+        /// in the host's log folder (the folder of <c>restart-requested.txt</c>), or null when there is none (no breadcrumb).
+        /// </summary>
+        string SameFrameMarkerPath { get; }
+
+        /// <summary>
+        /// Stores <c>admin.settingsMenu.sameFrame</c> = false in the server copy and saves it now (the settings page shows the switch
+        /// off). False when it could not be saved (logged). Never throws; it writes settings.json, so not per frame.
+        /// </summary>
+        bool SwitchSameFrameOff();
+
+        /// <summary>
         /// settings <c>admin.settingsMenu.performance</c> (server copy, read per call; default true) on Android; always false on PC,
         /// which keeps Steam's own PERFORMANCE tile and page: the tile re-dress, the page and R4.
         /// </summary>
@@ -120,6 +139,12 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         /// (AND-AS MenuSettings.as:214), calls it at :363 after the last stock write (:213).
         /// </summary>
         public const string GetPlatformId = "GetPlatformId";
+
+        /// <summary>
+        /// The same-frame step's breadcrumb in the host's log folder (<see cref="SameFrameBreadcrumb"/>): it exists only while a
+        /// process's first look runs inside the native and until the next frame.
+        /// </summary>
+        public const string SameFrameMarkerFile = "settings-menu-same-frame.txt";
 
         /// <summary>
         /// MenuComponent.NativeGetLanguage, <c>Func&lt;string&gt;</c> (registered in the MenuComponent constructor, MenuComponent.cs:345,
@@ -262,6 +287,12 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         private int layouts;
         private int registrations;
         private int layoutRun;
+        private int breadcrumbChecked;
+        private int breadcrumbWritten;
+        private string breadcrumbPath;
+        private string breadcrumbProblem;
+        private volatile string sameFrameSkipped;
+        private volatile bool sameFrameBlocked;
 
         /// <summary>
         /// Android: btn_forum reads PERFORMANCE on the grid shown now (set by <see cref="SettingsMenuLayout"/> only after every write
@@ -350,6 +381,69 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         {
             get { return sameFrame; }
             set { sameFrame = value; }
+        }
+
+        // ------------------------------------------------------------------ the same-frame step's breadcrumb (SameFrameBreadcrumb)
+
+        /// <summary>True for the first caller only: the check of the previous process's marker runs once per process.</summary>
+        public bool BeginBreadcrumbCheck()
+        {
+            return Interlocked.CompareExchange(ref breadcrumbChecked, 1, 0) == 0;
+        }
+
+        /// <summary>The check has run in this process (at start, or at the first arm).</summary>
+        public bool BreadcrumbChecked { get { return Interlocked.CompareExchange(ref breadcrumbChecked, 0, 0) != 0; } }
+
+        /// <summary>True for the first caller only: the marker is written before the process's first look, never again.</summary>
+        public bool BeginBreadcrumb()
+        {
+            return Interlocked.CompareExchange(ref breadcrumbWritten, 1, 0) == 0;
+        }
+
+        /// <summary>The marker this process wrote and has not deleted yet (the step is running, or its frame has not ended), or null.</summary>
+        public string BreadcrumbPath
+        {
+            get { return Interlocked.CompareExchange(ref breadcrumbPath, null, null); }
+            set { Interlocked.Exchange(ref breadcrumbPath, value); }
+        }
+
+        /// <summary>Takes <see cref="BreadcrumbPath"/>: the one caller that gets it deletes the marker.</summary>
+        public string TakeBreadcrumbPath()
+        {
+            return Interlocked.Exchange(ref breadcrumbPath, null);
+        }
+
+        /// <summary>Why the marker could not be written or deleted (for the next focus-in line, once), or null.</summary>
+        public string BreadcrumbProblem
+        {
+            get { return Interlocked.CompareExchange(ref breadcrumbProblem, null, null); }
+            set { Interlocked.Exchange(ref breadcrumbProblem, value); }
+        }
+
+        /// <summary>Takes <see cref="BreadcrumbProblem"/> (it is reported once).</summary>
+        public string TakeBreadcrumbProblem()
+        {
+            return Interlocked.Exchange(ref breadcrumbProblem, null);
+        }
+
+        /// <summary>
+        /// The line of the check that found the previous process's marker (the step was skipped for this install), or null. The
+        /// focus-in line then says "same frame: off (skipped: ...)" while the step stays off.
+        /// </summary>
+        public string SameFrameSkipped
+        {
+            get { return sameFrameSkipped; }
+            set { sameFrameSkipped = value; }
+        }
+
+        /// <summary>
+        /// The marker was found but <c>admin.settingsMenu.sameFrame</c> could not be saved as off: no step in this process whatever
+        /// the setting reads (the marker stays, so the next start skips it too).
+        /// </summary>
+        public bool SameFrameBlocked
+        {
+            get { return sameFrameBlocked; }
+            set { sameFrameBlocked = value; }
         }
 
         /// <summary>Re-ensure steps that had to put one of our delegates back (the game re-registered or removed the name; risk 1).</summary>
