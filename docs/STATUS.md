@@ -67,7 +67,7 @@ zipalign OK); it installs over build 19 as usual. Compared entry by entry with b
 same 952 entries in the same order; changed only the server DLL (2,650,112 → 2,656,768 bytes), the signature files and
 the 16 MVID bytes of `Game.dll`, `Gameloft.Engine.dll`, `Gameloft.Util.dll` and `NicePlaySDK.dll`
 ([design/pc-port.md](design/pc-port.md) §13.1). The PC kit `McvsOffline.PcKit.exe` (win-x64, one file, SHA-256
-`b87d585e449e16e6bb75ec8ff92de9055d459d754d1738bcd707f70c2e9d5d17`) replaces build 19's. Only the server DLL changed:
+`f17e017ffede038b730876b7df7c93cf635633885bec067878983e87740252bc`) replaces build 19's. Only the server DLL changed:
 no patch, no installer code, no game file. The design is [design/settings-menu.md](design/settings-menu.md) §3.2.
 
 **The owner's report (build 19, phone and Steam).** The shorter Settings menu appears on the first entry, but after a

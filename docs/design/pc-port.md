@@ -2060,7 +2060,9 @@ default patch set, port 51780. A second install gave the same bytes, and the val
   back), `status` (`installed, current`, `activation: NOT VERIFIED` before a start), a second `install` with the same
   bytes, and `uninstall`, which restored the exact listing and every SHA-256 outside `McvsOffline\` and removed
   `McvsOffline\` (nothing of the player's in it).
-* The kit: `McvsOffline.PcKit.exe`, SHA-256 `b87d585e449e16e6bb75ec8ff92de9055d459d754d1738bcd707f70c2e9d5d17`; its
+* The kit: `McvsOffline.PcKit.exe`, SHA-256 `f17e017ffede038b730876b7df7c93cf635633885bec067878983e87740252bc` (two
+  publishes from the same build output gave these bytes; the first publish after the full build gave `b87d585e…5d17`,
+  with the same server DLL embedded, and was not kept: the publish is not byte-reproducible across a fresh build); its
   publish check passed on the embedded DLL (every PC hook (17), `Gameloft.Logs`, only allowed references), and the
   kit's assembly carries the server DLL above byte for byte.
 * ILVerify of the four patched assemblies against the net452 refs (`RealFolderEndToEnd`, this run) reports exactly the
