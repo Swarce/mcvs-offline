@@ -450,7 +450,13 @@ namespace McvsOffline.Patcher.Pc
             IList<IlPatch> plan;
             try
             {
-                IEnumerable<string> optional = options.OptionalPatches ?? (IEnumerable<string>)PatchPlan.Ids(Build).Default;
+                // An id an earlier build had (a saved --patch list naming 'bottile') is left out with a warning (PatchPlan.Removed).
+                var optional = new List<string>();
+                foreach (string id in options.OptionalPatches ?? (IEnumerable<string>)PatchPlan.Ids(Build).Default)
+                {
+                    if (!PatchPlan.Removed.ContainsKey(id)) optional.Add(id);
+                    else if (options.Patches == null && !report.Warnings.Contains(PatchPlan.RemovedWarning(id))) report.Warnings.Add(PatchPlan.RemovedWarning(id));
+                }
                 plan = options.Patches ?? PatchPlan.For(Build, optional).ToList();
             }
             catch (ArgumentException ex)

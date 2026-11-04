@@ -47,13 +47,13 @@ namespace McvsOffline.Patcher
         /// </summary>
         public static readonly string[] DefaultPatches =
         {
-            "nativeonline", "waits", "geo", "bottile", "finder", "store", "signatures", "inbox", "debloat", "adminpage", "adminlink", "graphics", "targetsdk", "game",
+            "nativeonline", "waits", "geo", "finder", "store", "signatures", "inbox", "debloat", "adminpage", "adminlink", "graphics", "targetsdk", "game",
         };
 
         /// <summary>Every id --patch accepts; "lan" and "forum" are the ones not in <see cref="DefaultPatches"/>.</summary>
         public static readonly string[] OptionalPatches =
         {
-            "nativeonline", "waits", "geo", "bottile", "finder", "lan", "store", "signatures", "inbox", "debloat", "adminpage", "adminlink", "targetsdk", "forum",
+            "nativeonline", "waits", "geo", "finder", "lan", "store", "signatures", "inbox", "debloat", "adminpage", "adminlink", "targetsdk", "forum",
             "graphics", "game",
         };
 
@@ -136,6 +136,9 @@ namespace McvsOffline.Patcher
 
         public bool Verbose { get; set; }
 
+        /// <summary>What the command line asked for and the run ignores (a removed patch id in --patch); printed before the run.</summary>
+        public List<string> Warnings { get; } = new List<string>();
+
         /// <summary>Tests only: apply only the hook as mandatory patch (synthetic APKs have no Game.dll or Gameloft.Engine.dll).</summary>
         internal bool TestOnlyHookIsMandatory { get; set; }
 
@@ -151,6 +154,17 @@ namespace McvsOffline.Patcher
         /// <summary>Parses a --patch value: comma-separated ids, "none", "all" or "default".</summary>
         public static SortedSet<string> ParsePatchList(string value)
         {
+            return ParsePatchList(value, null);
+        }
+
+        /// <summary>
+        /// Parses a --patch value: comma-separated ids, "none", "all" or "default". An id an earlier build had
+        /// (<see cref="Core.PatchPlan.Removed"/>, e.g. 'bottile' from a saved command line) is left out, with its
+        /// <see cref="Core.PatchPlan.RemovedWarning"/> added to <paramref name="warnings"/> (when given); any other unknown id
+        /// is an <see cref="ArgumentException"/>.
+        /// </summary>
+        public static SortedSet<string> ParsePatchList(string value, ICollection<string> warnings)
+        {
             var result = new SortedSet<string>(StringComparer.Ordinal);
             foreach (string raw in (value ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
@@ -159,10 +173,16 @@ namespace McvsOffline.Patcher
                 if (id == "all") result.UnionWith(OptionalPatches);
                 else if (id == "default") result.UnionWith(DefaultPatches);
                 else if (OptionalPatches.Contains(id)) result.Add(id);
+                else if (Core.PatchPlan.Removed.ContainsKey(id)) AddOnce(warnings, Core.PatchPlan.RemovedWarning(id));
                 else throw new ArgumentException("unknown patch '" + raw + "' (known: " + string.Join(", ", OptionalPatches) + ", none, all, default)");
             }
             if (result.Contains("lan")) result.Add("finder");
             return result;
+        }
+
+        private static void AddOnce(ICollection<string> list, string item)
+        {
+            if (list != null && !list.Contains(item)) list.Add(item);
         }
 
         /// <summary>Android ABIs a lib/ folder can be named after.</summary>

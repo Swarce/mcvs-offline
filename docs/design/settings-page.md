@@ -295,10 +295,12 @@ save before saving the change, §4.4).
 
 ### 3.1 Editable keys
 
+(Build 21 removed `crm.practiceTile`, "Practice tile in the main menu", from Gameplay: the tile never showed. An old
+settings.json keeps the key; nothing reads it.)
+
 | Group | Key | Label | Type / page range | Default | Apply | Help / confirm |
 |---|---|---|---|---|---|---|
 | Gameplay | `instantBots` | Instant bot matches | bool | true | menu | Matches start at once and bots fill the empty slots. Off: the game waits for other players first. |
-| Gameplay | `crm.practiceTile` | Practice tile in the main menu | bool | false | menu | Shows the game's own hidden PRACTICE tile (a bot match) as the last tile of the main menu. With the bottile patch (default) it starts the same bot-filled, full-reward match as Battle > Classic multiplayer, without the mode and group screens; without it, the game's free bot match (5 Credits per win). Untested: where the tile sits in this menu and how it looks; turn it off again if the menu looks wrong. Two CRM SET cells on MCVS_Meta `MainMenuElements` row 13 ([protocol/content.md](../protocol/content.md) step 5). |
 | Gameplay | `admin.settingsMenu.trim` | Shorter Settings menu | bool | true | live | Hides SOCIAL MEDIA, FORUM and CUSTOMER CARE (and MORE GAMES on phones) in the game's Settings menu, which cannot work offline, and centres the tiles that are left, with ABOUT alone below them. Applies the next time Settings opens. Read by the embedded host on every Settings opening (`SettingsMenu/UiNatives`, [settings-menu.md](settings-menu.md) §3.2). Both platforms. |
 | Gameplay | `admin.settingsMenu.performance` | PERFORMANCE in the Settings menu | bool | true | live | Adds a PERFORMANCE tile to the game's Settings menu, as on Steam: GRAPHICS, ANTIALIASING, SCREEN SCALE, FRAME RATE LIMIT and LOW RESOLUTION MAPS. GRAPHICS SETTINGS and FRAME RATE LIMIT then leave Gameplay Settings, also during a match. FRAME RATE LIMIT offers 90 and 120 from the next start. Off: the game's own menus. Applies the next time Settings opens. Android only (not shown on PC; settings-menu.md §3.3-§3.5). |
 | Gameplay | `devMenu` | Developer cheat menu | bool | false | restart | Gameloft's developer menu (`IsDevelopment` in the menu server handshake). `confirmWhen: enable`, `backupBefore: enable`: "Cheats can damage your profile. A backup of your save is made now." |

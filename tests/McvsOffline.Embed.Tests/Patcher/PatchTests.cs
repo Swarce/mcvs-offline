@@ -151,47 +151,6 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Throws<PatchException>(() => Patch(other, new GeoPatch()));
         }
 
-        // ------------------------------------------------------------------ bottile
-
-        [Fact]
-        public void BotTileStartsTheGsFlowAndLeavesOtherCallersAlone()
-        {
-            byte[] original = FixtureCompiler.Compile("Game", Fixtures.Game);
-            using (var sandbox = new FixtureCompiler.Sandbox().With("Game", original))
-            {
-                object component = Activator.CreateInstance(sandbox.Get("Game").GetType("Game.GameClientComponent"));
-                Assert.Equal("OfflineMatchWithBots", Call(sandbox.Get("Game"), "Game.GameClientComponent", "BotTile", component));
-            }
-
-            byte[] patched = Patch(original, new List<IlPatch> { new BotTilePatch() }, null, 51780, out List<string> notes);
-            Assert.Contains(notes, n => n.Contains("IL_0007 ldc.i4.2"));
-            using (var sandbox = new FixtureCompiler.Sandbox().With("Game", patched))
-            {
-                Assembly game = sandbox.Get("Game");
-                object component = Activator.CreateInstance(game.GetType("Game.GameClientComponent"));
-                Assert.Equal("OnlineAndTutorial", Call(game, "Game.GameClientComponent", "BotTile", component));
-                Assert.Equal("OfflineMatchWithBots", Call(game, "Game.GameClientComponent", "SameLevel", component));
-            }
-        }
-
-        [Fact]
-        public void BotTileRefusesADifferentLambda()
-        {
-            string changed = Fixtures.Game.Replace(
-                "RunTask((CancellationToken ct) => StartAutoMatchAsync(base.CancellationToken, MatchConnectionType.OfflineMatchWithBots), base.CancellationToken);\n        }\n        private void StartAutoMatchSameAsPlayerLevel",
-                "RunTask((CancellationToken ct) => StartAutoMatchAsync(ct, MatchConnectionType.OfflineMatchWithBots), base.CancellationToken);\n        }\n        private void StartAutoMatchSameAsPlayerLevel");
-            Assert.NotEqual(Fixtures.Game, changed);
-            var ex = Assert.Throws<PatchException>(() => Patch(FixtureCompiler.Compile("Game", changed), new BotTilePatch()));
-            Assert.Contains("does not match", ex.Message);
-        }
-
-        [Fact]
-        public void BotTileRefusesDifferentEnumValues()
-        {
-            string changed = Fixtures.Game.Replace("{ Undefined, OnlineAndTutorial, OfflineMatchWithBots }", "{ OnlineAndTutorial, OfflineMatchWithBots, Undefined }");
-            Assert.Throws<PatchException>(() => Patch(FixtureCompiler.Compile("Game", changed), new BotTilePatch()));
-        }
-
         // ------------------------------------------------------------------ finder + lan
 
         [Fact]
@@ -281,15 +240,15 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Equal(new[] { "hook" }, ApkPatcher.SelectPatches(new string[0], headless: false).Select(p => p.Id));
             Assert.Equal(new[]
                          {
-                             "hook", "headless", "headless-engine", "physics", "nativeonline", "waits", "geo", "bottile", "finder", "store", "signatures", "inbox", "adminpage",
+                             "hook", "headless", "headless-engine", "physics", "nativeonline", "waits", "geo", "finder", "store", "signatures", "inbox", "adminpage",
                              "debloat", "adminlink", "graphics",
                          },
                          ApkPatcher.SelectPatches(PatcherOptions.ParsePatchList("default")).Select(p => p.Id));
             Assert.Equal(new[] { "finder", "lan" }, PatcherOptions.ParsePatchList("lan"));
             Assert.Empty(PatcherOptions.ParsePatchList("none"));
-            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "forum", "game", "geo", "graphics", "inbox", "lan", "nativeonline", "signatures", "store", "targetsdk", "waits" },
+            Assert.Equal(new[] { "adminlink", "adminpage", "debloat", "finder", "forum", "game", "geo", "graphics", "inbox", "lan", "nativeonline", "signatures", "store", "targetsdk", "waits" },
                          PatcherOptions.ParsePatchList("all"));
-            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "game", "geo", "graphics", "inbox", "nativeonline", "signatures", "store", "targetsdk", "waits" },
+            Assert.Equal(new[] { "adminlink", "adminpage", "debloat", "finder", "game", "geo", "graphics", "inbox", "nativeonline", "signatures", "store", "targetsdk", "waits" },
                          PatcherOptions.ParsePatchList("default"));
             Assert.Equal(new[] { "targetsdk" }, PatcherOptions.ParsePatchList("targetsdk"));
             Assert.Equal(new[] { "game" }, PatcherOptions.ParsePatchList("game"));
@@ -299,7 +258,7 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Throws<ArgumentException>(() => PatcherOptions.ParsePatchList("geo,unlockall"));
 
             // The settings-page triggers: adminpage and adminlink by default, forum only on request (--patch default,forum).
-            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "forum", "game", "geo", "graphics", "inbox", "nativeonline", "signatures", "store", "targetsdk", "waits" },
+            Assert.Equal(new[] { "adminlink", "adminpage", "debloat", "finder", "forum", "game", "geo", "graphics", "inbox", "nativeonline", "signatures", "store", "targetsdk", "waits" },
                          PatcherOptions.ParsePatchList("default,forum"));
             Assert.Equal(new[] { "graphics" }, PatcherOptions.ParsePatchList("graphics"));
             Assert.Equal(new[] { "hook", "headless", "headless-engine", "physics", "graphics" }, ApkPatcher.SelectPatches(new[] { "graphics" }).Select(p => p.Id));

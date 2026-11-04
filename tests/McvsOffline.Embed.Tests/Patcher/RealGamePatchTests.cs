@@ -152,7 +152,7 @@ namespace McvsOffline
         /// <summary>Every patch of Game.dll and Gameloft.Engine.dll this build applies by default, in the patcher's order.</summary>
         internal static readonly IlPatch[] DefaultGamePatches =
         {
-            new HeadlessGamePatch(), new HeadlessEnginePatch(), new PhysicsPatch(), new NativeOnlinePatch(), new WaitsPatch(), new BotTilePatch(), new FinderPatch(),
+            new HeadlessGamePatch(), new HeadlessEnginePatch(), new PhysicsPatch(), new NativeOnlinePatch(), new WaitsPatch(), new FinderPatch(),
             new StorePatch(), new SignaturesPatch(), new InboxPatch(), new AdminPagePatch(), new DebloatEnginePatch(), new AdminLinkPatch(), new GraphicsPatch(),
         };
 

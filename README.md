@@ -39,8 +39,7 @@ The repository contains no game files. You bring your own APK; the project bring
 
 - Boots to the menu and plays with no internet connection and no Gameloft servers.
 - Bot-filled PvP matches that start at once, with full rewards and progression: **Battle › Classic multiplayer**.
-  The game has no visible bot-match tile: its own "Practice" tile is hidden in the shipped data (the optional
-  `crm.practiceTile` setting shows it; untested).
+  The game has no visible bot-match tile: its own "Practice" tile is hidden in the shipped data.
 - **Special Event** in the Battle menu is the game's Arena mode (Havoc, Blitz, Competitive and other twists). Live
   ops generates one: a new mode every day at the daily reset, filled with bots like Classic, wins pay a Credits and
   VersusCoins bonus; the box shows the countdown to the next mode ([LIVEOPS §8a](docs/LIVEOPS.md); not yet checked on
@@ -199,7 +198,6 @@ Underneath, everything lives in `settings.json` (in the game:
 | `economy.*Multiplier` | `1.0` | Credits, VersusCoins, XP and store-price multipliers |
 | `graphics.profile` | `auto` | Graphics profile: `auto`, `mid`, `high` or `ultra` (after a restart) |
 | `hd.enabled` | `true` | Install the HD pack in `McvsOffline/hd/`; `false` removes it at the next start |
-| `crm.practiceTile` | `false` | Show the game's hidden PRACTICE bot-match tile in the main menu (untested placement and art) |
 | `admin.settingsMenu.trim` | `true` | The game's Settings menu without SOCIAL MEDIA, FORUM, CUSTOMER CARE (and MORE GAMES), centred |
 | `admin.settingsMenu.performance` | `true` | Phones: the PERFORMANCE tile and page; Gameplay Settings without GRAPHICS SETTINGS and FRAME RATE LIMIT |
 

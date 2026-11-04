@@ -110,9 +110,8 @@ Examples: *relaxed* = `versusCoinsMultiplier 2` + `priceMultiplier 0.5` (≈4× 
   ticket without a prize); a win sends the crate to the inbox, a draw refunds the ticket, a loss keeps it. The
   crate-track win count and achievements still count, and probably the daily and weekly objectives. HardCurrency is
   scarce offline, so a paid ticket is a gamble with it.
-* **The hidden Practice tile** (`crm.practiceTile`, off by default): with the default `bottile` patch the same match as
-  Classic; without it, the game's free bot match: before PvP activation the FTUE bot rewards (the `BotMatchesInfo` row, MVP
-  currency, merc XP and career trophies), after it only the `BotMatchesInfo` reward (stock 5 Credits per win).
+* The game's own Practice tile (the free bot match that pays the `BotMatchesInfo` reward) stays hidden, as in the shipped
+  data: build 21 removed the `crm.practiceTile` setting and the `bottile` patch, which never made it visible.
 
 ### Content (rebuild or override)
 

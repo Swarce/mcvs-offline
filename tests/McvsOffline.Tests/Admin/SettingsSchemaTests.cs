@@ -18,7 +18,7 @@ namespace McvsOffline.Tests.Admin
         /// <summary>§3.1, in page order.</summary>
         private static readonly string[] EditableKeys =
         {
-            "instantBots", "crm.practiceTile", "admin.settingsMenu.trim", "admin.settingsMenu.performance", "devMenu",
+            "instantBots", "admin.settingsMenu.trim", "admin.settingsMenu.performance", "devMenu",
             "leaderboards.virtualPlayers", "geo.country",
             "graphics.profile", "graphics.fullProfile", "graphics.msaa", "graphics.renderScale", "graphics.lowResMaps", "hd.enabled",
             "economy.versusCoinsMultiplier", "economy.creditsMultiplier", "economy.xpMultiplier", "economy.priceMultiplier", "crm.dailyCapMultiplier",
@@ -142,13 +142,8 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal(true, Default("admin.accountMenu.hideDeadButtons"));
             Assert.Equal("live", Def("admin.accountMenu.hideDeadButtons").Apply);
             Assert.Equal(true, Default("crm.newsfeedLink"));
-            // CRM cells (CrmDocumentBuilder.ApplyPracticeTile): off by default, applied at the next CRM fetch; the page says
-            // the tile's placement and art are untested.
-            Assert.Equal(false, Default("crm.practiceTile"));
-            Assert.Equal("menu", Def("crm.practiceTile").Apply);
-            Assert.Equal("gameplay", Def("crm.practiceTile").Group);
-            Assert.Contains("Untested", Def("crm.practiceTile").Help);
-            Assert.Contains("PRACTICE", Def("crm.practiceTile").Help);
+            // crm.practiceTile went in build 21 (PracticeTileRemovedTests): an old settings.json keeps it, unread.
+            Assert.Null(SettingsSchema.Find("crm.practiceTile"));
 
             // Read by the embedded host (EmbeddedHost.ConfigureGraphics, AddEmbeddedDefaults) and patch 'graphics'.
             Assert.Equal("auto", Default("graphics.profile"));

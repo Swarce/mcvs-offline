@@ -336,6 +336,7 @@ The patch is not needed for the GS route. These optional one-site patches would 
   `LINK_SOLO`), `Displayed=false` in 1.17.32, and no other UI calls `StartMatchWithBots`, so this patch (shipped as
   `bottile`) has no visible effect unless the tile is shown through CRM (our opt-in `crm.practiceTile`). "BOTMATCH" is
   only the `MenuMatchInfos` row with the confirm popup's text. The full-reward bot match is Battle › Classic multiplayer.
+  (**Build 21:** removed in build 21: the `bottile` patch and the `crm.practiceTile` setting are gone, the tile stays hidden.)
 * **Hardening.** Make `GameplayComponent.ApplyMatchResult` skip the call when `Room` is null, or catch around
   `GetPendingLosses`. This removes the §4.1 "match played, nothing saved" failure. The alternative is to make sure
   the Lobby never fails.

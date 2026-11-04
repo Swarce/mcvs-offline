@@ -1057,7 +1057,7 @@ ExeConfig.cs` `OwnerComment`).
   },
   "written": {
     "McvsOffline/bin/EngineBridge.dll":       { "sha256": "…", "mvid": "…", "version": "1.0.0.0", "patches": ["hook-pc"] },
-    "McvsOffline/bin/Game.dll":               { "sha256": "…", "mvid": "…", "version": "0.0.0.0", "patches": ["headless", "bottile", "store", "signatures", "adminpage"] },
+    "McvsOffline/bin/Game.dll":               { "sha256": "…", "mvid": "…", "version": "0.0.0.0", "patches": ["headless", "store", "signatures", "inbox", "adminpage"] },
     "McvsOffline/bin/Gameloft.Engine.dll":    { "sha256": "…", "mvid": "…", "version": "0.0.0.0", "patches": ["headless-engine", "physics", "quicklaunch", "headless-diag", "nativeonline", "waits", "adminlink", "graphics"] },
     "McvsOffline/bin/Gameloft.Util.dll":      { "sha256": "…", "mvid": "…", "version": "1.0.0.0", "patches": ["geo"] },
     "McvsOffline/bin/McvsOffline.Server.dll": { "sha256": "…", "mvid": "…", "version": "0.0.0.0", "serverVersion": "0.1.0-dev", "gameLog": true },
@@ -1219,13 +1219,13 @@ access denial: a virus scanner holding the file) up to 10 times 100 ms apart (`P
 | `waits` | Gameloft.Engine.dll | default | new fingerprints | §8.7 |
 | `adminlink` | Gameloft.Engine.dll | default | new fingerprint | §8.7 |
 | `geo` | Gameloft.Util.dll | default | unchanged (shape) | [PP] §3 |
-| `bottile`, `store`, `signatures` | Game.dll | default | unchanged | [PP] §3 |
+| `store`, `signatures` | Game.dll | default | unchanged | [PP] §3 |
 | `inbox` | Game.dll | default | new (build 17): `GenerateRewardsObjects` and `GetObject` as Android's, PC fingerprints for `RefreshUI` and the `ClaimRewardsForMessage` state machine (anonymous-type numbers), and I5 (`KillSignatureRewardItem.IsRandom` gets Android's null check) on PC only | `patcher/Patches/InboxPatch.cs` |
 | `adminpage` | Game.dll | default | new fingerprints, A1 offsets, `op_Equality` source | §8.7 |
 | `forum` | Game.dll | optional | unchanged | [PP] §3 |
 | `hook`, `finder`, `lan`, `debloat`, `targetsdk`, `game` | — | **excluded** | Android only | X; [PP] §3 |
 
-Order inside a file (as `ApkPatcher.AllPatches`, `:66-71`, then the new ones): Game.dll `headless`, `bottile`, `store`,
+Order inside a file (as `ApkPatcher.AllPatches`, `:66-71`, then the new ones): Game.dll `headless`, `store`,
 `signatures`, `inbox`, `adminpage`, `forum`; Gameloft.Engine.dll `headless-engine`, `physics`, `quicklaunch`, `headless-diag`,
 `nativeonline`, `waits`, `adminlink`, `graphics`, `gameload`. The PC list lives in `PatchPlan` only; `ApkPatcher.AllPatches` and its
 test (`PatchTests.cs:277-303`) are not touched by the PC work.
@@ -1437,6 +1437,14 @@ description texts take `BuildProfile.GameOptionsFile`. The MEM rule and profiles
 `PatchPlan.For(PcSteam6372049, …)` refuses `hook`, `finder`, `lan`, `debloat`, `targetsdk`, `game` (`PatchPlanTests`,
 §12.4); and every patch class asked to apply on a build it has no table for throws `PatchException` before changing
 anything (the cross-build refusals of §12.4, per patch).
+
+A removed id is not an excluded one: `bottile` (default on both builds up to build 20, removed in build 21 with the
+PRACTICE tile setting) is in `PatchPlan.Removed`. `pc install` and the kit (`PcInstaller`, from `--patch`) and the APK
+command line (`PatcherOptions.ParsePatchList`) leave it out with the warning "patch 'bottile' was removed in build 21
+(the hidden PRACTICE tile it served is gone): ignored", so a saved command line or the build-20 docs' list still
+installs; `PatchPlan.For` itself refuses it. An upgrade over a build-20 install patches the game folder's own
+`Game.dll` as every install does, so it writes build 21's copy; `bottile` has no witness, so a build-20 `install.json`
+that lists it reads back clean (OLDER BUILD until the upgrade, never DAMAGED; `PcBuild20UpgradeTests`).
 
 ### 8.9 `gameload` (`GameAssemblyLoadPatch`, Gameloft.Engine.dll, PC only; WR2 F1)
 

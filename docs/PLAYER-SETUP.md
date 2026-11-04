@@ -78,7 +78,7 @@ The patcher prints every change it makes and finishes with a signature check. Us
 
 | Option | Meaning |
 |---|---|
-| `--patch nativeonline,waits,geo,bottile,finder,store,signatures,inbox,debloat,adminpage,adminlink,graphics,targetsdk,game` | The optional patches (this is the default set; `debloat` removes dead ad/analytics/social/push pieces, see ARCHITECTURE.md §2; `adminpage` and `adminlink` open the MCVS Offline page, section 7; `graphics` is needed for the graphics profile, section 7; `targetsdk` raises the app's target Android version, see `--target-sdk`; `game` marks the app as a game for Android's Game Mode, section 6). `none` keeps only the mandatory patches (the server hook, the headless-server fixes and the server physics), `all` adds `lan` and `forum`, `default,forum` adds only `forum`. |
+| `--patch nativeonline,waits,geo,finder,store,signatures,inbox,debloat,adminpage,adminlink,graphics,targetsdk,game` | The optional patches (this is the default set; `debloat` removes dead ad/analytics/social/push pieces, see ARCHITECTURE.md §2; `adminpage` and `adminlink` open the MCVS Offline page, section 7; `graphics` is needed for the graphics profile, section 7; `targetsdk` raises the app's target Android version, see `--target-sdk`; `game` marks the app as a game for Android's Game Mode, section 6). `none` keeps only the mandatory patches (the server hook, the headless-server fixes and the server physics), `all` adds `lan` and `forum`, `default,forum` adds only `forum`. An older list that still names `bottile` (removed in build 21) works: the patcher prints a warning and leaves it out. |
 | `--target-sdk 29` | The Android version the app declares it was built for (`targetsdk` patch). The default, 35, avoids Play Protect's "built for an older version of Android" warning up to Android 17; 36 also covers Android 18. For both the patcher also fixes the game's own Java code (`classes.dex`) where a newer target would make Android refuse it. `--target-sdk 29` keeps the game's own value and files, exactly as builds 9 and earlier: the fallback if something misbehaves on 35. By Android's rules a 29 build installs over a 35 build signed with the same key, but this has not been tried on a phone yet. 35 and 36 need `debloat` (so `--patch` without `debloat` also needs `--target-sdk 29`), and 36 also needs `game`. |
 | `--game-log all` | The game's own log at every level in logcat (`mono-stdout`), for bug reports; this is the default while the offline build is being tested. `--game-log fatal` keeps the game's original setting (fatal errors only). |
 | `--keystore <file.p12>` | Your signing key. Without it a key is created once in `~/.config/McvsOffline/` (Windows: `%APPDATA%\McvsOffline\`) and reused. |
@@ -110,10 +110,6 @@ What the patches do:
   limits the delay to 100 ms in both. It changes nothing else.
 - **geo**: the game looks up your country at a hard-coded Gameloft address while it connects to its own server. Offline
   that lookup can hang longer than the connection timeout; the patch sends it to the embedded server.
-- **bottile**: the game's "Practice" bot-match tile is hidden in the shipped data, so this patch normally does
-  nothing. If the tile is shown (setting `crm.practiceTile`, section 6 "Match modes"), the patch makes it start the
-  same bot-filled match as Battle (full rewards and progression, after the tutorial) instead of a free bot match that
-  pays 5 Credits.
 - **finder**: the game's matchmaking service listens on all network interfaces instead of the one that was active at
   start-up, so switching Wi-Fi or airplane mode on and off does not break matchmaking until a restart.
 - **store**: opening the shop crashed the game because of the kill-signature sounds it sells (the game's availability
@@ -265,13 +261,9 @@ in yet), the game says the code does not exist and nothing changes; the server l
   the game's design: only the prize crate when you win (its gem cost is paid when you press Start, refunded on a
   draw), the crate-track win count, tournament achievements and probably daily and weekly mission progress. Play them
   with other players over LAN (experimental, not working end to end yet: section 9); for bot matches use Classic.
-- **The Practice tile** (optional, off by default). The game has its own bot-match tile, "PRACTICE", but Gameloft's
-  data hides it. Setting **Practice tile in the main menu** (`crm.practiceTile`, page: Settings › Gameplay) shows it as
-  the sixth tile of the main menu: tap it, confirm, and with the default `bottile` patch you get the same bot-filled,
-  full-reward match as Classic, without the mode and group screens (without `bottile`: the game's free bot match, 5
-  Credits per win). It applies at the next CRM fetch: after your next match, or at the next start. **Untested on a
-  phone or PC:** where the tile sits in this menu layout and how it looks are unknown, and it may show a "VICTORY
-  LIMIT REACHED" lock badge. Turn it off again if the menu looks wrong.
+- **No Practice tile.** The game has its own bot-match tile, "PRACTICE", but Gameloft's data hides it, and it stays
+  hidden: for bot matches use Classic. (Builds 15-20 had a setting that tried to show it; it never appeared, and build 21
+  removed the setting. A `settings.json` that still has `crm.practiceTile` keeps working: the key is ignored.)
 
 ### Logs, if something goes wrong
 
@@ -605,7 +597,7 @@ For reviewers (details and evidence: `docs/research/verify-C7-integrity-patching
   only; physics: `PhysicsComponent`'s constructor asks `McvsPhysics.UseMultithreading(this)` instead of reading the
   game option, and `UpdateSimulationSteps` runs inside a process-wide, time-bounded gate). Optional: `Gameloft.Engine.dll`
   (nativeonline, waits: `WaitHandle.WaitAny(handles)` -> `WaitAny(handles, 100)` in both `TaskExtension.WaitAndWork`
-  overloads, finder, lan), `Gameloft.Util.dll` (geo), `Game.dll` (bottile; store: `KillSignatureRewardItem.GetAvailableId` handles sounds, the `GameUnifiedStoreComponent.SelectItems` availability filter skips an item that throws; signatures: set lookups in `GetSignatureAssetsList`, one list per `GetKillSignItems` call; inbox: `InboxComponent.GenerateRewardsObjects` builds at most 30 rewards of a message plus its Gear rewards, each in try/catch, `GetObject` adds `RewardsTotal`, the claim popup of `ClaimRewardsForMessage` lists the first 30, `RefreshUI` refreshes once per 10 s window, and on PC `KillSignatureRewardItem.IsRandom` checks for a null id; adminpage: `PlayerProfileComponent.GetAccountMenuButtonList` passes its list through `McvsOffline.AdminHooks.AccountMenuButtons`, and `ProcessAccountMenuButtonAction("mcvs_offline")` calls `AdminHooks.OpenPage`; forum: `UIComponent.GoToForum` calls `AdminHooks.OpenPage`), `Gameloft.Engine.dll` (adminlink: `BrowserComponent.OpenUrl` first asks `AdminHooks.OpenIfPageMarker`, which handles only the inbox message's fixed link; graphics: `GameOptionPerformanceProfileComponent.OnCreate` passes the GameOptions_android.json text through `McvsOffline.GraphicsHooks.GameOptionsJson` before the engine reads it, and reports the resolved options to `GraphicsHooks.GameOptionsApplied`). Each site is checked against the exact code
+  overloads, finder, lan), `Gameloft.Util.dll` (geo), `Game.dll` (store: `KillSignatureRewardItem.GetAvailableId` handles sounds, the `GameUnifiedStoreComponent.SelectItems` availability filter skips an item that throws; signatures: set lookups in `GetSignatureAssetsList`, one list per `GetKillSignItems` call; inbox: `InboxComponent.GenerateRewardsObjects` builds at most 30 rewards of a message plus its Gear rewards, each in try/catch, `GetObject` adds `RewardsTotal`, the claim popup of `ClaimRewardsForMessage` lists the first 30, `RefreshUI` refreshes once per 10 s window, and on PC `KillSignatureRewardItem.IsRandom` checks for a null id; adminpage: `PlayerProfileComponent.GetAccountMenuButtonList` passes its list through `McvsOffline.AdminHooks.AccountMenuButtons`, and `ProcessAccountMenuButtonAction("mcvs_offline")` calls `AdminHooks.OpenPage`; forum: `UIComponent.GoToForum` calls `AdminHooks.OpenPage`), `Gameloft.Engine.dll` (adminlink: `BrowserComponent.OpenUrl` first asks `AdminHooks.OpenIfPageMarker`, which handles only the inbox message's fixed link; graphics: `GameOptionPerformanceProfileComponent.OnCreate` passes the GameOptions_android.json text through `McvsOffline.GraphicsHooks.GameOptionsJson` before the engine reads it, and reports the resolved options to `GraphicsHooks.GameOptionsApplied`). Each site is checked against the exact code
   of 1.17.32 first (the device-test-2 patches against an IL fingerprint of the whole method); if anything differs, the
   patcher stops without writing.
 - `res/raw/args.txt` (with `--game-log all`, the default): `-LogCategoryFilter Fatal` is replaced by a line the game
