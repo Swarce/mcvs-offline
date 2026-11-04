@@ -2,8 +2,10 @@
 
 Status: built in build 19 (`hosts/embedded/Admin/SettingsMenu/`, `hosts/embedded/Graphics/PerformancePrefs.cs`); build
 20 (`4079f39`) replaces the grid's single step per focus-in with a run of frames (§3.2) after the owner saw build 19's
-stock menu again after a tab and Back on both platforms; the device cause is not known, and build 20's log names it. Not
-yet seen working on a phone or on Windows. This is the final design: the review corrections (A1-A3, B1-B2, C1, D1-D2, E1-E7, F1
+stock menu again after a tab and Back on both platforms; the device cause is not known, and build 20's log names it. Build
+21 lays the grid out in the focus-in frame itself (§3.2, "Build 21"), after the owner saw build 20's stock grid flash "for
+a split second" on every return to Settings on the phone (the Back bug itself was fixed by build 20). Build 21 has not yet
+been seen working on a phone or on Windows. This is the final design: the review corrections (A1-A3, B1-B2, C1, D1-D2, E1-E7, F1
 of the design review) are folded in, and each place says which one it is.
 
 Tags: [V] checked in the exported ActionScript, the decompiled C#, the game data or the repo code. [I] inferred from the
@@ -199,6 +201,7 @@ Title PERFORMANCE (`setting.Performance`, translated). No category headers, as o
 | `GoToForum` | **always replace** (`true, false`; review E4) | Android | tile active: open the page (§3.3); otherwise our delegate calls `UIComponent.GoToForum()` itself, so the stock body and the optional `forum` patch run as before |
 | `CanChangeGraphicSetting`, `CanChangeMaxFramerate` | append, boxed `false` or null | Android | R4 and the page (§3.3, §3.5) |
 | `SetUserPreference`, `SaveUserPreferences` | append, null | Android | the page's writes (§3.3); ignored entirely while the page transform runs (E1) |
+| `GetPlatformId` (Android), `GetLanguage` (PC) | append, returns null, **only for the rest of a Settings focus-in frame** | build 21 | the same-frame grid step (§3.2): appended by `EnterSection("settings_main_screen")` only when the game's own delegate is on the list, removed with `RemoveNativeFunctionOverride(object)` by the run's first frame; not part of the re-ensure |
 
 * Rules (pc-port P4): every delegate catches everything and never blocks, reads its settings on every call, and does
   nothing while `AdminHooks.Host` is null.
@@ -255,6 +258,75 @@ Title PERFORMANCE (`setting.Performance`, translated). No category headers, as o
     instances written before. **From the next device run, collect per return to Settings:** that line, and the run's
     `… laid out after N frames (<why>)`, `… laid out again Kx …` or `… not laid out (…)` line; no `focus-in` line at all for
     a return means EnterSection never reached us.
+* **Build 21: the grid in the focus-in frame (the same-frame step).** The owner's build-20 report: on returning to Settings
+  "the normal menu flashes for a split second before being set to our layout again". Design risk 2 predicted it: the run's
+  first step is posted from `EnterSection` to `GameApplication.Context`, whose drain for that frame is over, so it runs at
+  the start of the next frame, and the render of the focus-in frame draws what `setup()` left (one render: 33 ms at 30 fps,
+  17 ms at 60). Nothing covers that frame: Settings has `needTransition` false (no alpha fade, MenuBase.onAnimate), the
+  companion's tween groups are empty for menus and `Setting_Menu` has no `focus_in` label; `visible=true` is set by
+  Menu.focusGiven before `setup()` (Menu.as:160). What flashes: on Android (same instances, `gotoAndStop(3)` on frame 3 is a
+  no-op) FORUM's dress, MORE GAMES and the stock bottom row; on Steam (frame 3 then 1, new instances) the whole stock grid.
+  * **Frame order** [V decompiled, both platforms line for line the same here]: `GameApplication.UpdateWorlds` runs (1)
+    `PreUpdateManagers`, (2) `GameApplication.Context.ExecuteItems()` (our posts), (3) each World's `Update`: the client
+    World's `MenuComponent.OnUpdate` → `Update_private`, the Flash advance in which input is delivered and every AS handler
+    runs (the Back: `ButtonSimple` → `FreemiumBar.onButtonRelease` → `MenusStack.popMenu` → `focusGiven` →
+    `MenuBase.onFocusIn` → `EnterSection` → `MenuSettings.onFocusIn` → `setup()`, all one synchronous AS call stack; Steam's
+    Escape goes `GameInputManagerComponent` → `HudGamepadComponent.BackkeyClick` → `RiseASElementEvent`, the same chain, in
+    the same World update), (4) `UpdateManagers` and `UpdateSignal.Set()`, (5) `Render`. Render thread off (Steam, verified
+    in the WR2 bootstrap log: `RenderThreadMode None`): `Render_private` draws on the game thread after (3). Render thread on
+    (the S22's `Full`, inferred): the render thread's menu pass waits in `UpdateSignal.WaitAndWork` for (4) of the next update.
+    Either way a render draws the Flash state some update left, so the only way never to draw the stock grid is to lay it
+    out inside the update that ran `setup()`, after `setup()`'s last stock write.
+  * **The hook, per platform** (`SettingsMenuLayout.SameFrame`): a native that `setup()` calls after its last stock write.
+    Dispatch (`MenuComponent.OnInvokeDelegate`, AND-CS `MenuComponent.cs:869-924`, PC `:855-890`) runs every delegate in order
+    and the last non-null result wins, so an appended delegate that returns null observes the call and the game's answer
+    stands. `UiNatives` appends it at `EnterSection("settings_main_screen")` (MenuBase.onFocusIn `:339`, before `setup()`)
+    and the run's first frame removes it again, so no other menu ever pays for it:
+    * **Steam: `GetLanguage`** (registered by the MenuComponent constructor, PC-CS `MenuComponent.cs:334`). PC-AS/MS:367 calls
+      it right after the last tile write (`:364 btn_social.x`); after it come only `btn_customer.txt.x` for the language `id`
+      (a text field inside a hidden button) and `addButtonListeners` (listeners). The other `GetLanguage` of the path,
+      `adjustToViewport`'s (`:633`), runs from MenuBase.onFocusIn `:330`, before `EnterSection`, so before the step is armed.
+      Every armed call looks (a read, then the writes when the grid is not laid out): an earlier call would find the grid
+      laid out on a return, or be undone by `setup()`'s new instances and looked at again at `:367`.
+    * **Android: `GetPlatformId`** (UIComponent.OnStart, AND-CS `UIComponent.cs:1455`). Android's `setup()` has no
+      `GetLanguage`; its last stock write is `:213 btn_credits.x`, and the only natives after it are `addButtonListeners`'
+      two `GetPlatformId` (`:214` → `:363`) and FreemiumBar's title. `TextUtilities.setStringID` also calls it 3 times per
+      label (TextUtilities.as:92, :99), about 40 times per focus-in, so a look runs only when ABOUT sits at the x that `:213`
+      writes (208, or 22 without MORE GAMES: never the timeline's 258.05, never ours): false until `:213` on the first entry
+      and on a return, true at `:363`, after the FORUM dress (`:116-119`) and every other stock write. The check reads one
+      x through a panel handle kept for the frame. One look per focus-in on either platform (at most 4, and none after a look
+      whose write threw).
+    * A look is the run's own read-then-write (`Attempt` with the read-back): `TileActive` only after every write, no log
+      line and no `RedressFailed` from inside the native (the run does both on its frames), nothing thrown back into AS (a
+      delegate that throws is rethrown as `MenuInvokationException`), and our own `btn_forum.setup` calls `GetPlatformId`
+      again inside the look, which a busy flag ignores. The observer is appended only next to the game's own delegate: alone
+      it would answer null (no platform, no language). It also re-enters AS from inside a native, which the game itself does
+      (`MoveToCamera` dispatches an AS event synchronously from inside the same `onFocusIn`; `FormatStringWithParameters`
+      writes the text field from inside its native) [I].
+  * **Why not the others** (two investigations disagreed; the evidence decided): an IL hook in `UpdateWorlds` before
+    `UpdateSignal.Set` is equally same-frame on both platforms, but it is a new fingerprinted patch of `Gameloft.Engine` on
+    both platforms and leaves §3.1's "natives only" choice; its argument against `GetPlatformId` (an early look sets
+    `TileActive`, a later stock FORUM dress undoes it while the read-back trusts it) does not hold with the ABOUT-x check,
+    which is false before `:213`, which comes after the FORUM dress, and the look clears `TileActive` first. Posting to a
+    later World's context (the in-process match server's) is same-frame only while such a World exists and runs.
+    `RenderContext` is drained by the render thread in `Full` mode (Flash writes racing the game thread). The rest of
+    `MenuComponent.OnUpdate`, later components and `OnPostUpdate` have no managed callback without IL. `EnterSection` itself
+    comes before `setup()`.
+  * **The run stays the safety net**, unchanged in its rules: its first frame ends the step; a grid the step laid out counts
+    as the run's write at frame 0, so the line reads `… laid out in the focus-in frame`, and the run goes on reading it back
+    and lays it out again when needed. Every laid-out line now ends with `stock grid drawn N frames`: the frames whose start
+    found a grid that was not ours (not laid out yet, the stock grid back, another panel), each drawn by the render before it
+    (0 when the step landed; 1 for build 20's path). The focus-in line ends with what the step did:
+    `; same frame: laid out (GetPlatformId calls N, looks 1)`, `; same frame: not laid out, <why> (…)`,
+    `; same frame: no look (…)`, `; same frame: not watched (<why>)`, `; same frame: off (trim off)`.
+  * **Not covered:** the trim off with the re-dress on (Android): the re-dress alone cannot be told from the stock grid
+    before `setup()` ends, so it stays build 20's one frame late. A first read that waits (no `MenusStack`, a width outside
+    ±2, a missing instance) leaves it to the run as before. Android's PERFORMANCE icon: the stock `btn_forum.setup` sets the
+    FORUM icon and ours sets PERFORMANCE again in the same frame, but `ImageContainer.set img` reloads on every change
+    (`removeAllChilds`, then a `Loader` whose COMPLETE shows it, ImageContainer.as:66-108, 207-215), so the tile's icon may
+    blink while it loads [G: whether gameswf completes it at once is not known]; that cannot be avoided while the stock
+    `setup()` re-dresses FORUM. Not grid: the camera switch (`MoveToCamera`), FreemiumBar's title and back group, and the
+    leaving submenu's own hide redraw in the same frame.
 * `admin.settingsMenu.trim` off: no relayout; with `admin.settingsMenu.performance` on, only the re-dress, in place.
 
 ### 3.3 R2's tap and R3: Performance mode and the page (`SettingsMenu/PerformancePage.cs`)
@@ -364,15 +436,34 @@ Title PERFORMANCE (`setting.Performance`, translated). No category headers, as o
   ABOUT/HELP/LANGUAGES/ACCOUNTS, the restart prompt, after a match) on both platforms; one line per run; a re-stock laid
   out again; a newer focus-in superseding the run; `TileActive`/`RedressFailed` across retries and the R4 gate; the
   `focus-in` diagnostic line; Back during the wait. 23 of the first 26 fail on build 19's step (the rows of the gluic
-  order pass on it too, §3.2), the review's 7 on the code before the review.
+  order pass on it too, §3.2), the review's 7 on the code before the review. The tests of the run's own rules run with the
+  same-frame step off (`Rig(steam, sameFrame: false)`).
+* **Build 21 `SettingsMenuRenderTests`** (the fake host's `RunFrame(input)` runs the frame's tap or Back inside the Flash
+  update and then a render point that records what is drawn; the fake `setup()` calls the AS natives in the AS order:
+  `GetPlatformId` through every setStringID, 3 per label on Android and 2 on Steam, the 4/6 tests and `addButtonListeners`
+  after the bottom row, Steam's `GetLanguage` at `:367` and adjustToViewport's before EnterSection, FreemiumBar's title after
+  STACK_CHANGED): no render with Settings on top draws anything but the trimmed grid, after the first entry, every tab and
+  Back (PERFORMANCE and ABOUT included), the page with the restart prompt, and after a match (the UI's natives registered
+  again), on both platforms; the game still gets its own platform and language. All 7 fail on build 20 (one stock render
+  per focus-in). **`SettingsMenuSameFrameTests`**: the focus-in and laid-out lines say which path laid the grid out; the
+  observer only next to the game's delegate and only until the next frame; no call of the native outside a Settings
+  focus-in frame reaches the step; another section, the in-match panel and the trim off arm nothing; Android looks once, at
+  `addButtonListeners`, and its own re-dress is not looked at; Steam looks at every armed `GetLanguage`; a step or a write
+  that throws reaches no Flash and leaves it to the run; at most 4 looks when the grid cannot be read, and Back still ends
+  the run; a second focus-in in the same frame replaces the step. `RealSettingsMenuMembersTests` adds
+  `RemoveNativeFunctionOverride(object)`, `UIComponent.GetPlatformId() : int` and `MenuComponent.NativeGetLanguage() :
+  string` on both platforms.
 
 ## 5. Risks and what only a device can tell
 
 1. **Registrations dropped** between ticks if a component restarts while Settings is open [I]: a tap in that window gets
    stock behaviour (FORUM forwards to the game). The log counts re-registrations; the fallback is the IL trigger (§3.1).
 2. **One-frame flash** of the stock grid (or FORUM/MORE GAMES) on each focus-in, since the posted step runs at the start of
-   the next frame [I]. The page is covered by `alpha=0`; the grid relies on the menu-in transition. If visible, a scoped
-   synchronous variant (Flash writes inside the native) is the next step [G re-entrancy].
+   the next frame: seen by the owner on build 20 (no menu-in transition covers it, §3.2). Build 21 lays the grid out inside
+   the native that follows `setup()`'s last stock write (§3.2, "Build 21") [I: re-entering AS from inside a native, which the
+   game itself does; a device run decides]. What can still blink: Android's PERFORMANCE icon while it reloads, and the trim-off
+   re-dress. If the device log shows `same frame: not watched` or `no look`, the fallback is the IL hook in `UpdateWorlds`
+   before `UpdateSignal.Set()` (both platforms, a new fingerprinted patch).
 3. **Hidden tiles taking taps:** `visible=false` + `mouseEnabled=false`, as Gameloft hides MORE GAMES itself (PC-AS/MS:255)
    [I strong]. On PC, keyboard and gamepad focus must not reach them either: nothing of ours changes focus navigation, so
    only the device check can tell [G].
@@ -397,9 +488,12 @@ Title PERFORMANCE (`setting.Performance`, translated). No category headers, as o
   tile opens its page and PERFORMANCE opens the page, Back returns to the trimmed grid every time (build 20: each tile
   twice, and the `settings menu: focus-in` and laid-out lines of each return); Gameplay shows neither row, in the main
   menu and in a match; each Performance row changes the engine (the `[boot] graphics:` line, a visible scale change); the
-  restart prompt; FPS 90/120 measured on the 120 Hz panel; the R3-A spike line.
+  restart prompt; FPS 90/120 measured on the 120 Hz panel; the R3-A spike line. Build 21: no stock grid on any return
+  (slow-motion video), and per return the `focus-in` line's `same frame: …` part and the laid-out line's `in the focus-in
+  frame; stock grid drawn 0 frames`.
 * **PC:** the grid at 1920×1080 and at a 16:10 size, also after Back from every tile (build 20, with the same log lines);
-  PERFORMANCE still opens Steam's page; hidden tiles cannot be reached
+  PERFORMANCE still opens Steam's page; build 21: no stock grid on any return, `same frame: laid out (GetLanguage calls N,
+  looks 1)` and `stock grid drawn 0 frames` in the log; hidden tiles cannot be reached
   with the mouse, the keyboard or a gamepad; no drift of ABOUT after five submenu round trips.
 * **Per new game build:** a static check of the exported AS (the panel instance names per frame, the last native call in
   `MenuSettings.setup()`, `CanChangeMaxFramerate` before `CanChangeGraphicSetting`, the int-passing type list in
