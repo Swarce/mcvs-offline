@@ -388,6 +388,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         private int layoutRun;
         private int breadcrumbChecked;
         private int breadcrumbWritten;
+        private int tapBreadcrumbWritten;
         private string breadcrumbPath;
         private string breadcrumbProblem;
         private volatile string sameFrameSkipped;
@@ -401,6 +402,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         private volatile string sealProblem;
         private volatile bool freeGamesReplaced;
         private volatile bool aboutOnMoreGames;
+        private volatile bool creditsHidden;
         private volatile string moreGamesReported;
         private int titleFailLogged;
         private int titleRefLogged;
@@ -586,6 +588,18 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             set { aboutOnMoreGames = value; }
         }
 
+        /// <summary>
+        /// Build 23: a dress of ours put the real ABOUT (btn_credits) off the panel, and nothing has found it back on since. setup()
+        /// never writes its visible, alpha or y (AND-AS MenuSettings.as:145, :149, :213 only), so with the trim switched off, or a
+        /// panel that ends on another frame (Kayac 4, Chinese 5, if the instance survives setup()'s gotoAndStop), only we can put it
+        /// back (<see cref="SettingsMenuLayout"/>'s CreditsBack). Read before any Flash read, so it costs nothing otherwise.
+        /// </summary>
+        public bool CreditsHidden
+        {
+            get { return creditsHidden; }
+            set { creditsHidden = value; }
+        }
+
         /// <summary>The MORE GAMES remap state last logged ("installed", "removed" or the reason), so each change is one line.</summary>
         public string MoreGamesReported
         {
@@ -658,6 +672,15 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         public bool BeginBreadcrumb()
         {
             return Interlocked.CompareExchange(ref breadcrumbWritten, 1, 0) == 0;
+        }
+
+        /// <summary>
+        /// Build 23: true for the first caller only: the marker is written before the process's first read of the focus inside
+        /// GoToFreeGames (<see cref="SameFrameBreadcrumb.EnterTap"/>), never again.
+        /// </summary>
+        public bool BeginTapBreadcrumb()
+        {
+            return Interlocked.CompareExchange(ref tapBreadcrumbWritten, 1, 0) == 0;
         }
 
         /// <summary>The marker this process wrote and has not deleted yet (the step is running, or its frame has not ended), or null.</summary>

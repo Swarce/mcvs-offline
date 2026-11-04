@@ -388,7 +388,8 @@ Settings menu** (`admin.settingsMenu.performance`) removes the PERFORMANCE tile 
 (FRAME RATE LIMIT then has 30, 60 and UNLIMITED again from the next start, your choice carried over). A third,
 **Lay out Settings before it is drawn** (`admin.settingsMenu.sameFrame`, on by default), prepares the menu before the
 game draws it, so MORE GAMES and FORUM never flash on a return; off, the first opening can show the stock menu for one
-frame. It turns itself off when the game closed during that step at the last start (the status page's "Recent problems"
+frame. It turns itself off when the game closed during that step (or, from build 23, during the first ABOUT tap) at the
+last start (the status page's "Recent problems"
 then has a `same frame skipped` line): switch it back on to try again (if settings.json could not be saved, the line
 names the marker file to delete instead). From build 23 ABOUT sits in the middle of the bottom row: it is drawn on the
 button the game itself centres (the one MORE GAMES used), and a tap on it opens ABOUT; the Gameloft logo in the top bar

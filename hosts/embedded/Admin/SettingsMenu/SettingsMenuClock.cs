@@ -102,6 +102,12 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         /// <summary><c>ApplicationDeltaTime</c> read at the run's first frame: the engine's length of the focus-in frame.</summary>
         public double? FocusInFrameDt;
 
+        /// <summary>
+        /// <c>ApplicationDeltaTime</c> read in EnterSection: the frame before the focus-in (UpdateWorlds sets it at the frame's start,
+        /// GameApplication.cs:1418), the baseline of <see cref="FocusInFrameDt"/>: both include the frame-rate limit's pacing.
+        /// </summary>
+        public double? PreviousFrameDt;
+
         /// <summary>The run's cost per frame: sum, frames, the largest and its frame.</summary>
         public double Ours;
 
@@ -139,7 +145,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
 
         /// <summary>
         /// The focus-in line's part: "; ms: EnterSection 4.2 (page 0.0, remap 0.1, ...), same frame 0.0, breadcrumb 1.9; focus-in
-        /// frame dt 41.0; to the run's first frame 38.0; first in this process".
+        /// frame dt 41.0 (the frame before 16.7); to the run's first frame 38.0; first in this process".
         /// </summary>
         public string FocusInText()
         {
@@ -147,7 +153,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             foreach (KeyValuePair<string, double> s in steps) parts.Add(s.Key + " " + Ms(s.Value));
             string text = "; ms: EnterSection " + Ms(EnterSection) + " (" + string.Join(", ", parts.ToArray()) + "), same frame " + Ms(SameFrame);
             if (Breadcrumb.HasValue) text += ", breadcrumb " + Ms(Breadcrumb.Value);
-            if (FocusInFrameDt.HasValue) text += "; focus-in frame dt " + Ms(FocusInFrameDt.Value);
+            if (FocusInFrameDt.HasValue) text += "; focus-in frame dt " + Ms(FocusInFrameDt.Value) + Baseline();
             double? first = ToFirstFrame;
             if (first.HasValue) text += "; to the run's first frame " + Ms(first.Value);
             if (First) text += "; first in this process";
@@ -195,8 +201,14 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         {
             double? first = ToFirstFrame;
             return "settings menu: focus-in " + run.ToString(CultureInfo.InvariantCulture) + " timings (stock): focus-in frame dt " +
-                   (FocusInFrameDt.HasValue ? Ms(FocusInFrameDt.Value) : "unknown") + ", to the run's first frame " +
+                   (FocusInFrameDt.HasValue ? Ms(FocusInFrameDt.Value) + Baseline() : "unknown") + ", to the run's first frame " +
                    (first.HasValue ? Ms(first.Value) : "unknown") + " ms";
+        }
+
+        /// <summary>" (the frame before 16.7)": the paced length a focus-in frame dt compares with; empty when it was not read.</summary>
+        private string Baseline()
+        {
+            return PreviousFrameDt.HasValue ? " (the frame before " + Ms(PreviousFrameDt.Value) + ")" : "";
         }
 
         /// <summary>One decimal, invariant ("4.2").</summary>

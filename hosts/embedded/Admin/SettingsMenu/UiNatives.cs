@@ -311,7 +311,8 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
 
         /// <summary>
         /// EnterSection(section), appended: the grid on <c>settings_main_screen</c> (its run, and its same-frame step with the
-        /// observer that drives it); any other section ends a same-frame step still armed. Never throws.
+        /// observer that drives it); any other section ends a same-frame step still armed and (build 23, Android) takes the MORE
+        /// GAMES remap out until Settings' next focus-in. Never throws.
         /// </summary>
         public void EnterSection(string section)
         {
@@ -320,6 +321,8 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             if (!string.Equals(section, SettingsMenuNames.MainSettingsSection, StringComparison.Ordinal))
             {
                 if (state.SameFrame != null) SettingsMenuLayout.Disarm(state);
+                MenuSteps other = Steps;
+                Run(h, SettingsMenuNames.EnterSection, () => other.LeftSettings(h, state));
                 return;
             }
             try
@@ -363,9 +366,22 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         {
             SettingsMenuTimings timings = null;
             if (state.Clock != null && !state.TimingsFailed && SettingsMenuTimer.Now(h, state) != null)
-                timings = new SettingsMenuTimings { First = state.CountTimedFocusIn() == 1 };
+                timings = new SettingsMenuTimings { First = state.CountTimedFocusIn() == 1, PreviousFrameDt = FrameDelta(h) };
             state.Timings = timings;
             return timings;
+        }
+
+        /// <summary>The engine's dt of the frame running now (the frame before the focus-in's own length), or null. Never throws.</summary>
+        private static double? FrameDelta(ISettingsMenuHost h)
+        {
+            try
+            {
+                return h.FrameDeltaMs();
+            }
+            catch (Exception)
+            {
+                return null;
+            }
         }
 
         /// <summary><see cref="Run"/>, with its time added to <paramref name="timings"/> under <paramref name="label"/> when there are any.</summary>
@@ -798,7 +814,11 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             OnSetUserPreference = PerformancePage.OnSetUserPreference;
             OnSaveUserPreferences = PerformancePage.OnSaveUserPreferences;
             SameFrame = SettingsMenuLayout.OnNative;
+            LeftSettings = SettingsMenuLayout.MoreGamesAway;
         }
+
+        /// <summary>EnterSection of any other section (build 23): the MORE GAMES remap out while Settings is not in focus (SettingsMenuLayout.MoreGamesAway).</summary>
+        public Action<ISettingsMenuHost, SettingsMenuState> LeftSettings { get; set; }
 
         /// <summary>EnterSection("settings_main_screen"): start the grid's run (SettingsMenuLayout.Schedule).</summary>
         public Action<ISettingsMenuHost, SettingsMenuState> Schedule { get; set; }

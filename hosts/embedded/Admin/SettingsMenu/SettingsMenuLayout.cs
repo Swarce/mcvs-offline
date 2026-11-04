@@ -420,6 +420,12 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                     string problem = Read(flash, plan, trim, redress, found, out frame, out gone, out changed);
                     if (problem != null)
                     {
+                        // Build 23: the panel ended on Kayac's or the Chinese frame after our dress of frame 3: the real ABOUT back.
+                        if (!windows && state.CreditsHidden && (frame == SettingsMenuNames.KayacFrame || frame == SettingsMenuNames.ChineseFrame))
+                        {
+                            string back = CreditsBack(flash, SettingsPanel(flash), state);
+                            if (back != null) Write(host, "settings menu: " + back + " (frame " + frame.ToString(CultureInfo.InvariantCulture) + ")");
+                        }
                         // The read stops at the first instance missing, so btn_forum may be there unread (a missing HELP).
                         bool covered = remapped && (!changed || found.ContainsKey(SettingsMenuNames.ForumTile) ||
                                                     frame == plan.Frame && TileOnPanel(flash));
@@ -435,6 +441,8 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                         if (redress) state.TileActive = true;
                         // MORE GAMES shown again by setup() but off the panel (nothing drawn): hidden again, its marker back.
                         Tidy(flash, found, offPanel);
+                        // Build 23: the hidden real ABOUT's x moved by setup() (:213, it stays hidden): its marker back too.
+                        if (!windows && trim) Remark(flash, plan, found, offPanel);
                         return new Outcome { Kind = OutcomeKind.InPlace, Text = done, Redress = redress, Watchable = trim, OffPanel = offPanel.Count > 0, Remapped = remapped };
                     }
                     // Without the remap the tile reads FORUM until the writes below have all succeeded.
@@ -541,6 +549,8 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                     // PERFORMANCE switched off after a dress the dress before setup() did not undo (the same-frame switch off,
                     // or no panel then): the FORUM icon back now, outside any native.
                     Write(host, RestoreIcon(host, state));
+                    // Build 23: the trim switched off after ABOUT was drawn on MORE GAMES, with no dress before setup() to undo it.
+                    Write(host, RestoreCredits(host, state));
                     if (arm != null && arm.LaidOut)
                     {
                         sameFrame = true;
@@ -604,6 +614,8 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                         if (!outcome.Gone && (writes == 0 || outcome.Changed)) stockFrames++;
                         if (outcome.Gone)
                         {
+                            // Build 23: Settings is not in the stack: the MORE GAMES remap out until its next focus-in.
+                            MoreGamesAway(host, state);
                             // Laid out, then Settings left the stack (Back to the main menu): nothing left to watch.
                             if (writes > 0)
                             {
@@ -1052,6 +1064,8 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             // Build 23: the MORE GAMES remap stays in only when this call drew ABOUT on MORE GAMES' button and read it back.
             bool aboutDrawn = false;
             object ui = null;
+            // Build 23: the real ABOUT put back with the trim off (CreditsBack), for the focus-in line.
+            string credits = null;
             try
             {
                 if (host.IsWindows || state.PreDressRun != id) return;
@@ -1059,7 +1073,9 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 bool redress = host.SettingsMenuPerformance;
                 // PERFORMANCE switched off after a dress: the icon goes back within setup()'s reach (its FORUM dress then shows).
                 bool restore = !redress && state.TileEverActive;
-                if (!trim && !redress && !restore) return;
+                // Build 23: the trim switched off after ABOUT was drawn on MORE GAMES: the real ABOUT back (nothing else writes it).
+                bool creditsBack = !trim && state.CreditsHidden;
+                if (!trim && !redress && !restore && !creditsBack) return;
                 ui = host.ClientUi();
                 if (ui == null)
                 {
@@ -1079,6 +1095,12 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                     string moved = "";
                     if (frame == 1)
                     {
+                        // Build 23: only the real ABOUT to put back, and a new panel's is the timeline's own: nothing to do.
+                        if (creditsBack && !redress && !restore)
+                        {
+                            state.CreditsHidden = false;
+                            return;
+                        }
                         // The first entry: setup()'s own gotoAndStop(3) (AND-AS :44), now, so its instances can be dressed first.
                         flash.Call(panel, "gotoAndStop", (float)SettingsMenuNames.AndroidMainFrame);
                         frame = Frame(flash, panel);
@@ -1097,6 +1119,12 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                     {
                         text = "not dressed (" + moved + "frame " + frame.ToString(CultureInfo.InvariantCulture) + ")";
                         return;
+                    }
+                    if (creditsBack)
+                    {
+                        // setup() then shows MORE GAMES and puts ABOUT at 208 (:210-213): build 22's trim-off bottom row.
+                        credits = CreditsBack(flash, panel, state);
+                        if (!redress && !restore) return;
                     }
                     if (restore)
                     {
@@ -1171,6 +1199,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                         {
                             aboutDrawn = true;
                             state.AboutOnMoreGames = true;
+                            state.CreditsHidden = true;
                         }
                     }
                     string details = Details(state, trim, redress, icon, about, aboutWhy, title.Text);
@@ -1202,6 +1231,13 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             finally
             {
                 if (!aboutDrawn) MoreGamesOut(host, state, ui);
+                if (credits != null)
+                {
+                    text = text == null ? credits : text + ", " + credits;
+                    // Both switches off: no focus-in line will say it (Probe), so this one does.
+                    if (!host.SettingsMenuTrim && !host.SettingsMenuPerformance)
+                        Write(host, "settings menu: focus-in " + id.ToString(CultureInfo.InvariantCulture) + " before setup: " + text);
+                }
                 if (text != null && state.PreDressRun == id) state.PreDressText = text;
             }
         }
@@ -1274,6 +1310,97 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             }
             catch (Exception)
             {
+            }
+        }
+
+        /// <summary>
+        /// Build 23: <c>EnterSection</c> of any other section (another menu has the focus: MenuBase.as:339 runs it on every menu's
+        /// focus-in, and Settings' onFocusOut has removed its button listeners, :353-357, so btn_more takes no tap now): the MORE
+        /// GAMES remap out. A stock <c>setup()</c> that runs without our dress before it (UIComponent.OnStart registers
+        /// EnterSection again without ours, up to 2 s before the next re-ensure) then titles MORE GAMES as the game does, matching
+        /// the stock tap it gets in that window, and the top bar's Gameloft button in other menus is the game's at once (no focus
+        /// read). Settings' next focus-in puts it back in its dress before setup() titles btn_more (MenuSettings.as:468-472).
+        /// <see cref="SettingsMenuState.AboutOnMoreGames"/> stays: it is the plan of the run that may still watch the Settings below
+        /// (ABOUT or AUDIO on top), whose btn_more keeps the title it was given. No line (the next focus-in's own lines say what
+        /// was drawn), but one when the removal fails. Pure C# (no Flash), so not behind the same-frame switch. Android only.
+        /// Never throws.
+        /// </summary>
+        public static void MoreGamesAway(ISettingsMenuHost host, SettingsMenuState state)
+        {
+            try
+            {
+                if (host == null || state == null || host.IsWindows) return;
+                // Nothing was put in in this process (or its removal failed and was said): nothing to take out.
+                if (state.MoreGamesReported != "installed") return;
+                object ui = host.ClientUi();
+                if (ui == null) return;
+                string problem = MoreGamesRemap.Ensure(ui, false);
+                if (problem != null) ReportMoreGames(host, state, "not removed (" + problem + ")");
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>
+        /// Build 23: the real ABOUT (btn_credits) back on the panel after a dress of ours put it off
+        /// (<see cref="SettingsMenuState.CreditsHidden"/>), where nothing else would: with the trim off (no plan writes), or on a
+        /// panel that ended on another frame than the plan's (Kayac 4, Chinese 5: setup()'s gotoAndStop after our dress of frame 3,
+        /// should btn_credits at depth 69 survive it, and_settings_frames.txt; [I]). visible, alpha 1, mouse on and y
+        /// <see cref="ButtonsY"/>, as the timeline placed it; its x is setup()'s own (AND-AS MenuSettings.as:213, every focus-in).
+        /// "ABOUT put back" when it was off, else null (or why a write was refused); the flag clears once btn_credits was found or
+        /// refused a write. Never throws.
+        /// </summary>
+        private static string CreditsBack(FlashScope flash, object panel, SettingsMenuState state)
+        {
+            try
+            {
+                object credits = panel == null ? null : flash.Child(panel, SettingsMenuNames.AboutButton);
+                if (credits == null) return null;
+                double? y = flash.Number(credits, "y");
+                bool off = ReadsRemoved(flash, credits) || y != null && Math.Abs(y.Value - ButtonsY) > SettingsMenuNames.OffPanelY / 2;
+                if (off)
+                {
+                    flash.Set(credits, "visible", true);
+                    flash.Set(credits, "alpha", 1f);
+                    flash.Set(credits, "mouseEnabled", true);
+                    flash.Set(credits, "mouseChildren", true);
+                    flash.Set(credits, "y", (float)ButtonsY);
+                }
+                state.CreditsHidden = false;
+                return off ? "ABOUT put back" : null;
+            }
+            catch (Exception ex)
+            {
+                // One try: a refusal is said once, not on every frame of the run.
+                state.CreditsHidden = false;
+                return "ABOUT not put back (" + Reason(ex) + ")";
+            }
+        }
+
+        /// <summary>
+        /// Build 23: the run's first frame, outside any native: <see cref="CreditsBack"/> with the trim off when the dress before
+        /// setup() did not run (the same-frame switch off, or no panel then). "settings menu: ABOUT put back after setup() (trim
+        /// off)" when it did, else null. Never throws.
+        /// </summary>
+        private static string RestoreCredits(ISettingsMenuHost host, SettingsMenuState state)
+        {
+            try
+            {
+                if (host.IsWindows || host.SettingsMenuTrim || !state.CreditsHidden) return null;
+                object ui = host.ClientUi();
+                if (ui == null) return null;
+                using (var flash = new FlashScope(ui))
+                {
+                    object panel = SettingsPanel(flash);
+                    if (panel == null || Frame(flash, panel) != SettingsMenuNames.AndroidMainFrame) return null;
+                    string done = CreditsBack(flash, panel, state);
+                    return done == null ? null : "settings menu: " + done + " after setup() (trim off)";
+                }
+            }
+            catch (Exception)
+            {
+                return null;
             }
         }
 
@@ -1582,6 +1709,24 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 flash.Set(found[name], "mouseEnabled", false);
                 double? marker = MarkerX(name);
                 if (marker != null) flash.Set(found[name], "x", (float)marker.Value);
+            }
+        }
+
+        /// <summary>
+        /// Build 23, Android: a removed bottom-row button that setup() only moved (btn_credits.x = 208, AND-AS MenuSettings.as:213,
+        /// while ABOUT is drawn on MORE GAMES' button; it stays hidden, so <see cref="InPlace"/> reads it in place) gets its marker x
+        /// back. Without it the same-frame gate (<see cref="SameFrame.MoreGamesShown"/>) stays true for the rest of the frame and
+        /// spends every look, and the next return's dress before setup() finds the grid not strictly in place and writes it all
+        /// again instead of keeping it. One read per marked button; a write only when it moved.
+        /// </summary>
+        private static void Remark(FlashScope flash, LayoutPlan plan, Dictionary<string, object> found, List<string> tidied)
+        {
+            foreach (string hidden in plan.Hidden)
+            {
+                double? marker = MarkerX(hidden);
+                if (marker == null || tidied.Contains(hidden)) continue;
+                double? x = flash.Number(found[hidden], "x");
+                if (x != null && Math.Abs(x.Value - marker.Value) > PlaceTolerance) flash.Set(found[hidden], "x", (float)marker.Value);
             }
         }
 

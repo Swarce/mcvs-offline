@@ -21,8 +21,11 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
     /// decided by the top menu in the posted step: Settings on top → ABOUT, menu_about on top → not opened (a second tap), anything
     /// else → the game's GoToFreeGames.</item>
     /// </list>
-    /// Reading the focus is Flash work inside a native: only while <see cref="SettingsMenuLayout.InNativeAllowed"/>, after
-    /// <see cref="SameFrameBreadcrumb.Enter"/>. Android only. Never throws.
+    /// Reading the focus is Flash work inside a native: only while <see cref="SettingsMenuLayout.InNativeAllowed"/>, and the
+    /// process's first read only after its own breadcrumb (<see cref="SameFrameBreadcrumb.EnterTap"/>: the focus-in's marker is
+    /// always spent by then, and the static getter is a kind of call no earlier in-native step makes), so a native fault in it
+    /// switches <c>admin.settingsMenu.sameFrame</c> off at the next start and the top menu decides from then on. Android only.
+    /// Never throws.
     /// </summary>
     internal static class AboutRedirect
     {
@@ -65,7 +68,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             }
             try
             {
-                SameFrameBreadcrumb.Enter(host, state, state.LayoutRun, SettingsMenuNames.GoToFreeGames);
+                SameFrameBreadcrumb.EnterTap(host, state, SettingsMenuNames.GoToFreeGames);
                 using (var flash = new FlashScope(ui))
                 {
                     object manager = flash.Class(SettingsMenuNames.FocusManagerPackage, SettingsMenuNames.FocusManagerClass);

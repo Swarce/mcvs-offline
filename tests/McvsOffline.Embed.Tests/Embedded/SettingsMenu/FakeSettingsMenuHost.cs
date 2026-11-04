@@ -56,10 +56,11 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
 
         /// <summary>
         /// admin.settingsMenu.aboutCentre (build 23); <see cref="SettingsMenuAboutCentre"/> is false on PC whatever it says (as
-        /// AdminHost). False here by default (the setting's own default is true): every earlier test then checks that the switch
-        /// off is build 22 exactly; SettingsMenuBuild23Tests switch it on.
+        /// AdminHost). On by default, as shipped (SettingsSchema, and AdminHost on a failed read), so every suite runs the
+        /// configuration the phone runs; the tests of build 22's bottom row itself, and SettingsMenuBuild23Tests' regression
+        /// checks, switch it off.
         /// </summary>
-        public bool AboutCentreSetting { get; set; }
+        public bool AboutCentreSetting { get; set; } = true;
 
         public bool SettingsMenuAboutCentre { get { return !IsWindows && AboutCentreSetting; } }
 

@@ -31,6 +31,18 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
 
         internal const string Kept = "kept (FORUM remap on, icon slot null, MORE GAMES off the panel, ABOUT 208)";
 
+        /// <summary>Build 23's default bottom row (ABOUT on MORE GAMES' button): its details in <see cref="Dressed"/> and <see cref="Kept"/>.</summary>
+        private static string BottomRow(string line, bool about)
+        {
+            return about ? line.Replace("MORE GAMES off the panel, ABOUT 208", "ABOUT on MORE GAMES (-177), ABOUT tile off the panel") : line;
+        }
+
+        /// <summary><see cref="OffPanelOnce"/>, or with ABOUT on MORE GAMES' button (btn_more the plan's own) nothing untidied.</summary>
+        private static string OffPanelOnceFor(bool about)
+        {
+            return about ? SettingsMenuReturnTests.SameFrameDone : OffPanelOnce;
+        }
+
         /// <summary>The end of a laid-out line of an Android run whose focus-in frame had no look after setup() (MORE GAMES untidied).</summary>
         internal const string OffPanelOnce = " in the focus-in frame; MORE GAMES shown off the panel 1 frame; stock grid drawn 0 frames";
 
@@ -69,8 +81,8 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             string tail = "; same frame: laid out (" + Native(steam) + " calls " + (steam ? 1 : AndroidCalls) + ", looks 1)";
             // Android (build 22): the panel was dressed before setup() on the first entry and found so on every return; the look
             // after setup()'s last write only tidied MORE GAMES.
-            string first = steam ? "" : "; before setup: " + Dressed;
-            string again = steam ? "" : "; before setup: " + Kept;
+            string first = steam ? "" : "; before setup: " + BottomRow(Dressed, rig.AboutOnMoreGames);
+            string again = steam ? "" : "; before setup: " + BottomRow(Kept, rig.AboutOnMoreGames);
             Assert.Equal(new[]
             {
                 // The focus-in frame wrote the grid before this line (Steam: one layout per focus-in, its new instances too).
@@ -173,7 +185,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             rig.Host.Drain();
             Assert.EndsWith("; same frame: not watched (no game delegate on GetPlatformId)", rig.Host.Lines("settings menu: focus-in ").Single());
             // Build 22: the dress before setup() did it all, the run only tidied MORE GAMES (shown again off the panel).
-            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out" + OffPanelOnce }, rig.GridLines);
+            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out" + OffPanelOnceFor(rig.AboutOnMoreGames) }, rig.GridLines);
             Assert.True(rig.State.TileActive);
         }
 
@@ -246,10 +258,22 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.Equal(2, rig.Ui.MaxDepth);
             Assert.True(rig.State.TileActive);
             Assert.Equal("setting.Performance", rig.Ui.TileText("btn_forum"));
-            // The look found the grid in place and only tidied MORE GAMES (hidden again, at its marker x).
+            // The look found the grid in place and only tidied MORE GAMES (hidden again, at its marker x). Build 23, ABOUT on
+            // MORE GAMES' button: MORE GAMES is ours and shown, and the hidden real ABOUT, which setup() moved to 208, gets its marker
+            // back, so the gate is false again and no second look runs.
             Assert.Equal(1, rig.State.Layouts);
-            Assert.False((bool)rig.Ui.Instance("btn_more").Get("visible"));
-            Assert.Equal((float)SettingsMenuNames.MoreGamesMarkerX, rig.Ui.Instance("btn_more").Num("x"));
+            if (rig.AboutOnMoreGames)
+            {
+                Assert.True((bool)rig.Ui.Instance("btn_more").Get("visible"));
+                Assert.Equal((float)SettingsMenuNames.StockMoreGamesX, rig.Ui.Instance("btn_more").Num("x"));
+                Assert.False((bool)rig.Ui.Instance("btn_credits").Get("visible"));
+                Assert.Equal((float)SettingsMenuNames.AboutMarkerX, rig.Ui.Instance("btn_credits").Num("x"));
+            }
+            else
+            {
+                Assert.False((bool)rig.Ui.Instance("btn_more").Get("visible"));
+                Assert.Equal((float)SettingsMenuNames.MoreGamesMarkerX, rig.Ui.Instance("btn_more").Num("x"));
+            }
             rig.Host.Drain();
             rig.Ui.AssertAllDisposed();
         }
@@ -280,7 +304,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             rig.Ui.OpenSettings();                           // no FakeMenuInvocationException
             rig.Host.Drain();
             // Android (build 22): the dress before setup() is its own step, so the focus-in frame drew nothing stock.
-            string done = steam ? "settings menu: frame 1, 6 tiles + ABOUT laid out; stock grid drawn 1 frame" : "settings menu: frame 3, 7 tiles + ABOUT laid out" + OffPanelOnce;
+            string done = steam ? "settings menu: frame 1, 6 tiles + ABOUT laid out; stock grid drawn 1 frame" : "settings menu: frame 3, 7 tiles + ABOUT laid out" + OffPanelOnceFor(rig.AboutOnMoreGames);
             Assert.Equal(new[] { done }, rig.GridLines);
             Assert.Empty(rig.Host.Lines("settings menu: " + Native(steam)));
         }

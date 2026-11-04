@@ -478,12 +478,41 @@ Title PERFORMANCE (`setting.Performance`, translated). No category headers, as o
     so `setup()`'s own dress titles MORE GAMES' button ABOUT, translated, and ReloadStringTable re-formats it. Any failure
     (`no GoToFreeGames`, `dress refused: <why>`, `read-back <instance>`, `remap refused: <why>`) takes the remap out and
     dresses build 22's bottom row in the same call, and every EnterSection whose PreDress does not draw it (switch off,
-    same-frame switch off, breadcrumb, frame 4 or 5, no UI) takes the remap out. `IsTile` leaves `btn_more` out of the
+    same-frame switch off, breadcrumb, frame 4 or 5, no UI) takes the remap out. Review finding 2: every `EnterSection` of
+    another section (MenuBase.as:339 on every menu's focus-in: the main menu's `main_menu_screen`, MenuMainV2.as:136, ABOUT's
+    `settings_credits_screen`, MenuAbout.as:48) and the run seeing Settings leave the stack take it out too, with no line
+    (`MoreGamesAway`; one line only when the removal fails): Settings' own listeners are gone by then (onFocusOut,
+    MenuBase.as:353-357), so a stock `setup()` that runs without our dress (OnStart registers EnterSection again without ours
+    and puts the stock GoToFreeGames back, up to 2 s before the re-ensure) titles MORE GAMES as the game does, matching the
+    stock tap it gets, and the top bar's Gameloft button in other menus is the game's with no focus read. Settings' next
+    focus-in puts it back before `setup()` titles `btn_more` (MenuSettings.as:468-472); `AboutOnMoreGames` stays, as the plan
+    of a run still watching the Settings below ABOUT or AUDIO, whose `btn_more` keeps the title it was given. **The real
+    ABOUT put back (review findings 3 and 4):** `setup()` never writes `btn_credits`' visible, alpha or y (:145, :149, :213
+    only), so once a dress of ours put it off the panel (`SettingsMenuState.CreditsHidden`) only we can bring it back:
+    with `admin.settingsMenu.trim` switched off while ABOUT was on MORE GAMES (PreDress before `setup()`, its details `ABOUT
+    put back`, or with both switches off its own line `settings menu: focus-in N before setup: …`; with the same-frame switch
+    off the run's first frame, `settings menu: ABOUT put back after setup() (trim off)`), build 22's trim-off row (MORE GAMES
+    and ABOUT at 208, as build 22 showed it); and when the panel ends on Kayac's frame 4 or the Chinese frame 5 after our
+    dress of frame 3 (`settings menu: ABOUT put back (frame 4)`): whether btn_credits, at depth 69 on frames 3 and 4
+    (and_settings_frames.txt), survives `setup()`'s `gotoAndStop(4)` with our writes is [I], so the fake models both. On
+    Kayac the focus-in frame may then draw no ABOUT for one frame; on frame 5 (another depth) a new btn_credits is drawn
+    beside `btn_more` titled ABOUT, both open ABOUT. 1.17.32 is neither (`IsKayac` comes from the server's age gate, which
+    ours never sends; the Chinese GGI is not this APK's). **The hidden ABOUT's marker (found while running every suite with
+    the switch on, review finding 5):** `setup()` moves the hidden real ABOUT to 208 (:213) and nothing put its marker x
+    back (`Tidy` covers only buttons `setup()` shows again), so every return's PreDress found the grid not strictly in place
+    and wrote it all again instead of keeping it, and an unsealed focus-in spent all four looks on the gate. A read-back that
+    finds the grid in place now puts that marker back too (`Remark`: one read per marked button, a write only when it moved),
+    on the run's first frame or in the look; returns are `kept` again. `IsTile` leaves `btn_more` out of the
     width check (its runtime width is about 401). The same-frame gate becomes `setup()`'s last bottom-row write,
     `btn_credits.x` 208 over our marker 0 (:213). **The tap:** `GoToFreeGames` is replaced like `GoToForum` (registered by
     `Ensure` with replace, re-ensured every 2 s). While the remap is in (`MoreGamesRemap.IsOn`: the title and the tap key on
-    the same thing), `AboutRedirect.Tap` reads the focus inside the native, only while Flash work inside natives is allowed
-    and after the breadcrumb: `gluic.utils.FocusManager.componentWithFocus` (a static getter, FocusManager.as:19-22), which
+    the same thing), `AboutRedirect.Tap` reads the focus inside the native, only while Flash work inside natives is allowed,
+    and the process's first read only after its own breadcrumb (review of build 23, finding 1: the focus-in's marker is
+    written once per process and always spent by PreDress before MORE GAMES can read ABOUT, and a static getter on a class
+    object is a kind of call no earlier in-native step makes; `SameFrameBreadcrumb.EnterTap` has its own once-per-process flag,
+    writes `<time> tap GoToFreeGames`, and posts the same two-frame delete as a focus-in, so a native fault in the read
+    switches `admin.settingsMenu.sameFrame` off at the next start and the top menu decides from then on; nothing is written
+    when nothing can be posted): `gluic.utils.FocusManager.componentWithFocus` (a static getter, FocusManager.as:19-22), which
     ButtonSimple gives the button it releases (ButtonSimple.as:265, :302; RELEASE :329; cleared only at :342), compared by
     ASCharacter.Equals with Settings' `btn_more`. Focus on `btn_more`: ABOUT is pushed in a posted step while Settings is on
     top (`menu_about`; a double tap finds ABOUT on top, one push); focus on anything else (the top bar's Gameloft button,
@@ -494,7 +523,8 @@ Title PERFORMANCE (`setting.Performance`, translated). No category headers, as o
     (<why>)` (with the switch off build 22's text exactly); `settings menu: ABOUT opened from MORE GAMES (focus btn_more |
     focus unreadable: <type>, Settings on top)`, `… ABOUT not opened (<why>)`, `… MORE GAMES tap passed to the game (focus on
     <name> | Settings not on top)`, and once per process `settings menu: focus unreadable (<type>); MORE GAMES taps decided by
-    the top menu`. Kayac (frame 4) and the Chinese build (5) are not dressed (PreDress dresses frame 3 only). Steam: unchanged
+    the top menu`. Kayac (frame 4) and the Chinese build (5): a return finds the panel there and is not dressed; a new panel is
+    dressed on frame 3 before `setup()` moves it (above, the real ABOUT put back). Steam: unchanged
     (no remap, no registration, ABOUT at -182.9; PC's `setup()` hides MORE GAMES itself, PC-AS/MS:255).
   * **P3, F1, the sealed skip [I: nothing is measured yet].** Every gear tap builds the whole stock menu and then, in the
     focus-in frame, PreDress, about 40 calls of our GetPlatformId observer with the gate, and one look (a full read and
@@ -510,17 +540,26 @@ Title PERFORMANCE (`setting.Performance`, translated). No category headers, as o
     PlayerComponent.cs:1172-1173 and :546, reached only through `SettingsMenuTimer.Now`, whose try/catch logs once
     `settings menu: timings unavailable (<Type>: <message>)` and leaves every line as in build 22) is made in
     `UiNatives.Start`. The focus-in line gains `; ms: EnterSection 4.2 (page 0.0, remap 0.1, grid 0.0, before setup 3.6, watch
-    0.3, prompt 0.0), same frame 0.0, breadcrumb 1.9; focus-in frame dt 41.0; to the run's first frame 38.0; first in this
-    process` (dt is `GameApplication.ApplicationDeltaTime`, GameApplication.cs:569, read at the run's first frame; "to the run's
-    first frame" includes frame pacing); the laid-out line `; ours 31.5 ms over 47 frames (max 1.1 at frame 1); frame gaps
-    median 16.7, max 38.0 at frame 2`; with both switches off one `settings menu: focus-in N timings (stock): focus-in frame dt
-    X, to the run's first frame Y ms`. No decision reads a time. Deferred until these numbers exist: caching the reflection
+    0.3, prompt 0.0), same frame 0.0, breadcrumb 1.9; focus-in frame dt 41.0 (the frame before 16.7); to the run's first frame
+    38.0; first in this process` (dt is `GameApplication.ApplicationDeltaTime`, GameApplication.cs:569, set at each frame's
+    start, :1418, so read at the run's first frame it is the focus-in frame's length, and read in EnterSection, the baseline,
+    the frame before's; both include FRAME RATE LIMIT's pacing, review finding 6, so a 33 ms focus-in frame beside a 33 ms
+    frame before is a paced one, not a hitch; "to the run's first frame" includes pacing too); the laid-out line `; ours 31.5
+    ms over 47 frames (max 1.1 at frame 1); frame gaps median 16.7, max 38.0 at frame 2`; with both switches off one
+    `settings menu: focus-in N timings (stock): focus-in frame dt X (the frame before B), to the run's first frame Y ms`. No decision reads a time. Deferred until these numbers exist: caching the reflection
     (F2), a JIT warm-up off the game thread (F3), a cheaper read-back (F4), a cheaper breadcrumb (F5).
   * **Tests** (`SettingsMenuBuild23Tests`, on fakes that now model needAlign and `txt.y` with refusals, the focus, the top
     bar's Gameloft button and the stock GoToFreeGames): 29 cases, 22 fail on build 22's code (e1bb9b9) and 7 are marked
-    regression checks; `EmbeddedDllResolutionTests` walks Stopwatch's members in the trimmed assemblies. The earlier tests run
-    with the switch off in the fake host (its own default), so they check that the switch off is build 22; their Android
-    same-frame cases use an unsealed rig.
+    regression checks; `EmbeddedDllResolutionTests` walks Stopwatch's members in the trimmed assemblies. Review of build 23
+    (each fails on 4130d4e's code): the first ABOUT tap's own breadcrumb and the next start switching the step off; the remap
+    out once Settings is left (the OnStart window's stock `setup()` titles MORE GAMES, the Gameloft logo reads no focus);
+    the real ABOUT back with the trim switched off (three ways); Kayac with frames 3 and 4 keeping their instances
+    (`FakeFlashTree.KeepsSharedDepths`); the hidden ABOUT's marker (returns kept, one look); the baseline in both timing
+    lines. The fake host now defaults `admin.settingsMenu.aboutCentre` to on, as shipped, so every earlier suite (returns,
+    restock, another panel, the PERFORMANCE switch and the trim toggled live, the in-match gate, the renders) runs the
+    phone's configuration, through about-aware checks (`SettingsMenuReturnTests.PlanOf`, `AboutOnMoreGames` on the rigs); the
+    tests of build 22's bottom row itself switch it off, and `Regression_SwitchOffOrNoWorkInNatives_IsBuild22` keeps the
+    switch-off case. Their Android same-frame cases use an unsealed rig.
 * `admin.settingsMenu.trim` off: no relayout; with `admin.settingsMenu.performance` on, only the re-dress, in place.
 
 ### 3.3 R2's tap and R3: Performance mode and the page (`SettingsMenu/PerformancePage.cs`)
@@ -688,14 +727,20 @@ Title PERFORMANCE (`setting.Performance`, translated). No category headers, as o
     (`needAlign not taken`); the repair then writes `txt.y`, and whether gameswf keeps a script-written `txt.y` across the
     tile's own timeline states is [G] (the line says `title y put back` or `not put back`).
 13. **FocusManager's static getter read from C#** (build 23, P2) [G]: unreadable means the top menu decides, so a Gameloft
-    logo tap in the top bar while Settings is on top opens ABOUT (harmless offline; logged once).
+    logo tap in the top bar while Settings is on top opens ABOUT (harmless offline; logged once). A native fault in the read
+    itself cannot be caught: the process's first read has its own breadcrumb (§3.2, "Build 23"), so the next start switches
+    `admin.settingsMenu.sameFrame` off, which stops the read; later reads in that process have none (as later focus-ins).
 14. **The stock GoToFreeGames back for up to 2 s** after OnStart: EnterSection repairs it before the dress; a MORE GAMES tap
-    in that window runs ShowMoreGames, a no-op offline. ABOUT also opens one frame later than a stock ABOUT tap (posted, as
-    the PERFORMANCE tile).
+    in that window runs ShowMoreGames, a no-op offline. With the MORE GAMES remap out whenever Settings is not in focus, a
+    stock `setup()` in that window titles MORE GAMES, so its title and tap agree. ABOUT also opens one frame later than a
+    stock ABOUT tap (posted, as the PERFORMANCE tile).
 15. **The seal** (build 23, F1) [I]: it rests on reads after the last write and on `setup()` writing nothing a look would
     change; if a future game build adds such a write, the look must come back (the seal's conditions name the plan).
 16. **Stopwatch in the trimmed BCL** (build 23, M): walked in the trimmed assemblies by a test; any failure on the phone is
     one line and build 22's text.
+17. **Kayac and Chinese frames after our frame-3 dress** (build 23, P2) [I]: whether gameswf keeps the instances frames 3
+    and 4 share by depth (btn_credits at 69) across `setup()`'s `gotoAndStop(4)` is not known; if it does, the run's first
+    frame puts the real ABOUT back (one focus-in frame may draw none). Not this APK (§3.2, "Build 23").
 3. **Hidden tiles taking taps:** `visible=false` + `mouseEnabled=false`, as Gameloft hides MORE GAMES itself (PC-AS/MS:255)
    [I strong]. On PC, keyboard and gamepad focus must not reach them either: nothing of ours changes focus navigation, so
    only the device check can tell [G].

@@ -21,7 +21,8 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
     /// <list type="bullet">
     /// <item><see cref="Enter"/>: inside the native, right before the process's first Flash access there (Android: PreDress's first
     /// read; Steam: the first look). Once per process: every later focus-in goes through the same natives, and a file write on the
-    /// game thread per return is not worth it. Temp file and rename (the marker exists whole or not at all), no flush to disk (a
+    /// game thread per return is not worth it. Build 23: <see cref="EnterTap"/> likewise once per process, with its own flag, before
+    /// the first read of the focus inside GoToFreeGames (MORE GAMES drawn as ABOUT). Temp file and rename (the marker exists whole or not at all), no flush to disk (a
     /// crash of the process leaves the page cache to the kernel; only a power cut could lose it).</item>
     /// <item><see cref="LeaveNextFrame"/>: the run's first frame (one field read when nothing is outstanding) posts
     /// <see cref="Leave"/> to the frame after it. The process has then lived through the native call, the rest of the focus-in
@@ -93,31 +94,11 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             try
             {
                 if (host == null || state == null || !state.BeginBreadcrumb()) return;
-                byte[] text = Encoding.UTF8.GetBytes(TimeFormat.Iso8601Millis(DateTime.UtcNow) + " focus-in " +
-                                                     run.ToString(CultureInfo.InvariantCulture) + " " + native + "\n");
                 // A host that knows no log folder (tests) has no breadcrumb, and nothing to say about it.
-                string[] paths = Paths(host);
-                if (paths.Length == 0) return;
+                if (Paths(host).Length == 0) return;
                 // Build 23: the write timed for the focus-in line ("breadcrumb 1.9"; log text only).
                 started = SettingsMenuTimer.Now(host, state);
-                string problem = null;
-                foreach (string path in paths)
-                {
-                    string temp = path + AtomicFile.TempSuffix;
-                    try
-                    {
-                        using (var fs = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None)) fs.Write(text, 0, text.Length);
-                        FileSystem.Rename(temp, path);
-                        state.BreadcrumbPath = path;
-                        return;
-                    }
-                    catch (Exception ex)
-                    {
-                        problem = ex.GetType().Name;
-                        Delete(temp);
-                    }
-                }
-                state.BreadcrumbProblem = "breadcrumb not written (" + problem + ")";
+                WriteMarker(host, state, "focus-in " + run.ToString(CultureInfo.InvariantCulture) + " " + native);
             }
             catch (Exception)
             {
@@ -131,6 +112,55 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                     if (timings != null && now != null) timings.Breadcrumb = now.Value - started.Value;
                 }
             }
+        }
+
+        /// <summary>
+        /// Build 23: inside <c>GoToFreeGames</c>, right before the process's first read of the focus there (<see cref="AboutRedirect"/>:
+        /// a static getter on a class object, a kind of call no earlier step makes inside a native). Its own once-per-process flag:
+        /// <see cref="Enter"/>'s is always spent by the dress before setup() before MORE GAMES can be drawn as ABOUT. The marker goes
+        /// the way a focus-in's does: <see cref="LeaveNextFrame"/> at the next frame's start (<see cref="ISettingsMenuHost.Post"/>),
+        /// so <see cref="Leave"/> one frame after it, once the tap frame's render has ended; a process that dies in the read leaves it,
+        /// and the next start's <see cref="Check"/> switches <c>admin.settingsMenu.sameFrame</c> off, which stops the read (the top
+        /// menu then decides the tap). Nothing is written when nothing can be posted (no game thread: no frame would delete it).
+        /// A marker of the dress before setup() still there (a tap within two frames of the focus-in) is the same file, and the
+        /// first delete takes it. Never throws.
+        /// </summary>
+        public static void EnterTap(ISettingsMenuHost host, SettingsMenuState state, string native)
+        {
+            try
+            {
+                if (host == null || state == null || !state.BeginTapBreadcrumb()) return;
+                if (Paths(host).Length == 0) return;
+                if (!host.Post(() => LeaveNextFrame(host, state))) return;
+                WriteMarker(host, state, "tap " + native);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>The marker, "time what\n", in the first folder that takes it (temp file and rename); else the problem for the next focus-in line.</summary>
+        private static void WriteMarker(ISettingsMenuHost host, SettingsMenuState state, string what)
+        {
+            byte[] text = Encoding.UTF8.GetBytes(TimeFormat.Iso8601Millis(DateTime.UtcNow) + " " + what + "\n");
+            string problem = null;
+            foreach (string path in Paths(host))
+            {
+                string temp = path + AtomicFile.TempSuffix;
+                try
+                {
+                    using (var fs = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None)) fs.Write(text, 0, text.Length);
+                    FileSystem.Rename(temp, path);
+                    state.BreadcrumbPath = path;
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    problem = ex.GetType().Name;
+                    Delete(temp);
+                }
+            }
+            state.BreadcrumbProblem = "breadcrumb not written (" + problem + ")";
         }
 
         /// <summary>

@@ -101,6 +101,9 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         /// <summary>How the host's read of <c>FocusManager.componentWithFocus</c> goes (<see cref="FocusReadMode"/>).</summary>
         public FocusReadMode FocusRead { get; set; }
 
+        /// <summary>Called as the host reads <c>FocusManager.componentWithFocus</c>, before it answers (a test's probe).</summary>
+        public Action FocusReading { get; set; }
+
         /// <summary>The top bar's Gameloft button (FreemiumBar.as:566-570: its RELEASE calls Native.GoToFreeGames).</summary>
         public FlashObject GameloftButton { get; private set; }
 
@@ -135,6 +138,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         {
             if (fullName == "gluic.utils.FocusManager" && member == "componentWithFocus")
             {
+                if (FocusReading != null) FocusReading();
                 switch (FocusRead)
                 {
                     case FocusReadMode.Throws: throw new InvalidOperationException("probe: static getter failed");
@@ -515,10 +519,22 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             return Kayac ? 4 : Chinese ? 5 : 3;
         }
 
+        /// <summary>
+        /// The pointcuts of the bare menus whose focus-in calls EnterSection (MenuBase.onFocusIn, MenuBase.as:339): the main menu
+        /// (MenuMainV2.as:136) and ABOUT (MenuAbout.as:48). Any other bare menu calls none here.
+        /// </summary>
+        public Dictionary<string, string> Pointcuts { get; } = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            { "menu_main", "main_menu_screen" },
+            { "menu_about", "settings_credits_screen" },
+        };
+
         private void FocusIn(FlashObject menu)
         {
+            string pointcut;
             if (menu.Name == McvsMenuNames.Settings) FocusInSettings(menu);
             else if (menu.Name == McvsMenuNames.Gameplay) FocusInGameplay(menu);
+            else if (Pointcuts.TryGetValue(menu.Name, out pointcut)) CallFromFlash("EnterSection", null, pointcut);
         }
 
         // ------------------------------------------------------------------ menu_settings
@@ -614,6 +630,18 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             },
         };
 
+        /// <summary>
+        /// The Settings panel keeps the instances Android's frames 3 and 4 share by depth and symbol across a gotoAndStop between
+        /// them, with every write on them (the other model, false: new instances on any frame change). Which one gameswf does is
+        /// [I]; 1.17.32 never goes to frame 4 (not Kayac).
+        /// </summary>
+        public bool KeepsSharedDepths { get; set; }
+
+        private static readonly HashSet<string> SharedDepths34 = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "btn_close", "btn_help", "btn_customize", "btn_audio", "btn_general", "btn_credits", "btn_language", "btn_social",
+        };
+
         /// <summary>The instance names of a panel frame (1-5) in depth order, as the timeline places them.</summary>
         public static IList<string> FrameInstances(bool steam, int frame)
         {
@@ -642,15 +670,29 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         }
 
         /// <summary>
-        /// mc_panel.gotoAndStop(frame) to another frame: the timeline places that frame's instances, new ones (the frames hold them
-        /// at other depths, and_settings_frames.txt), and nothing written to the old ones survives. The same frame is a no-op.
+        /// mc_panel.gotoAndStop(frame) to another frame: the timeline places that frame's instances, new ones, and nothing written to
+        /// the old ones survives; with <see cref="KeepsSharedDepths"/> the instances frames 3 and 4 share by depth stay as they were
+        /// (and_settings_frames.txt; which model gameswf follows is [I]). The same frame is a no-op.
         /// </summary>
         public void GotoFrame(FlashObject panel, int frame)
         {
             if (panel.Frame == frame || frame < 1 || frame > 5) return;
-            foreach (FlashObject old in panel.Children.ToList()) panel.Children.Remove(old);
+            // KeepsSharedDepths: Android frames 3 and 4 hold these at the same depth with the same symbol (and_settings_frames.txt:
+            // d=2, 24, 42, 51, 60, 69, 70, 90), which a SWF player may keep across the jump with every script write on them.
+            var kept = new Dictionary<string, FlashObject>(StringComparer.Ordinal);
+            bool keep = KeepsSharedDepths && !Steam && (panel.Frame == 3 && frame == 4 || panel.Frame == 4 && frame == 3);
+            foreach (FlashObject old in panel.Children.ToList())
+            {
+                if (keep && SharedDepths34.Contains(old.Name)) kept[old.Name] = old;
+                panel.Children.Remove(old);
+            }
             panel.Frame = frame;
             PlaceInstances(panel, frame);
+            for (int i = 0; i < panel.Children.Count; i++)
+            {
+                FlashObject old;
+                if (kept.TryGetValue(panel.Children[i].Name, out old)) panel.Children[i] = old;
+            }
             // A test's change to the timeline's instances applies to the new ones too.
             if (SettingsBuilt != null && panel.Parent != null) SettingsBuilt(panel.Parent);
         }

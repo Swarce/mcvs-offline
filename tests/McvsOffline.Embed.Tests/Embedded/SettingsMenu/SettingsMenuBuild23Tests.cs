@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using McvsOffline.Embedded.Admin.SettingsMenu;
@@ -414,6 +415,189 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         }
 
         [Fact]
+        public void TheFirstAboutTap_ItsFocusReadHasItsOwnBreadcrumb()
+        {
+            // Review finding 1: the focus-in's marker is spent by the dress before setup(), so the first MORE GAMES tap's read of
+            // FocusManager's static getter inside GoToFreeGames ran with no marker on disk: a native fault there left nothing.
+            string dir = Path.Combine(Path.GetTempPath(), "mcvs-b23-tap-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            try
+            {
+                string marker = Path.Combine(dir, "settings-menu-same-frame.txt");
+                var rig = new Rig();
+                rig.Host.SameFrameMarkerPaths = new[] { marker };
+                var atRead = new List<bool>();
+                rig.Ui.FocusReading = () => atRead.Add(File.Exists(marker));
+                rig.Open();
+                Assert.False(File.Exists(marker));                 // the focus-in's own marker came and went
+                rig.Frame(() => Assert.True(rig.Ui.Tap("btn_more")));
+                Assert.Equal(new[] { true }, atRead);
+                Assert.EndsWith(" tap GoToFreeGames\n", File.ReadAllText(marker));
+                rig.Host.RunFrame();                               // ABOUT pushed; the tap frame's render may still run
+                Assert.True(File.Exists(marker));
+                rig.Host.RunFrame();
+                Assert.False(File.Exists(marker));
+                Assert.Equal("menu_about", rig.Ui.Top.Name);
+                rig.Frame(() => rig.Ui.Back());
+                rig.Stay();
+                // Once per process: a later tap reads without a write.
+                rig.Frame(() => Assert.True(rig.Ui.Tap("btn_more")));
+                Assert.Equal(new[] { true, false }, atRead);
+                rig.Host.RunFrames(3);
+                Assert.Empty(Directory.GetFiles(dir));
+                Assert.Equal(2, rig.Ui.Pushed.Count(m => m == "menu_about"));
+
+                // A process that died in that read: the next start switches the work inside natives off, so no read again.
+                File.WriteAllText(marker, "2026-11-04T10:00:00.000Z tap GoToFreeGames\n");
+                var next = new Rig();
+                next.Host.SameFrameMarkerPaths = new[] { marker };
+                int reads = 0;
+                next.Ui.FocusReading = () => reads++;
+                next.Open();
+                Assert.False(next.Host.SettingsMenuSameFrame);
+                Assert.False(File.Exists(marker));
+                Assert.False(next.MoreGamesRemapped);
+                next.Frame(() => Assert.True(next.Ui.Tap("btn_credits")));
+                Assert.Equal("menu_about", next.Ui.Top.Name);
+                Assert.Equal(0, reads);
+            }
+            finally
+            {
+                Directory.Delete(dir, true);
+            }
+        }
+
+        [Fact]
+        public void SettingsLeft_TheRemapIsOut_AStockSetupInTheOnStartWindowTitlesMoreGames()
+        {
+            // Review finding 2: the remap stayed in after Settings was left, so a stock setup() with no dress of ours (OnStart
+            // registers EnterSection again without ours and puts the stock GoToFreeGames back) titled btn_more ABOUT beside the
+            // real ABOUT, and its tap ran the game's MORE GAMES.
+            var rig = new Rig();
+            rig.Ui.PushMenu("menu_main");
+            rig.Stay();
+            rig.Open();
+            Assert.True(rig.MoreGamesRemapped);
+            // ABOUT on top of Settings: out too; Back puts it in again before setup() titles btn_more.
+            rig.Frame(() => Assert.True(rig.Ui.Tap("btn_more")));
+            rig.Host.RunFrames(3);
+            Assert.Equal("menu_about", rig.Ui.Top.Name);
+            Assert.False(rig.MoreGamesRemapped);
+            Assert.Equal(About, rig.Ui.TileText("btn_more"));     // the Settings below keeps the title it was given
+            rig.Frame(() => rig.Ui.Back());
+            rig.Stay();
+            Assert.True(rig.MoreGamesRemapped);
+            Assert.Equal(new[] { "btn_more (-177, 354.1) " + About }, Bottom(rig.Ui.Renders.Last()));
+            rig.Close();                                            // the main menu's focus-in
+            Assert.Equal("menu_main", rig.Ui.Top.Name);
+            Assert.False(rig.MoreGamesRemapped);
+            Assert.Single(rig.Host.Lines("settings menu: MORE GAMES remap installed"));
+            Assert.Empty(rig.Host.Lines("settings menu: MORE GAMES remap removed"));
+            // The top bar's Gameloft button in another menu is the game's at once, with no focus read.
+            int reads = 0;
+            rig.Ui.FocusReading = () => reads++;
+            rig.Frame(() => rig.Ui.TapGameloftButton());
+            Assert.Equal(1, rig.Ui.Game.FreeGamesCalls);
+            Assert.Equal(0, reads);
+            Assert.Empty(rig.Host.Lines("settings menu: MORE GAMES tap passed"));
+            // The OnStart window: the game's own EnterSection and GoToFreeGames only, and a gear tap.
+            rig.Ui.OverrideNativeFunction("EnterSection", new Action<string>(rig.Ui.Game.NativeEnterSection));
+            rig.Ui.OverrideNativeFunction("GoToFreeGames", new Action(rig.Ui.GoToFreeGames));
+            rig.Frame(() => rig.Ui.OpenSettings());
+            rig.Host.RunFrames(3);
+            Assert.Equal(MoreGames, rig.Ui.TileText("btn_more"));
+            Assert.Equal(About, rig.Ui.TileText("btn_credits"));
+            rig.Frame(() => Assert.True(rig.Ui.Tap("btn_more")));
+            Assert.Equal(2, rig.Ui.Game.FreeGamesCalls);           // MORE GAMES' title, MORE GAMES' tap
+        }
+
+        [Theory]
+        [InlineData(true, true)]     // the dress before setup() puts ABOUT back
+        [InlineData(true, false)]    // PERFORMANCE off as well: only that to do before setup()
+        [InlineData(false, true)]    // the same-frame switch off: the run's first frame puts it back
+        public void TrimSwitchedOffAfterAboutOnMoreGames_TheRealAboutComesBack(bool inNative, bool performance)
+        {
+            // Review finding 3: the real ABOUT stayed off the panel (setup() never writes its visible, alpha or y), and btn_more
+            // came back as MORE GAMES: no ABOUT at all on the return entry.
+            var rig = new Rig();
+            rig.Open();
+            Assert.Equal(new[] { "btn_more (-177, 354.1) " + About }, Bottom(rig.Ui.Renders.Last()));
+            rig.Frame(() => Assert.True(rig.Ui.Tap("btn_audio")));
+            rig.Host.RunFrames(5);
+            rig.Host.SettingsMenuTrim = false;
+            rig.Host.PerformanceSetting = performance;
+            rig.Host.SettingsMenuSameFrame = inNative;
+            int from = rig.Ui.Renders.Count;
+            rig.Frame(() => rig.Ui.Back());
+            rig.Stay();
+            Assert.False(rig.MoreGamesRemapped);
+            List<RenderPoint> after = rig.Ui.Renders.Skip(from).Where(r => r.Top == McvsMenuNames.Settings).ToList();
+            Assert.NotEmpty(after);
+            // Build 22's trim-off row: ABOUT where setup() puts it, its tap the game's.
+            foreach (RenderPoint r in inNative ? after : after.Skip(1).ToList())
+                Assert.Contains("btn_credits (208, 354.1) " + About, Bottom(r));
+            Assert.Equal(MoreGames, rig.Ui.TileText("btn_more"));
+            if (inNative) Assert.StartsWith(performance ? "settings menu: focus-in 2 (" : "settings menu: focus-in 2 before setup: ", rig.LastFocusIn);
+            if (inNative) Assert.Contains("ABOUT put back", rig.LastFocusIn);
+            else Assert.Single(rig.Host.Lines("settings menu: ABOUT put back after setup() (trim off)"));
+            rig.Frame(() => Assert.True(rig.Ui.Tap("btn_credits")));
+            Assert.Equal("menu_about", rig.Ui.Top.Name);
+            // Once back, nothing more to put back: no line or write on the next return.
+            rig.Frame(() => rig.Ui.Back());
+            rig.Stay();
+            Assert.Single(rig.Host.Lines("settings menu: ").Where(l => l.Contains("ABOUT put back")));
+        }
+
+        [Fact]
+        public void Kayac_InstancesKeptAcrossTheJumpToFrame4_TheRealAboutComesBack()
+        {
+            // Review finding 4: if frames 3 and 4 keep their same-depth instances (btn_credits at depth 69 on both, [I]), our dress
+            // of frame 3 left the real ABOUT off the panel after setup()'s gotoAndStop(4), and setup() hides MORE GAMES on Kayac.
+            var kayac = new Rig();
+            kayac.Ui.Kayac = true;
+            kayac.Ui.KeepsSharedDepths = true;
+            kayac.Open();
+            Assert.Equal(4, kayac.Ui.Panel.Frame);
+            Assert.False((bool)kayac.Ui.Instance("btn_more").Get("visible"));
+            Assert.Single(kayac.Host.Lines("settings menu: ABOUT put back (frame 4)"));
+            Assert.Contains("btn_credits (22, 354.1) " + About, Bottom(kayac.Ui.Renders.Last()));
+            kayac.Frame(() => Assert.True(kayac.Ui.Tap("btn_credits")));
+            Assert.Equal("menu_about", kayac.Ui.Top.Name);
+        }
+
+        [Theory]
+        [InlineData(false)]   // sealed (the default): the run's first frame puts the marker back
+        [InlineData(true)]    // unsealed: the look after setup() does, and the gate closes after one look
+        public void Returns_TheHiddenAboutsMarkerComesBack_TheDressIsKeptAndOneLook(bool unsealed)
+        {
+            // Found while running every suite with the switch on (review finding 5): setup() moves the hidden real ABOUT to 208
+            // (:213) and nothing put its marker x back, so every return's dress before setup() wrote the whole grid again instead
+            // of keeping it, and an unsealed focus-in spent all 4 looks on the gate.
+            var rig = new Rig(unsealed: unsealed);
+            var looks = new List<int>();
+            Action<ISettingsMenuHost, SettingsMenuState, string> observe = rig.Natives.Steps.SameFrame;
+            rig.Natives.Steps.SameFrame = (h, s, n) =>
+            {
+                observe(h, s, n);
+                if (s.SameFrame != null) looks.Add(s.SameFrame.Looks);
+            };
+            rig.Open();
+            for (int tab = 0; tab < 2; tab++)
+            {
+                looks.Clear();
+                rig.Frame(() => Assert.True(rig.Ui.Tap("btn_audio")));
+                rig.Host.RunFrames(5);
+                rig.Frame(() => rig.Ui.Back());
+                rig.Stay();
+                Assert.Contains("; before setup: kept (", rig.LastFocusIn);
+                Assert.Equal(unsealed ? 1 : 0, looks.Count == 0 ? 0 : looks.Max());
+                Assert.Equal(0f, rig.Ui.Instance("btn_credits").Num("x"));
+            }
+            Assert.Equal(1, rig.State.Layouts);
+            Assert.Equal(new[] { "btn_more (-177, 354.1) " + About }, Bottom(rig.Ui.Renders.Last()));
+        }
+
+        [Fact]
         public void ALanguageReload_StillReadsAbout()
         {
             var rig = new Rig();
@@ -536,7 +720,9 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             var rig = new Rig();
             double now = 1000;
             Assert.True(SetClock(rig.State, () => now), "no timings (build 22)");
-            rig.Host.FrameDelta = () => 41.04;
+            // EnterSection reads the frame before the focus-in (16.66), the run's first frame the focus-in frame (41.04).
+            int reads = 0;
+            rig.Host.FrameDelta = () => reads++ % 2 == 0 ? 16.66 : 41.04;
             Action<ISettingsMenuHost, SettingsMenuState> remap = rig.Natives.Steps.Remap;
             Action<ISettingsMenuHost, SettingsMenuState> dress = rig.Natives.Steps.PreDress;
             rig.Natives.Steps.Remap = (h, s) => { remap(h, s); now += 0.1; };
@@ -546,7 +732,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             rig.Open();
             List<string> lines = rig.Host.Lines(Notes);
             const string Ms = "; ms: EnterSection 3.7 (page 0.0, remap 0.1, grid 0.0, before setup 3.6, prompt 0.0), same frame 0.0; " +
-                              "focus-in frame dt 41.0; to the run's first frame 0.0";
+                              "focus-in frame dt 41.0 (the frame before 16.7); to the run's first frame 0.0";
             Assert.EndsWith("; same frame: not needed (dressed before setup)" + Ms + "; first in this process", lines[0]);
             Assert.EndsWith("; same frame: not needed (dressed before setup)" + Ms, lines[1]);
             Assert.All(rig.GridLines, l => Assert.Contains(" laid out in the focus-in frame; stock grid drawn 0 frames; ours 0.0 ms over ", l));
@@ -573,9 +759,11 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.True(SetClock(rig.State, () => 5), "no timings (build 22)");
             rig.Host.SettingsMenuTrim = false;
             rig.Host.PerformanceSetting = false;
-            rig.Host.FrameDelta = () => 16.7;
+            // FRAME RATE LIMIT 30: a 33 ms focus-in frame is a paced one, as the frame before says.
+            int reads = 0;
+            rig.Host.FrameDelta = () => reads++ == 0 ? 33.3 : 33.4;
             rig.Open();
-            Assert.Equal(new[] { "settings menu: focus-in 1 timings (stock): focus-in frame dt 16.7, to the run's first frame 0.0 ms" },
+            Assert.Equal(new[] { "settings menu: focus-in 1 timings (stock): focus-in frame dt 33.4 (the frame before 33.3), to the run's first frame 0.0 ms" },
                          rig.Host.Lines(Notes));
             Assert.Empty(rig.Ui.HostWrites.Where(w => !w.Contains("Native")));
         }

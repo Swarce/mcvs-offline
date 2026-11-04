@@ -35,6 +35,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             public Rig(bool steam, bool sameFrame = true, bool unsealed = false)
             {
                 Steam = steam;
+                dressBeforeSetup = sameFrame;
                 Ui = new FakeFlashTree(steam);
                 Host = new FakeSettingsMenuHost(Ui, steam);
                 Natives = new UiNatives(() => Host, new SettingsMenuState());
@@ -62,6 +63,17 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             }
 
             public bool Steam { get; private set; }
+
+            private readonly bool dressBeforeSetup;
+
+            /// <summary>
+            /// Build 23 (admin.settingsMenu.aboutCentre, on by default as shipped): ABOUT is drawn on MORE GAMES' button, which only the
+            /// dress before setup() can do (Android, the trim and the same-frame switch on). False: build 22's bottom row.
+            /// </summary>
+            public bool AboutOnMoreGames
+            {
+                get { return !Steam && dressBeforeSetup && Host.SettingsMenuAboutCentre && Host.SettingsMenuTrim && Host.SettingsMenuSameFrame && Ui.World != null; }
+            }
 
             public FakeFlashTree Ui { get; private set; }
 
@@ -116,11 +128,33 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         /// </summary>
         internal const string SealedDone = " in the focus-in frame; MORE GAMES shown off the panel 1 frame; stock grid drawn 0 frames";
 
+        /// <summary>
+        /// <see cref="SealedDone"/>, or with ABOUT drawn on MORE GAMES' button (build 23's default) <see cref="SameFrameDone"/>: btn_more
+        /// is the plan's own there, so setup() showing it again is nothing to tidy.
+        /// </summary>
+        internal static string SealedDoneFor(bool about)
+        {
+            return about ? SameFrameDone : SealedDone;
+        }
+
+        /// <summary>
+        /// The plan a grid is laid out with: build 22's, or build 23's with ABOUT on MORE GAMES' button (by name, so this file builds
+        /// against build 22's sources too).
+        /// </summary>
+        internal static SettingsMenuLayout.LayoutPlan PlanOf(bool steam, bool performance, bool about)
+        {
+            if (!about) return SettingsMenuLayout.Plan(steam, performance);
+            System.Reflection.MethodInfo plan = typeof(SettingsMenuLayout).GetMethod("Plan", new[] { typeof(bool), typeof(bool), typeof(bool) });
+            Assert.True(plan != null, "no Plan(windows, performance, aboutOnMoreGames): build 22's code draws no ABOUT on MORE GAMES");
+            return (SettingsMenuLayout.LayoutPlan)plan.Invoke(null, new object[] { steam, performance, true });
+        }
+
         /// <summary>The trimmed grid of the platform, on the menu on top; on Android the PERFORMANCE tile active.</summary>
         private static void AssertLaidOut(Rig rig, string when)
         {
             Assert.True(rig.Ui.Top != null && rig.Ui.Top.Name == McvsMenuNames.Settings, when + ": Settings is not on top");
-            SettingsMenuLayout.LayoutPlan plan = SettingsMenuLayout.Plan(rig.Steam, true);
+            SettingsMenuLayout.LayoutPlan plan = PlanOf(rig.Steam, true, rig.AboutOnMoreGames);
+            if (rig.AboutOnMoreGames) Assert.True("setting.CreditButton" == rig.Ui.TileText("btn_more"), when + ": btn_more reads " + rig.Ui.TileText("btn_more"));
             foreach (SettingsMenuLayout.Placement p in plan.Kept)
             {
                 FlashObject item = rig.Ui.Instance(p.Name);
@@ -145,11 +179,13 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.Equal(0, rig.Host.Pending);
         }
 
-        private static string[] Tabs(bool steam)
+        private static string[] Tabs(bool steam, bool about = false)
         {
+            // Build 23: ABOUT is MORE GAMES' button while it is drawn there.
+            string credits = about ? "btn_more" : "btn_credits";
             return steam
                 ? new[] { "btn_general", "btn_performance", "btn_audio", "btn_help", "btn_language", "btn_account", "btn_credits", "btn_general" }
-                : new[] { "btn_general", "btn_forum", "btn_audio", "btn_help", "btn_language", "btn_account", "btn_credits", "btn_general", "btn_forum" };
+                : new[] { "btn_general", "btn_forum", "btn_audio", "btn_help", "btn_language", "btn_account", credits, "btn_general", "btn_forum" };
         }
 
         // ------------------------------------------------------------------ every return ends laid out
@@ -175,7 +211,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             rig.Open();
             AssertLaidOut(rig, "first entry");
             int entries = 1;
-            foreach (string tab in Tabs(steam))
+            foreach (string tab in Tabs(steam, rig.AboutOnMoreGames))
             {
                 rig.TabAndBack(tab);
                 entries++;
@@ -206,6 +242,8 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.Equal(steam
                              ? "settings menu: frame 1, 6 tiles + ABOUT laid out in the focus-in frame; laid out again 1x after the stock grid came back; stock grid drawn 1 frame"
                              // Build 23: twice (the first entry and the return), as no look tidies it before the run (F1).
+                             // With ABOUT on MORE GAMES' button (the default) btn_more is the plan's own: nothing to tidy.
+                             : rig.AboutOnMoreGames ? "settings menu: frame 3, 7 tiles + ABOUT laid out" + SameFrameDone
                              : "settings menu: frame 3, 7 tiles + ABOUT laid out in the focus-in frame; MORE GAMES shown off the panel 2 frames; stock grid drawn 0 frames",
                          rig.GridLines.Last());
             Assert.Equal(steam ? 3 : 1, rig.State.Layouts);
@@ -227,7 +265,8 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             rig.Host.RunFrame();
             Assert.Equal("menu_help", rig.Ui.StackTop.Name);
             Assert.False((bool)rig.Ui.Instance("btn_social").Get("visible"));
-            Assert.Equal((float)SettingsMenuLayout.Plan(steam).Kept.Last().X, rig.Ui.Instance("btn_credits").Num("x"));
+            if (rig.AboutOnMoreGames) Assert.Equal((float)SettingsMenuNames.StockMoreGamesX, rig.Ui.Instance("btn_more").Num("x"));
+            else Assert.Equal((float)SettingsMenuLayout.Plan(steam).Kept.Last().X, rig.Ui.Instance("btn_credits").Num("x"));
             rig.Host.Drain();
             AssertLaidOut(rig, "back from HELP");
             // Android's return found the dress of the first entry in place before setup() (build 22): nothing written again.
@@ -291,7 +330,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.Equal(writes, rig.Ui.HostWrites.Count);
             Assert.Equal(1, rig.State.Layouts);
             Assert.Equal(0, rig.Host.Pending);
-            Assert.Equal(new[] { "settings menu: frame " + (steam ? "1, 6" : "3, 7") + " tiles + ABOUT laid out" + (steam ? SameFrameDone : SealedDone) }, rig.GridLines);
+            Assert.Equal(new[] { "settings menu: frame " + (steam ? "1, 6" : "3, 7") + " tiles + ABOUT laid out" + (steam ? SameFrameDone : SealedDoneFor(rig.AboutOnMoreGames)) }, rig.GridLines);
         }
 
         [Fact]
@@ -304,7 +343,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.True(rig.Ui.Tap("btn_audio"));
             rig.Ui.Back();                          // the next focus-in before the first run is done
             rig.Host.Drain();
-            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out" + SealedDone }, rig.GridLines);
+            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out" + SealedDoneFor(rig.AboutOnMoreGames) }, rig.GridLines);
             Assert.Equal(1, rig.State.Layouts);     // build 22: the second focus-in found it in place before setup()
             AssertLaidOut(rig, "second entry");
         }
@@ -362,7 +401,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             var rig = new Rig(false);
             rig.Host.CanPostNextFrame = false;
             rig.Open();
-            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out" + SealedDone + "; then no next frame" }, rig.GridLines);
+            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out" + SealedDoneFor(rig.AboutOnMoreGames) + "; then no next frame" }, rig.GridLines);
             Assert.True(rig.State.TileActive);
 
             var waiting = new Rig(false, sameFrame: false);
@@ -422,7 +461,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.True(PerformancePage.HidesGameplayRows(rig.Host, rig.State));
             general.Members["width"] = width;
             rig.Host.Drain();
-            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out" + SealedDone }, rig.GridLines);
+            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out" + SealedDoneFor(rig.AboutOnMoreGames) }, rig.GridLines);
             Assert.Equal(1, rig.State.Layouts);
             AssertLaidOut(rig, "after the tween");
             Assert.True(rig.Ui.Tap("btn_forum"));
