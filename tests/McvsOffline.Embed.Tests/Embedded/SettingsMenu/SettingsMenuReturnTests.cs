@@ -10,12 +10,17 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
     /// Build 20 (owner, build 19 on both platforms): the trimmed grid on the first entry, the stock Settings menu again after a tab
     /// and Back. The grid comes from one run per <c>EnterSection("settings_main_screen")</c> (<see cref="SettingsMenuLayout.Schedule"/>),
     /// driven here through the real registry (<see cref="UiNatives"/> with its own steps) on the fake panels, frame by frame as the
-    /// game runs them (<see cref="FakeSettingsMenuHost.RunFrame"/>: the context drain, then the Flash frame). The fake models what a
-    /// return may look like: the popped submenu still answering <c>getMenuOnTopOfStack</c> during its out-transition
-    /// (<see cref="FakeFlashTree.PoppedStaysOnTopFrames"/>), the stock positioning and visibility of <c>setup()</c> running again some
-    /// frames after the return (<see cref="FakeFlashTree.RestockFramesOnReturn"/>), and Steam's new tile instances on every focus-in
-    /// (<see cref="FakeFlashTree.SteamReplacesInstances"/>). Build 19's single step, run once at the next frame, leaves the stock
-    /// grid in each of the first two.
+    /// game runs them (<see cref="FakeSettingsMenuHost.RunFrame"/>: the context drain, then the Flash frame).
+    /// <para>These tests do NOT reproduce the owner's report. The real gluic order is the fake's default: MenusStack.popMenu
+    /// (gluic/components/menus/MenusStack.as:357-366) pops, then <c>focusGiven</c> sends FOCUS_IN synchronously (Menu.as:157-188),
+    /// so EnterSection runs with Settings on top and <c>setup()</c> right after it (MenuSettings.as:468-473); nothing in the AS
+    /// positions the panel again later. In that order build 19's single step lays the grid out too, Steam's new instances
+    /// (<see cref="FakeFlashTree.SteamReplacesInstances"/>, the closest model of PC-AS :44-52) included. The rows that fail on build
+    /// 19 are hypothetical models with no AS source: the popped submenu still answering <c>getMenuOnTopOfStack</c> for some frames
+    /// (<see cref="FakeFlashTree.PoppedStaysOnTopFrames"/>, refuted by popMenu's order) and the stock positioning running again some
+    /// frames after the return (<see cref="FakeFlashTree.RestockFramesOnReturn"/>). They pin what the run does if the device does
+    /// either; the device precondition itself is for the next device run's log to name (the run's "focus-in N" line, its laid-out or
+    /// not-laid-out line, or no line at all for a return: EnterSection never reached us).</para>
     /// </summary>
     public class SettingsMenuReturnTests
     {
@@ -114,12 +119,12 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         // ------------------------------------------------------------------ every return ends laid out
 
         [Theory]
-        [InlineData(false, 0, 0, false)]
+        [InlineData(false, 0, 0, false)]   // the gluic order: these three pass on build 19 too
         [InlineData(true, 0, 0, false)]
         [InlineData(true, 0, 0, true)]
-        [InlineData(false, 3, 0, false)]   // the popped submenu answers getMenuOnTopOfStack for 3 frames
+        [InlineData(false, 3, 0, false)]   // model: the popped submenu answers getMenuOnTopOfStack for 3 frames
         [InlineData(true, 3, 0, true)]
-        [InlineData(false, 0, 5, false)]   // the stock grid comes back 5 frames after the return
+        [InlineData(false, 0, 5, false)]   // model: the stock grid comes back 5 frames after the return
         [InlineData(true, 0, 5, true)]
         [InlineData(false, 0, 30, false)]
         [InlineData(true, 0, 30, false)]
@@ -314,6 +319,91 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             waiting.Host.Drain();
             Assert.Equal(new[] { "settings menu: not laid out (no btn_more; no next frame)" }, waiting.GridLines);
             Assert.True(waiting.State.RedressFailed);
+        }
+
+        // ------------------------------------------------------------------ the diagnostic, the tile through a run, an early Back
+
+        [Theory]
+        [InlineData(false, false)]
+        [InlineData(true, false)]
+        [InlineData(true, true)]
+        public void EveryFocusInLogsWhatItsFirstFrameFinds(bool steam, bool newInstances)
+        {
+            var rig = new Rig(steam);
+            rig.Ui.SteamReplacesInstances = newInstances;
+            rig.Ui.PoppedStaysOnTopFrames = 3;
+            rig.Open();
+            int at = rig.Ui.Stack.FindIndex(m => m.Name == McvsMenuNames.Settings);
+            string frame = ", panel frame " + (steam ? 1 : 3) + ", btn_social ";
+            rig.TabAndBack("btn_help");
+            rig.TabAndBack("btn_audio");
+            Assert.Equal(new[]
+            {
+                "settings menu: focus-in 1 (layouts so far: 0): on top menu_settings, menu_settings at " + at + " in the stack" + frame + "shown",
+                // The submenu still on top, Settings found below it; btn_social as the last layout left it, or a new one.
+                "settings menu: focus-in 2 (layouts so far: 1): on top menu_help, menu_settings at " + at + " in the stack" + frame + (newInstances ? "shown" : "hidden"),
+                "settings menu: focus-in 3 (layouts so far: 2): on top menu_audio, menu_settings at " + at + " in the stack" + frame + (newInstances ? "shown" : "hidden"),
+            }, rig.Host.Lines("settings menu: focus-in "));
+            AssertLaidOut(rig, "back from AUDIO");
+        }
+
+        [Fact]
+        public void AReadThatFailsOnAWidthAfterTheWriteKeepsTheTileActiveAndIsNoLayoutAgain()
+        {
+            var rig = new Rig(false);
+            rig.Ui.OpenSettings();
+            rig.Host.RunFrame();
+            Assert.True(rig.State.TileActive);
+            FlashObject general = rig.Ui.Instance("btn_general");
+            object width = general.Get("width");
+            general.Members["width"] = 300f;          // a scale tween on the tile, say: the same instances, the same dress
+            rig.Host.RunFrames(3);
+            Assert.True(rig.State.TileActive, "the tile reads PERFORMANCE, and a tap must open the page");
+            Assert.True(PerformancePage.HidesGameplayRows(rig.Host, rig.State));
+            general.Members["width"] = width;
+            rig.Host.Drain();
+            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out" }, rig.GridLines);
+            Assert.Equal(1, rig.State.Layouts);
+            AssertLaidOut(rig, "after the tween");
+            Assert.True(rig.Ui.Tap("btn_forum"));
+            rig.Host.Drain();
+            Assert.Equal(0, rig.Ui.Game.ForumCalls);
+            Assert.True(rig.State.PerformanceMode);
+        }
+
+        [Fact]
+        public void AnotherPanelAfterTheWriteDropsTheTileAndItsReDressIsNotALayoutAgain()
+        {
+            var rig = new Rig(false);
+            FlashObject menu = rig.Ui.OpenSettings();
+            rig.Host.RunFrame();
+            FlashObject panel = menu.Child("mc_panel");
+            FlashObject more = panel.Child("btn_more");
+            panel.Children.Remove(more);
+            rig.Host.RunFrames(2);
+            Assert.False(rig.State.TileActive);
+            panel.Add(more);
+            rig.Host.Drain();
+            AssertLaidOut(rig, "once btn_more is back");
+            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out; tile re-dressed again 1x after another panel" }, rig.GridLines);
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void BackWhileTheRunWaitsEndsItAtOnceWithOneLine(bool steam)
+        {
+            var rig = new Rig(steam);
+            FlashObject menu = rig.Ui.OpenSettings();
+            menu.Child("mc_panel").Children.Remove(rig.Ui.Instance("btn_help"));
+            rig.Host.RunFrames(3);
+            rig.Ui.Back();                          // Settings closed before the grid could be laid out
+            rig.Host.Drain();
+            Assert.Equal(new[] { "settings menu: not laid out (no btn_help; Settings left after 4 frames)" }, rig.GridLines);
+            Assert.Equal(4, rig.Host.Frames);
+            Assert.Equal(0, rig.Host.Pending);
+            // Settings was read and its panel is one this build cannot lay out: the Gameplay rows stay (the in-match gate needs no tile).
+            Assert.Equal(!steam, rig.State.RedressFailed);
         }
 
         [Fact]

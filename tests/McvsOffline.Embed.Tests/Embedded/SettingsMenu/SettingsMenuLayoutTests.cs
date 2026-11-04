@@ -42,7 +42,8 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
 
             public FakeFlashTree Ui { get { return Host.Ui; } }
 
-            public List<string> Lines { get { return Host.Lines("settings menu"); } }
+            // Not the focus-in diagnostic of a run (SettingsMenuReturnTests pins it).
+            public List<string> Lines { get { return Host.Lines("settings menu").Where(l => !l.StartsWith("settings menu: focus-in ", StringComparison.Ordinal)).ToList(); } }
 
             /// <summary>Opens Settings and runs the posted step (the next frame).</summary>
             public FlashObject Open()

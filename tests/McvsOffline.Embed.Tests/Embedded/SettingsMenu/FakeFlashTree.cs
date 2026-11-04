@@ -103,15 +103,16 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         // ------------------------------------------------------------------ the Back sequence (what a return may look like)
 
         /// <summary>
-        /// Hypothesis 1 of the build-19 report: a popped menu still answers <c>MenusStack.getMenuOnTopOfStack()</c> for this many
-        /// frames (its out-transition) although the menu below has had its focus-in. 0: the real gluic order (MenusStack.popMenu
-        /// pops before <c>focusGiven</c>).
+        /// Hypothesis 1 of the build-19 report, a model only: a popped menu still answers <c>MenusStack.getMenuOnTopOfStack()</c>
+        /// for this many frames (its out-transition) although the menu below has had its focus-in. 0: the real gluic order
+        /// (MenusStack.popMenu pops before <c>focusGiven</c>, MenusStack.as:357-366), which refutes it.
         /// </summary>
         public int PoppedStaysOnTopFrames { get; set; }
 
         /// <summary>
-        /// Hypothesis 2: this many frames after a return to Settings (a focus-in from a pop), something runs the stock positioning
-        /// and visibility of <c>setup()</c> once more (a transition end, a late handler). 0: nothing does.
+        /// Hypothesis 2, a model only: this many frames after a return to Settings (a focus-in from a pop), something runs the
+        /// stock positioning and visibility of <c>setup()</c> once more (a transition end, a late handler). 0: nothing does, as in
+        /// the AS (no code positions the panel after setup(); setup() runs only from onFocusIn, MenuSettings.as:468-473).
         /// </summary>
         public int RestockFramesOnReturn { get; set; }
 

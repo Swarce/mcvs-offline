@@ -216,13 +216,21 @@ Title PERFORMANCE (`setting.Performance`, translated). No category headers, as o
   out` or `… not laid out (<reason>)`.
 * `setup()` runs on every focus-in, including every return from a submenu (AND-AS/MS:468-473, PC-AS/MS:640-645), and our
   step follows it each time.
-* **Build 20: one run per focus-in, not one step.** Build 19's single step left the stock menu after a tab and Back (owner,
-  both platforms). `setup()` brings the stock grid back on every focus-in: on Android it re-dresses FORUM, shows MORE GAMES
-  and moves ABOUT and CUSTOMER CARE (AND-AS/MS:110-119, :208-212); on Steam it goes to panel frame 3 and back to 1
-  (PC-AS/MS:44-52), which places new tile instances (frames 1 and 3 hold them at other depths, frame 2 has other characters
-  there), and sets the 4-column x's (:253-345). So the screen after a return is only what our step makes of it, and a step
-  that did not land had no second chance. `SettingsMenuLayout.Schedule` now starts a run (the next focus-in's run supersedes
-  it):
+* **Build 20: one run per focus-in, not one step: a mitigation and a diagnostic, not a proven fix.** Build 19's single step
+  left the stock menu after a tab and Back (owner, both platforms). `setup()` brings the stock grid back on every focus-in: on
+  Android it re-dresses FORUM, shows MORE GAMES and moves ABOUT and CUSTOMER CARE (AND-AS/MS:110-119, :208-212); on Steam it
+  goes to panel frame 3 and back to 1 (PC-AS/MS:44-52), which places new tile instances (frames 1 and 3 hold them at other
+  depths, frame 2 has other characters there), and sets the 4-column x's (:253-345). So the screen after a return is only what
+  our step makes of it, and a step that did not land had no second chance. **What kept it from landing on the device is not
+  known.** In the gluic order MenusStack.popMenu (gluic/components/menus/MenusStack.as:357-366) runs `focusRemoved`, pops,
+  then `focusGiven`, which sends FOCUS_IN synchronously (Menu.as:157-188): EnterSection runs with Settings on top, `setup()`
+  right after it, and nothing in the AS positions the panel again later. In that order build 19's step lays the grid out too
+  (the fake's default rows, Steam's new instances included, pass on build 19). The rows of `SettingsMenuReturnTests` that fail
+  on build 19 are hypothetical models with no AS source: a popped submenu still on top for some frames (refuted by popMenu's
+  order) and the stock positioning running again some frames after the return. Not covered by either: Android's `setup()`
+  never shows `btn_social` again (AND-AS/MS:204-213), so a stock grid with SOCIAL MEDIA back would mean new instances or a
+  re-created menu (`Setting_Menu` is a disposable menu, SwfMain.as:606). `SettingsMenuLayout.Schedule` now starts a run (the
+  next focus-in's run supersedes it):
   * each frame it finds `menu_settings` on top of `MenusStack`, else by name while it is in the stack
     (`getMenuIndexInStack`, `getMenuByName`), and reads the panel as before; a failed read is tried again on the next frame;
   * once laid out it reads the grid back (slots ±0.5, removed instances invisible; on Android only while the tile is active)
@@ -230,9 +238,21 @@ Title PERFORMANCE (`setting.Performance`, translated). No category headers, as o
     back; at 120 frames it stops;
   * the frames after the first are posted with `GameSynchronizationContext.DelayedPost` (`ISettingsMenuHost.PostNextFrame`):
     a `Post` from a drained step runs in the same drain (`while (HasWorkItems)`), not on the next frame;
-  * one log line per run: `… laid out` (plus `after N frames (<why it waited>)`, `laid out again Kx …`) or
-    `… not laid out (<reason>; gave up after N frames)`. `RedressFailed` is set only by a run that never laid the grid out
-    (or a write that threw); while a run cannot read the grid, `TileActive` is false, so a tap reaches the game's FORUM.
+  * a run that has not laid the grid out ends at once when Settings leaves the stack after a frame found it there:
+    `… not laid out (<reason>; Settings left after N frames)`;
+  * one log line per run: `… laid out` (plus `after N frames (<why it waited>)`, `laid out again Kx after the stock grid came
+    back` when a read-back found a kept instance off its slot or a removed one visible, `tile re-dressed again Kx after another
+    panel`) or `… not laid out (<reason>; gave up after N frames)`. `RedressFailed` is set by every run that never laid the grid
+    out, the early Back included (the in-match grid's R4 gate needs no tile, so a panel this build cannot lay out must keep the
+    Gameplay rows), and by a write that threw. After a write, `TileActive` stays on through a failed read unless the panel is
+    another one (no `mc_panel`, another frame, an instance missing): only then can the tile be a stock FORUM again, and a tap
+    reaches the game's FORUM until the run has re-dressed it;
+  * the diagnostic: each run's first frame (after `setup()`) logs
+    `settings menu: focus-in N (layouts so far: K): on top <menu>, menu_settings at I in the stack, panel frame F, btn_social
+    shown|hidden`. `btn_social shown` after a layout means new instances (nothing in either AS shows it again), `hidden` the
+    instances written before. **From the next device run, collect per return to Settings:** that line, and the run's
+    `… laid out after N frames (<why>)`, `… laid out again Kx …` or `… not laid out (…)` line; no `focus-in` line at all for
+    a return means EnterSection never reached us.
 * `admin.settingsMenu.trim` off: no relayout; with `admin.settingsMenu.performance` on, only the re-dress, in place.
 
 ### 3.3 R2's tap and R3: Performance mode and the page (`SettingsMenu/PerformancePage.cs`)
