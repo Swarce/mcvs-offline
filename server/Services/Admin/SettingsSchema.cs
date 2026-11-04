@@ -172,6 +172,14 @@ namespace McvsOffline.Server.Services.Admin
         public const string SettingsMenuSameFrameKey = "admin.settingsMenu.sameFrame";
 
         /// <summary>
+        /// Read by the embedded host (AdminHost.SettingsMenuAboutCentre) each time the game's Settings menu opens, with the trim on:
+        /// Android's ABOUT drawn on MORE GAMES' button at setup()'s own centred x (MenuSettings.as:212), the real ABOUT off the panel and
+        /// MORE GAMES' tap opening ABOUT (docs/design/settings-menu.md §3.2, "Build 23"); off, ABOUT stays at setup()'s 208 (build 22).
+        /// Android only.
+        /// </summary>
+        public const string SettingsMenuAboutCentreKey = "admin.settingsMenu.aboutCentre";
+
+        /// <summary>
         /// Read by the embedded host (AdminHost.SettingsMenuPerformance) on every call of its Settings menu natives: the Android
         /// PERFORMANCE tile and page, and GRAPHICS SETTINGS and FRAME RATE LIMIT out of Gameplay Settings (§3.3, §3.5); read once
         /// at start for the 90 and 120 FPS limits (§3.4). Android only.
@@ -268,7 +276,7 @@ namespace McvsOffline.Server.Services.Admin
         private static readonly string[] WindowsHidden =
         {
             "hd.", "install.", "notifications.", "diagnostics.publicLogCopy", "diagnostics.threadDump",
-            AccountMenuHideDeadButtonsKey, SettingsMenuPerformanceKey, GraphicsMsaaKey, GraphicsRenderScaleKey,
+            AccountMenuHideDeadButtonsKey, SettingsMenuAboutCentreKey, SettingsMenuPerformanceKey, GraphicsMsaaKey, GraphicsRenderScaleKey,
             GraphicsLowResMapsKey, GraphicsFpsListVersionKey,
         };
 
@@ -732,6 +740,10 @@ namespace McvsOffline.Server.Services.Admin
                      + "stock menu never shows. Off: the layout comes one frame later (build 20 behaviour) and the stock menu can flash "
                      + "briefly. Turns itself off when the game closed during this step at the last start; switch it back on to try "
                      + "again. Applies the next time Settings opens."),
+                Bool("gameplay", SettingsMenuAboutCentreKey, "ABOUT centred in the Settings menu", true, Live,
+                     "With the shorter Settings menu, ABOUT is drawn centred below the tiles (on the button the game centres itself, "
+                     + "which MORE GAMES used), and a tap on it opens ABOUT. Off: ABOUT sits right of centre (build 22). Applies the "
+                     + "next time Settings opens."),
                 Bool("gameplay", SettingsMenuPerformanceKey, "PERFORMANCE in the Settings menu", true, Live,
                      "Adds a PERFORMANCE tile to the game's Settings menu, as on Steam: GRAPHICS, ANTIALIASING, SCREEN SCALE, FRAME "
                      + "RATE LIMIT and LOW RESOLUTION MAPS. GRAPHICS SETTINGS and FRAME RATE LIMIT then leave Gameplay Settings, also "

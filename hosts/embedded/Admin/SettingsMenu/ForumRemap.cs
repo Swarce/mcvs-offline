@@ -41,6 +41,21 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         /// </summary>
         public static string Ensure(object ui, bool on)
         {
+            return Ensure(ui, From, To, on);
+        }
+
+        /// <summary>The entry is in the client World's remap now (a read; false when it cannot be read).</summary>
+        public static bool IsOn(object ui)
+        {
+            return IsOn(ui, From, To);
+        }
+
+        /// <summary>
+        /// Build 23: <see cref="Ensure(object, bool)"/> for any one entry <paramref name="from"/> → <paramref name="to"/> (FORUM's, and
+        /// <see cref="MoreGamesRemap"/>'s). Off takes out only that entry when it maps to <paramref name="to"/>. Never throws.
+        /// </summary>
+        internal static string Ensure(object ui, string from, string to, bool on)
+        {
             try
             {
                 object formatter;
@@ -51,10 +66,10 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 Type key = KeyType(map.GetType());
                 MethodInfo convert = key == null ? null : GameReflection.FindStaticMethod(key, "op_Implicit", typeof(string));
                 if (convert == null || convert.ReturnType != key) return "no LocId from a string";
-                object from = convert.Invoke(null, new object[] { From });
-                object to = convert.Invoke(null, new object[] { To });
+                object fromId = convert.Invoke(null, new object[] { from });
+                object toId = convert.Invoke(null, new object[] { to });
                 // Off takes out only our own entry (a Remap.json entry for the same id would be the game's).
-                bool there = map.Contains(from) && Equals(map[from], to);
+                bool there = map.Contains(fromId) && Equals(map[fromId], toId);
                 if (there == on) return null;
                 // A new dictionary of the field's own type (its parameterless constructor; filled through IDictionary).
                 ConstructorInfo create = field.FieldType.GetConstructor(Type.EmptyTypes);
@@ -62,10 +77,10 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 if (copy == null) return "the remap cannot be copied";
                 foreach (DictionaryEntry e in map)
                 {
-                    if (!on && Equals(e.Key, from)) continue;
+                    if (!on && Equals(e.Key, fromId)) continue;
                     copy[e.Key] = e.Value;
                 }
-                if (on) copy[from] = to;
+                if (on) copy[fromId] = toId;
                 field.SetValue(formatter, copy);
                 return null;
             }
@@ -76,8 +91,8 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             }
         }
 
-        /// <summary>The entry is in the client World's remap now (a read; false when it cannot be read).</summary>
-        public static bool IsOn(object ui)
+        /// <summary>The entry <paramref name="from"/> → <paramref name="to"/> is in the client World's remap now (false when it cannot be read).</summary>
+        internal static bool IsOn(object ui, string from, string to)
         {
             try
             {
@@ -88,8 +103,8 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 Type key = KeyType(map.GetType());
                 MethodInfo convert = key == null ? null : GameReflection.FindStaticMethod(key, "op_Implicit", typeof(string));
                 if (convert == null) return false;
-                object from = convert.Invoke(null, new object[] { From });
-                return map.Contains(from) && Equals(map[from], convert.Invoke(null, new object[] { To }));
+                object fromId = convert.Invoke(null, new object[] { from });
+                return map.Contains(fromId) && Equals(map[fromId], convert.Invoke(null, new object[] { to }));
             }
             catch (Exception)
             {
@@ -127,6 +142,35 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 if (index.Length == 1 && index[0].ParameterType != typeof(object)) return index[0].ParameterType;
             }
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Build 23 (owner, build 22 on the S22: ABOUT sits right of centre; docs/design/settings-menu.md §3.2, "Build 23"): the same
+    /// engine remap as <see cref="ForumRemap"/>, for MORE GAMES' title: <c>setting.FreeGamesButton</c> → <c>setting.CreditButton</c>,
+    /// so setup()'s own dress of btn_more (AND-AS MenuSettings.as:159-162) writes the translated ABOUT, and its own
+    /// <c>btn_more.visible = true</c> and <c>x = -177</c> (:210, :212) draw ABOUT at Gameloft's one-button centre. The id is used
+    /// only there (one string in and_UI.swf, none in and_lib.swf; MenuAbout.as:46 uses setting.CreditButton); the remap is
+    /// single-hop (LocalizationFormatterComponent.cs:260-265). Installed only by <see cref="SettingsMenuLayout.PreDress"/>, before
+    /// setup(), and taken out again in the same call when any step of the dress fails; Android only. MORE GAMES' tap keys on
+    /// <see cref="IsOn"/> (<see cref="AboutRedirect"/>), so the title and the tap always agree. Never throws.
+    /// </summary>
+    internal static class MoreGamesRemap
+    {
+        public const string From = SettingsMenuNames.FreeGamesTitle;
+
+        public const string To = SettingsMenuNames.CreditTitle;
+
+        /// <summary>The entry in (<paramref name="on"/>) or out; null when it is as asked, else why not.</summary>
+        public static string Ensure(object ui, bool on)
+        {
+            return ForumRemap.Ensure(ui, From, To, on);
+        }
+
+        /// <summary>The entry is in the client World's remap now (false when it cannot be read).</summary>
+        public static bool IsOn(object ui)
+        {
+            return ForumRemap.IsOn(ui, From, To);
         }
     }
 }

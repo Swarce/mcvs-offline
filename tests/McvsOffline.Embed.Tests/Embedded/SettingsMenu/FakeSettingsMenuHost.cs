@@ -54,6 +54,24 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
 
         public bool SettingsMenuPerformance { get { return !IsWindows && PerformanceSetting; } }
 
+        /// <summary>
+        /// admin.settingsMenu.aboutCentre (build 23); <see cref="SettingsMenuAboutCentre"/> is false on PC whatever it says (as
+        /// AdminHost). On by default, as shipped (SettingsSchema, and AdminHost on a failed read), so every suite runs the
+        /// configuration the phone runs; the tests of build 22's bottom row itself, and SettingsMenuBuild23Tests' regression
+        /// checks, switch it off.
+        /// </summary>
+        public bool AboutCentreSetting { get; set; } = true;
+
+        public bool SettingsMenuAboutCentre { get { return !IsWindows && AboutCentreSetting; } }
+
+        /// <summary>What <see cref="FrameDeltaMs"/> answers (GameApplication.ApplicationDeltaTime in ms; null: unreadable).</summary>
+        public Func<double?> FrameDelta { get; set; } = () => null;
+
+        public double? FrameDeltaMs()
+        {
+            return FrameDelta == null ? null : FrameDelta();
+        }
+
         public bool IsWindows { get; set; }
 
         public Log Log { get; private set; }

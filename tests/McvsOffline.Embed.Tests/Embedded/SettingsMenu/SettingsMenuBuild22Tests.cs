@@ -45,6 +45,13 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             }
 
             public bool Steam { get; private set; }
+
+            /// <summary>Build 23's default: ABOUT drawn on MORE GAMES' button (Android, the trim and the same-frame switch on).</summary>
+            public bool AboutOnMoreGames
+            {
+                get { return !Steam && Host.SettingsMenuAboutCentre && Host.SettingsMenuTrim && Host.SettingsMenuSameFrame && Ui.World != null; }
+            }
+
             public FakeFlashTree Ui { get; private set; }
             public FakeSettingsMenuHost Host { get; private set; }
             public UiNatives Natives { get; private set; }
@@ -92,19 +99,21 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         /// What a render of Android's main Settings panel drew that is not the trimmed grid: a removed instance drawn or taking taps,
         /// a kept tile off its slot, FORUM's text or icon, ABOUT off setup()'s own x. Null when nothing.
         /// </summary>
-        private static string Stock(RenderPoint render)
+        private static string Stock(RenderPoint render, bool about = false)
         {
             if (render.Top != McvsMenuNames.Settings || render.PanelFrame != 3) return null;
             var wrong = new List<string>();
-            foreach (SettingsMenuLayout.Placement p in SettingsMenuLayout.Plan(false).Kept)
+            foreach (SettingsMenuLayout.Placement p in SettingsMenuReturnTests.PlanOf(false, true, about).Kept)
             {
                 RenderedInstance item;
                 if (!render.Instances.TryGetValue(p.Name, out item)) wrong.Add("no " + p.Name);
                 else if (!item.Drawn) wrong.Add(p.Name + " not drawn");
                 else if (p.Name == "btn_credits") { if (Math.Abs(item.X - AboutX) > 0.5) wrong.Add("ABOUT at " + item.X); }
                 else if (Math.Abs(item.X - (float)p.X) > 0.5 || Math.Abs(item.Y - (float)p.Y) > 0.5) wrong.Add(p.Name + " at (" + item.X + ", " + item.Y + ")");
+                // Build 23: ABOUT drawn on MORE GAMES' button, through the remap.
+                else if (p.Name == "btn_more" && item.Text != "setting.CreditButton") wrong.Add("btn_more reads " + item.Text);
             }
-            foreach (string name in new[] { "btn_social", "btn_customer", "btn_more" })
+            foreach (string name in new[] { "btn_social", "btn_customer", about ? "btn_credits" : "btn_more" })
             {
                 RenderedInstance item;
                 if (render.Instances.TryGetValue(name, out item) && (item.Drawn || item.TakesTaps))
@@ -124,7 +133,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             var stock = new List<string>();
             foreach (RenderPoint r in rig.Ui.Renders.Skip(from))
             {
-                string why = Stock(r);
+                string why = Stock(r, rig.AboutOnMoreGames);
                 if (why != null) stock.Add(r + ": " + why);
             }
             return stock;
@@ -142,14 +151,14 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             // one frame later).
             var rig = new Rig(look: false, icon: icon);
             rig.Open();
-            foreach (string tab in new[] { "btn_audio", "btn_help", "btn_forum", "btn_language", "btn_credits" })
+            foreach (string tab in new[] { "btn_audio", "btn_help", "btn_forum", "btn_language", rig.AboutOnMoreGames ? "btn_more" : "btn_credits" })
             {
                 int from = rig.TabAndBack(tab);
                 Assert.Equal(new string[0], StockRenders(rig, from));
             }
             // The run, the safety net, found every return drawn as ours; MORE GAMES was shown again by setup(), off the panel.
             Assert.All(rig.GridLines.Skip(1), l => Assert.Equal(
-                "settings menu: frame 3, 7 tiles + ABOUT laid out in the focus-in frame; MORE GAMES shown off the panel 1 frame; stock grid drawn 0 frames", l));
+                "settings menu: frame 3, 7 tiles + ABOUT laid out" + SettingsMenuReturnTests.SealedDoneFor(rig.AboutOnMoreGames), l));
             rig.Ui.AssertAllDisposed();
         }
 
@@ -174,7 +183,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             RenderPoint first = rig.Ui.Renders.Last();
             Assert.Equal(McvsMenuNames.Settings, first.Top);
             Assert.Equal(3, first.PanelFrame);
-            Assert.Null(Stock(first));
+            Assert.Null(Stock(first, rig.AboutOnMoreGames));
             Assert.Contains("menu_settings.mc_panel.gotoAndStop(3)", rig.Ui.HostWrites);
         }
 
@@ -211,6 +220,8 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         public void Return_MoreGamesShownBySetupOffThePanel_CountsAsInPlace()
         {
             var rig = new Rig(look: false);
+            // Build 22's bottom row (MORE GAMES removed by us): admin.settingsMenu.aboutCentre off.
+            rig.Host.AboutCentreSetting = false;
             rig.Open();
             int layouts = rig.State.Layouts;
             rig.TabAndBack("btn_audio");
@@ -276,7 +287,9 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             // Build 21: setup()'s FORUM icon, then our PERFORMANCE again, two loads per return (an empty icon until COMPLETE).
             Assert.Equal(loads, rig.Ui.IconLoads);
             Assert.Equal(PerfIcon, rig.Ui.TileIcon("btn_forum"));
-            Assert.Contains("; before setup: kept (FORUM remap on, icon slot null, MORE GAMES off the panel, ABOUT 208)", rig.Host.Lines("settings menu: focus-in ").Last());
+            Assert.Contains("; before setup: kept (FORUM remap on, icon slot null, " +
+                            (rig.AboutOnMoreGames ? "ABOUT on MORE GAMES (-177), ABOUT tile off the panel" : "MORE GAMES off the panel, ABOUT 208") + ")",
+                            rig.Host.Lines("settings menu: focus-in ").Last());
         }
 
         [Fact]
@@ -449,7 +462,8 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
                 Assert.True(File.Exists(marker));
                 rig.Stay();
                 Assert.False(File.Exists(marker));
-                Assert.EndsWith(" in the focus-in frame; stock grid drawn 0 frames", rig.GridLines.Last());
+                // Build 23 on Android: the seal (F1) leaves MORE GAMES' tidy to the run's first frame.
+                Assert.EndsWith(steam ? SettingsMenuReturnTests.SameFrameDone : SettingsMenuReturnTests.SealedDoneFor(rig.AboutOnMoreGames), rig.GridLines.Last());
                 Assert.Single(rig.Host.Logs.Snapshot().Where(e => e.Level == LogLevel.Warn));
             }
             finally
@@ -499,7 +513,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
                 List<string> lines = rig.Host.Lines("settings menu: focus-in ");
                 Assert.EndsWith("; breadcrumb not written (DirectoryNotFoundException)", lines[0]);
                 Assert.DoesNotContain("breadcrumb", lines[1]);
-                Assert.All(rig.GridLines, l => Assert.EndsWith(" in the focus-in frame; stock grid drawn 0 frames", l));
+                Assert.All(rig.GridLines, l => Assert.EndsWith(SettingsMenuReturnTests.SealedDoneFor(rig.AboutOnMoreGames), l));
             }
             finally
             {
@@ -556,7 +570,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.Equal(-50.9f, forum.Num("y"));
             RenderPoint last = rig.Ui.Renders.Last();
             Assert.True(last.Instances["btn_forum"].Drawn);
-            Assert.Null(Stock(last));
+            Assert.Null(Stock(last, rig.AboutOnMoreGames));
             if (sameFrame) Assert.Equal(new string[0], StockRenders(rig, from));
             Assert.True(PerformancePage.HidesGameplayRows(rig.Host, rig.State));
             rig.Frame(() => Assert.True(rig.Ui.Tap("btn_forum")));

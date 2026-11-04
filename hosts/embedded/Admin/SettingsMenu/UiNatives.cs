@@ -18,11 +18,16 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
     /// <list type="table">
     /// <item><term>EnterSection</term><description>append, returns nothing; both platforms. On <c>settings_main_screen</c>: clear
     /// <see cref="SettingsMenuState.TileActive"/> and the Performance mode, put Android's FORUM remap in or out, start the grid's
-    /// run, dress Android's panel before <c>setup()</c> (build 22), watch the same-frame native, show the restart prompt when one
-    /// is pending.</description></item>
+    /// run, dress Android's panel before <c>setup()</c> (build 22), watch the same-frame native (build 23: not when that dress
+    /// sealed the grid, <see cref="SettingsMenuState.PreDressSealed"/>), show the restart prompt when one is pending; each step
+    /// timed for the focus-in line when there is a clock (build 23).</description></item>
     /// <item><term>GoToForum</term><description><b>replace</b> (true, false), Android: while the tile is active, the page opens
     /// (<see cref="PerformancePage.Open"/>); otherwise our delegate calls <c>UIComponent.GoToForum()</c> itself, so the stock body and
     /// patch 'forum' run as before (E4).</description></item>
+    /// <item><term>GoToFreeGames</term><description><b>replace</b>, Android (build 23): while MORE GAMES' button reads ABOUT (the
+    /// MORE GAMES remap is in) <see cref="AboutRedirect.Tap"/> opens ABOUT unless the focus says the tap was the top bar's Gameloft
+    /// button; otherwise <c>UIComponent.GoToFreeGames()</c> itself. EnterSection makes sure it is ours before the dress may draw
+    /// ABOUT on MORE GAMES (OnStart's AddBrowserOverrides can put the stock one back up to 2 s before the re-ensure).</description></item>
     /// <item><term>CanChangeGraphicSetting, CanChangeMaxFramerate</term><description>append, boxed false or null; Android
     /// (<see cref="PerformancePage"/>, R4 and the page).</description></item>
     /// <item><term>SetUserPreference, SaveUserPreferences</term><description>append, nothing returned; Android (the page's
@@ -53,9 +58,18 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         /// <summary>The natives Android registers, in registration order; PC registers only <see cref="SettingsMenuNames.EnterSection"/>.</summary>
         public static readonly string[] AndroidNames =
         {
-            SettingsMenuNames.EnterSection, SettingsMenuNames.GoToForum, SettingsMenuNames.CanChangeGraphicSetting,
+            SettingsMenuNames.EnterSection, SettingsMenuNames.GoToForum, SettingsMenuNames.GoToFreeGames, SettingsMenuNames.CanChangeGraphicSetting,
             SettingsMenuNames.CanChangeMaxFramerate, SettingsMenuNames.SetUserPreference, SettingsMenuNames.SaveUserPreferences,
         };
+
+        /// <summary>
+        /// The natives registered with <b>replace</b> (true, false): the list is ours alone and our delegate calls the game's body when
+        /// the tap is not ours (GoToForum: the PERFORMANCE tile; GoToFreeGames, build 23: MORE GAMES drawn as ABOUT).
+        /// </summary>
+        internal static bool Replaces(string name)
+        {
+            return name == SettingsMenuNames.GoToForum || name == SettingsMenuNames.GoToFreeGames;
+        }
 
         /// <summary>The natives PC registers: Steam keeps its own PERFORMANCE tile, page and Gameplay rows.</summary>
         public static readonly string[] PcNames = { SettingsMenuNames.EnterSection };
@@ -99,6 +113,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 var natives = new UiNatives(() => ReferenceEquals(AdminHooks.Host, admin) ? admin : null, new SettingsMenuState());
                 // A breadcrumb of the last start (it ended inside our Flash work in a native): checked here, off the game thread.
                 SameFrameBreadcrumb.Check(admin, natives.State);
+                StartClock(admin, natives.State);
                 natives.StartTimer();
                 UiNatives previous = current;
                 current = natives;
@@ -115,6 +130,31 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 {
                 }
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// Build 23: the clock of the timings in the Settings menu's log lines (<see cref="SettingsMenuClock"/>), inside its own
+        /// try/catch: a Stopwatch that cannot be made logs "settings menu: timings unavailable (...)" once, and every line keeps its
+        /// build-22 text. Never throws.
+        /// </summary>
+        internal static void StartClock(ISettingsMenuHost host, SettingsMenuState state)
+        {
+            try
+            {
+                state.Clock = SettingsMenuClock.Create();
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    state.Clock = null;
+                    if (state.BeginTimingsFailure() && host != null && host.Log != null)
+                        host.Log.Info("settings menu: timings unavailable (" + ex.GetType().Name + ": " + ex.Message + ")");
+                }
+                catch (Exception)
+                {
+                }
             }
         }
 
@@ -229,7 +269,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 foreach (string name in names)
                 {
                     Slot slot = slots[name];
-                    bool replace = name == SettingsMenuNames.GoToForum;
+                    bool replace = Replaces(name);
                     IList<Delegate> list = Delegates(ui, name);
                     if (!fresh && list != null && InPlace(list, slot, replace)) continue;
                     // (true, true): only our own earlier delegate goes and ours is appended last; (true, false): the list is ours alone (E4).
@@ -271,7 +311,8 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
 
         /// <summary>
         /// EnterSection(section), appended: the grid on <c>settings_main_screen</c> (its run, and its same-frame step with the
-        /// observer that drives it); any other section ends a same-frame step still armed. Never throws.
+        /// observer that drives it); any other section ends a same-frame step still armed and (build 23, Android) takes the MORE
+        /// GAMES remap out until Settings' next focus-in. Never throws.
         /// </summary>
         public void EnterSection(string section)
         {
@@ -280,23 +321,101 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             if (!string.Equals(section, SettingsMenuNames.MainSettingsSection, StringComparison.Ordinal))
             {
                 if (state.SameFrame != null) SettingsMenuLayout.Disarm(state);
+                MenuSteps other = Steps;
+                Run(h, SettingsMenuNames.EnterSection, () => other.LeftSettings(h, state));
                 return;
             }
             try
             {
                 MenuSteps steps = Steps;
+                // Build 23: this focus-in timed (log text only; no step reads a time).
+                SettingsMenuTimings timings = BeginTimings(h);
+                double? started = timings == null ? null : SettingsMenuTimer.Now(h, state);
                 // Every return to the grid: the tile reads FORUM until the remap or a re-dress says otherwise, and the page has ended.
                 state.TileActive = false;
-                if (!Run(h, "EnterSection (page)", () => steps.LeaveMode(state))) state.PerformanceMode = false;
-                Run(h, "EnterSection (remap)", () => steps.Remap(h, state));
-                Run(h, "EnterSection (grid)", () => steps.Schedule(h, state));
-                // Before the observer: PreDress's own btn_forum.setup calls GetPlatformId, which must not reach the step.
-                Run(h, "EnterSection (before setup)", () => steps.PreDress(h, state));
-                Run(h, "EnterSection (same frame)", () => Watch(h));
-                Run(h, "EnterSection (restart prompt)", () => steps.ShowRestartPromptIfPending(h, state));
+                if (!Timed(h, timings, "page", "EnterSection (page)", () => steps.LeaveMode(state))) state.PerformanceMode = false;
+                Timed(h, timings, "remap", "EnterSection (remap)", () => steps.Remap(h, state));
+                Timed(h, timings, "grid", "EnterSection (grid)", () => steps.Schedule(h, state));
+                if (timings != null) timings.Run = state.LayoutRun;
+                // Before the observer: PreDress's own btn_forum.setup calls GetPlatformId, which must not reach the step. Build 23:
+                // MORE GAMES' tap made ours first (the stock GoToFreeGames may be back from OnStart), so ABOUT may be drawn on it.
+                Timed(h, timings, "before setup", "EnterSection (before setup)", () =>
+                {
+                    state.FreeGamesReplaced = !h.IsWindows && FreeGamesInPlace(h);
+                    steps.PreDress(h, state);
+                });
+                // Build 23 (F1): the dress before setup() proved the grid needs no look after setup(): no observer this focus-in.
+                int run = state.LayoutRun;
+                if (run != 0 && state.PreDressSealed == run) SettingsMenuLayout.Disarm(state);
+                else Timed(h, timings, "watch", "EnterSection (same frame)", () => Watch(h));
+                Timed(h, timings, "prompt", "EnterSection (restart prompt)", () => steps.ShowRestartPromptIfPending(h, state));
+                double? now = started == null ? null : SettingsMenuTimer.Now(h, state);
+                if (now != null)
+                {
+                    timings.EnterSection = now.Value - started.Value;
+                    timings.EnteredAt = now.Value;
+                }
             }
             catch (Exception)
             {
+            }
+        }
+
+        /// <summary>Build 23: a new <see cref="SettingsMenuTimings"/> for this focus-in when there is a clock (else none), in the state.</summary>
+        private SettingsMenuTimings BeginTimings(ISettingsMenuHost h)
+        {
+            SettingsMenuTimings timings = null;
+            if (state.Clock != null && !state.TimingsFailed && SettingsMenuTimer.Now(h, state) != null)
+                timings = new SettingsMenuTimings { First = state.CountTimedFocusIn() == 1, PreviousFrameDt = FrameDelta(h) };
+            state.Timings = timings;
+            return timings;
+        }
+
+        /// <summary>The engine's dt of the frame running now (the frame before the focus-in's own length), or null. Never throws.</summary>
+        private static double? FrameDelta(ISettingsMenuHost h)
+        {
+            try
+            {
+                return h.FrameDeltaMs();
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary><see cref="Run"/>, with its time added to <paramref name="timings"/> under <paramref name="label"/> when there are any.</summary>
+        private bool Timed(ISettingsMenuHost h, SettingsMenuTimings timings, string label, string native, Action step)
+        {
+            double? started = timings == null ? null : SettingsMenuTimer.Now(h, state);
+            bool ok = Run(h, native, step);
+            double? now = started == null ? null : SettingsMenuTimer.Now(h, state);
+            if (now != null) timings.Step(label, now.Value - started.Value);
+            return ok;
+        }
+
+        /// <summary>
+        /// Build 23 (design step 1a): our GoToFreeGames is the only delegate on the client UI's native, registered again when it is
+        /// not (OnStart's AddBrowserOverrides puts the stock one back, UIComponent.cs:404, :1467, up to 2 s before the next
+        /// re-ensure). False when the table cannot be read or the registration did not take: then ABOUT stays at 208. Never throws.
+        /// </summary>
+        private bool FreeGamesInPlace(ISettingsMenuHost h)
+        {
+            try
+            {
+                object ui = h.ClientUi();
+                if (ui == null) return false;
+                Slot slot = slots[SettingsMenuNames.GoToFreeGames];
+                IList<Delegate> list = Delegates(ui, SettingsMenuNames.GoToFreeGames);
+                if (list != null && InPlace(list, slot, true)) return true;
+                FlashInterop.OverrideNative(ui, SettingsMenuNames.GoToFreeGames, slot.Delegate, true, false);
+                slot.Ui = ui;
+                list = Delegates(ui, SettingsMenuNames.GoToFreeGames);
+                return list != null && InPlace(list, slot, true);
+            }
+            catch (Exception)
+            {
+                return false;
             }
         }
 
@@ -366,6 +485,16 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         public void GoToForum()
         {
             Forum(slots[SettingsMenuNames.GoToForum].Ui);
+        }
+
+        /// <summary>
+        /// GoToFreeGames(), replacing the game's (build 23): while MORE GAMES reads ABOUT (<see cref="MoreGamesRemap.IsOn"/>, so the
+        /// title and the tap never disagree) <see cref="AboutRedirect.Tap"/> decides; otherwise <c>UIComponent.GoToFreeGames()</c>
+        /// itself (ShowMoreGames, UIComponent.cs:384-387). Never throws.
+        /// </summary>
+        public void GoToFreeGames()
+        {
+            FreeGames(slots[SettingsMenuNames.GoToFreeGames].Ui);
         }
 
         /// <summary>CanChangeGraphicSetting(), appended: <see cref="PerformancePage.CanChangeGraphicSetting"/>. Never throws.</summary>
@@ -442,6 +571,29 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             catch (Exception ex)
             {
                 Warn(h, SettingsMenuNames.GoToForum, ex);
+            }
+        }
+
+        /// <summary>A tap on MORE GAMES (or the top bar's Gameloft button) of <paramref name="ui"/>: ABOUT's redirect, or the game's own body.</summary>
+        private void FreeGames(object ui)
+        {
+            ISettingsMenuHost h = Host;
+            try
+            {
+                object target = ui ?? (h == null ? null : h.ClientUi());
+                if (target == null) return;
+                if (h != null && !h.IsWindows && MoreGamesRemap.IsOn(target))
+                {
+                    MenuSteps steps = Steps;
+                    Run(h, SettingsMenuNames.GoToFreeGames, () => steps.OpenAbout(h, state, target));
+                    return;
+                }
+                // MORE GAMES as before: the game's body, also without a host.
+                FlashInterop.GoToFreeGames(target);
+            }
+            catch (Exception ex)
+            {
+                Warn(h, SettingsMenuNames.GoToFreeGames, ex);
             }
         }
 
@@ -579,6 +731,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 {
                     case SettingsMenuNames.EnterSection: Delegate = new Action<string>(EnterSection); break;
                     case SettingsMenuNames.GoToForum: Delegate = new Action(GoToForum); break;
+                    case SettingsMenuNames.GoToFreeGames: Delegate = new Action(GoToFreeGames); break;
                     case SettingsMenuNames.CanChangeGraphicSetting: Delegate = new Func<object>(CanChangeGraphicSetting); break;
                     case SettingsMenuNames.CanChangeMaxFramerate: Delegate = new Func<object>(CanChangeMaxFramerate); break;
                     case SettingsMenuNames.SetUserPreference: Delegate = new Action<string, object>(SetUserPreference); break;
@@ -602,6 +755,11 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             public void GoToForum()
             {
                 owner.Forum(Ui);
+            }
+
+            public void GoToFreeGames()
+            {
+                owner.FreeGames(Ui);
             }
 
             public object CanChangeGraphicSetting()
@@ -650,12 +808,17 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             LeaveMode = PerformancePage.LeaveMode;
             ShowRestartPromptIfPending = PerformancePage.ShowRestartPromptIfPending;
             Open = PerformancePage.Open;
+            OpenAbout = AboutRedirect.Tap;
             CanChangeGraphicSetting = PerformancePage.CanChangeGraphicSetting;
             CanChangeMaxFramerate = PerformancePage.CanChangeMaxFramerate;
             OnSetUserPreference = PerformancePage.OnSetUserPreference;
             OnSaveUserPreferences = PerformancePage.OnSaveUserPreferences;
             SameFrame = SettingsMenuLayout.OnNative;
+            LeftSettings = SettingsMenuLayout.MoreGamesAway;
         }
+
+        /// <summary>EnterSection of any other section (build 23): the MORE GAMES remap out while Settings is not in focus (SettingsMenuLayout.MoreGamesAway).</summary>
+        public Action<ISettingsMenuHost, SettingsMenuState> LeftSettings { get; set; }
 
         /// <summary>EnterSection("settings_main_screen"): start the grid's run (SettingsMenuLayout.Schedule).</summary>
         public Action<ISettingsMenuHost, SettingsMenuState> Schedule { get; set; }
@@ -674,6 +837,9 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
 
         /// <summary>EnterSection("settings_main_screen"): the restart prompt, once, when one is pending.</summary>
         public Action<ISettingsMenuHost, SettingsMenuState> ShowRestartPromptIfPending { get; set; }
+
+        /// <summary>GoToFreeGames while MORE GAMES reads ABOUT (build 23): ABOUT, or the game's MORE GAMES (AboutRedirect.Tap).</summary>
+        public Action<ISettingsMenuHost, SettingsMenuState, object> OpenAbout { get; set; }
 
         /// <summary>GoToForum with the tile active: the page.</summary>
         public Action<ISettingsMenuHost, SettingsMenuState> Open { get; set; }

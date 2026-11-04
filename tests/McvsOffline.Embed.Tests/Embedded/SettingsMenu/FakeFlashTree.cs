@@ -43,6 +43,9 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         public const float TileWidth = 465.35f;
         public const float TileHeight = 355.05f;
 
+        /// <summary>A BtnSetting's title y on its timeline's frame 1 (sprite 6716, txt ty 294.20).</summary>
+        public const float TileTitleY = 294.2f;
+
         /// <summary>ThinBtn's runtime <c>.width</c> (grid.md §2: about 401, txt and mc_new stick out of the 365.8 plate) [I].</summary>
         public const float ThinButtonWidth = 401f;
 
@@ -85,6 +88,65 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             {
                 { "updateTitle", a => { FreemiumTitles.Add(a.Length > 0 ? a[0] as string : null); return null; } },
             };
+            // gluic.utils.FocusManager: componentWithFocus is a static getter (FocusManager.as:19-22).
+            classes["gluic.utils.FocusManager"] = new Dictionary<string, Func<object[], object>>();
+            GameloftButton = new FlashObject(this, "ButtonSimple", "btn_gameLoft");
+        }
+
+        // ------------------------------------------------------------------ build 23: the focus, the title's needAlign
+
+        /// <summary>FocusManager.componentWithFocus: set by a press (ButtonSimple.as:265, :302 giveFocus), cleared after the RELEASE (:342).</summary>
+        public FlashObject Focused { get; set; }
+
+        /// <summary>How the host's read of <c>FocusManager.componentWithFocus</c> goes (<see cref="FocusReadMode"/>).</summary>
+        public FocusReadMode FocusRead { get; set; }
+
+        /// <summary>Called as the host reads <c>FocusManager.componentWithFocus</c>, before it answers (a test's probe).</summary>
+        public Action FocusReading { get; set; }
+
+        /// <summary>The top bar's Gameloft button (FreemiumBar.as:566-570: its RELEASE calls Native.GoToFreeGames).</summary>
+        public FlashObject GameloftButton { get; private set; }
+
+        /// <summary>How a BtnSetting's <c>needAlign</c> takes the host's write (<see cref="WriteMode"/>; the AS's own write always works).</summary>
+        public WriteMode NeedAlignWrite { get; set; }
+
+        /// <summary>How a BtnSetting's <c>txt.y</c> takes the host's write (the AS's own writes always work).</summary>
+        public WriteMode TitleYWrite { get; set; }
+
+        /// <summary>The player taps the top bar's Gameloft button (focus on it during its RELEASE, as ButtonSimple gives it).</summary>
+        public void TapGameloftButton()
+        {
+            Focused = GameloftButton;
+            try
+            {
+                CallFromFlash("GoToFreeGames", null);
+            }
+            finally
+            {
+                Focused = null;
+            }
+        }
+
+        /// <summary>UIComponent.GoToFreeGames() (UIComponent.cs:384-387: Browser.ShowMoreGames).</summary>
+        public void GoToFreeGames()
+        {
+            Game.FreeGamesCalls++;
+        }
+
+        /// <summary>The host reads a static member of an AS class (FocusManager.componentWithFocus).</summary>
+        internal object GetStatic(string fullName, string member)
+        {
+            if (fullName == "gluic.utils.FocusManager" && member == "componentWithFocus")
+            {
+                if (FocusReading != null) FocusReading();
+                switch (FocusRead)
+                {
+                    case FocusReadMode.Throws: throw new InvalidOperationException("probe: static getter failed");
+                    case FocusReadMode.Function: return new FakeAsFunction("componentWithFocus");
+                }
+                return Focused;
+            }
+            return null;
         }
 
         /// <summary>Steam (platform 6, main frame 1) rather than Android (platform 2, main frame 3).</summary>
@@ -198,6 +260,9 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
 
         /// <summary>"path.member=value" and "path.method(args)" for everything the host wrote or called through a handle or class.</summary>
         public List<string> HostWrites { get; } = new List<string>();
+
+        /// <summary>"path.member" for every member the host read through a handle (build 23: PC must read no needAlign or txt).</summary>
+        public List<string> HostReads { get; } = new List<string>();
 
         /// <summary>Doubles and longs the host wrote: ASValue.SetObject makes them managed objects, not AS Numbers.</summary>
         public List<string> ManagedWrites { get; } = new List<string>();
@@ -407,6 +472,21 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             FlashObject button = Instance(instance);
             if (button == null || !Truthy(button.Get("visible")) || !Truthy(button.Get("mouseEnabled"))) return false;
             Taps.Add(instance);
+            // ButtonSimple gives the focus on the press (ButtonSimple.as:265, :302) and clears it after the RELEASE (:342).
+            Focused = button;
+            try
+            {
+                Release(instance);
+            }
+            finally
+            {
+                Focused = null;
+            }
+            return true;
+        }
+
+        private void Release(string instance)
+        {
             switch (instance)
             {
                 case "btn_forum": CallFromFlash("GoToForum", null); break;
@@ -424,7 +504,6 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
                 case "btn_language": PushMenu("menu_language"); break;
                 case "btn_audio": PushMenu("menu_audio"); break;
             }
-            return true;
         }
 
         /// <summary>Back from the menu on top.</summary>
@@ -440,10 +519,22 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             return Kayac ? 4 : Chinese ? 5 : 3;
         }
 
+        /// <summary>
+        /// The pointcuts of the bare menus whose focus-in calls EnterSection (MenuBase.onFocusIn, MenuBase.as:339): the main menu
+        /// (MenuMainV2.as:136) and ABOUT (MenuAbout.as:48). Any other bare menu calls none here.
+        /// </summary>
+        public Dictionary<string, string> Pointcuts { get; } = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            { "menu_main", "main_menu_screen" },
+            { "menu_about", "settings_credits_screen" },
+        };
+
         private void FocusIn(FlashObject menu)
         {
+            string pointcut;
             if (menu.Name == McvsMenuNames.Settings) FocusInSettings(menu);
             else if (menu.Name == McvsMenuNames.Gameplay) FocusInGameplay(menu);
+            else if (Pointcuts.TryGetValue(menu.Name, out pointcut)) CallFromFlash("EnterSection", null, pointcut);
         }
 
         // ------------------------------------------------------------------ menu_settings
@@ -539,6 +630,18 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             },
         };
 
+        /// <summary>
+        /// The Settings panel keeps the instances Android's frames 3 and 4 share by depth and symbol across a gotoAndStop between
+        /// them, with every write on them (the other model, false: new instances on any frame change). Which one gameswf does is
+        /// [I]; 1.17.32 never goes to frame 4 (not Kayac).
+        /// </summary>
+        public bool KeepsSharedDepths { get; set; }
+
+        private static readonly HashSet<string> SharedDepths34 = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "btn_close", "btn_help", "btn_customize", "btn_audio", "btn_general", "btn_credits", "btn_language", "btn_social",
+        };
+
         /// <summary>The instance names of a panel frame (1-5) in depth order, as the timeline places them.</summary>
         public static IList<string> FrameInstances(bool steam, int frame)
         {
@@ -567,15 +670,29 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         }
 
         /// <summary>
-        /// mc_panel.gotoAndStop(frame) to another frame: the timeline places that frame's instances, new ones (the frames hold them
-        /// at other depths, and_settings_frames.txt), and nothing written to the old ones survives. The same frame is a no-op.
+        /// mc_panel.gotoAndStop(frame) to another frame: the timeline places that frame's instances, new ones, and nothing written to
+        /// the old ones survives; with <see cref="KeepsSharedDepths"/> the instances frames 3 and 4 share by depth stay as they were
+        /// (and_settings_frames.txt; which model gameswf follows is [I]). The same frame is a no-op.
         /// </summary>
         public void GotoFrame(FlashObject panel, int frame)
         {
             if (panel.Frame == frame || frame < 1 || frame > 5) return;
-            foreach (FlashObject old in panel.Children.ToList()) panel.Children.Remove(old);
+            // KeepsSharedDepths: Android frames 3 and 4 hold these at the same depth with the same symbol (and_settings_frames.txt:
+            // d=2, 24, 42, 51, 60, 69, 70, 90), which a SWF player may keep across the jump with every script write on them.
+            var kept = new Dictionary<string, FlashObject>(StringComparer.Ordinal);
+            bool keep = KeepsSharedDepths && !Steam && (panel.Frame == 3 && frame == 4 || panel.Frame == 4 && frame == 3);
+            foreach (FlashObject old in panel.Children.ToList())
+            {
+                if (keep && SharedDepths34.Contains(old.Name)) kept[old.Name] = old;
+                panel.Children.Remove(old);
+            }
             panel.Frame = frame;
             PlaceInstances(panel, frame);
+            for (int i = 0; i < panel.Children.Count; i++)
+            {
+                FlashObject old;
+                if (kept.TryGetValue(panel.Children[i].Name, out old)) panel.Children[i] = old;
+            }
             // A test's change to the timeline's instances applies to the new ones too.
             if (SettingsBuilt != null && panel.Parent != null) SettingsBuilt(panel.Parent);
         }
@@ -594,7 +711,25 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
                 {
                     item.Members["width"] = TileWidth * p.Scale;
                     item.Members["height"] = TileHeight * p.Scale;
-                    item.Add(new FlashObject(this, "TextField", "txt"));
+                    FlashObject txt = item.Add(new FlashObject(this, "TextField", "txt"));
+                    // Sprite 6716: frame 1 txt ty 294.20 (focus_in_end and pressed 290.70). BtnSimple._needAlign defaults to true (:25).
+                    txt.Members["y"] = TileTitleY;
+                    txt.Setters["y"] = v =>
+                    {
+                        if (TitleYWrite == WriteMode.Throws) throw new InvalidOperationException("probe: txt.y write refused");
+                        if (TitleYWrite == WriteMode.Ignored) return;
+                        txt.Members["y"] = v;
+                    };
+                    item.Members["_needAlign"] = true;
+                    FlashObject aligned = item;
+                    item.Getters["needAlign"] = () => aligned.Members["_needAlign"];
+                    item.Setters["needAlign"] = v =>
+                    {
+                        if (NeedAlignWrite == WriteMode.Throws) throw new InvalidOperationException("probe: needAlign write refused");
+                        // A dynamic member the getter never reads (BtnSetting is dynamic, swc/settings/BtnSetting.as:6).
+                        if (NeedAlignWrite == WriteMode.Ignored) aligned.Members["needAlign"] = v;
+                        else aligned.Members["_needAlign"] = Truthy(v);
+                    };
                     FlashObject image = item.Add(NewImageContainer());
                     FlashObject tile = item;
                     // BtnBase's public var mc_image (the timeline assigns the slot), or the child by name, or neither (IconSlot).
@@ -655,6 +790,12 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             {
                 tile.Members["title"] = title;
                 SetStringId(tile.Child("txt"), title, new object[0]);
+            }
+            // BtnSimple.setup (BtnSimple.as:83-95): neither mc_hitzone nor mc_bg, so while needAlign is true txt.y = height / 2.
+            if (tile.Kind == "BtnSetting" && Truthy(tile.Get("needAlign")))
+            {
+                FlashObject txt = tile.Child("txt");
+                if (txt != null) txt.Members["y"] = tile.Num("height") / 2;
             }
             object icon;
             if (dict.TryGetValue("icon", out icon) && Truthy(icon))
@@ -792,6 +933,8 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         {
             string[] stock;
             if (item == null || !StockTiles.TryGetValue(item.Name ?? "", out stock)) return;
+            // AND-AS/MS:55-138: each tile's needAlign = false right before its setup (the AS write, through the setter).
+            if (item.Kind == "BtnSetting") item.Members["_needAlign"] = false;
             var data = new Dictionary<string, object>(StringComparer.Ordinal) { { "title", stock[0] } };
             if (stock[1] != null) data["icon"] = stock[1];
             item.Call("setup", new object[] { data });
@@ -1337,6 +1480,43 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         public const string Gameplay = "menu_gameplaySettings";
     }
 
+    /// <summary>How a host write of a member takes (build 23's needAlign and txt.y).</summary>
+    internal enum WriteMode
+    {
+        /// <summary>As AS3: the setter runs.</summary>
+        Taken,
+
+        /// <summary>SetMember throws.</summary>
+        Throws,
+
+        /// <summary>SetMember returns, but the value read back is the old one (a dynamic member beside the accessor, or a no-op).</summary>
+        Ignored,
+    }
+
+    /// <summary>How the host's read of FocusManager.componentWithFocus goes.</summary>
+    internal enum FocusReadMode
+    {
+        /// <summary>The focused component (an ASCharacter), or null.</summary>
+        Readable,
+
+        /// <summary>The read throws.</summary>
+        Throws,
+
+        /// <summary>The read returns a function object (gameswf giving the getter itself).</summary>
+        Function,
+    }
+
+    /// <summary>An AS function as ASValue.GetObject might hand it over: not a display object.</summary>
+    internal sealed class FakeAsFunction
+    {
+        public FakeAsFunction(string name)
+        {
+            Name = name;
+        }
+
+        public string Name { get; private set; }
+    }
+
     /// <summary>One ShowGenericConfirmPopup call.</summary>
     internal sealed class FakePopup
     {
@@ -1765,6 +1945,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         public FlashValue GetMember(string name)
         {
             Check();
+            target.Tree.HostReads.Add(target.Path + "." + name);
             return target.Tree.Track(new FlashValue(target.Tree, target.Get(name)));
         }
 
@@ -1793,6 +1974,18 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         public void Dispose()
         {
             Disposals++;
+        }
+
+        /// <summary>ASCharacter.Equals: the same native character (CharacterRef), whatever the handle.</summary>
+        public override bool Equals(object obj)
+        {
+            var other = obj as FlashCharacter;
+            return other != null && ReferenceEquals(other.target, target);
+        }
+
+        public override int GetHashCode()
+        {
+            return target.GetHashCode();
         }
 
         public override string ToString()
@@ -1830,6 +2023,13 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         {
             tree.GenericCalls++;
             throw new InvalidOperationException("generic overload");
+        }
+
+        /// <summary>ASClass.GetMember(name): a static member (FocusManager.componentWithFocus).</summary>
+        public FlashValue GetMember(string name)
+        {
+            Assert.True(Disposals == 0, "ASClass " + fullName + " used after Dispose");
+            return tree.Track(new FlashValue(tree, tree.GetStatic(fullName, name)));
         }
 
         public void Dispose()

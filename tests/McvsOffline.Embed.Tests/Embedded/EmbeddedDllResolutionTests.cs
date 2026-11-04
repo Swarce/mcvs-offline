@@ -95,6 +95,75 @@ namespace McvsOffline.Embed.Tests.Embedded
             }
         }
 
+        /// <summary>
+        /// Build 23 (docs/design/settings-menu.md §5): the Settings menu's timings use <c>new Stopwatch()</c>, <c>Start</c>,
+        /// <c>Elapsed</c> and <c>TimeSpan.TotalMilliseconds</c> (SettingsMenuClock). Their bodies, and every method they call down to
+        /// four levels in the game's trimmed assemblies (MCVS_REFS), resolve and are no linker stub, so the clock runs on the phone
+        /// rather than only resolving at its call sites. (Steam runs on the installed .NET Framework, which is not trimmed.)
+        /// </summary>
+        [Fact]
+        public void TheSettingsMenuClockRunsOnTheGamesTrimmedLibraries()
+        {
+            var roots = new List<string>();
+            if (TestEnvironment.GameAssemblies != null) roots.Add(TestEnvironment.GameAssemblies);
+            if (roots.Count == 0)
+            {
+                Assert.True(Environment.GetEnvironmentVariable("MCVS_REQUIRE_EMBEDDED") != "1", "MCVS_REQUIRE_EMBEDDED=1 but MCVS_REFS is missing");
+                output.WriteLine("MCVS_REFS not available: skipped");
+                return;
+            }
+            foreach (string refs in roots)
+            {
+                using (var resolver = new DefaultAssemblyResolver())
+                {
+                    resolver.AddSearchDirectory(refs);
+                    foreach (string d in resolver.GetSearchDirectories().Where(d => d != refs).ToList()) resolver.RemoveSearchDirectory(d);
+                    AssemblyDefinition system = resolver.Resolve(AssemblyNameReference.Parse("System"));
+                    AssemblyDefinition corlib = resolver.Resolve(AssemblyNameReference.Parse("mscorlib"));
+                    TypeDefinition stopwatch = system.MainModule.GetType("System.Diagnostics.Stopwatch") ?? corlib.MainModule.GetType("System.Diagnostics.Stopwatch");
+                    Assert.NotNull(stopwatch);
+                    TypeDefinition span = corlib.MainModule.GetType("System.TimeSpan");
+                    var start = new List<MethodDefinition>
+                    {
+                        stopwatch.Methods.Single(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 0),
+                        stopwatch.Methods.Single(m => m.Name == "Start" && m.Parameters.Count == 0),
+                        stopwatch.Properties.Single(p => p.Name == "Elapsed").GetMethod,
+                        span.Properties.Single(p => p.Name == "TotalMilliseconds").GetMethod,
+                    };
+                    var problems = new SortedSet<string>(StringComparer.Ordinal);
+                    var seen = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (MethodDefinition m in start) Walk(m, 0, seen, problems);
+                    output.WriteLine(refs + ": " + seen.Count + " methods walked, problems " + problems.Count);
+                    foreach (string p in problems) output.WriteLine("  " + p);
+                    Assert.Empty(problems);
+                }
+            }
+        }
+
+        private static void Walk(MethodDefinition method, int depth, HashSet<string> seen, SortedSet<string> problems)
+        {
+            if (method == null || !seen.Add(method.FullName)) return;
+            if (IsStub(method)) problems.Add("stub " + method.FullName);
+            if (depth >= 4 || !method.HasBody) return;
+            foreach (Instruction i in method.Body.Instructions)
+            {
+                var callee = i.Operand as MethodReference;
+                if (callee == null || callee.DeclaringType is GenericParameter) continue;
+                MethodDefinition resolved;
+                try
+                {
+                    resolved = callee.Resolve();
+                }
+                catch (AssemblyResolutionException ex)
+                {
+                    problems.Add("unresolvable assembly for " + callee.FullName + ": " + ex.Message);
+                    continue;
+                }
+                if (resolved == null) problems.Add("method " + callee.FullName + " in " + method.FullName);
+                else Walk(resolved, depth + 1, seen, problems);
+            }
+        }
+
         private static TypeDefinition Resolve(TypeReference type)
         {
             try

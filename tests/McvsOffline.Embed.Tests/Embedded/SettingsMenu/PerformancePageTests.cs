@@ -879,6 +879,13 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
 
         public bool SettingsMenuPerformance { get { return inner.SettingsMenuPerformance; } }
 
+        public bool SettingsMenuAboutCentre { get { return inner.SettingsMenuAboutCentre; } }
+
+        public double? FrameDeltaMs()
+        {
+            return inner.FrameDeltaMs();
+        }
+
         public bool IsWindows { get { return inner.IsWindows; } }
 
         public Log Log { get { return inner.Log; } }

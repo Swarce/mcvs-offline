@@ -157,6 +157,14 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             method.Invoke(ui, new object[0]);
         }
 
+        /// <summary>UIComponent.GoToFreeGames() itself (the stock body: Browser.ShowMoreGames, UIComponent.cs:384-387).</summary>
+        public static void GoToFreeGames(object ui)
+        {
+            MethodInfo method = GameReflection.FindPlainMethod(ui.GetType(), "GoToFreeGames");
+            if (method == null) throw new MissingMethodException(ui.GetType().Name, "GoToFreeGames");
+            method.Invoke(ui, new object[0]);
+        }
+
         /// <summary>
         /// UIComponent.ShowGenericConfirmPopup(eventName, data, callback, priority) with the default priority (PopupPriority.AtEnd,
         /// the parameter's own default) and a callback that gets the popup's answer (<c>r["result"]</c> true for Yes; GamePreferencesComponent.cs:220-226).

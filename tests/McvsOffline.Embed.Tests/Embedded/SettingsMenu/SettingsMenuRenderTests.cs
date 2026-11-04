@@ -36,6 +36,12 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
 
             public bool Steam { get; private set; }
 
+            /// <summary>Build 23's default: ABOUT drawn on MORE GAMES' button (Android, the trim and the same-frame switch on).</summary>
+            public bool AboutOnMoreGames
+            {
+                get { return !Steam && Host.SettingsMenuAboutCentre && Host.SettingsMenuTrim && Host.SettingsMenuSameFrame && Ui.World != null; }
+            }
+
             public FakeFlashTree Ui { get; private set; }
 
             public FakeSettingsMenuHost Host { get; private set; }
@@ -85,7 +91,8 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         private static string Stock(Rig rig, RenderPoint render)
         {
             if (render.Top != McvsMenuNames.Settings || render.PanelFrame == SettingsMenuNames.InGameFrame) return null;
-            SettingsMenuLayout.LayoutPlan plan = SettingsMenuLayout.Plan(rig.Steam, rig.Host.SettingsMenuPerformance);
+            bool about = rig.AboutOnMoreGames;
+            SettingsMenuLayout.LayoutPlan plan = SettingsMenuReturnTests.PlanOf(rig.Steam, rig.Host.SettingsMenuPerformance, about);
             if (render.PanelFrame != plan.Frame) return "panel frame " + render.PanelFrame;
             var wrong = new List<string>();
             foreach (SettingsMenuLayout.Placement p in plan.Kept)
@@ -94,6 +101,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
                 if (!render.Instances.TryGetValue(p.Name, out item)) wrong.Add("no " + p.Name);
                 else if (Math.Abs(item.X - (float)p.X) > 0.5 || Math.Abs(item.Y - (float)p.Y) > 0.5) wrong.Add(p.Name + " at (" + item.X + ", " + item.Y + ")");
                 else if (!item.Visible) wrong.Add(p.Name + " hidden");
+                else if (about && p.Name == "btn_more" && item.Text != "setting.CreditButton") wrong.Add("btn_more reads " + item.Text);
             }
             foreach (string name in plan.Hidden)
             {
@@ -127,11 +135,13 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             return rig.Ui.Renders.Count(r => r.Top == McvsMenuNames.Settings && r.PanelFrame != SettingsMenuNames.InGameFrame);
         }
 
-        private static string[] Tabs(bool steam)
+        private static string[] Tabs(bool steam, bool about = false)
         {
+            // Build 23: ABOUT is MORE GAMES' button while it is drawn there.
+            string credits = about ? "btn_more" : "btn_credits";
             return steam
                 ? new[] { "btn_general", "btn_performance", "btn_audio", "btn_help", "btn_language", "btn_account", "btn_credits", "btn_general" }
-                : new[] { "btn_general", "btn_forum", "btn_audio", "btn_help", "btn_language", "btn_account", "btn_credits", "btn_general", "btn_forum" };
+                : new[] { "btn_general", "btn_forum", "btn_audio", "btn_help", "btn_language", "btn_account", credits, "btn_general", "btn_forum" };
         }
 
         // ------------------------------------------------------------------ no render draws the stock grid
@@ -145,7 +155,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             RenderPoint first = rig.Open();
             Assert.Equal(McvsMenuNames.Settings, first.Top);
             Assert.Null(Stock(rig, first));
-            foreach (string tab in Tabs(steam))
+            foreach (string tab in Tabs(steam, rig.AboutOnMoreGames))
             {
                 RenderPoint back = rig.TabAndBack(tab);
                 // The render of the frame whose Back ran setup(): build 20 drew the stock grid here.

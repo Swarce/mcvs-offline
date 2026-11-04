@@ -276,6 +276,47 @@ namespace McvsOffline.Embedded.Admin
             }
         }
 
+        /// <summary>
+        /// settings admin.settingsMenu.aboutCentre (server copy, read each time the game's Settings menu opens; default true) on
+        /// Android; false on PC, whose setup() hides MORE GAMES and whose ABOUT the trim centres already (build 23).
+        /// </summary>
+        public bool SettingsMenuAboutCentre
+        {
+            get
+            {
+                if (IsWindows) return false;
+                try
+                {
+                    return context.Settings.GetBool(SettingsSchema.SettingsMenuAboutCentreKey, true);
+                }
+                catch (Exception)
+                {
+                    return true;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Game thread: <c>GameApplication.Instance.ApplicationDeltaTime.Milliseconds</c> (GameApplication.cs:569; Time.cs:19), or null
+        /// when it cannot be read. Only for the timings in the Settings menu's log lines.
+        /// </summary>
+        double? ISettingsMenuHost.FrameDeltaMs()
+        {
+            try
+            {
+                object app = game.Application();
+                object delta = app == null ? null : GameReflection.Property(app, "ApplicationDeltaTime");
+                object ms = delta == null ? null : GameReflection.Property(delta, "Milliseconds");
+                if (ms is float) return (float)ms;
+                if (ms is double) return (double)ms;
+                return null;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
         /// <summary>The PC (Steam) host.</summary>
         public bool IsWindows
         {
