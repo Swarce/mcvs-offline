@@ -103,9 +103,12 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 Files = files ?? new PcFileOps(),
                 InstallerName = "tests",
                 InstallerVersion = "0.0.0-test",
-                UtcNow = () => new DateTime(2026, 11, 2, 18, 0, 0, DateTimeKind.Utc),
+                UtcNow = () => InstallUtc,
             };
         }
+
+        /// <summary>The installer's clock in these tests (install.json's WrittenUtc).</summary>
+        public static readonly DateTime InstallUtc = new DateTime(2026, 11, 2, 18, 0, 0, DateTimeKind.Utc);
 
         public PcInstallReport Install(IPcFileOps files = null)
         {
@@ -545,6 +548,10 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 File.WriteAllText(copy.Path_("McvsOffline/logs/bootstrap.log"), "[boot] runtime: CLR 4.0.30319\n[boot] patches: hook-pc yes\n");
                 File.WriteAllText(copy.Path_("dr0.bin"), "game");
                 File.WriteAllText(copy.Path_("OF_PP.bin"), "game");
+                // Written by that start, which the bootstrap.log above (no timestamps) cannot date: at the install's fixed clock, so a
+                // real clock past it does not make them a start without us (NotActive) and the test does not depend on the date.
+                File.SetLastWriteTimeUtc(copy.Path_("dr0.bin"), PcGameCopy.InstallUtc);
+                File.SetLastWriteTimeUtc(copy.Path_("OF_PP.bin"), PcGameCopy.InstallUtc);
                 File.WriteAllText(copy.Path_(PcExeConfig.FileName + GameFolder.TempSuffix), "left by a killed install");
 
                 PcStatusReport status = copy.Status();

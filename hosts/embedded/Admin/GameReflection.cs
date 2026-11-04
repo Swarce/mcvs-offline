@@ -229,6 +229,50 @@ namespace McvsOffline.Embedded.Admin
         }
 
         /// <summary>
+        /// Runs <paramref name="action"/> on the game thread one drain later than <see cref="Post"/> would: through the context's
+        /// <c>DelayedPost(SendOrPostCallback, object)</c> (GameSynchronizationContext.cs:215, PC the same), whose items join the queue
+        /// only when the current drain ends (<c>EnqueueDelayedItems</c>, :182). Called from a step that is itself being drained, it
+        /// runs at the start of the next frame; <see cref="Post"/> from there would run it in the same drain (<c>while
+        /// (HasWorkItems)</c>, :178). False when there is no game thread or the context has no such method. Exceptions are logged as
+        /// for <see cref="Post"/>.
+        /// </summary>
+        public bool PostNextFrame(Action action, Log log)
+        {
+            try
+            {
+                if (action == null) return false;
+                object app = Application();
+                var context = app == null || contextProperty == null ? null : contextProperty.GetValue(app, null) as SynchronizationContext;
+                if (context == null) return false;
+                MethodInfo delayed = FindPlainMethod(context.GetType(), "DelayedPost", typeof(SendOrPostCallback), typeof(object));
+                if (delayed == null) return false;
+                SendOrPostCallback callback = state =>
+                {
+                    try
+                    {
+                        action();
+                    }
+                    catch (Exception ex)
+                    {
+                        try
+                        {
+                            if (log != null) log.Warn("admin: a game-thread callback failed", ex);
+                        }
+                        catch (Exception)
+                        {
+                        }
+                    }
+                };
+                delayed.Invoke(context, new object[] { callback, null });
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Whether the client World plays its main-menu level now (<see cref="IsAtMainMenu"/>), read on the game thread within
         /// <paramref name="timeoutMs"/>; null when unbound, on timeout, or when the game thread does not run frames.
         /// </summary>

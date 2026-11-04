@@ -14,6 +14,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
     internal sealed class FakeSettingsMenuHost : ISettingsMenuHost
     {
         private readonly Queue<Action> posted = new Queue<Action>();
+        private readonly Queue<Action> delayed = new Queue<Action>();
 
         public FakeSettingsMenuHost(FakeFlashTree ui = null, bool windows = false)
         {
@@ -49,7 +50,13 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         /// <summary>False: <see cref="Post"/> fails (no game thread).</summary>
         public bool CanPost { get; set; } = true;
 
-        public int Pending { get { return posted.Count; } }
+        /// <summary>False: <see cref="PostNextFrame"/> fails (a context without DelayedPost).</summary>
+        public bool CanPostNextFrame { get; set; } = true;
+
+        public int Pending { get { return posted.Count + delayed.Count; } }
+
+        /// <summary>Frames run by <see cref="RunFrame"/>.</summary>
+        public int Frames { get; private set; }
 
         public List<string> Exits { get; } = new List<string>();
 
@@ -65,19 +72,47 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             return true;
         }
 
-        /// <summary>Runs every posted step, also the ones the steps post (a frame at a time until none is left, at most 100).</summary>
+        /// <summary>GameSynchronizationContext.DelayedPost: queued for the drain after the one running now (the next frame).</summary>
+        public bool PostNextFrame(Action action)
+        {
+            if (!CanPost || !CanPostNextFrame || action == null) return false;
+            delayed.Enqueue(action);
+            return true;
+        }
+
+        /// <summary>
+        /// One game frame as GameApplication.UpdateWorlds runs it: the context drain (GameSynchronizationContext.ExecuteItems: a step
+        /// posted with <see cref="Post"/> while the drain runs is run in the same drain), then the delayed items join the queue for
+        /// the next frame, then the worlds update (the Flash frame, <see cref="FakeFlashTree.AdvanceFrame"/>).
+        /// </summary>
+        public int RunFrame()
+        {
+            int ran = 0;
+            while (posted.Count > 0)
+            {
+                Action step = posted.Dequeue();
+                step();
+                if (++ran > 10000) throw new InvalidOperationException("a step posts itself again within the same drain: the frame never ends");
+            }
+            while (delayed.Count > 0) posted.Enqueue(delayed.Dequeue());
+            Frames++;
+            if (Ui != null) Ui.AdvanceFrame();
+            return ran;
+        }
+
+        /// <summary>Runs frames until nothing is posted (at most 1000): every posted step, also the ones the steps post.</summary>
         public int Drain()
         {
             int ran = 0;
-            for (int frame = 0; frame < 100 && posted.Count > 0; frame++)
-            {
-                int n = posted.Count;
-                for (int i = 0; i < n; i++)
-                {
-                    posted.Dequeue()();
-                    ran++;
-                }
-            }
+            for (int frame = 0; frame < 1000 && (posted.Count > 0 || delayed.Count > 0); frame++) ran += RunFrame();
+            return ran;
+        }
+
+        /// <summary>Runs <paramref name="frames"/> frames, posted work or not (time passing on a menu).</summary>
+        public int RunFrames(int frames)
+        {
+            int ran = 0;
+            for (int frame = 0; frame < frames; frame++) ran += RunFrame();
             return ran;
         }
 

@@ -246,6 +246,18 @@ namespace McvsOffline.Embedded.Admin
             }
         }
 
+        bool ISettingsMenuHost.PostNextFrame(Action action)
+        {
+            try
+            {
+                return action != null && game.PostNextFrame(action, log);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
         /// <summary>
         /// settings admin.openVia (server copy, read per open): auto, game, and the platform's own modes: an
         /// <see cref="IPagePlatform"/>'s <c>OpenModes</c> (Windows: overlay, system), else jni and post (Android). Anything else is

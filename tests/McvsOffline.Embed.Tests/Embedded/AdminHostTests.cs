@@ -598,14 +598,26 @@ namespace McvsOffline.Embed.Tests.Embedded
 
         public int Pending { get { return items.Count; } }
 
+        private readonly ConcurrentQueue<KeyValuePair<SendOrPostCallback, object>> delayed = new ConcurrentQueue<KeyValuePair<SendOrPostCallback, object>>();
+
+        public int Delayed { get { return delayed.Count; } }
+
         public override void Post(SendOrPostCallback d, object state)
         {
             items.Enqueue(new KeyValuePair<SendOrPostCallback, object>(d, state));
         }
 
+        /// <summary>GameSynchronizationContext.DelayedPost: joins the queue when the current drain ends.</summary>
+        public void DelayedPost(SendOrPostCallback d, object state)
+        {
+            delayed.Enqueue(new KeyValuePair<SendOrPostCallback, object>(d, state));
+        }
+
+        /// <summary>One frame's ExecuteItems: everything queued, also what is posted meanwhile; then the delayed items join the queue.</summary>
         public void Drain()
         {
             while (items.TryDequeue(out var item)) item.Key(item.Value);
+            while (delayed.TryDequeue(out var item)) items.Enqueue(item);
         }
     }
 

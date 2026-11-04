@@ -82,6 +82,36 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             }
         }
 
+        [Fact]
+        public void PostNextFrameRunsOneDrainLaterEvenFromAStepThatIsBeingDrained()
+        {
+            using (var env = new HostEnvironment("sm-nextframe"))
+            {
+                ISettingsMenuHost host = env.Host;
+                var order = new List<string>();
+                // From a drained step, Post runs in the same drain (ExecuteItems' while (HasWorkItems)); PostNextFrame one drain later
+                // (DelayedPost: the delayed items join the queue when the drain ends). The grid's retries depend on it.
+                Assert.True(host.Post(() =>
+                {
+                    order.Add("step");
+                    Assert.True(host.Post(() => order.Add("same drain")));
+                    Assert.True(host.PostNextFrame(() => order.Add("next frame")));
+                }));
+                env.Game.App.Context.Drain();
+                Assert.Equal(new[] { "step", "same drain" }, order);
+                Assert.Equal(1, env.Game.App.Context.Pending);
+                env.Game.App.Context.Drain();
+                Assert.Equal(new[] { "step", "same drain", "next frame" }, order);
+                // A callback that throws is logged, not thrown into the game.
+                Assert.True(host.PostNextFrame(() => { throw new InvalidOperationException("probe"); }));
+                env.Game.App.Context.Drain();
+                env.Game.App.Context.Drain();
+                Assert.False(host.PostNextFrame(null));
+                FakeGame.Uninstall();
+                Assert.False(host.PostNextFrame(() => order.Add("never")));
+            }
+        }
+
         // ------------------------------------------------------------------ the PERFORMANCE values (PerformanceSettingsStore)
 
         [Fact]
