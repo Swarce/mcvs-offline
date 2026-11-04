@@ -1,7 +1,7 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-Last updated for build 23 (November 2026, on `wip/pc-port`; APK and PC kit): build 23 fixes what the owner saw on the phone in build 22 (the PERFORMANCE title drawn over its icon, ABOUT right of centre, a small stutter on the gear tap) and adds timings to the `settings menu:` log lines; Steam is unchanged apart from log text; not yet tested on a phone or on Windows; see "Build 23". The Steam bots' report (they idle at spawn and sometimes stop moving) is open: its investigation was stopped before any result, see "Build 23". Build 22: on the owner's phone build 21 still flashed
+Last updated for build 24 (November 2026, on `wip/pc-port`; APK and PC kit): build 24 keeps ABOUT centred on the return from a tab (the owner's build-23 log: the tile just tapped was still in its pressed animation and our width check refused it); see "Build 24". Build 23 fixes what the owner saw on the phone in build 22 (the PERFORMANCE title drawn over its icon, ABOUT right of centre, a small stutter on the gear tap) and adds timings to the `settings menu:` log lines; Steam is unchanged apart from log text; not yet tested on a phone or on Windows; see "Build 23". The Steam bots' report (they idle at spawn and sometimes stop moving) is open: its investigation was stopped before any result, see "Build 23". Build 22: on the owner's phone build 21 still flashed
 MORE GAMES and the FORUM tile on a return to Settings; build 22 no longer races the game's own `setup()`: on the phone
 its stock writes are made to draw nothing (the engine's text remap turns FORUM into PERFORMANCE, the icon is out of its
 reach, the removed tiles are off the panel, ABOUT stays at the game's own place on the bottom row), prepared before
@@ -65,6 +65,32 @@ HD texture probe and a Windows test kit for the Steam version. Build 11 installs
 version into the game's own data. Build 12 accepts a full ASTC data pack with 2,215 PC textures in it: **device test 9:
 the HD textures and the graphics profiles work, at the same frame rate as before**, and builds 10 to 12 (target Android
 15) installed and played fine.
+
+## Build 24 (November 2026): ABOUT stays centred on the return from a tab
+
+`2259991` on `wip/pc-port` (`McvsVersion.Build` is `24`). APK `mcvs-offline-2259991.apk` (SHA-256
+`2ffa1cb939c576052e4a08e033ee17c30f3ce992d6705d5afac47df2be6952cf`; same key, apksigner and zipalign OK); against build
+23's `mcvs-offline-3c2115f.apk` the same 952 entries, changed only the server DLL, the signature files and the 16-byte MVID
+span of the four patched game DLLs. PC kit SHA-256 `e5f1ce8c6c9dc6410f59f3c8e41afd4f6afa1297d31f09f30104b001d43617f7`
+(two publishes, same bytes; embeds the PC server DLL; build 23's kept as `McvsOffline.PcKit-3c2115f.exe`); PC end to end
+on a temp copy as in build 23 (install, verify, second install same bytes, uninstall exact, ILVerify unchanged). Tests:
+1578/1578, Embed 1296/1296, PcKit 63/63, PcSpike 62/62; 0 skipped.
+
+**The owner's report and log (build 23, S22):** the stutter is gone and the grid is right, but ABOUT shifts to the right.
+The log's returns say `before setup: not dressed (btn_general is 454 wide)` (and `btn_language is 454 wide`): the tile
+just tapped is still in its focus or pressed animation on the return from its tab (sprite 6716 scales to 0.97 there), and
+the width check (465.35 ± 2, there to stop on a game update that changed the tiles) refused the whole panel. So nothing was
+dressed before `setup()`, the MORE GAMES remap (taken out when Settings was left) was not put back, and the run laid out
+build 22's row 5 frames later: ABOUT at the right. The first entry of the log was right (`ABOUT on MORE GAMES (-177)`,
+`same frame: not needed`, our EnterSection 37.8 ms on the first tap of the process, 1-2 ms after).
+
+**The fix (both platforms):** a tile reads as a tile from 0.97 of its width (less the 2 of tolerance) to its full width;
+the in-match 0.8 panel and a ThinBtn still stop the layout. Tests: the return from GAMEPLAY SETTINGS and LANGUAGES with
+the tapped tile 454 wide keeps one centred ABOUT in every render; width cases 454, 449.5 (accepted) and 449.2 (refused);
+they fail on build 23's check.
+
+**Checklist:** open each tab and press Back (twice each): ABOUT stays centred, no MORE GAMES; the focus-in lines say
+`dressed`/`kept` with `ABOUT on MORE GAMES (-177)`, never `is 454 wide`.
 
 ## Build 23 (November 2026): the PERFORMANCE title, ABOUT centred, the gear-tap timings
 
