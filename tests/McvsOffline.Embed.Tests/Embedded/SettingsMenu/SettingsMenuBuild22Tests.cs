@@ -18,7 +18,8 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
     /// <c>if (Boolean(this.mc_image) &amp;&amp; icon)</c> in three resolution models, ImageContainer's reload, FormatString through the
     /// World's LocId remap and ReloadStringTable, and what each render draws (alpha, y off the panel, the drawn text and icon).
     /// <para>Every test here fails on build 21's SettingsMenu code (9ca6bf3) unless it says it is a regression check; the file uses
-    /// only members build 21 has (the rest is on the fakes), so it builds against those sources.</para>
+    /// only members build 21 has (the rest is on the fakes), so it builds against those sources. The last section (the review of
+    /// build 22) fails on 05a2028's code instead, except its regression check.</para>
     /// </summary>
     public class SettingsMenuBuild22Tests
     {
@@ -379,7 +380,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         [Theory]
         [InlineData(false)]
         [InlineData(true)]
-        public void TheBreadcrumbExistsOnlyFromTheFirstWorkInANativeToTheNextFrame(bool steam)
+        public void TheBreadcrumbExistsOnlyFromTheFirstWorkInANativeToTwoFramesLater(bool steam)
         {
             string dir = TempDir();
             try
@@ -397,7 +398,9 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
                 Assert.Equal(new[] { !steam }, seen);
                 Assert.True(atRender);
                 Assert.Contains(" focus-in 1 ", File.ReadAllText(marker));
-                rig.Host.RunFrame();                         // the run's first frame: the process lived through it
+                rig.Host.RunFrame();                         // the run's first frame: the focus-in frame's render may still run
+                Assert.True(File.Exists(marker));
+                rig.Host.RunFrame();                         // the frame after: that render has ended on either render thread mode
                 Assert.False(File.Exists(marker));
                 rig.Stay();
                 // Once per process: later focus-ins go through the same natives and write nothing.
@@ -472,8 +475,9 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
                 Assert.True(rig.Host.SettingsMenuSameFrame);   // the setting reads on, but the step stays off
                 Assert.Null(rig.State.SameFrame);
                 Assert.True(File.Exists(marker));             // so the next start skips it too
-                Assert.EndsWith("admin.settingsMenu.sameFrame could not be saved as off, so it stays off while the marker is there",
-                                rig.Host.Logs.Snapshot().Single(e => e.Level == LogLevel.Warn).Message);
+                // The key still reads on, so the line says the one way to retry.
+                Assert.EndsWith("admin.settingsMenu.sameFrame could not be saved as off, so it stays off while the marker is there; delete " +
+                                marker + " to retry", rig.Host.Logs.Snapshot().Single(e => e.Level == LogLevel.Warn).Message);
                 Assert.EndsWith("; same frame: off (a breadcrumb of the last start is still there)", rig.Host.Lines("settings menu: focus-in ").Last());
             }
             finally
@@ -518,6 +522,170 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
                 Assert.Empty(rig.Ui.HostWrites.Where(w => w.StartsWith("menu_settings", StringComparison.Ordinal)));
                 rig.Stay();
                 Assert.Empty(rig.GridLines);
+            }
+            finally
+            {
+                Directory.Delete(dir, true);
+            }
+        }
+
+        // ------------------------------------------------------------------ review of build 22 (each fails on 05a2028's code)
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void PerformanceOffThenOnInTheSameSettings_TheTileIsDrawnAndTappableAgain(bool sameFrame)
+        {
+            // The admin page sits inside Settings (ACCOUNT > MCVS Offline), so menu_settings and its instances stay while the owner
+            // switches PERFORMANCE off and on again. 05a2028: btn_forum is kept again with only x and y written, so it stays
+            // visible=false, alpha 0 and mouse off, is read back as in place, and R4 still hides the Gameplay rows.
+            var rig = new Rig();
+            rig.Host.SettingsMenuSameFrame = sameFrame;
+            rig.Open();
+            rig.Host.PerformanceSetting = false;
+            rig.TabAndBack("btn_audio");
+            Assert.False(rig.Ui.Tap("btn_forum"));                  // removed while PERFORMANCE is off (design §3.3)
+            rig.Host.PerformanceSetting = true;
+            int from = rig.TabAndBack("btn_audio");
+            FlashObject forum = rig.Ui.Instance("btn_forum");
+            Assert.True((bool)forum.Get("visible"));
+            Assert.Equal(1f, forum.Num("alpha"));
+            Assert.True((bool)forum.Get("mouseEnabled"));
+            Assert.True((bool)forum.Get("mouseChildren"));
+            Assert.Equal(245.4f, forum.Num("x"));
+            Assert.Equal(-50.9f, forum.Num("y"));
+            RenderPoint last = rig.Ui.Renders.Last();
+            Assert.True(last.Instances["btn_forum"].Drawn);
+            Assert.Null(Stock(last));
+            if (sameFrame) Assert.Equal(new string[0], StockRenders(rig, from));
+            Assert.True(PerformancePage.HidesGameplayRows(rig.Host, rig.State));
+            rig.Frame(() => Assert.True(rig.Ui.Tap("btn_forum")));
+            rig.Host.Drain();
+            Assert.Equal(0, rig.Ui.Game.ForumCalls);
+            Assert.Equal(McvsMenuNames.Gameplay, rig.Ui.Top.Name);
+            rig.Ui.AssertAllDisposed();
+        }
+
+        [Theory]
+        [InlineData(false, false)]   // no btn_forum on frame 3 (a game update)
+        [InlineData(true, false)]    // Kayac: setup() goes to frame 4, which has no btn_forum
+        [InlineData(false, true)]
+        public void RemapOn_NoTileOnThePanel_TheGameplayRowsStay(bool kayac, bool sameFrame)
+        {
+            // 05a2028: the remap counted as the tile whatever the read found, so a run that never found btn_forum set no
+            // RedressFailed while EnsureRemap's TileActive hid GRAPHICS SETTINGS and FRAME RATE LIMIT with no page to reach.
+            var rig = new Rig();
+            rig.Host.SettingsMenuSameFrame = sameFrame;
+            rig.Ui.Kayac = kayac;
+            if (!kayac)
+            {
+                rig.Ui.SettingsBuilt = menu =>
+                {
+                    FlashObject panel = menu.Child("mc_panel");
+                    if (panel.Frame == 3 && panel.Child("btn_forum") != null) panel.Children.Remove(panel.Child("btn_forum"));
+                };
+            }
+            rig.Open();
+            rig.Host.Drain();
+            Assert.True(((FakeLocalizationFormatter)rig.Ui.World.LocalizationFormatter).Contains("setting.ForumButton"));
+            Assert.True(rig.State.RedressFailed);
+            Assert.False(PerformancePage.HidesGameplayRows(rig.Host, rig.State));
+            Assert.StartsWith("settings menu: not laid out (" + (kayac ? "frame 4" : "no btn_forum"), rig.GridLines.Single());
+        }
+
+        [Fact]
+        public void RemapOn_AWidthTheRunCannotLayOut_TheTileStillCoversTheRows()
+        {
+            // Regression check of the other side: the instances are the timeline's, btn_forum among them, so the remapped tile
+            // opens the page and RedressFailed stays clear (as in 05a2028).
+            var rig = new Rig();
+            rig.Ui.SettingsBuilt = menu =>
+            {
+                FlashObject help = menu.Child("mc_panel").Child("btn_help");
+                if (help != null) help.Members["width"] = 300f;
+            };
+            rig.Open();
+            rig.Host.Drain();
+            Assert.StartsWith("settings menu: not laid out (btn_help is 300 wide", rig.GridLines.Single());
+            Assert.False(rig.State.RedressFailed);
+            Assert.True(PerformancePage.HidesGameplayRows(rig.Host, rig.State));
+        }
+
+        [Theory]
+        [InlineData(true, true)]     // gameswf refuses the rename: the container is still mc_image, its slot null
+        [InlineData(false, false)]   // the same-frame switch off: no dress before setup(), the run puts the icon back
+        [InlineData(true, false)]
+        public void PerformanceSwitchedOff_TheForumIconComesBack(bool refuseRename, bool sameFrame)
+        {
+            // 05a2028 looked the dressed icon up by its new name only, and only inside the dress before setup() (sameFrame on).
+            var rig = new Rig();
+            rig.Ui.RefuseIconRename = refuseRename;
+            rig.Host.SettingsMenuTrim = false;
+            rig.Host.SettingsMenuSameFrame = sameFrame;
+            rig.Open();
+            FlashObject forum = rig.Ui.Instance("btn_forum");
+            Assert.Null(forum.Get("mc_image"));                     // out of setup()'s reach, either way
+            Assert.Equal(refuseRename ? "mc_image" : "mcvs_perfIcon", FakeFlashTree.IconContainer(forum).Name);
+            rig.Host.PerformanceSetting = false;
+            rig.TabAndBack("btn_audio");
+            Assert.Equal("setting.ForumButton", rig.Ui.TileText("btn_forum"));
+            Assert.Equal(ForumIcon, rig.Ui.TileIcon("btn_forum"));
+            Assert.Equal("mc_image", FakeFlashTree.IconContainer(forum).Name);
+            Assert.Same(FakeFlashTree.IconContainer(forum), forum.Get("mc_image"));
+            // The stock icon branch reaches it again: the next return's setup() dresses it itself.
+            int loads = rig.Ui.IconLoads;
+            rig.TabAndBack("btn_help");
+            Assert.Equal(ForumIcon, rig.Ui.TileIcon("btn_forum"));
+            Assert.Equal(loads, rig.Ui.IconLoads);
+            if (!sameFrame) Assert.Single(rig.Host.Lines("settings menu: FORUM icon put back after setup()"));
+            rig.Ui.AssertAllDisposed();
+        }
+
+        [Fact]
+        public void WithoutTheRemapAndARefusedRenameAWriteThatThrowsStillPutsTheForumIconBack()
+        {
+            var rig = new Rig(look: false);
+            rig.Ui.World = null;
+            rig.Ui.RefuseIconRename = true;
+            rig.Open();
+            FlashObject forum = rig.Ui.Instance("btn_forum");
+            Assert.Null(forum.Get("mc_image"));
+            Assert.Equal(PerfIcon, rig.Ui.TileIcon("btn_forum"));
+            rig.Ui.Instance("btn_customer").ThrowsOnWrite = true;
+            rig.TabAndBack("btn_audio");
+            Assert.Equal("setting.ForumButton", rig.Ui.TileText("btn_forum"));
+            Assert.Equal(ForumIcon, rig.Ui.TileIcon("btn_forum"));
+            Assert.Same(FakeFlashTree.IconContainer(forum), forum.Get("mc_image"));
+            Assert.True(rig.Ui.Tap("btn_forum"));
+            Assert.Equal(1, rig.Ui.Game.ForumCalls);
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void WithTheRenderThreadTheBreadcrumbOutlivesTheFocusInFramesRender(bool steam)
+        {
+            // GameApplication.Render with the render thread on returns while the frame is still drawn (World.RenderAsync, :923);
+            // the next Render waits for it (:900), after the next frame's context drain. 05a2028 deleted the marker in that drain,
+            // so a native fault in the first draw of the dressed panel left no marker and crashed again at every start.
+            string dir = TempDir();
+            try
+            {
+                string marker = Path.Combine(dir, "settings-menu-same-frame.txt");
+                var rig = new Rig(steam);
+                rig.Host.SameFrameMarkerPaths = new[] { marker };
+                rig.Host.RenderThread = true;
+                var atRenderEnd = new Dictionary<int, bool>();
+                rig.Host.RenderEnded = frame => atRenderEnd[frame] = File.Exists(marker);
+                rig.Frame(() => rig.Ui.OpenSettings());
+                int focusIn = rig.Host.Frames;
+                rig.Host.RunFrame();
+                Assert.True(atRenderEnd[focusIn], "the marker was gone before the focus-in frame's render ended");
+                Assert.True(File.Exists(marker));
+                rig.Host.RunFrame();
+                Assert.False(File.Exists(marker));
+                rig.Stay();
+                Assert.Empty(Directory.GetFiles(dir));
             }
             finally
             {

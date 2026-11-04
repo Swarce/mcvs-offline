@@ -102,6 +102,12 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         /// </summary>
         public IconSlotMode IconSlot { get; set; }
 
+        /// <summary>
+        /// A rename of a tile's icon container throws (the AS3 rule for timeline-placed objects, which gameswf may or may not
+        /// enforce): SlotOut's null slot alone then keeps the icon out of setup()'s reach, and the container is still named mc_image.
+        /// </summary>
+        public bool RefuseIconRename { get; set; }
+
         /// <summary>ImageContainer.img loads (a new path: removeAllChilds and a new Loader, ImageContainer.as:66-108, 207-215).</summary>
         public int IconLoads { get; private set; }
 
@@ -614,6 +620,11 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         private FlashObject NewImageContainer()
         {
             var image = new FlashObject(this, "ImageContainer", "mc_image");
+            image.Setters["name"] = v =>
+            {
+                if (RefuseIconRename) throw new InvalidOperationException("Error #2078: The name property of a Timeline-placed object cannot be modified.");
+                image.Members["name"] = v;
+            };
             image.Setters["img"] = v =>
             {
                 object current;

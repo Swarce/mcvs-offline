@@ -78,6 +78,18 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         /// <summary>Frames run by <see cref="RunFrame"/>.</summary>
         public int Frames { get; private set; }
 
+        /// <summary>
+        /// The render thread on (RenderThreadMode Full): GameApplication.Render waits for the previous frame's render
+        /// (renderSignal.Wait, GameApplication.cs:900), starts this frame's World.RenderAsync (:923) and returns, so a frame's render
+        /// ends during the next frame's Render, after that frame's context drain. Off: it ends within the frame (:883-893).
+        /// </summary>
+        public bool RenderThread { get; set; }
+
+        /// <summary>Called with a frame's number when its render has ended (see <see cref="RenderThread"/>).</summary>
+        public Action<int> RenderEnded { get; set; }
+
+        private int rendering;
+
         public List<string> Exits { get; } = new List<string>();
 
         public object ClientUi()
@@ -129,7 +141,18 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Frames++;
             if (Ui != null) Ui.AdvanceFrame();
             if (update != null) update();
-            if (Ui != null) Ui.Render(Frames);
+            if (RenderThread)
+            {
+                // Render(N): the wait for render N-1, then render N starts and goes on after this frame.
+                if (rendering > 0 && RenderEnded != null) RenderEnded(rendering);
+                if (Ui != null) Ui.Render(Frames);
+                rendering = Frames;
+            }
+            else
+            {
+                if (Ui != null) Ui.Render(Frames);
+                if (RenderEnded != null) RenderEnded(Frames);
+            }
             return ran;
         }
 

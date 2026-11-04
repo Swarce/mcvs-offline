@@ -1,6 +1,7 @@
 // Host: embedded - owner group: EMBED (hosts/embedded, patcher/)
 // Platform-independent: compiled into the embedded DLL and into the net8 tests.
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
@@ -22,19 +23,22 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
     /// read; Steam: the first look). Once per process: every later focus-in goes through the same natives, and a file write on the
     /// game thread per return is not worth it. Temp file and rename (the marker exists whole or not at all), no flush to disk (a
     /// crash of the process leaves the page cache to the kernel; only a power cut could lose it).</item>
-    /// <item><see cref="Leave"/>: the run's first frame (every run step calls it; one field read when nothing is outstanding): the
-    /// process lived through the native call, the rest of the focus-in frame and its render, so the marker is deleted. It exists
-    /// only for that one frame.</item>
+    /// <item><see cref="LeaveNextFrame"/>: the run's first frame (one field read when nothing is outstanding) posts
+    /// <see cref="Leave"/> to the frame after it. The process has then lived through the native call, the rest of the focus-in
+    /// frame and its render also with the render thread on: GameApplication.Render starts the frame's World.RenderAsync and returns
+    /// (GameApplication.cs:923), and only the next frame's Render waits for it (:900), so the run's first frame can begin while
+    /// the focus-in frame is still being drawn; the frame after it cannot. The marker exists for about two frames.</item>
     /// <item><see cref="Check"/>: once per process, at start (<see cref="UiNatives.Start"/>, off the game thread) or at the first
     /// focus-in when the start did not run it: a marker found there was left by a process that ended inside that frame. The work is
     /// then switched off for this install the way the owner would do it, <c>admin.settingsMenu.sameFrame</c> = false in
     /// settings.json (the settings page shows the switch off; turning it back on retries), every marker is deleted, and one WARN
     /// line names the marker and the switch (the status page's "Recent problems"). When the setting cannot be saved the marker
-    /// stays and the work stays off in this process, so every start skips it until the marker is gone.</item>
+    /// stays and the work stays off in this process, so every start skips it until the marker is gone; the line then says to
+    /// delete it to retry (the key still reads on, so switching it cannot).</item>
     /// </list>
-    /// False positives need the process to end inside that one frame for another reason: a crash of the game itself in the rest of
-    /// the focus-in frame, or the game paused in the background right after it (a Home within about 16 ms of the tap or Back) and
-    /// then swiped away before it drew another frame. A normal exit, backgrounding at any other time and the watchdog (which only
+    /// False positives need the process to end inside those two frames for another reason: a crash of the game itself in the rest
+    /// of the focus-in frame or the next one, or the game paused in the background right after it (a Home within about 33 ms of
+    /// the tap or Back) and then swiped away before it drew two more frames. A normal exit, backgrounding at any other time and the watchdog (which only
     /// reports, never kills) find no marker. Every member never throws; nothing here reaches ActionScript.
     /// </summary>
     internal static class SameFrameBreadcrumb
@@ -49,16 +53,13 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             try
             {
                 if (host == null || state == null || !state.BeginBreadcrumbCheck()) return;
-                string found = null;
+                var markers = new List<string>();
                 foreach (string path in Paths(host))
                 {
-                    if (File.Exists(path))
-                    {
-                        found = path;
-                        break;
-                    }
+                    if (File.Exists(path)) markers.Add(path);
                 }
-                if (found == null) return;
+                if (markers.Count == 0) return;
+                string found = markers[0];
                 string line = "settings menu: same frame skipped: the last start ended during it (marker " + found + "); ";
                 if (host.SwitchSameFrameOff())
                 {
@@ -68,7 +69,9 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 else
                 {
                     state.SameFrameBlocked = true;
-                    line += SettingsSchema.SettingsMenuSameFrameKey + " could not be saved as off, so it stays off while the marker is there";
+                    // The key still reads on, so switching it on cannot retry: the marker is what keeps the step off.
+                    line += SettingsSchema.SettingsMenuSameFrameKey + " could not be saved as off, so it stays off while the marker is there; delete " +
+                            string.Join(" and ", markers.ToArray()) + " to retry";
                 }
                 state.SameFrameSkipped = line;
                 Log log = host.Log;
@@ -112,6 +115,23 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                     }
                 }
                 state.BreadcrumbProblem = "breadcrumb not written (" + problem + ")";
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>
+        /// The run's first frame: <see cref="Leave"/> one frame later (<see cref="ISettingsMenuHost.PostNextFrame"/>), after the
+        /// focus-in frame's render has ended on either render thread mode; at once when nothing can be posted (no run frame follows
+        /// to delete it later). One field read when there is no marker. Never throws.
+        /// </summary>
+        public static void LeaveNextFrame(ISettingsMenuHost host, SettingsMenuState state)
+        {
+            try
+            {
+                if (host == null || state == null || state.BreadcrumbPath == null) return;
+                if (!host.PostNextFrame(() => Leave(state))) Leave(state);
             }
             catch (Exception)
             {

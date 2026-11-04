@@ -241,7 +241,8 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         /// out (after how many frames and why it waited; how often it had to lay the grid out again) or not laid out (why, after how
         /// many frames). A run that never laid the grid out sets <see cref="SettingsMenuState.RedressFailed"/> as
         /// <see cref="Apply"/> does, also when Settings left early (the in-match grid's R4 gate needs no tile, so a panel this build
-        /// cannot lay out must show the Gameplay rows); a write that throws ends the run at once. After a write,
+        /// cannot lay out must show the Gameplay rows), on Android with the FORUM remap on only when btn_forum is not on the panel
+        /// (<see cref="Outcome.Covered"/>); a write that throws ends the run at once. After a write,
         /// <see cref="SettingsMenuState.TileActive"/> stays on through a failed read unless the panel is another one (another frame,
         /// an instance missing): only then can the tile read FORUM again within the run. "laid out again" counts the writes that
         /// found the stock grid back, not the re-dresses after another panel. Every frame after the first is posted with
@@ -349,8 +350,15 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             /// <summary>InPlace on Android: setup() had shown a removed instance again, off the panel (drawn as nothing; hidden again now).</summary>
             public bool OffPanel;
 
-            /// <summary>The FORUM remap was on: the tile reads PERFORMANCE whatever the step did (no RedressFailed).</summary>
+            /// <summary>The FORUM remap was on: the tile reads PERFORMANCE whatever the step did.</summary>
             public bool Remapped;
+
+            /// <summary>
+            /// The remap covers the tile: it was on, and btn_forum is on the panel (on the plan's frame, or the read stopped at a
+            /// width, which leaves the instances as they were). Only then does a run that never laid the grid out leave
+            /// <see cref="SettingsMenuState.RedressFailed"/> alone: with no tile there is no page to reach.
+            /// </summary>
+            public bool Covered;
         }
 
         /// <summary>
@@ -361,6 +369,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         {
             bool redress = false;
             bool remapped = false;
+            Dictionary<string, object> found = null;
             try
             {
                 bool trim = host.SettingsMenuTrim;
@@ -373,13 +382,18 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 using (var flash = new FlashScope(ui))
                 {
                     LayoutPlan plan = Plan(windows, redress);
-                    var found = new Dictionary<string, object>(StringComparer.Ordinal);
+                    found = new Dictionary<string, object>(StringComparer.Ordinal);
                     int frame;
                     bool gone;
                     bool changed;
                     string problem = Read(flash, plan, trim, redress, found, out frame, out gone, out changed);
                     if (problem != null)
-                        return new Outcome { Kind = OutcomeKind.Wait, Text = problem, Redress = redress, Gone = gone, Changed = changed, Remapped = remapped };
+                    {
+                        // The read stops at the first instance missing, so btn_forum may be there unread (a missing HELP).
+                        bool covered = remapped && (!changed || found.ContainsKey(SettingsMenuNames.ForumTile) ||
+                                                    frame == plan.Frame && TileOnPanel(flash));
+                        return new Outcome { Kind = OutcomeKind.Wait, Text = problem, Redress = redress, Gone = gone, Changed = changed, Remapped = remapped, Covered = covered };
+                    }
                     string done = Done(plan, frame, trim);
                     var offPanel = new List<string>();
                     bool placed = verify && trim && InPlace(flash, plan, found, !windows, false, offPanel);
@@ -401,7 +415,8 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             catch (Exception ex)
             {
                 Exception cause = ex is TargetInvocationException && ex.InnerException != null ? ex.InnerException : ex;
-                return new Outcome { Kind = OutcomeKind.Fail, Text = cause.GetType().Name + ": " + cause.Message, Redress = redress, Remapped = remapped };
+                bool covered = remapped && found != null && found.ContainsKey(SettingsMenuNames.ForumTile);
+                return new Outcome { Kind = OutcomeKind.Fail, Text = cause.GetType().Name + ": " + cause.Message, Redress = redress, Remapped = remapped, Covered = covered };
             }
         }
 
@@ -419,6 +434,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             private int stockFrames;
             private int offPanelFrames;
             private bool sameFrame;
+            private bool leavePosted;
             private bool redress;
             private bool seen;
             private string done;
@@ -437,9 +453,15 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             {
                 try
                 {
-                    // A frame after the focus-in's (this run's or a newer one's): the process lived through our work inside the
-                    // natives, its frame and its render, so the breadcrumb goes (one field read when there is none).
-                    SameFrameBreadcrumb.Leave(state);
+                    // The frame after the focus-in's (this run's or a newer one's): the process lived through our work inside the
+                    // natives and the rest of that frame. Its render may still be running on the render thread (Render returns
+                    // after starting World.RenderAsync, GameApplication.cs:923, and only the next Render waits for it, :900), so
+                    // the breadcrumb goes one frame later (one field read when there is none).
+                    if (!leavePosted)
+                    {
+                        leavePosted = true;
+                        SameFrameBreadcrumb.LeaveNextFrame(host, state);
+                    }
                     // A newer focus-in owns the grid: no line and no flag from this run.
                     if (state.LayoutRun != id) return;
                     frames++;
@@ -451,6 +473,9 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                         string before = state.PreDressRun == id ? state.PreDressDone : null;
                         // The focus-in as the first frame finds it (after setup() and the same-frame step), for the device logs.
                         Write(host, Probe(host, state, id, arm));
+                        // PERFORMANCE switched off after a dress the dress before setup() did not undo (the same-frame switch off,
+                        // or no panel then): the FORUM icon back now, outside any native.
+                        Write(host, RestoreIcon(host, state));
                         if (arm != null && arm.LaidOut)
                         {
                             sameFrame = true;
@@ -465,7 +490,9 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                         }
                     }
                     Outcome outcome = Attempt(host, state, true);
-                    redress = outcome.Redress && !outcome.Remapped;
+                    // Whether a run that never laid out sets RedressFailed: not while the remap covers a tile on the panel. Settings
+                    // gone after a frame found it keeps the reason of that frame (the line below says it too).
+                    if (!outcome.Gone || !seen) redress = outcome.Redress && !outcome.Covered;
                     switch (outcome.Kind)
                     {
                         case OutcomeKind.Off:
@@ -953,7 +980,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                     if (restore)
                     {
                         object tile = flash.Child(panel, SettingsMenuNames.ForumTile);
-                        object dressed = tile == null ? null : flash.Child(tile, SettingsMenuNames.PerformanceIconName);
+                        object dressed = tile == null ? null : DressedIcon(flash, tile);
                         if (dressed != null) PutIconBack(flash, tile, dressed);
                         if (!trim)
                         {
@@ -1006,6 +1033,36 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             finally
             {
                 if (text != null && state.PreDressRun == id) state.PreDressText = text;
+            }
+        }
+
+        /// <summary>
+        /// Android, <c>admin.settingsMenu.performance</c> off after a dress in this process: when btn_forum's icon is still out of
+        /// setup()'s reach (<see cref="DressedIcon"/>), the slot and name back and the stock FORUM dress (<see cref="Undress"/>), so the
+        /// tile reads and shows FORUM again. The run's first frame, outside any native and so not behind the same-frame switch;
+        /// <see cref="PreDress"/> does the same before setup() when it may, and then this finds nothing. "settings menu: FORUM icon put
+        /// back after setup()" when it did, else null. Never throws.
+        /// </summary>
+        private static string RestoreIcon(ISettingsMenuHost host, SettingsMenuState state)
+        {
+            try
+            {
+                if (host.IsWindows || host.SettingsMenuPerformance || !state.TileEverActive) return null;
+                object ui = host.ClientUi();
+                if (ui == null) return null;
+                using (var flash = new FlashScope(ui))
+                {
+                    object panel = SettingsPanel(flash);
+                    if (panel == null || Frame(flash, panel) != SettingsMenuNames.AndroidMainFrame) return null;
+                    object tile = flash.Child(panel, SettingsMenuNames.ForumTile);
+                    if (tile == null || DressedIcon(flash, tile) == null) return null;
+                    Undress(flash, tile);
+                    return "settings menu: FORUM icon put back after setup()";
+                }
+            }
+            catch (Exception)
+            {
+                return null;
             }
         }
 
@@ -1171,7 +1228,8 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         /// removed instance also counts as invisible while it is off the panel (alpha 0, y at <see cref="SettingsMenuNames.OffPanelY"/>):
         /// setup() shows MORE GAMES again on every focus-in (AND-AS :210), drawn as nothing; those go to <paramref name="offPanel"/>.
         /// <paramref name="strict"/> (the dress before setup()): every removed one hidden and off the panel, MORE GAMES at its
-        /// marker x. Reads only.
+        /// marker x. On Android a kept instance that still reads removed (<see cref="ReadsRemoved"/>: btn_forum hidden while
+        /// PERFORMANCE was off, kept again now that it is on) is not in place either. Reads only.
         /// </summary>
         private static bool InPlace(FlashScope flash, LayoutPlan plan, Dictionary<string, object> found, bool android, bool strict,
                                     List<string> offPanel)
@@ -1182,6 +1240,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 double? y = flash.Number(found[p.Name], "y");
                 if (x == null || y == null || Math.Abs(x.Value - (float)p.X) > PlaceTolerance || Math.Abs(y.Value - (float)p.Y) > PlaceTolerance)
                     return false;
+                if (android && ReadsRemoved(flash, found[p.Name])) return false;
             }
             foreach (string hidden in plan.Hidden)
             {
@@ -1207,6 +1266,28 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 if (shown) offPanel.Add(hidden);
             }
             return true;
+        }
+
+        /// <summary>
+        /// Android: the instance reads as one of our removed ones: <c>visible</c> false, <c>alpha</c> 0 or <c>mouseEnabled</c> false
+        /// (Android's setup() writes none of them on a tile or ABOUT: AND-AS MenuSettings.as:42-215 has only btn_more.visible, :210).
+        /// A value that cannot be read does not count, so an unreadable property never makes every frame a write. Reads only.
+        /// </summary>
+        private static bool ReadsRemoved(FlashScope flash, object item)
+        {
+            object visible = flash.Get(item, "visible");
+            if (visible is bool && !(bool)visible) return true;
+            object mouse = flash.Get(item, "mouseEnabled");
+            if (mouse is bool && !(bool)mouse) return true;
+            double? alpha = flash.Number(item, "alpha");
+            return alpha != null && alpha.Value <= 0.001;
+        }
+
+        /// <summary>btn_forum is on Settings' panel (<see cref="SettingsPanel"/>). Reads only.</summary>
+        private static bool TileOnPanel(FlashScope flash)
+        {
+            object panel = SettingsPanel(flash);
+            return panel != null && flash.Child(panel, SettingsMenuNames.ForumTile) != null;
         }
 
         /// <summary>The off-panel instances setup() showed again (<see cref="InPlace"/>): hidden again, MORE GAMES at its marker x.</summary>
@@ -1276,6 +1357,18 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             return "icon slot kept (" + why + ")";
         }
 
+        /// <summary>
+        /// The icon container <see cref="SlotOut"/> put out of setup()'s reach, or null when the slot still reaches an icon (the stock
+        /// tile, or one put back): the slot reads null and the container is the child renamed
+        /// <see cref="SettingsMenuNames.PerformanceIconName"/>, or still named <c>mc_image</c> when gameswf refused the rename (SlotOut
+        /// counts the null slot alone). Reads only.
+        /// </summary>
+        private static object DressedIcon(FlashScope flash, object forum)
+        {
+            if (flash.Get(forum, SettingsMenuNames.IconSlot) != null) return null;
+            return flash.Child(forum, SettingsMenuNames.PerformanceIconName) ?? flash.Child(forum, SettingsMenuNames.IconSlot);
+        }
+
         /// <summary>Undoes <see cref="SlotOut"/> on <paramref name="icon"/> (the container): its name and the slot. Never throws.</summary>
         private static void PutIconBack(FlashScope flash, object forum, object icon)
         {
@@ -1302,7 +1395,8 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         /// <para>Build 22 on Android (<paramref name="android"/>): the re-dress is the full one (title and icon) only while setup()
         /// can still reach the icon, then <see cref="SlotOut"/>; once the icon is out of reach the title alone, and nothing while
         /// the remap is on. A removed instance also gets y <see cref="SettingsMenuNames.OffPanelY"/>, alpha 0 and
-        /// <c>mouseChildren=false</c> (setup() writes none of them), MORE GAMES x <see cref="SettingsMenuNames.MoreGamesMarkerX"/>.
+        /// <c>mouseChildren=false</c> (setup() writes none of them), MORE GAMES x <see cref="SettingsMenuNames.MoreGamesMarkerX"/>; a
+        /// kept one that still reads removed (<see cref="ReadsRemoved"/>) gets <c>visible</c>, alpha 1 and the mouse back first.
         /// Returns the icon's state ("icon slot null" or "icon slot kept (...)"), or null without the re-dress.</para>
         /// </summary>
         private static string WriteGrid(FlashScope flash, SettingsMenuState state, LayoutPlan plan, Dictionary<string, object> found,
@@ -1340,6 +1434,15 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                     // Absolute, as float (an AS Number; ASValue.SetObject makes a double a managed object): this ends Steam's drift.
                     foreach (Placement p in plan.Kept)
                     {
+                        // Android: an instance removed by an earlier plan (btn_forum while PERFORMANCE was off) is drawn and tappable
+                        // again; setup() never writes these, so nothing else would.
+                        if (android && ReadsRemoved(flash, found[p.Name]))
+                        {
+                            flash.Set(found[p.Name], "visible", true);
+                            flash.Set(found[p.Name], "alpha", 1f);
+                            flash.Set(found[p.Name], "mouseEnabled", true);
+                            flash.Set(found[p.Name], "mouseChildren", true);
+                        }
                         flash.Set(found[p.Name], "x", (float)p.X);
                         flash.Set(found[p.Name], "y", (float)p.Y);
                     }
@@ -1400,7 +1503,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         {
             try
             {
-                object icon = flash.Child(forum, SettingsMenuNames.PerformanceIconName);
+                object icon = DressedIcon(flash, forum);
                 if (icon != null) PutIconBack(flash, forum, icon);
                 flash.Call(forum, "setup", Dress(ForumTitle, ForumIcon));
             }

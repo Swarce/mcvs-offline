@@ -389,7 +389,8 @@ Settings menu** (`admin.settingsMenu.performance`) removes the PERFORMANCE tile 
 **Lay out Settings before it is drawn** (`admin.settingsMenu.sameFrame`, on by default), prepares the menu before the
 game draws it, so MORE GAMES and FORUM never flash on a return; off, the first opening can show the stock menu for one
 frame. It turns itself off when the game closed during that step at the last start (the status page's "Recent problems"
-then has a `same frame skipped` line): switch it back on to try again. With build 22 ABOUT sits at the right of the
+then has a `same frame skipped` line): switch it back on to try again (if settings.json could not be saved, the line
+names the marker file to delete instead). With build 22 ABOUT sits at the right of the
 bottom row, where the game itself puts it. If the menu cannot be rearranged, it stays as the game draws it and
 `server.log` says why in a `settings menu:` line.
 

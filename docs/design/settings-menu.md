@@ -360,7 +360,9 @@ Title PERFORMANCE (`setting.Performance`, translated). No category headers, as o
     `EnterSection("settings_main_screen")` while `admin.settingsMenu.performance` is on, out when it is off (only our own
     entry: a Remap.json entry for the same id would stay). Pure C#, so not behind the same-frame switch. While it is in,
     `TileActive` is set at once in EnterSection (a tap opens the page, R4 hides the rows, from the focus-in frame on), and
-    the run sets `RedressFailed` no more (the tile reads PERFORMANCE whatever our steps did). One line per change:
+    a run that never laid the grid out sets `RedressFailed` only when `btn_forum` is not on the panel (another frame, the
+    tile missing): with the tile there it reads PERFORMANCE whatever our steps did, without it no page is reachable and the
+    Gameplay rows must stay. One line per change:
     `settings menu: FORUM remap installed | removed | not installed (<why>)`. Without it (it cannot be installed), build 21's
     re-dress and undress stand.
   * **Icon: out of BtnBase.setup's reach.** Once per `btn_forum` instance it is dressed with PERFORMANCE (the icon loads),
@@ -371,10 +373,16 @@ Title PERFORMANCE (`setting.Performance`, translated). No category headers, as o
     are put back (`icon slot kept (<why>)`) and the look after `setup()`'s last write re-dresses the icon inside `setup()`'s
     stack, as build 21 did; the tile counts as dressed only while its icon is PERFORMANCE's (`img`, a public getter,
     ImageContainer.as:202-205). Undress (a failed write without the remap, or PERFORMANCE switched off) puts the name and the
-    slot back first, so `setup()`'s own FORUM icon reaches it again.
+    slot back first, so `setup()`'s own FORUM icon reaches it again; the dressed container is found by its new name, else
+    still as `mc_image` with the slot null (gameswf refused the rename, which `icon slot null` accepts). PERFORMANCE switched
+    off is undone by PreDress before `setup()` when the same-frame switch allows it, else by the run's first frame (outside
+    any native: the slot back and the stock FORUM dress, `settings menu: FORUM icon put back after setup()`).
   * **MORE GAMES, SOCIAL MEDIA, CUSTOMER CARE: off the panel.** `y` 4000, `alpha` 0, `mouseEnabled` and `mouseChildren`
     false, `visible` false, and `btn_more.x` 0, a marker `setup()` never writes. `setup()`'s `btn_more.visible = true` and
-    the x writes then draw nothing, and the hidden MORE GAMES (depth 99, above ABOUT's 69) catches no tap. No scale 0.
+    the x writes then draw nothing, and the hidden MORE GAMES (depth 99, above ABOUT's 69) catches no tap. No scale 0. A kept
+    instance that still reads removed (`visible`, `alpha` or `mouseEnabled` off: `btn_forum` hidden while PERFORMANCE was
+    off and kept again, the Settings instance unchanged under the admin page) is not in place, and its write puts `visible`,
+    alpha 1 and the mouse back before x and y (`setup()` writes none of them on a tile).
   * **ABOUT at 208**, `setup()`'s own x (§1.2): its last stock write is a no-op.
   * **When: `PreDress`, synchronously inside our EnterSection delegate, before `setup()`.** MenuBase.onFocusIn calls
     `EnterSection` (:339) before `MenuSettings.onFocusIn`'s `setup()` (AND-AS/MS:468-473), in the same AS stack [V]. On a
@@ -403,12 +411,16 @@ Title PERFORMANCE (`setting.Performance`, translated). No category headers, as o
     folder, next to `restart-requested.txt`; McvsOffline\logs on PC), else in the fallback log folder the log files move to
     when that one cannot be written (Android internal storage; %TEMP%\McvsOffline\logs on PC, never a Steam folder that
     cannot be written). Written once per process, right before the first Flash access inside a native (Android: PreDress's
-    first read; Steam: the first look), temp file and rename; deleted by the run's first frame, so it exists only for the
-    rest of that one focus-in frame and its render. At the next start (`UiNatives.Start`, off the game thread; or the first
+    first read; Steam: the first look), temp file and rename; deleted one frame after the run's first frame
+    (`PostNextFrame`): with the render thread on, `GameApplication.Render` starts the frame's `World.RenderAsync` and
+    returns (GameApplication.cs:923), and only the next Render waits for it (:900), after the next frame's context drain, so
+    the run's first frame can begin while the focus-in frame is still drawn. The marker exists for about two frames, the
+    focus-in frame's render included. At the next start (`UiNatives.Start`, off the game thread; or the first
     focus-in) a leftover marker switches `admin.settingsMenu.sameFrame` off in settings.json and logs one WARN line:
     `settings menu: same frame skipped: the last start ended during it (marker <path>); admin.settingsMenu.sameFrame is now
     off; switch it back on to retry`. When the setting cannot be saved the marker stays and the work stays off in this
-    process (`… could not be saved as off, so it stays off while the marker is there`). Marker I/O never throws into AS; a
+    process (`… could not be saved as off, so it stays off while the marker is there; delete <path> to retry`: the key still
+    reads on, so switching it cannot retry). Marker I/O never throws into AS; a
     marker that cannot be written is said once on the focus-in line (`; breadcrumb not written (<why>)`).
   * **Steam:** unchanged (PC `setup()` goes to frame 3 and back to 1 and writes absolute x for every tile, PC-AS/MS:44-48,
     :253-364, so per-instance tricks would not survive): build 21's GetLanguage step, now behind the switch and the
@@ -422,8 +434,11 @@ Title PERFORMANCE (`setting.Performance`, translated). No category headers, as o
     no flash. `same frame: off (admin.settingsMenu.sameFrame off)` or `off (a breadcrumb of the last start is still there)`
     when switched off.
   * **Tests** (`SettingsMenuBuild22Tests`, on fakes that model setup()'s gotoAndStop, BtnBase's icon branch in three
-    resolution models, the image reload, the remap, ReloadStringTable and what each render draws): 24 cases, 21 of them fail
-    on build 21's code (the other three are marked regression checks); `SameFrameBreadcrumbTests` for the members alone, and
+    resolution models, the image reload, the remap, ReloadStringTable, a refused icon rename, what each render draws and a
+    pipelined render thread): 36 cases. The first 24 cover build 22 (21 fail on build 21's code, three are marked regression
+    checks); the 12 of the review of build 22 (a tile kept again after PERFORMANCE was off, the R4 net with no tile on the
+    panel, the icon put back without the rename or the same-frame switch, the marker across the render thread) fail on
+    05a2028's code but one regression check, as do the two changed breadcrumb cases; `SameFrameBreadcrumbTests` for the members alone, and
     the real-assembly check of the remap's members (`RealSettingsMenuMembersTests`).
 * `admin.settingsMenu.trim` off: no relayout; with `admin.settingsMenu.performance` on, only the re-dress, in place.
 
@@ -570,8 +585,8 @@ Title PERFORMANCE (`setting.Performance`, translated). No category headers, as o
    before `UpdateSignal.Set()` (a new fingerprinted patch). **Our Flash work inside natives** (PreDress, the look) could
    meet a native fault no managed code can catch: then `admin.settingsMenu.sameFrame` turns itself off at the next start
    (the breadcrumb, §3.2) and the owner can switch it back on to retry. False positives need the process to end inside
-   that one frame for another reason (a crash of the game in the rest of the frame, or Home within about 16 ms of the tap
-   or Back and the app swiped away before it drew again); normal exits, backgrounding at any other time and watchdog
+   those two frames for another reason (a crash of the game in the rest of the frame or the next, or Home within about
+   33 ms of the tap or Back and the app swiped away before it drew twice more); normal exits, backgrounding at any other time and watchdog
    reports leave no marker.
 11. **ABOUT is not centred on Android** (build 22, by design, §1.2): it stays at `setup()`'s own 208, as ThinBtn's
     timeline moves its children on every button state.

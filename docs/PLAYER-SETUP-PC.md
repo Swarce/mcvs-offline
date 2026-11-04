@@ -131,7 +131,7 @@ back the next time Settings opens. **Lay out Settings before it is drawn** (`adm
 lays the menu out in the frame that opens it; off, the stock menu can show for one frame first. It turns itself off when
 the game closed during that step at the last start (a `same frame skipped` line in "Recent problems"; the marker file is
 `McvsOffline\logs\settings-menu-same-frame.txt`, or `%TEMP%\McvsOffline\logs\` when the game folder cannot be written):
-switch it back on to try again.
+switch it back on to try again (if settings.json could not be saved, the line names the marker file to delete instead).
 
 **Graphics.** Use the game's own menu: Settings › PERFORMANCE (graphics quality, antialiasing, screen scale, FPS limit,
 full screen, Vsync, resolution, field of view, low resolution maps). The graphics quality applies at the next start and overrides the settings page's
