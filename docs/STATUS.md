@@ -1,13 +1,12 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-Last updated for build 22 (November 2026, on `wip/pc-port`; APK and PC kit): on the owner's phone build 21 still flashed
+Last updated for build 23 (November 2026, on `wip/pc-port`; APK and PC kit): build 23 fixes what the owner saw on the phone in build 22 (the PERFORMANCE title drawn over its icon, ABOUT right of centre, a small stutter on the gear tap) and adds timings to the `settings menu:` log lines; Steam is unchanged apart from log text; not yet tested on a phone or on Windows; see "Build 23". The Steam bots' report (they idle at spawn and sometimes stop moving) is open: its investigation was stopped before any result, see "Build 23". Build 22: on the owner's phone build 21 still flashed
 MORE GAMES and the FORUM tile on a return to Settings; build 22 no longer races the game's own `setup()`: on the phone
 its stock writes are made to draw nothing (the engine's text remap turns FORUM into PERFORMANCE, the icon is out of its
 reach, the removed tiles are off the panel, ABOUT stays at the game's own place on the bottom row), prepared before
 `setup()` runs; a new switch, **Lay out Settings before it is drawn** (`admin.settingsMenu.sameFrame`), turns that work
-off, and turns itself off after a start that ended inside it (one `same frame skipped` line); Steam is unchanged; not
-yet tested on a phone or on Windows; see "Build 22". Build 21: build 20 fixed the stock Settings menu after
+off, and turns itself off after a start that ended inside it (one `same frame skipped` line). Build 21: build 20 fixed the stock Settings menu after
 a return, but the stock menu still flashed for a split second before our layout; build 21 lays the grid out inside the
 frame of the return itself (from a Flash native the game's own `setup()` calls after its last stock write:
 `GetPlatformId` on the phone, `GetLanguage` on Steam), so no frame draws the stock grid, keeps build 20's run as the
@@ -66,6 +65,64 @@ HD texture probe and a Windows test kit for the Steam version. Build 11 installs
 version into the game's own data. Build 12 accepts a full ASTC data pack with 2,215 PC textures in it: **device test 9:
 the HD textures and the graphics profiles work, at the same frame rate as before**, and builds 10 to 12 (target Android
 15) installed and played fine.
+
+## Build 23 (November 2026): the PERFORMANCE title, ABOUT centred, the gear-tap timings
+
+### What build 23 contains
+
+`3c2115f` on `wip/pc-port` (`McvsVersion.Build` is `23`; the code is the merge of `wip/b23-phone`: `abf0ad6`,
+`e084f97`, its docs `4130d4e` and the review fixes `dc07845`). APK: `mcvs-offline-3c2115f.apk` (SHA-256
+`84cdeb826ec4b1fef83649255ba64a089602d4ff9bd5f590befbbff7fa48df8a`; the default patch set; the same key as every build;
+apksigner v1+v2+v3 and zipalign OK); it installs over build 22 as usual. Compared entry by entry with build 22's
+`mcvs-offline-e1bb9b9.apk`: the same 952 entries in the same order; changed only the server DLL (2,678,272 → 2,703,872
+bytes), the signature files and one 16-byte span (the MVID) in each of `Game.dll`, `Gameloft.Engine.dll`,
+`Gameloft.Util.dll` and `NicePlaySDK.dll`. PC kit `McvsOffline.PcKit.exe` (SHA-256
+`f5b6c4844fce013d834fa8f6f1a6b16bb39b2c58503ed43bb08281d1ece962ea`, two publishes gave the same bytes; it embeds the PC
+server DLL byte for byte) replaces build 22's (kept as `McvsOffline.PcKit-e1bb9b9.exe`). PC end to end on a temp copy of
+the Steam files: install, verify and status `installed, current`, a second install wrote the same bytes, uninstall
+restored the exact listing and every SHA-256, ILVerify the same as build 22's. Not run this time: the upgrade over a
+build-22 install (the installer did not change). Tests at `3c2115f`, every `MCVS_REQUIRE_*` = 1: McvsOffline.Tests
+1578/1578, McvsOffline.Embed.Tests 1290/1290, PcKit 63/63, PcSpike 62/62; 0 skipped. The design is
+[design/settings-menu.md](design/settings-menu.md) §3.2 ("Build 23"), §5 risks 11-17 and §6.
+
+**The owner's report (build 22, S22, screenshot):** the grid no longer flashes, but the PERFORMANCE title sits in the
+middle of its tile over the icon, ABOUT sits right of centre on the bottom row, and the game stutters a little on the
+gear tap.
+
+**The fixes (phone; Steam only gains log text):**
+
+* **The PERFORMANCE title.** The tiles centre their title unless `needAlign` is off, and the game turns it off just
+  before each tile's own setup. Build 22's dress before `setup()` ran on brand-new tiles first, so the title was centred
+  and stayed there. Build 23 turns `needAlign` off first (and reads it back), and puts the title back at the tiles'
+  height only when it is clearly centred; a refused write logs one line and leaves build 22's title.
+* **ABOUT centred.** The game itself writes MORE GAMES at the row's centre (-177) on every return, so MORE GAMES now is
+  the ABOUT button: a text remap (`setting.FreeGamesButton` → `setting.CreditButton`) titles it ABOUT, its tap opens
+  About (the `GoToFreeGames` native is replaced like `GoToForum`, and the top bar's Gameloft button keeps its own
+  behaviour), and the real ABOUT goes off the panel like the other removed tiles. The remap is taken out again when
+  any step fails or Settings is left. It sits about 5 px right of builds 19-21's centre (Gameloft's own centre). Switch:
+  **ABOUT centred** (`admin.settingsMenu.aboutCentre`, phone only, default on); off gives build 22's row exactly.
+* **The stutter (not measured yet).** Every gear tap builds a new Settings menu. On the phone build 23 skips the
+  same-frame look when the dress before `setup()` proved everything is in place (`same frame: not needed (dressed before
+  setup)`), which removes most of our Flash calls in that frame. The `settings menu:` lines now carry timings (`ms`):
+  our time per step, the focus-in frame's length with the frame before it as a baseline, and our time over the run.
+
+**Bots on Steam (open).** The owner reports that on Steam bots wait at spawn until a player reaches the middle of the
+map, and sometimes stop moving for good while still aiming and shooting; on the phone they are lively. An investigation
+(the AI, the level layers the match servers load, timing, our PC patches, logs) was stopped before any result to save
+usage. One lead to check first: on PC our MEM rule keeps the levels' Physics layer (`embedded.physics.keepPhysicsLayer`),
+which the phone's Mid profile leaves out, and the match servers in the game share that setting.
+
+### Checklist (phone, then PC)
+
+1. Open Settings from the gear five times: the PERFORMANCE title sits under the speedometer at the same height as the
+   other titles every time, and shrinks with the tile when pressed.
+2. The bottom row shows one ABOUT, centred, no MORE GAMES and no second ABOUT. Tap it: About opens; Back: the same row.
+3. With Settings open, the Gameloft logo in the top bar (if shown) does what it did in build 22.
+4. Stutter: every gear tap or only the first after a start? Which FRAME RATE LIMIT? Send `server.log` with the
+   `settings menu:` lines (with their `ms` parts).
+5. Switch **ABOUT centred** off: build 22's row (ABOUT at the right); back on: step 2 again.
+6. In a match: pause, Settings: the stock in-match panel as before.
+7. Steam: Settings exactly as in build 22; send one return's `settings menu:` lines (now with `ms`).
 
 ## Build 22 (November 2026): the stock Settings writes draw nothing, and a switch with an automatic fallback
 
