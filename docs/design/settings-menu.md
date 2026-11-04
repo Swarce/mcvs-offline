@@ -5,7 +5,10 @@ Status: built in build 19 (`hosts/embedded/Admin/SettingsMenu/`, `hosts/embedded
 stock menu again after a tab and Back on both platforms; the device cause is not known, and build 20's log names it. Build
 21 (`d74a07a`, APK and PC kit) lays the grid out in the focus-in frame itself (§3.2, "Build 21"), after the owner saw build
 20's stock grid flash "for a split second" on every return to Settings (the Back bug itself was fixed by build 20); the run
-per focus-in stays as the safety net. Build 21 has not yet been seen working on a phone or on Windows. This is the final design: the review corrections (A1-A3, B1-B2, C1, D1-D2, E1-E7, F1
+per focus-in stays as the safety net. Build 22 (branch `wip/b22-switch`) makes Android's `setup()` stock writes draw nothing,
+after the owner saw build 21 still flash MORE GAMES and the FORUM tile on a return (§3.2, "Build 22"), and adds the switch
+`admin.settingsMenu.sameFrame` with its automatic fallback (§5 risk 2). Build 22 has not yet been seen on a phone or on
+Windows. This is the final design: the review corrections (A1-A3, B1-B2, C1, D1-D2, E1-E7, F1
 of the design review) are folded in, and each place says which one it is.
 
 Tags: [V] checked in the exported ActionScript, the decompiled C#, the game data or the repo code. [I] inferred from the
@@ -90,20 +93,27 @@ ABOUT is a `ThinBtn`, centred on its 365.8-wide plate, not on its runtime `.widt
 ```
   [ GAMEPLAY SETTINGS ] [ AUDIO ] [ CUSTOMIZE CONTROLS ] [ ACCOUNTS ]
           [ HELP ] [ LANGUAGES ] [ PERFORMANCE ]
-                         ( ABOUT )
+                                    ( ABOUT )
 ```
 
 | row | tile (instance) | x | y |
 |---|---|---|---|
 | 1 | GAMEPLAY SETTINGS (`btn_general`) · AUDIO (`btn_audio`) · CUSTOMIZE CONTROLS (`btn_customize`) · ACCOUNTS (`btn_account`) | -948 · -471.05 · 6.85 · 484 | -427.9 |
 | 2 | HELP (`btn_help`) · LANGUAGES (`btn_language`) · **PERFORMANCE** (`btn_forum`, re-dressed) | -709.4 · -232.0 · 245.4 | -50.9 |
-| bottom | ABOUT (`btn_credits`) | -182.9 | 354.1 |
-| hidden | `btn_social`, `btn_customer`, `btn_more` | | |
+| bottom | ABOUT (`btn_credits`) | 208 (build 22; -182.9, centred, until build 21) | 354.1 |
+| hidden | `btn_social`, `btn_customer`, `btn_more` (build 22: also off the panel, y 4000, alpha 0) | | |
 
 * **Order.** The PC order with CUSTOMIZE CONTROLS after AUDIO, so both platforms read the same way and PERFORMANCE
   comes last, as on Steam.
 * Row 1 keeps the stock columns, already centred (S22 screen x 152-1849) [V]. Row 2 keeps row 1's pitch (about 477.4)
   and is centred on row 1's centre [I].
+* **ABOUT at 208 (build 22, by design):** where `setup()` itself puts it on every focus-in (AND-AS/MS:213, `btn_more.visible`
+  having just been set true at :210), so that write draws nothing new. Centring it needs another x than setup's, and every
+  way to keep that against :213 failed review: shifting ABOUT's children by -390.9 does not hold, because ThinBtn's own
+  timeline moves them on every button state (`_library.swf` sprite 1047: `mc_bg` x 0 on frames 1-14, 8.85 to 17.25 on
+  frames 15-44 from `focus_in` to `enabled_end`; `txt` -2.9 to 2.25) [V], so a tap or a focus change would snap the plate
+  back or freeze its press animation. BtnBase and BtnSimple themselves write no child x (only `txt.y`, BtnSimple.as:85-88)
+  [V]. ABOUT therefore sits right of centre on the bottom row, its stock place.
 * With `admin.settingsMenu.performance` off and the trim on, FORUM stays hidden and row 2 is HELP and LANGUAGES under
   row 1's two middle columns (-471.05, 6.85).
 * **The PERFORMANCE tile** is `btn_forum` re-labelled from C#: `setup({title:"setting.Performance",
@@ -327,6 +337,94 @@ Title PERFORMANCE (`setting.Performance`, translated). No category headers, as o
     blink while it loads [G: whether gameswf completes it at once is not known]; that cannot be avoided while the stock
     `setup()` re-dresses FORUM. Not grid: the camera switch (`MoveToCamera`), FreemiumBar's title and back group, and the
     leaving submenu's own hide redraw in the same frame.
+* **Build 22: setup()'s stock writes draw nothing (Android), and a switch with a fallback (both platforms).** The owner's
+  build-21 report from the S22: "it flashes the more games and the forum button after, the trim remains". That is exactly the
+  state at the end of `setup()` before any write of ours, so on the phone the same-frame step did not land or landed too
+  early (the likeliest causes, from a read-only diagnosis of five investigations: the look throwing or never called inside
+  the native, or build 21's gate opening early when ABOUT could not be read); no device log says which. Build 22 does not
+  wait for one: every visible effect of Android's `setup()` goes through a property it writes, so what we need moves onto
+  properties it never writes, and its own writes produce our state. No render, early or late, can then show MORE GAMES,
+  FORUM or ABOUT elsewhere. On a return `setup()` writes only these on screen [V, AND-AS/MS:42-215]: the FORUM dress of
+  `btn_forum` (:114-119, through BtnBase.setup's `setStringID` and `mc_image.img`, BtnBase.as:119, :130-134),
+  `btn_more.visible = !IsKayac()` (:210) and the bottom row's x (`btn_customer` -564, `btn_more` -177, `btn_credits` 208,
+  :211-213). It writes no y (but `mc_blocker`'s, frame 2), no alpha, no `mouseEnabled` and no child x.
+  * **Title: the engine's own LocId remap** (`ForumRemap`, `SettingsMenuLayout.EnsureRemap`). `setting.ForumButton →
+    setting.Performance` goes into the client World's `LocalizationFormatterComponent.remapDictionary`, a private
+    `Dictionary<LocId, LocId>` (LocalizationFormatterComponent.cs:34) filled once from Remap.json at OnCreate (:91-97,
+    :269-292) and applied by `RemapLocId` inside both FormatString overloads before the lookup (:260-267, :422, :494). Every
+    menu text goes through it (MenuComponent.FormatString → LocalizationComponent.FormatString → `World.LocalizationFormatter`,
+    MenuComponent.cs:1168-1205, LocalizationComponent.cs:335-338, World.cs:438), so `setup()`'s own dress writes the
+    translated PERFORMANCE, synchronously, on every focus-in, and `ReloadStringTable` (a language change) re-formats it the
+    same way (MenuComponent.cs:1047-1078) [V]. `setting.ForumButton` is used only at AND-AS/MS:117 [V grep]. Copy and swap: a
+    new dictionary with the entry replaces the field, never one changed in place. In from the first
+    `EnterSection("settings_main_screen")` while `admin.settingsMenu.performance` is on, out when it is off (only our own
+    entry: a Remap.json entry for the same id would stay). Pure C#, so not behind the same-frame switch. While it is in,
+    `TileActive` is set at once in EnterSection (a tap opens the page, R4 hides the rows, from the focus-in frame on), and
+    the run sets `RedressFailed` no more (the tile reads PERFORMANCE whatever our steps did). One line per change:
+    `settings menu: FORUM remap installed | removed | not installed (<why>)`. Without it (it cannot be installed), build 21's
+    re-dress and undress stand.
+  * **Icon: out of BtnBase.setup's reach.** Once per `btn_forum` instance it is dressed with PERFORMANCE (the icon loads),
+    then the slot `btn_forum.mc_image` is set to null and the container renamed `mcvs_perfIcon`, which covers both ways
+    gameswf may resolve `this.mc_image` (the declared var, BtnBase.as:33, or a child by name) [G which one]. `Boolean(this.
+    mc_image)` is then false and the stock icon write (:130) is skipped, so the icon neither changes nor reloads
+    (ImageContainer.as:207-215). Read back: the slot reads null (`icon slot null`); when it still reaches the container both
+    are put back (`icon slot kept (<why>)`) and the look after `setup()`'s last write re-dresses the icon inside `setup()`'s
+    stack, as build 21 did; the tile counts as dressed only while its icon is PERFORMANCE's (`img`, a public getter,
+    ImageContainer.as:202-205). Undress (a failed write without the remap, or PERFORMANCE switched off) puts the name and the
+    slot back first, so `setup()`'s own FORUM icon reaches it again.
+  * **MORE GAMES, SOCIAL MEDIA, CUSTOMER CARE: off the panel.** `y` 4000, `alpha` 0, `mouseEnabled` and `mouseChildren`
+    false, `visible` false, and `btn_more.x` 0, a marker `setup()` never writes. `setup()`'s `btn_more.visible = true` and
+    the x writes then draw nothing, and the hidden MORE GAMES (depth 99, above ABOUT's 69) catches no tap. No scale 0.
+  * **ABOUT at 208**, `setup()`'s own x (§1.2): its last stock write is a no-op.
+  * **When: `PreDress`, synchronously inside our EnterSection delegate, before `setup()`.** MenuBase.onFocusIn calls
+    `EnterSection` (:339) before `MenuSettings.onFocusIn`'s `setup()` (AND-AS/MS:468-473), in the same AS stack [V]. On a
+    return the instances are the ones written before (`gotoAndStop(3)` on frame 3 places none), so PreDress only reads them
+    back (`kept`); on the first entry the panel is still on frame 1 (a new disposable menu), so PreDress does
+    `mc_panel.gotoAndStop(3)` first (setup's own goto is then a no-op) and dresses the new instances (`dressed now`). It
+    reads everything before it writes (the run's `Read`; any frame but 3, a missing instance or a width: `not dressed (<why>)`
+    and the same-frame step and the run work as in build 21). Order in EnterSection: LeaveMode, the remap, Schedule, PreDress,
+    then the observer (after PreDress, whose own `btn_forum.setup` calls `GetPlatformId`), then the restart prompt.
+  * **The same-frame step stays, with a new gate:** `btn_more` shown at x -177 within half a twip (`setup()`'s :212 write;
+    the timeline's -176.9 and our marker 0 are not), on panel frame 3. It is false whenever any of that cannot be read
+    (build 21's gate looked then, and spent its four looks before `setup()`'s dress), and true from :363 on. Its look now
+    finds the grid in place and only tidies (MORE GAMES hidden again, its marker back), or re-dresses an icon that was kept
+    within reach. Build 20's run stays as read-back and safety net: a removed instance counts as hidden while it is off the
+    panel; the frames whose start found MORE GAMES shown again off the panel are counted apart (`; MORE GAMES shown off the
+    panel N frames`, drawn as nothing, not in `stock grid drawn`), and a PreDress that left the grid laid out counts as the
+    run's write at frame 0 (`… in the focus-in frame`). Because the writes persist, a return draws nothing stock even with the
+    switch below off (only the first entry is then one frame late).
+  * **`admin.settingsMenu.sameFrame`** (default on, both platforms, live): all our Flash work inside the game's natives,
+    which is PreDress (inside EnterSection: setters, `gotoAndStop`, `btn_forum.setup`, AS code run from a native, as the game's
+    own FormatString natives write `htmlText`) and the same-frame step (inside GetPlatformId or GetLanguage). Both are
+    covered, by one switch, because both re-enter AS from a native, the one thing a device fault could come from; the remap
+    is not (no Flash). `Schedule` arms the step only with trim and switch on, and allows PreDress only with the switch on and
+    the run posted. Off: build 20's path (the run lays the grid out from the next frame) with the remap.
+  * **The breadcrumb** (`SameFrameBreadcrumb`): `settings-menu-same-frame.txt` in the host's log folder (`logs/` of the data
+    folder, next to `restart-requested.txt`; McvsOffline\logs on PC), else in the fallback log folder the log files move to
+    when that one cannot be written (Android internal storage; %TEMP%\McvsOffline\logs on PC, never a Steam folder that
+    cannot be written). Written once per process, right before the first Flash access inside a native (Android: PreDress's
+    first read; Steam: the first look), temp file and rename; deleted by the run's first frame, so it exists only for the
+    rest of that one focus-in frame and its render. At the next start (`UiNatives.Start`, off the game thread; or the first
+    focus-in) a leftover marker switches `admin.settingsMenu.sameFrame` off in settings.json and logs one WARN line:
+    `settings menu: same frame skipped: the last start ended during it (marker <path>); admin.settingsMenu.sameFrame is now
+    off; switch it back on to retry`. When the setting cannot be saved the marker stays and the work stays off in this
+    process (`… could not be saved as off, so it stays off while the marker is there`). Marker I/O never throws into AS; a
+    marker that cannot be written is said once on the focus-in line (`; breadcrumb not written (<why>)`).
+  * **Steam:** unchanged (PC `setup()` goes to frame 3 and back to 1 and writes absolute x for every tile, PC-AS/MS:44-48,
+    :253-364, so per-instance tricks would not survive): build 21's GetLanguage step, now behind the switch and the
+    breadcrumb.
+  * **The lines** per return (Android): `settings menu: focus-in N (layouts so far: L): on top <menu>, …, panel frame 3,
+    btn_social hidden; before setup: kept (FORUM remap on, icon slot null, MORE GAMES off the panel, ABOUT 208); same frame:
+    laid out (GetPlatformId calls 40, looks 1)` and `settings menu: frame 3, 7 tiles + ABOUT laid out in the focus-in
+    frame; stock grid drawn 0 frames`. The first entry says `before setup: dressed now (panel frame 1 to 3, …)`. When the
+    phone still cannot run AS from inside GetPlatformId the tail reads `same frame: not laid out, <why>` or `no look`, and
+    the run line `… in the focus-in frame; MORE GAMES shown off the panel 1 frame; stock grid drawn 0 frames`: undrawn,
+    no flash. `same frame: off (admin.settingsMenu.sameFrame off)` or `off (a breadcrumb of the last start is still there)`
+    when switched off.
+  * **Tests** (`SettingsMenuBuild22Tests`, on fakes that model setup()'s gotoAndStop, BtnBase's icon branch in three
+    resolution models, the image reload, the remap, ReloadStringTable and what each render draws): 24 cases, 21 of them fail
+    on build 21's code (the other three are marked regression checks); `SameFrameBreadcrumbTests` for the members alone, and
+    the real-assembly check of the remap's members (`RealSettingsMenuMembersTests`).
 * `admin.settingsMenu.trim` off: no relayout; with `admin.settingsMenu.performance` on, only the re-dress, in place.
 
 ### 3.3 R2's tap and R3: Performance mode and the page (`SettingsMenu/PerformancePage.cs`)
@@ -460,10 +558,23 @@ Title PERFORMANCE (`setting.Performance`, translated). No category headers, as o
    stock behaviour (FORUM forwards to the game). The log counts re-registrations; the fallback is the IL trigger (§3.1).
 2. **One-frame flash** of the stock grid (or FORUM/MORE GAMES) on each focus-in, since the posted step runs at the start of
    the next frame: seen by the owner on build 20 (no menu-in transition covers it, §3.2). Build 21 lays the grid out inside
-   the native that follows `setup()`'s last stock write (§3.2, "Build 21") [I: re-entering AS from inside a native, which the
-   game itself does; a device run decides]. What can still blink: Android's PERFORMANCE icon while it reloads, and the trim-off
-   re-dress. If the device log shows `same frame: not watched` or `no look`, the fallback is the IL hook in `UpdateWorlds`
-   before `UpdateSignal.Set()` (both platforms, a new fingerprinted patch).
+   the native that follows `setup()`'s last stock write (§3.2, "Build 21"); the owner still saw MORE GAMES and FORUM flash
+   on the S22. Build 22 makes Android's `setup()` writes draw nothing (§3.2, "Build 22"), so on Android the flash no longer
+   depends on the look landing; what is left [G, device]: which way gameswf resolves `this.mc_image` (the line says
+   `icon slot null` or `kept`; kept means the icon is re-dressed by the look, as in build 21, and can blink while it
+   reloads), whether a setter on the timeline-placed `mc_image`'s name is refused (then the slot alone must hold), and
+   whether the remap's dictionary is the client World's formatter's (the line says `FORUM remap installed`). The first
+   entry is dressed after a `gotoAndStop(3)` of ours; an Android build with the Kayac or Chinese frames would then go to 4
+   or 5 in `setup()` (new instances) and fall back to build 21's path (1.17.32 is neither). Steam keeps build 21's step:
+   if the device log shows `same frame: not watched` or `no look` there, the fallback is the IL hook in `UpdateWorlds`
+   before `UpdateSignal.Set()` (a new fingerprinted patch). **Our Flash work inside natives** (PreDress, the look) could
+   meet a native fault no managed code can catch: then `admin.settingsMenu.sameFrame` turns itself off at the next start
+   (the breadcrumb, §3.2) and the owner can switch it back on to retry. False positives need the process to end inside
+   that one frame for another reason (a crash of the game in the rest of the frame, or Home within about 16 ms of the tap
+   or Back and the app swiped away before it drew again); normal exits, backgrounding at any other time and watchdog
+   reports leave no marker.
+11. **ABOUT is not centred on Android** (build 22, by design, §1.2): it stays at `setup()`'s own 208, as ThinBtn's
+    timeline moves its children on every button state.
 3. **Hidden tiles taking taps:** `visible=false` + `mouseEnabled=false`, as Gameloft hides MORE GAMES itself (PC-AS/MS:255)
    [I strong]. On PC, keyboard and gamepad focus must not reach them either: nothing of ours changes focus navigation, so
    only the device check can tell [G].

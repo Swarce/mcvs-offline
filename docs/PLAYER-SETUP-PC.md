@@ -127,7 +127,11 @@ page and Back; build 20 could show the stock menu for a split second first; if b
 `settings menu:` lines of `McvsOffline\logs\server.log`). Every page
 behind them is Steam's own, unchanged; so is the Settings panel during a match.
 The settings page's **Shorter Settings menu** (`admin.settingsMenu.trim`, Settings › Gameplay) brings the stock menu
-back the next time Settings opens.
+back the next time Settings opens. **Lay out Settings before it is drawn** (`admin.settingsMenu.sameFrame`, on by default)
+lays the menu out in the frame that opens it; off, the stock menu can show for one frame first. It turns itself off when
+the game closed during that step at the last start (a `same frame skipped` line in "Recent problems"; the marker file is
+`McvsOffline\logs\settings-menu-same-frame.txt`, or `%TEMP%\McvsOffline\logs\` when the game folder cannot be written):
+switch it back on to try again.
 
 **Graphics.** Use the game's own menu: Settings › PERFORMANCE (graphics quality, antialiasing, screen scale, FPS limit,
 full screen, Vsync, resolution, field of view, low resolution maps). The graphics quality applies at the next start and overrides the settings page's
