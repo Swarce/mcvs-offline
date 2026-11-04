@@ -87,6 +87,17 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         /// </summary>
         public int RunFrame()
         {
+            return RunFrame(null);
+        }
+
+        /// <summary>
+        /// One game frame with Flash input in it: the context drain and the delayed items as <see cref="RunFrame()"/>, then the worlds'
+        /// update (MenuComponent.OnUpdate → Update_private: the Flash frame, then <paramref name="update"/>, the tap or Back that the
+        /// frame's input delivers, with every AS handler it runs synchronously), then the render (<see cref="FakeFlashTree.Render"/>,
+        /// what GameApplication.Render draws of the Flash state the update left).
+        /// </summary>
+        public int RunFrame(Action update)
+        {
             int ran = 0;
             while (posted.Count > 0)
             {
@@ -97,6 +108,8 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             while (delayed.Count > 0) posted.Enqueue(delayed.Dequeue());
             Frames++;
             if (Ui != null) Ui.AdvanceFrame();
+            if (update != null) update();
+            if (Ui != null) Ui.Render(Frames);
             return ran;
         }
 

@@ -75,6 +75,12 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             }
         }
 
+        /// <summary>
+        /// The end of a laid-out line of these runs: the step comes one frame after the stock setup() (no observer here, so no
+        /// same-frame step: build 20's path), so one render drew the stock grid.
+        /// </summary>
+        internal const string Drawn1 = "; stock grid drawn 1 frame";
+
         /// <summary>The line of a run that never could lay the grid out (tried on every frame, <see cref="SettingsMenuLayout.MaxFrames"/>).</summary>
         internal static string GaveUp(string reason)
         {
@@ -175,7 +181,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         {
             var rig = new Rig(false);
             rig.Open();
-            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out" }, rig.Lines);
+            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out" + Drawn1 }, rig.Lines);
             foreach (SettingsMenuLayout.Placement p in SettingsMenuLayout.Plan(false).Kept)
             {
                 Assert.Equal((float)p.X, rig.At(p.Name)[0]);
@@ -202,7 +208,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             var rig = new Rig(true);
             rig.Host.PerformanceSetting = true;   // Android's switch: no effect on PC
             rig.Open();
-            Assert.Equal(new[] { "settings menu: frame 1, 6 tiles + ABOUT laid out" }, rig.Lines);
+            Assert.Equal(new[] { "settings menu: frame 1, 6 tiles + ABOUT laid out" + Drawn1 }, rig.Lines);
             foreach (SettingsMenuLayout.Placement p in SettingsMenuLayout.Plan(true).Kept)
             {
                 Assert.Equal((float)p.X, rig.At(p.Name)[0]);
@@ -298,7 +304,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.Equal(frame, rig.Ui.Panel.Frame);
             if (!asReadable) Assert.True(rig.Ui.Panel.Getters.Remove("currentFrame"));   // only the native property answers
             rig.Host.Drain();
-            Assert.Equal(new[] { "settings menu: frame " + frame + ", " + (steam ? 6 : 7) + " tiles + ABOUT laid out" }, rig.Lines);
+            Assert.Equal(new[] { "settings menu: frame " + frame + ", " + (steam ? 6 : 7) + " tiles + ABOUT laid out" + Drawn1 }, rig.Lines);
             Assert.Equal(1, rig.State.Layouts);
             Assert.Equal(!steam, rig.State.TileActive);
             Assert.False(rig.State.RedressFailed);
@@ -325,7 +331,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             rig.Ui.OpenSettings();
             rig.Ui.PushMenu("menu_about");
             rig.Host.Drain();
-            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out" }, rig.Lines);
+            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out" + Drawn1 }, rig.Lines);
             Assert.Equal("menu_about", rig.Ui.Top.Name);
             Assert.False((bool)rig.Ui.Instance("btn_social").Get("visible"));
             Assert.True(rig.State.TileActive);
@@ -363,7 +369,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             rig.Host.Drain();
             if (laidOut)
             {
-                Assert.Single(rig.Lines, l => l.EndsWith("laid out", StringComparison.Ordinal));
+                Assert.Single(rig.Lines, l => l.EndsWith("laid out" + Drawn1, StringComparison.Ordinal));
                 return;
             }
             rig.AssertNoWrites();
@@ -568,7 +574,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.True((bool)rig.Ui.Instance("btn_more").Get("visible"));
             Assert.True(rig.State.TileActive);
             Assert.Equal(0, rig.State.Layouts);
-            Assert.Equal(new[] { "settings menu: frame 3, PERFORMANCE tile re-dressed in place (trim off)" }, rig.Lines);
+            Assert.Equal(new[] { "settings menu: frame 3, PERFORMANCE tile re-dressed in place (trim off)" + Drawn1 }, rig.Lines);
             rig.AssertClean();
         }
 
@@ -586,7 +592,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.Equal(new[] { 6.85f, -50.9f }, rig.At("btn_language"));
             Assert.False(rig.State.TileActive);
             Assert.False(rig.State.RedressFailed);
-            Assert.Equal(new[] { "settings menu: frame 3, 6 tiles + ABOUT laid out" }, rig.Lines);
+            Assert.Equal(new[] { "settings menu: frame 3, 6 tiles + ABOUT laid out" + Drawn1 }, rig.Lines);
         }
 
         [Fact]

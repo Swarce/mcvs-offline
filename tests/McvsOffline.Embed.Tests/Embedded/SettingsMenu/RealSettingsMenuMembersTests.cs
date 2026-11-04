@@ -64,6 +64,15 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
                 Expect(problems, overrideNative != null && overrideNative.ReturnType == typeof(object), "MenuComponent.OverrideNativeFunction(string, Delegate, bool, bool) : object");
                 MethodInfo remove = GameReflection.FindPlainMethod(ui, "RemoveNativeFunctionOverride", typeof(string));
                 Expect(problems, remove != null && remove.ReturnType == typeof(void), "MenuComponent.RemoveNativeFunctionOverride(string) : void");
+                // Build 21: the same-frame step's observer is removed by delegate (MenuComponent.cs:743, PC :726).
+                MethodInfo removeDelegate = GameReflection.FindPlainMethod(ui, "RemoveNativeFunctionOverride", typeof(object));
+                Expect(problems, removeDelegate != null && removeDelegate.ReturnType == typeof(void), "MenuComponent.RemoveNativeFunctionOverride(object) : void");
+                // The game's own delegates the observer sits next to: GetPlatformId (UIComponent.cs:1455, PC :1535) and GetLanguage
+                // (MenuComponent.cs:345, PC :334), each answering a value (ours answers null, so theirs stands).
+                MethodInfo platform = ui.GetMethod("GetPlatformId", Instance, null, Type.EmptyTypes, null);
+                Expect(problems, platform != null && platform.ReturnType == typeof(int), "UIComponent.GetPlatformId() : int");
+                MethodInfo language = menu.GetMethod("NativeGetLanguage", Instance, null, Type.EmptyTypes, null);
+                Expect(problems, language != null && language.ReturnType == typeof(string), "MenuComponent.NativeGetLanguage() : string");
 
                 // The per-instance table the re-ensure reads (by name; skeptic E5: an instance field, not a static).
                 FieldInfo table = menu.GetField(UiNatives.TableField, BindingFlags.Instance | BindingFlags.NonPublic);

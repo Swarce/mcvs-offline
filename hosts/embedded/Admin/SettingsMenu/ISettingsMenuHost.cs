@@ -114,6 +114,19 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         /// <summary>UserPreferencesComponent, <c>Func&lt;string, object&gt;</c>; null for unknown keys (skeptic E6, plan R3-A only).</summary>
         public const string GetUserPreference = "GetUserPreference";
 
+        /// <summary>
+        /// UIComponent.GetPlatformId, <c>Func&lt;int&gt;</c> (UIComponent.cs:1455, PC :1535). Android's same-frame grid step watches it
+        /// (<see cref="SettingsMenuLayout.SameFrame"/>): <c>addButtonListeners()</c>, the last call of <c>MenuSettings.setup()</c>
+        /// (AND-AS MenuSettings.as:214), calls it at :363 after the last stock write (:213).
+        /// </summary>
+        public const string GetPlatformId = "GetPlatformId";
+
+        /// <summary>
+        /// MenuComponent.NativeGetLanguage, <c>Func&lt;string&gt;</c> (registered in the MenuComponent constructor, MenuComponent.cs:345,
+        /// PC :334). Steam's same-frame grid step watches it: PC-AS MenuSettings.as:367 calls it after the last tile write (:364).
+        /// </summary>
+        public const string GetLanguage = "GetLanguage";
+
         // ------------------------------------------------------------------ sections (Native.EnterSection) and menus
 
         /// <summary>The main-menu Settings grid (MenuSettings.as:36-40); every return to it.</summary>
@@ -245,6 +258,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         private volatile bool performanceMode;
         private volatile bool transforming;
         private volatile bool restartPending;
+        private volatile SettingsMenuLayout.SameFrame sameFrame;
         private int layouts;
         private int registrations;
         private int layoutRun;
@@ -326,6 +340,16 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         public int BeginLayoutRun()
         {
             return Interlocked.Increment(ref layoutRun);
+        }
+
+        /// <summary>
+        /// The same-frame grid step of the current run, armed by <see cref="SettingsMenuLayout.Schedule"/> and closed by the run's
+        /// first frame or the next focus-in (game thread); null when none is armed.
+        /// </summary>
+        internal SettingsMenuLayout.SameFrame SameFrame
+        {
+            get { return sameFrame; }
+            set { sameFrame = value; }
         }
 
         /// <summary>Re-ensure steps that had to put one of our delegates back (the game re-registered or removed the name; risk 1).</summary>

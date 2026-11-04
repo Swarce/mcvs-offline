@@ -24,14 +24,19 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
     /// </summary>
     public class SettingsMenuReturnTests
     {
-        private sealed class Rig
+        internal sealed class Rig
         {
-            public Rig(bool steam)
+            /// <summary>
+            /// The real registry on the fake panels. <paramref name="sameFrame"/> false: the same-frame step does nothing (build 20's
+            /// path: only the run lays the grid out, from the frame after the focus-in), for the tests of the run itself.
+            /// </summary>
+            public Rig(bool steam, bool sameFrame = true)
             {
                 Steam = steam;
                 Ui = new FakeFlashTree(steam);
                 Host = new FakeSettingsMenuHost(Ui, steam);
                 Natives = new UiNatives(() => Host, new SettingsMenuState());
+                if (!sameFrame) Natives.Steps.SameFrame = (h, s, n) => { };
                 Natives.Ensure();
             }
 
@@ -80,6 +85,9 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
                 Stay();
             }
         }
+
+        /// <summary>The end of the laid-out line of a run whose focus-in frame laid the grid out and that never saw the stock grid.</summary>
+        internal const string SameFrameDone = " in the focus-in frame; stock grid drawn 0 frames";
 
         /// <summary>The trimmed grid of the platform, on the menu on top; on Android the PERFORMANCE tile active.</summary>
         private static void AssertLaidOut(Rig rig, string when)
@@ -165,7 +173,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             rig.Open();
             rig.TabAndBack("btn_audio");
             AssertLaidOut(rig, "back from AUDIO");
-            Assert.Equal("settings menu: frame " + (steam ? "1, 6" : "3, 7") + " tiles + ABOUT laid out; laid out again 1x after the stock grid came back",
+            Assert.Equal("settings menu: frame " + (steam ? "1, 6" : "3, 7") + " tiles + ABOUT laid out in the focus-in frame; laid out again 1x after the stock grid came back; stock grid drawn 1 frame",
                          rig.GridLines.Last());
             Assert.Equal(3, rig.State.Layouts);
         }
@@ -249,7 +257,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.Equal(writes, rig.Ui.HostWrites.Count);
             Assert.Equal(1, rig.State.Layouts);
             Assert.Equal(0, rig.Host.Pending);
-            Assert.Equal(new[] { "settings menu: frame " + (steam ? "1, 6" : "3, 7") + " tiles + ABOUT laid out" }, rig.GridLines);
+            Assert.Equal(new[] { "settings menu: frame " + (steam ? "1, 6" : "3, 7") + " tiles + ABOUT laid out" + SameFrameDone }, rig.GridLines);
         }
 
         [Fact]
@@ -262,7 +270,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.True(rig.Ui.Tap("btn_audio"));
             rig.Ui.Back();                          // the next focus-in before the first run is done
             rig.Host.Drain();
-            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out" }, rig.GridLines);
+            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out" + SameFrameDone }, rig.GridLines);
             Assert.Equal(2, rig.State.Layouts);
             AssertLaidOut(rig, "second entry");
         }
@@ -270,7 +278,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         [Fact]
         public void WhileTheGridCannotBeReadTheTileIsInactiveAndLaterItIsLaidOut()
         {
-            var rig = new Rig(false);
+            var rig = new Rig(false, sameFrame: false);
             FlashObject menu = rig.Ui.OpenSettings();
             FlashObject panel = menu.Child("mc_panel");
             FlashObject more = panel.Child("btn_more");
@@ -283,7 +291,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             panel.Add(more);
             rig.Host.Drain();
             AssertLaidOut(rig, "once btn_more is there");
-            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out after 6 frames (no btn_more)" }, rig.GridLines);
+            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out after 6 frames (no btn_more); stock grid drawn 6 frames" }, rig.GridLines);
         }
 
         [Theory]
@@ -291,7 +299,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         [InlineData(true)]
         public void AGridThatNeverBecomesReadableIsOneLineAfterTheLastFrameAndKeepsTheGameplayRows(bool steam)
         {
-            var rig = new Rig(steam);
+            var rig = new Rig(steam, sameFrame: false);
             FlashObject menu = rig.Ui.OpenSettings();
             menu.Child("mc_panel").Children.Remove(rig.Ui.Instance("btn_help"));
             rig.Host.Drain();
@@ -309,10 +317,10 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             var rig = new Rig(false);
             rig.Host.CanPostNextFrame = false;
             rig.Open();
-            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out; then no next frame" }, rig.GridLines);
+            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out" + SameFrameDone + "; then no next frame" }, rig.GridLines);
             Assert.True(rig.State.TileActive);
 
-            var waiting = new Rig(false);
+            var waiting = new Rig(false, sameFrame: false);
             waiting.Host.CanPostNextFrame = false;
             FlashObject menu = waiting.Ui.OpenSettings();
             menu.Child("mc_panel").Children.Remove(waiting.Ui.Instance("btn_more"));
@@ -329,20 +337,23 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         [InlineData(true, true)]
         public void EveryFocusInLogsWhatItsFirstFrameFinds(bool steam, bool newInstances)
         {
-            var rig = new Rig(steam);
+            // Build 20's path (the same-frame step does nothing), so the first frame finds what setup() left; the same-frame
+            // version is SettingsMenuSameFrameTests.TheFocusInLineSaysTheFocusInFrameLaidTheGridOut.
+            var rig = new Rig(steam, sameFrame: false);
             rig.Ui.SteamReplacesInstances = newInstances;
             rig.Ui.PoppedStaysOnTopFrames = 3;
             rig.Open();
             int at = rig.Ui.Stack.FindIndex(m => m.Name == McvsMenuNames.Settings);
             string frame = ", panel frame " + (steam ? 1 : 3) + ", btn_social ";
+            string tail = "; same frame: no look (" + (steam ? "GetLanguage" : "GetPlatformId") + " calls 0, looks 0)";
             rig.TabAndBack("btn_help");
             rig.TabAndBack("btn_audio");
             Assert.Equal(new[]
             {
-                "settings menu: focus-in 1 (layouts so far: 0): on top menu_settings, menu_settings at " + at + " in the stack" + frame + "shown",
+                "settings menu: focus-in 1 (layouts so far: 0): on top menu_settings, menu_settings at " + at + " in the stack" + frame + "shown" + tail,
                 // The submenu still on top, Settings found below it; btn_social as the last layout left it, or a new one.
-                "settings menu: focus-in 2 (layouts so far: 1): on top menu_help, menu_settings at " + at + " in the stack" + frame + (newInstances ? "shown" : "hidden"),
-                "settings menu: focus-in 3 (layouts so far: 2): on top menu_audio, menu_settings at " + at + " in the stack" + frame + (newInstances ? "shown" : "hidden"),
+                "settings menu: focus-in 2 (layouts so far: 1): on top menu_help, menu_settings at " + at + " in the stack" + frame + (newInstances ? "shown" : "hidden") + tail,
+                "settings menu: focus-in 3 (layouts so far: 2): on top menu_audio, menu_settings at " + at + " in the stack" + frame + (newInstances ? "shown" : "hidden") + tail,
             }, rig.Host.Lines("settings menu: focus-in "));
             AssertLaidOut(rig, "back from AUDIO");
         }
@@ -362,7 +373,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.True(PerformancePage.HidesGameplayRows(rig.Host, rig.State));
             general.Members["width"] = width;
             rig.Host.Drain();
-            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out" }, rig.GridLines);
+            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out" + SameFrameDone }, rig.GridLines);
             Assert.Equal(1, rig.State.Layouts);
             AssertLaidOut(rig, "after the tween");
             Assert.True(rig.Ui.Tap("btn_forum"));
@@ -385,7 +396,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             panel.Add(more);
             rig.Host.Drain();
             AssertLaidOut(rig, "once btn_more is back");
-            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out; tile re-dressed again 1x after another panel" }, rig.GridLines);
+            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out in the focus-in frame; tile re-dressed again 1x after another panel; stock grid drawn 3 frames" }, rig.GridLines);
         }
 
         [Theory]
@@ -393,7 +404,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         [InlineData(true)]
         public void BackWhileTheRunWaitsEndsItAtOnceWithOneLine(bool steam)
         {
-            var rig = new Rig(steam);
+            var rig = new Rig(steam, sameFrame: false);
             FlashObject menu = rig.Ui.OpenSettings();
             menu.Child("mc_panel").Children.Remove(rig.Ui.Instance("btn_help"));
             rig.Host.RunFrames(3);

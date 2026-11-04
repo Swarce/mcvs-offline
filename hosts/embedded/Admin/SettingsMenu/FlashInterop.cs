@@ -137,6 +137,18 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             method.Invoke(ui, new object[] { name });
         }
 
+        /// <summary>
+        /// MenuComponent.RemoveNativeFunctionOverride(object): removes that one delegate from every name (MenuComponent.cs:743-746,
+        /// :839-855; PC :726, :810-825). A name left without any delegate is dropped, so only call it for a delegate that sits next
+        /// to one of the game's.
+        /// </summary>
+        public static void RemoveNativeDelegate(object ui, Delegate del)
+        {
+            MethodInfo method = GameReflection.FindPlainMethod(ui.GetType(), "RemoveNativeFunctionOverride", typeof(object));
+            if (method == null) throw new MissingMethodException(ui.GetType().Name, "RemoveNativeFunctionOverride");
+            method.Invoke(ui, new object[] { del });
+        }
+
         /// <summary>UIComponent.GoToForum() itself (the stock body, or patch 'forum''s; skeptic E4).</summary>
         public static void GoToForum(object ui)
         {

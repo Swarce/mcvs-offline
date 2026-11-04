@@ -21,6 +21,13 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
     /// tries again on the next frames, finds Settings by name also below another menu, reads the grid back until it has stayed laid
     /// out and lays it out again when the stock grid came back (see <see cref="Schedule"/>); its first frame logs the focus-in as it
     /// finds it (<c>settings menu: focus-in N ...</c>), so the next device run names the precondition.
+    /// <para>Build 21 (owner, build 20: "the normal menu flashes for a split second before being set to our layout again"): the
+    /// run's first step comes one frame after setup(), so the render of the focus-in frame drew the stock grid. Now the grid is
+    /// laid out in the focus-in frame itself, inside the AS call stack of setup() after its last stock write and before that
+    /// frame's render (<see cref="SameFrame"/>: Steam at its GetLanguage, Android at addButtonListeners' GetPlatformId). The run
+    /// stays as the safety net: its first frame finds the grid laid out and says "laid out in the focus-in frame", or lays it
+    /// out as before; every laid-out line ends with how many renders drew a grid that was not ours ("stock grid drawn N
+    /// frames").</para>
     /// <para>The step reads everything before it writes anything (the build-13 rule): <c>menu_settings</c> is on top of
     /// <c>MenusStack</c> or in it, its <c>mc_panel.currentFrame</c> is 1 on Steam or 3 on Android (never the in-match 2, Kayac 4 or
     /// Chinese 5: any other frame fails the step like a missing instance), every instance the plan names exists and every tile is
@@ -204,8 +211,9 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         public const double PlaceTolerance = 0.5;
 
         /// <summary>
-        /// <c>EnterSection("settings_main_screen")</c>: starts this focus-in's run (the previous run stops at its next frame) and posts
-        /// its first frame to the game thread (the start of the next frame, after the stock <c>setup()</c>). One log line when it
+        /// <c>EnterSection("settings_main_screen")</c>: starts this focus-in's run (the previous run stops at its next frame), arms its
+        /// same-frame step (<see cref="SameFrame"/>, trim on; the previous one ends) and posts the run's first frame to the game
+        /// thread (the start of the next frame, after the stock <c>setup()</c> and the same-frame step). One log line when it
         /// cannot. Never throws.
         /// <para>A run, on each frame: finds <c>menu_settings</c> (on top of <c>MenusStack</c>, else by name while it is in the
         /// stack: a submenu that is still leaving, or one opened already), reads the panel as <see cref="Apply"/> does, and lays the
@@ -225,14 +233,27 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         /// found the stock grid back, not the re-dresses after another panel. Every frame after the first is posted with
         /// <see cref="ISettingsMenuHost.PostNextFrame"/>: <see cref="ISettingsMenuHost.Post"/> from a step would run in the same
         /// drain, not on the next frame.</para>
+        /// <para>The first frame ends the same-frame step: a grid it laid out counts as the run's write at frame 0 (the line says "in
+        /// the focus-in frame"), and the run goes on reading it back as after any write. "stock grid drawn N frames" counts the
+        /// frames whose start found a grid that was not ours (not laid out yet, the stock grid back, another panel): each was drawn
+        /// by the render before it.</para>
         /// </summary>
         public static void Schedule(ISettingsMenuHost host, SettingsMenuState state)
         {
             try
             {
                 if (host == null || state == null) return;
-                var run = new Run(host, state, state.BeginLayoutRun());
-                if (!host.Post(run.Step)) Write(host, "settings menu: not laid out (no game thread)");
+                int id = state.BeginLayoutRun();
+                var run = new Run(host, state, id);
+                // The previous focus-in's same-frame step ends here; this one's is armed for the rest of this frame (UiNatives
+                // registers the native it watches right after this call).
+                Disarm(state);
+                if (host.SettingsMenuTrim) state.SameFrame = new SameFrame(id, host.IsWindows);
+                if (!host.Post(run.Step))
+                {
+                    Disarm(state);
+                    Write(host, "settings menu: not laid out (no game thread)");
+                }
             }
             catch (Exception)
             {
@@ -356,6 +377,8 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             private int restocks;
             private int firstWrite;
             private int stable;
+            private int stockFrames;
+            private bool sameFrame;
             private bool redress;
             private bool seen;
             private string done;
@@ -377,8 +400,20 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                     // A newer focus-in owns the grid: no line and no flag from this run.
                     if (state.LayoutRun != id) return;
                     frames++;
-                    // The focus-in as the first frame finds it (after setup()), for the device logs: see Probe.
-                    if (frames == 1) Write(host, Probe(host, state, id));
+                    if (frames == 1)
+                    {
+                        // The focus-in frame is over (its render came after the same-frame step, if that ran): end the step and
+                        // count a layout it made as this run's write at frame 0.
+                        SameFrame arm = TakeArm(state, id);
+                        // The focus-in as the first frame finds it (after setup() and the same-frame step), for the device logs.
+                        Write(host, Probe(host, state, id, arm));
+                        if (arm != null && arm.LaidOut)
+                        {
+                            sameFrame = true;
+                            writes = 1;
+                            done = arm.Done;
+                        }
+                    }
                     Outcome outcome = Attempt(host, state, true);
                     redress = outcome.Redress;
                     switch (outcome.Kind)
@@ -390,8 +425,10 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                             return;
                         case OutcomeKind.Wrote:
                             if (writes > 0 && outcome.Restocked) restocks++;
+                            if (writes == 0) firstWrite = frames;
                             writes++;
-                            if (firstWrite == 0) firstWrite = frames;
+                            // The render before this frame showed a grid that is not ours (stock, or another panel).
+                            stockFrames++;
                             stable = 0;
                             done = outcome.Text;
                             lastProblem = null;
@@ -416,6 +453,8 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                             stable = 0;
                             lastProblem = outcome.Text;
                             if (writes == 0 && firstProblem == null) firstProblem = outcome.Text;
+                            // Not laid out yet, or another panel: the render before this frame did not show our grid.
+                            if (!outcome.Gone && (writes == 0 || outcome.Changed)) stockFrames++;
                             if (outcome.Gone)
                             {
                                 // Laid out, then Settings left the stack (Back to the main menu): nothing left to watch.
@@ -470,10 +509,12 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             private void Finish()
             {
                 string line = done;
-                if (firstWrite > 1) line += " after " + firstWrite.ToString(CultureInfo.InvariantCulture) + " frames (" + firstProblem + ")";
+                if (sameFrame) line += " in the focus-in frame";
+                else if (firstWrite > 1) line += " after " + firstWrite.ToString(CultureInfo.InvariantCulture) + " frames (" + firstProblem + ")";
                 if (restocks > 0) line += "; laid out again " + restocks.ToString(CultureInfo.InvariantCulture) + "x after the stock grid came back";
                 int redresses = writes - 1 - restocks;
                 if (redresses > 0) line += "; tile re-dressed again " + redresses.ToString(CultureInfo.InvariantCulture) + "x after another panel";
+                line += "; stock grid drawn " + stockFrames.ToString(CultureInfo.InvariantCulture) + (stockFrames == 1 ? " frame" : " frames");
                 if (lastProblem != null) line += "; then " + lastProblem + Frames();
                 Write(host, line);
             }
@@ -482,6 +523,266 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
             {
                 return frames > 1 ? "; gave up after " + frames.ToString(CultureInfo.InvariantCulture) + " frames" : "";
             }
+        }
+
+        // ------------------------------------------------------------------ the focus-in frame (build 21)
+
+        /// <summary>
+        /// Looks (a read, then the writes when the grid is not laid out) the same-frame step takes at most per focus-in; one is
+        /// what a focus-in needs on either platform. Android's check before a look is not one.
+        /// </summary>
+        public const int MaxSameFrameLooks = 4;
+
+        /// <summary>
+        /// The x values Android's <c>setup()</c> gives ABOUT, its very last stock write (AND-AS MenuSettings.as:208, :213:
+        /// <c>btn_credits.x = btn_more.visible ? 208 : 22</c>). Neither is the timeline's (258.05) nor ours (<see cref="AboutX"/>).
+        /// </summary>
+        internal static readonly double[] StockAboutX = { 208, 22 };
+
+        /// <summary>
+        /// One focus-in's same-frame step (build 21; docs/design/settings-menu.md §3.2): the grid laid out in the frame of the
+        /// focus-in, inside the AS call stack of <c>MenuSettings.setup()</c>, after its last stock write and before the frame's Flash
+        /// render, so the stock grid is never drawn. <see cref="Schedule"/> arms it (trim on) before <c>setup()</c> runs, and
+        /// <see cref="UiNatives"/> then appends an observer on <see cref="Native"/> (it returns null, so the game's answer stands:
+        /// the last non-null result wins, MenuComponent.cs:869-924) for the rest of the frame; the run's first frame closes it and
+        /// removes the observer (other menus never pay for it). Each call of the native while armed comes to
+        /// <see cref="OnNative"/>:
+        /// <list type="bullet">
+        /// <item>Steam watches <c>GetLanguage</c>: PC-AS MenuSettings.as:367, right after the last tile write (:364 btn_social.x;
+        /// then only btn_customer.txt.x for "id" and addButtonListeners). The other GetLanguage of the path, adjustToViewport's
+        /// (:633), runs from MenuBase.onFocusIn :330, before EnterSection (:339), so before the arm. Every armed call looks: a
+        /// call before setup() would find the grid laid out (a return) or be undone and looked at again at :367.</item>
+        /// <item>Android watches <c>GetPlatformId</c>, whose last calls in setup() are addButtonListeners' (AND-AS :214 → :363),
+        /// after the last stock write (:213 btn_credits.x). TextUtilities.setStringID calls it 3 times per label (TextUtilities.as:92,
+        /// :99), about 40 times per focus-in, so a look runs only when ABOUT sits where :213 puts it (<see cref="StockAboutX"/>):
+        /// false before :213 on the first entry (the timeline's 258.05) and on a return (ours), true from :363 on, after the
+        /// FORUM dress (:116-119) and every other stock write. After the look ABOUT is ours again, so later calls (the second
+        /// :363 call, FreemiumBar's title) only read one x.</item>
+        /// </list>
+        /// A look is <see cref="Attempt"/> with the read-back, as a run's frame does it; it writes no log line and sets no
+        /// <see cref="SettingsMenuState.RedressFailed"/> (the run does both, on its frames), and nothing escapes it (a delegate that
+        /// throws is rethrown into Flash). <see cref="Busy"/> keeps our own writes' natives (btn_forum.setup → setStringID →
+        /// GetPlatformId) out of it. Game thread only.
+        /// </summary>
+        internal sealed class SameFrame
+        {
+            private FlashScope scope;
+            private object panel;
+            private bool panelRead;
+
+            public SameFrame(int run, bool windows)
+            {
+                Run = run;
+                Windows = windows;
+                Native = windows ? SettingsMenuNames.GetLanguage : SettingsMenuNames.GetPlatformId;
+            }
+
+            /// <summary>The run (<see cref="SettingsMenuState.LayoutRun"/>) it belongs to.</summary>
+            public int Run { get; private set; }
+
+            public bool Windows { get; private set; }
+
+            /// <summary>The native it watches: <c>GetLanguage</c> on Steam, <c>GetPlatformId</c> on Android.</summary>
+            public string Native { get; private set; }
+
+            /// <summary>Calls of <see cref="Native"/> while armed.</summary>
+            public int Calls;
+
+            /// <summary>Looks taken (at most <see cref="MaxSameFrameLooks"/>).</summary>
+            public int Looks;
+
+            /// <summary>Looks that wrote the grid.</summary>
+            public int Writes;
+
+            /// <summary>A look is running (our own writes call the native again).</summary>
+            public bool Busy;
+
+            /// <summary>A look's read or write threw: no more looks in this frame (the run tries again on its frames).</summary>
+            public bool Failed;
+
+            /// <summary>The frame is over (or a newer focus-in came): calls are ignored.</summary>
+            public bool Closed;
+
+            /// <summary>The last look laid the grid out, or found it laid out.</summary>
+            public bool LaidOut;
+
+            /// <summary>The last look's laid-out line (<see cref="Done"/>), when <see cref="LaidOut"/>.</summary>
+            public string Done;
+
+            /// <summary>Why the last look did not lay the grid out.</summary>
+            public string Problem;
+
+            /// <summary>The observer is registered (<see cref="UiNatives"/>).</summary>
+            public bool Watching;
+
+            /// <summary>Why the observer could not be registered (then only the run lays the grid out).</summary>
+            public string Refused;
+
+            /// <summary>Removes the observer (set by <see cref="UiNatives"/>; run once by <see cref="Close"/>).</summary>
+            public Action Release;
+
+            /// <summary>
+            /// "same frame: laid out (GetPlatformId calls 17, looks 1)", "same frame: not laid out, no btn_help (...)", "same frame:
+            /// no look (...)", "same frame: not watched (why)" for the focus-in line.
+            /// </summary>
+            public string Describe()
+            {
+                if (Refused != null) return "same frame: not watched (" + Refused + ")";
+                if (!Watching) return "same frame: not watched";
+                string counts = " (" + Native + " calls " + Calls.ToString(CultureInfo.InvariantCulture) + ", looks " +
+                                Looks.ToString(CultureInfo.InvariantCulture) + ")";
+                if (LaidOut) return "same frame: laid out" + counts;
+                if (Problem != null) return "same frame: not laid out, " + Problem + counts;
+                return "same frame: no look" + counts;
+            }
+
+            /// <summary>
+            /// Android's check before a look: ABOUT (<c>btn_credits</c>) of the Settings panel is at a <see cref="StockAboutX"/>
+            /// (setup() has just written its bottom row), or cannot be read (the look says why). The panel is looked up once per arm
+            /// and kept until <see cref="Close"/>; ABOUT is looked up on every call (a gotoAndStop places new instances). False
+            /// without a UI.
+            /// </summary>
+            internal bool StockBottomRow(ISettingsMenuHost host)
+            {
+                object ui = host.ClientUi();
+                if (ui == null) return false;
+                if (!panelRead)
+                {
+                    panelRead = true;
+                    scope = new FlashScope(ui);
+                    panel = SettingsPanel(scope);
+                }
+                if (panel == null) return true;
+                using (var flash = new FlashScope(ui))
+                {
+                    object about = flash.Child(panel, SettingsMenuNames.AboutButton);
+                    if (about == null) return true;
+                    double? x = flash.Number(about, "x");
+                    if (x == null) return true;
+                    foreach (double stock in StockAboutX)
+                    {
+                        if (Math.Abs(x.Value - stock) <= PlaceTolerance) return true;
+                    }
+                    return false;
+                }
+            }
+
+            /// <summary>Ignores every later call, disposes the kept panel and removes the observer. Never throws.</summary>
+            public void Close()
+            {
+                if (Closed) return;
+                Closed = true;
+                try
+                {
+                    if (scope != null) scope.Dispose();
+                }
+                catch (Exception)
+                {
+                }
+                scope = null;
+                panel = null;
+                Action release = Release;
+                Release = null;
+                try
+                {
+                    if (release != null) release();
+                }
+                catch (Exception)
+                {
+                }
+            }
+        }
+
+        /// <summary>
+        /// The watched native was called (<see cref="UiNatives"/>' observer; game thread, inside the game's native dispatch and so
+        /// inside the AS call stack of the focus-in): while this run's step is armed, one look (see <see cref="SameFrame"/>).
+        /// Never throws and never logs.
+        /// </summary>
+        public static void OnNative(ISettingsMenuHost host, SettingsMenuState state, string native)
+        {
+            SameFrame arm = state == null ? null : state.SameFrame;
+            if (host == null || arm == null || arm.Closed || arm.Busy || native != arm.Native) return;
+            arm.Busy = true;
+            try
+            {
+                if (state.LayoutRun != arm.Run) return;
+                arm.Calls++;
+                if (arm.Looks >= MaxSameFrameLooks || arm.Failed) return;
+                if (!arm.Windows)
+                {
+                    if (!arm.StockBottomRow(host)) return;
+                    // setup() ran since the last look, its FORUM dress (AND-AS MenuSettings.as:116-119) included: the tile reads
+                    // FORUM until a look has re-dressed it.
+                    state.TileActive = false;
+                }
+                arm.Looks++;
+                Outcome outcome = Attempt(host, state, true);
+                switch (outcome.Kind)
+                {
+                    case OutcomeKind.Wrote:
+                    case OutcomeKind.InPlace:
+                        if (outcome.Kind == OutcomeKind.Wrote) arm.Writes++;
+                        arm.LaidOut = true;
+                        arm.Done = outcome.Text;
+                        arm.Problem = null;
+                        break;
+                    case OutcomeKind.Off:
+                        arm.LaidOut = false;
+                        break;
+                    default:
+                        arm.LaidOut = false;
+                        arm.Problem = outcome.Text;
+                        if (outcome.Kind == OutcomeKind.Fail) arm.Failed = true;
+                        break;
+                }
+            }
+            catch (Exception)
+            {
+            }
+            finally
+            {
+                arm.Busy = false;
+            }
+        }
+
+        /// <summary>Closes the armed same-frame step, if any (a newer focus-in, another section, no run). Never throws.</summary>
+        public static void Disarm(SettingsMenuState state)
+        {
+            try
+            {
+                if (state == null) return;
+                SameFrame arm = state.SameFrame;
+                state.SameFrame = null;
+                if (arm != null) arm.Close();
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>The run's first frame: closes this run's same-frame step and returns it (null when it has none).</summary>
+        private static SameFrame TakeArm(SettingsMenuState state, int id)
+        {
+            SameFrame arm = state.SameFrame;
+            if (arm == null || arm.Run != id) return null;
+            state.SameFrame = null;
+            arm.Close();
+            return arm;
+        }
+
+        /// <summary><c>menu_settings.mc_panel</c> (Settings on top of MenusStack, else by name in it), or null. Reads only.</summary>
+        private static object SettingsPanel(FlashScope flash)
+        {
+            object stack = flash.Class("gluic.components.menus", "MenusStack");
+            if (stack == null) return null;
+            object top = flash.Call(stack, "getMenuOnTopOfStack");
+            object menu = top != null && NameOf(flash, top) == SettingsMenuNames.SettingsMenu ? top : null;
+            if (menu == null)
+            {
+                double? index = FlashInterop.Number(flash.Call(stack, "getMenuIndexInStack", SettingsMenuNames.SettingsMenu));
+                if (index.HasValue && index.Value >= 0) menu = flash.Call(stack, "getMenuByName", SettingsMenuNames.SettingsMenu);
+            }
+            return menu == null ? null : flash.Child(menu, SettingsMenuNames.Panel);
         }
 
         // ------------------------------------------------------------------ the read and the writes
@@ -555,25 +856,29 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         }
 
         /// <summary>
-        /// The diagnostic line of a focus-in (its run's first frame, after <c>setup()</c>): what is on top of <c>MenusStack</c>,
-        /// where <c>menu_settings</c> is in it, the panel's frame and whether <c>btn_social</c> is visible, with the layouts so far.
-        /// Nothing in either AS shows btn_social again (AND-AS MenuSettings.as:42-215, PC-AS :42-345 only move it or leave it), so
-        /// "btn_social shown" after a layout means new instances (Steam's frame 3 and back, or a re-created menu), "hidden" the
-        /// instances written before. Null with both switches off. Reads only; never throws.
+        /// The diagnostic line of a focus-in (its run's first frame, after <c>setup()</c> and the same-frame step): what is on top
+        /// of <c>MenusStack</c>, where <c>menu_settings</c> is in it, the panel's frame and whether <c>btn_social</c> is visible, with
+        /// the layouts so far, then what the same-frame step did (<see cref="SameFrame.Describe"/>). Nothing in either AS shows
+        /// btn_social again (AND-AS MenuSettings.as:42-215, PC-AS :42-345 only move it or leave it), so "btn_social shown" after a
+        /// layout means new instances (Steam's frame 3 and back, or a re-created menu) that no step has written yet, "hidden" that
+        /// a step wrote these instances (the same-frame step writes before this line). Null with both switches off. Reads only;
+        /// never throws.
         /// </summary>
-        private static string Probe(ISettingsMenuHost host, SettingsMenuState state, int id)
+        private static string Probe(ISettingsMenuHost host, SettingsMenuState state, int id, SameFrame arm)
         {
             string head = "settings menu: focus-in " + id.ToString(CultureInfo.InvariantCulture) + " (layouts so far: " +
                           state.Layouts.ToString(CultureInfo.InvariantCulture) + "): ";
+            string tail = "";
             try
             {
                 if (!host.SettingsMenuTrim && !(host.SettingsMenuPerformance && !host.IsWindows)) return null;
+                tail = "; " + (arm != null ? arm.Describe() : host.SettingsMenuTrim ? "same frame: not armed" : "same frame: off (trim off)");
                 object ui = host.ClientUi();
-                if (ui == null) return head + "no UI";
+                if (ui == null) return head + "no UI" + tail;
                 using (var flash = new FlashScope(ui))
                 {
                     object stack = flash.Class("gluic.components.menus", "MenusStack");
-                    if (stack == null) return head + "no MenusStack";
+                    if (stack == null) return head + "no MenusStack" + tail;
                     object top = flash.Call(stack, "getMenuOnTopOfStack");
                     string topName = top == null ? null : NameOf(flash, top);
                     var parts = new List<string> { "on top " + (top == null ? "nothing" : topName ?? "unnamed") };
@@ -597,13 +902,13 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                         object visible = social == null ? null : flash.Get(social, "visible");
                         parts.Add(SettingsMenuNames.SocialTile + (social == null ? " missing" : !(visible is bool) ? " unreadable" : (bool)visible ? " shown" : " hidden"));
                     }
-                    return head + string.Join(", ", parts);
+                    return head + string.Join(", ", parts) + tail;
                 }
             }
             catch (Exception ex)
             {
                 Exception cause = ex is TargetInvocationException && ex.InnerException != null ? ex.InnerException : ex;
-                return head + cause.GetType().Name + ": " + cause.Message;
+                return head + cause.GetType().Name + ": " + cause.Message + tail;
             }
         }
 
