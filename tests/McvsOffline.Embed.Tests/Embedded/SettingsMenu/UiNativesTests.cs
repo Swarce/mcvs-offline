@@ -349,7 +349,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.False(env.Natives.State.TileActive);
             Assert.True(env.Natives.State.TileEverActive);
             Assert.False(env.Natives.State.PerformanceMode);
-            Assert.Equal(new[] { "LeaveMode", "Schedule", "ShowRestartPromptIfPending" }, env.Steps.Calls.ToArray());
+            Assert.Equal(new[] { "LeaveMode", "Remap", "Schedule", "PreDress", "ShowRestartPromptIfPending" }, env.Steps.Calls.ToArray());
             Assert.All(env.Steps.Hosts, h => Assert.Same(env.Host, h));
             Assert.All(env.Steps.States, s => Assert.Same(env.Natives.State, s));
 
@@ -369,7 +369,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             // Back to the grid (Gameplay Settings saves on its way out): once more, each time.
             env.Steps.Calls.Clear();
             env.Ui.Back();
-            Assert.Equal(new[] { "OnSaveUserPreferences", "LeaveMode", "Schedule", "ShowRestartPromptIfPending" }, env.Steps.Calls.ToArray());
+            Assert.Equal(new[] { "OnSaveUserPreferences", "LeaveMode", "Remap", "Schedule", "PreDress", "ShowRestartPromptIfPending" }, env.Steps.Calls.ToArray());
         }
 
         [Fact]
@@ -613,6 +613,8 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
                 Steps = new MenuSteps
                 {
                     Schedule = (h, s) => Record("Schedule", h, s),
+                    Remap = (h, s) => Record("Remap", h, s),
+                    PreDress = (h, s) => Record("PreDress", h, s),
                     LeaveMode = s => { Record("LeaveMode", null, s); s.PerformanceMode = false; },
                     ShowRestartPromptIfPending = (h, s) => Record("ShowRestartPromptIfPending", h, s),
                     Open = (h, s) => Record("Open", h, s),
@@ -689,6 +691,9 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             }
 
             public bool SettingsMenuTrim { get { return inner.SettingsMenuTrim; } }
+            public bool SettingsMenuSameFrame { get { return inner.SettingsMenuSameFrame; } }
+            public string[] SameFrameMarkerPaths { get { return inner.SameFrameMarkerPaths; } }
+            public bool SwitchSameFrameOff() { return inner.SwitchSameFrameOff(); }
             public bool SettingsMenuPerformance { get { return inner.SettingsMenuPerformance; } }
             public bool IsWindows { get { return inner.IsWindows; } }
             public Log Log { get { return inner.Log; } }

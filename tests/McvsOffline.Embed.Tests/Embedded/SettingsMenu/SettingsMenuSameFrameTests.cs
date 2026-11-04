@@ -24,6 +24,14 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         /// </summary>
         private const int AndroidCalls = 11 * 3 + 2 + 2 + 3;
 
+        /// <summary>What Android's dress before setup() found or did (build 22), as the focus-in line says it.</summary>
+        internal const string Dressed = "dressed now (panel frame 1 to 3, FORUM remap on, icon slot null, MORE GAMES off the panel, ABOUT 208)";
+
+        internal const string Kept = "kept (FORUM remap on, icon slot null, MORE GAMES off the panel, ABOUT 208)";
+
+        /// <summary>The end of a laid-out line of an Android run whose focus-in frame had no look after setup() (MORE GAMES untidied).</summary>
+        internal const string OffPanelOnce = " in the focus-in frame; MORE GAMES shown off the panel 1 frame; stock grid drawn 0 frames";
+
         private static SettingsMenuReturnTests.Rig NewRig(bool steam)
         {
             var rig = new SettingsMenuReturnTests.Rig(steam);
@@ -56,17 +64,21 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             rig.TabAndBack("btn_audio");
             string frame = ", panel frame " + (steam ? 1 : 3) + ", btn_social hidden";
             string tail = "; same frame: laid out (" + Native(steam) + " calls " + (steam ? 1 : AndroidCalls) + ", looks 1)";
+            // Android (build 22): the panel was dressed before setup() on the first entry and found so on every return; the look
+            // after setup()'s last write only tidied MORE GAMES.
+            string first = steam ? "" : "; before setup: " + Dressed;
+            string again = steam ? "" : "; before setup: " + Kept;
             Assert.Equal(new[]
             {
-                // The focus-in frame wrote the grid before this line (one layout per focus-in), the new Steam instances too.
-                "settings menu: focus-in 1 (layouts so far: 1): on top menu_settings, menu_settings at " + at + " in the stack" + frame + tail,
-                "settings menu: focus-in 2 (layouts so far: 2): on top menu_help, menu_settings at " + at + " in the stack" + frame + tail,
-                "settings menu: focus-in 3 (layouts so far: 3): on top menu_audio, menu_settings at " + at + " in the stack" + frame + tail,
+                // The focus-in frame wrote the grid before this line (Steam: one layout per focus-in, its new instances too).
+                "settings menu: focus-in 1 (layouts so far: 1): on top menu_settings, menu_settings at " + at + " in the stack" + frame + first + tail,
+                "settings menu: focus-in 2 (layouts so far: " + (steam ? 2 : 1) + "): on top menu_help, menu_settings at " + at + " in the stack" + frame + again + tail,
+                "settings menu: focus-in 3 (layouts so far: " + (steam ? 3 : 1) + "): on top menu_audio, menu_settings at " + at + " in the stack" + frame + again + tail,
             }, rig.Host.Lines("settings menu: focus-in "));
             string done = "settings menu: frame " + (steam ? "1, 6" : "3, 7") + " tiles + ABOUT laid out" + SettingsMenuReturnTests.SameFrameDone;
             Assert.Equal(new[] { done, done, done }, rig.GridLines);
             // The run found it laid out on its first frame and wrote nothing more.
-            Assert.Equal(3, rig.State.Layouts);
+            Assert.Equal(steam ? 3 : 1, rig.State.Layouts);
         }
 
         [Theory]
@@ -74,12 +86,15 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         [InlineData(true)]
         public void WithoutTheSameFrameStepTheRunSaysItDrewTheStockGridOnce(bool steam)
         {
-            // Build 20's path (the safety net alone): laid out on the run's first frame, one render of the stock grid.
+            // Build 20's path (the safety net alone): laid out on the run's first frame, one render of the stock grid. On Android
+            // (build 22) only the first entry: the writes the run made persist through setup() and the remap dresses the title, so
+            // the return draws nothing stock even without our work inside the natives.
             var rig = new SettingsMenuReturnTests.Rig(steam, sameFrame: false);
             rig.Open();
             rig.TabAndBack("btn_audio");
             string done = "settings menu: frame " + (steam ? "1, 6" : "3, 7") + " tiles + ABOUT laid out; stock grid drawn 1 frame";
-            Assert.Equal(new[] { done, done }, rig.GridLines);
+            string again = steam ? done : "settings menu: frame 3, 7 tiles + ABOUT laid out; MORE GAMES shown off the panel 1 frame; stock grid drawn 0 frames";
+            Assert.Equal(new[] { done, again }, rig.GridLines);
         }
 
         // ------------------------------------------------------------------ the observer: only next to the game's, only for the frame
@@ -154,7 +169,8 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.False(rig.Ui.IsRegistered("GetPlatformId"));
             rig.Host.Drain();
             Assert.EndsWith("; same frame: not watched (no game delegate on GetPlatformId)", rig.Host.Lines("settings menu: focus-in ").Single());
-            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out; stock grid drawn 1 frame" }, rig.GridLines);
+            // Build 22: the dress before setup() did it all, the run only tidied MORE GAMES (shown again off the panel).
+            Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out" + OffPanelOnce }, rig.GridLines);
             Assert.True(rig.State.TileActive);
         }
 
@@ -190,7 +206,8 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         [Fact]
         public void WithTheTrimOffNothingIsArmedAndTheRunReDressesTheTile()
         {
-            // The re-dress alone cannot be told from the stock grid before setup() ends, so it stays build 20's (one frame late).
+            // No same-frame step without the trim. Build 22: the dress before setup() puts the tile's icon out of reach and the
+            // remap dresses its title, so the run finds it re-dressed in the focus-in frame.
             var rig = NewRig(false);
             rig.Host.SettingsMenuTrim = false;
             rig.Ui.OpenSettings();
@@ -198,7 +215,9 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.Equal(0, rig.Ui.CountWithTarget("GetPlatformId", ObserverTarget(rig, false)));
             rig.Host.Drain();
             Assert.EndsWith("; same frame: off (trim off)", rig.Host.Lines("settings menu: focus-in ").Single());
-            Assert.Equal(new[] { "settings menu: frame 3, PERFORMANCE tile re-dressed in place (trim off); stock grid drawn 1 frame" }, rig.GridLines);
+            Assert.Equal(new[] { "settings menu: frame 3, PERFORMANCE tile re-dressed in place (trim off) in the focus-in frame; stock grid drawn 0 frames" }, rig.GridLines);
+            Assert.Equal("setting.Performance", rig.Ui.TileText("btn_forum"));
+            Assert.Equal(SettingsMenuNames.PerformanceIcon, rig.Ui.TileIcon("btn_forum"));
         }
 
         // ------------------------------------------------------------------ inside the native: one look, after the last stock write, never a throw
@@ -211,19 +230,23 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Action<ISettingsMenuHost, SettingsMenuState, string> real = rig.Natives.Steps.SameFrame;
             rig.Natives.Steps.SameFrame = (h, s, n) =>
             {
-                int layouts = s.Layouts;
+                int looks = s.SameFrame.Looks;
                 real(h, s, n);
-                if (s.Layouts != layouts) lookedAt = s.SameFrame.Calls;
+                if (s.SameFrame.Looks != looks && lookedAt < 0) lookedAt = s.SameFrame.Calls;
             };
             rig.Ui.OpenSettings();
-            // The first addButtonListeners call after the bottom row (AND-AS :213 → :363): 11 labels x 3, then the 4/6 test (2).
+            // The first addButtonListeners call after the bottom row (AND-AS :212 → :363): 11 labels x 3, then the 4/6 test (2).
             Assert.Equal(11 * 3 + 2 + 1, lookedAt);
             Assert.Equal(1, rig.State.SameFrame.Looks);
             Assert.Equal(AndroidCalls, rig.State.SameFrame.Calls);
-            // Our btn_forum.setup's own setStringID went through GetPlatformId inside the look (depth 2) and was not looked at.
+            // PreDress's btn_forum.setup went through GetPlatformId inside EnterSection (depth 2), before the observer was there.
             Assert.Equal(2, rig.Ui.MaxDepth);
             Assert.True(rig.State.TileActive);
-            Assert.Equal("setting.Performance", rig.Ui.Instance("btn_forum").Get("title"));
+            Assert.Equal("setting.Performance", rig.Ui.TileText("btn_forum"));
+            // The look found the grid in place and only tidied MORE GAMES (hidden again, at its marker x).
+            Assert.Equal(1, rig.State.Layouts);
+            Assert.False((bool)rig.Ui.Instance("btn_more").Get("visible"));
+            Assert.Equal((float)SettingsMenuNames.MoreGamesMarkerX, rig.Ui.Instance("btn_more").Num("x"));
             rig.Host.Drain();
             rig.Ui.AssertAllDisposed();
         }
@@ -253,7 +276,8 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             rig.Natives.Steps.SameFrame = (h, s, n) => { throw new InvalidOperationException("boom"); };
             rig.Ui.OpenSettings();                           // no FakeMenuInvocationException
             rig.Host.Drain();
-            string done = "settings menu: frame " + (steam ? "1, 6" : "3, 7") + " tiles + ABOUT laid out; stock grid drawn 1 frame";
+            // Android (build 22): the dress before setup() is its own step, so the focus-in frame drew nothing stock.
+            string done = steam ? "settings menu: frame 1, 6 tiles + ABOUT laid out; stock grid drawn 1 frame" : "settings menu: frame 3, 7 tiles + ABOUT laid out" + OffPanelOnce;
             Assert.Equal(new[] { done }, rig.GridLines);
             Assert.Empty(rig.Host.Lines("settings menu: " + Native(steam)));
         }
@@ -261,9 +285,11 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         [Fact]
         public void AWriteThatThrowsInTheFocusInFrameReachesNoFlashAndTheRunSaysSo()
         {
+            // Without the FORUM remap (it cannot be installed), as in build 21: the tile must read FORUM while the write fails.
             var rig = NewRig(false);
+            rig.Ui.World = null;
             rig.Ui.SettingsBuilt = menu => menu.Child("mc_panel").Child("btn_social").Throws = true;
-            int lines = rig.Host.Lines("settings menu: ").Count;
+            int lines = rig.Host.Lines("settings menu: ").Count + 1;   // and the one "FORUM remap not installed (no World)"
             rig.Ui.OpenSettings();                           // the look's write throws inside GetPlatformId: no exception into AS
             // The look put FORUM back (the tile must not read PERFORMANCE while it still forwards to the game), said nothing and
             // took no second look in that frame.
@@ -283,20 +309,35 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         [Fact]
         public void AFocusInFrameThatCannotLayOutLeavesItToTheRunAndBackStillEndsIt()
         {
-            // No ABOUT: every armed call looks (ABOUT cannot be read), at most MaxSameFrameLooks times, each a read that waits.
+            // No HELP: nothing is dressed before setup(); from setup()'s MORE GAMES write (:212) on, every armed call looks, at
+            // most MaxSameFrameLooks times, each a read that waits. None before it (build 21 spent them there when ABOUT could
+            // not be read; SettingsMenuBuild22Tests pins that).
             var rig = NewRig(false);
-            rig.Ui.SettingsBuilt = menu => { FlashObject panel = menu.Child("mc_panel"); panel.Children.Remove(panel.Child("btn_credits")); };
+            rig.Ui.SettingsBuilt = menu => { FlashObject panel = menu.Child("mc_panel"); if (panel.Child("btn_help") != null) panel.Children.Remove(panel.Child("btn_help")); };
+            int lookedAt = -1;
+            Action<ISettingsMenuHost, SettingsMenuState, string> real = rig.Natives.Steps.SameFrame;
+            rig.Natives.Steps.SameFrame = (h, s, n) =>
+            {
+                int looks = s.SameFrame.Looks;
+                real(h, s, n);
+                if (s.SameFrame.Looks != looks && lookedAt < 0) lookedAt = s.SameFrame.Calls;
+            };
             rig.Ui.OpenSettings();
+            // Ten labels now (no HELP to dress), the 4/6 test, then addButtonListeners' first call.
+            Assert.Equal(10 * 3 + 2 + 1, lookedAt);
             Assert.Equal(SettingsMenuLayout.MaxSameFrameLooks, rig.State.SameFrame.Looks);
-            Assert.Empty(rig.Ui.HostWrites.Where(w => !w.Contains("Native")));
+            // PreDress's goto to frame 3 (setup()'s own, early) and nothing else.
+            Assert.Equal(new[] { "menu_settings.mc_panel.gotoAndStop(3)" }, rig.Ui.HostWrites.Where(w => !w.Contains("Native")));
             rig.Host.RunFrames(3);
-            // Ten labels now (no ABOUT to dress).
-            Assert.EndsWith("; same frame: not laid out, no btn_credits (GetPlatformId calls " + (AndroidCalls - 3) + ", looks " + SettingsMenuLayout.MaxSameFrameLooks + ")",
+            Assert.EndsWith("; before setup: not dressed (panel frame 1 to 3, no btn_help); same frame: not laid out, no btn_help (GetPlatformId calls " +
+                            (AndroidCalls - 3) + ", looks " + SettingsMenuLayout.MaxSameFrameLooks + ")",
                             rig.Host.Lines("settings menu: focus-in ").Single());
+            Assert.Equal("setting.Performance", rig.Ui.TileText("btn_forum"));
             rig.Ui.Back();                                   // Settings closed before anything could be laid out
             rig.Host.Drain();
-            Assert.Equal(new[] { "settings menu: not laid out (no btn_credits; Settings left after 4 frames)" }, rig.GridLines);
-            Assert.True(rig.State.RedressFailed);
+            Assert.Equal(new[] { "settings menu: not laid out (no btn_help; Settings left after 4 frames)" }, rig.GridLines);
+            // The remap had the tile read PERFORMANCE all along: the page is reachable, the Gameplay rows may go to it.
+            Assert.False(rig.State.RedressFailed);
             Assert.Equal(0, rig.Host.Pending);
         }
 
@@ -315,7 +356,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.Equal(1, rig.Ui.CountWithTarget("GetPlatformId", target));
             rig.Host.Drain();
             Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out" + SettingsMenuReturnTests.SameFrameDone }, rig.GridLines);
-            Assert.Equal(2, rig.State.Layouts);
+            Assert.Equal(1, rig.State.Layouts);   // build 22: the second focus-in found the first's dress in place before setup()
             Assert.Equal(0, rig.Ui.CountWithTarget("GetPlatformId", target));
             rig.Ui.AssertAllDisposed();
         }

@@ -98,13 +98,14 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             foreach (string name in plan.Hidden)
             {
                 RenderedInstance item;
-                if (render.Instances.TryGetValue(name, out item) && (item.Visible || item.MouseEnabled)) wrong.Add(name + " shown");
+                if (render.Instances.TryGetValue(name, out item) && (item.Drawn || item.TakesTaps)) wrong.Add(name + " shown");
             }
             if (plan.RedressForum)
             {
                 RenderedInstance forum;
-                if (render.Instances.TryGetValue(SettingsMenuNames.ForumTile, out forum) && forum.Title != SettingsMenuNames.PerformanceTitle)
-                    wrong.Add("btn_forum reads " + forum.Title);
+                if (render.Instances.TryGetValue(SettingsMenuNames.ForumTile, out forum) && forum.Text != SettingsMenuNames.PerformanceTitle)
+                    wrong.Add("btn_forum reads " + forum.Text);
+                if (forum != null && forum.Icon != SettingsMenuNames.PerformanceIcon) wrong.Add("btn_forum shows " + forum.Icon);
             }
             return wrong.Count == 0 ? null : string.Join(", ", wrong);
         }

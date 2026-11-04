@@ -27,8 +27,9 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         internal sealed class Rig
         {
             /// <summary>
-            /// The real registry on the fake panels. <paramref name="sameFrame"/> false: the same-frame step does nothing (build 20's
-            /// path: only the run lays the grid out, from the frame after the focus-in), for the tests of the run itself.
+            /// The real registry on the fake panels. <paramref name="sameFrame"/> false: the same-frame step and the dress before
+            /// setup() do nothing (build 20's path: only the run lays the grid out, from the frame after the focus-in; the remap
+            /// stays), for the tests of the run itself.
             /// </summary>
             public Rig(bool steam, bool sameFrame = true)
             {
@@ -36,7 +37,11 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
                 Ui = new FakeFlashTree(steam);
                 Host = new FakeSettingsMenuHost(Ui, steam);
                 Natives = new UiNatives(() => Host, new SettingsMenuState());
-                if (!sameFrame) Natives.Steps.SameFrame = (h, s, n) => { };
+                if (!sameFrame)
+                {
+                    Natives.Steps.SameFrame = (h, s, n) => { };
+                    Natives.Steps.PreDress = (h, s) => { };
+                }
                 Natives.Ensure();
             }
 
@@ -110,7 +115,8 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             }
             if (!rig.Steam)
             {
-                Assert.True("setting.Performance" == rig.Ui.Instance("btn_forum").Get("title") as string, when + ": the tile reads FORUM");
+                Assert.True("setting.Performance" == rig.Ui.TileText("btn_forum"), when + ": the tile reads " + rig.Ui.TileText("btn_forum"));
+                Assert.True(SettingsMenuNames.PerformanceIcon == rig.Ui.TileIcon("btn_forum"), when + ": the tile shows " + rig.Ui.TileIcon("btn_forum"));
                 Assert.True(rig.State.TileActive, when + ": the tile is not active");
             }
             Assert.False(rig.State.RedressFailed, when + ": RedressFailed");
@@ -173,9 +179,13 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             rig.Open();
             rig.TabAndBack("btn_audio");
             AssertLaidOut(rig, "back from AUDIO");
-            Assert.Equal("settings menu: frame " + (steam ? "1, 6" : "3, 7") + " tiles + ABOUT laid out in the focus-in frame; laid out again 1x after the stock grid came back; stock grid drawn 1 frame",
+            // Android (build 22): setup() run again draws nothing of the stock grid (MORE GAMES comes back off the panel, FORUM's
+            // title remapped, its icon out of reach, ABOUT where setup() puts it), so it is only tidied, not laid out again.
+            Assert.Equal(steam
+                             ? "settings menu: frame 1, 6 tiles + ABOUT laid out in the focus-in frame; laid out again 1x after the stock grid came back; stock grid drawn 1 frame"
+                             : "settings menu: frame 3, 7 tiles + ABOUT laid out in the focus-in frame; MORE GAMES shown off the panel 1 frame; stock grid drawn 0 frames",
                          rig.GridLines.Last());
-            Assert.Equal(3, rig.State.Layouts);
+            Assert.Equal(steam ? 3 : 1, rig.State.Layouts);
         }
 
         [Theory]
@@ -194,10 +204,11 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             rig.Host.RunFrame();
             Assert.Equal("menu_help", rig.Ui.StackTop.Name);
             Assert.False((bool)rig.Ui.Instance("btn_social").Get("visible"));
-            Assert.Equal((float)SettingsMenuLayout.AboutX, rig.Ui.Instance("btn_credits").Num("x"));
+            Assert.Equal((float)SettingsMenuLayout.Plan(steam).Kept.Last().X, rig.Ui.Instance("btn_credits").Num("x"));
             rig.Host.Drain();
             AssertLaidOut(rig, "back from HELP");
-            Assert.Equal(2, rig.State.Layouts);
+            // Android's return found the dress of the first entry in place before setup() (build 22): nothing written again.
+            Assert.Equal(steam ? 2 : 1, rig.State.Layouts);
         }
 
         [Fact]
@@ -271,14 +282,16 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             rig.Ui.Back();                          // the next focus-in before the first run is done
             rig.Host.Drain();
             Assert.Equal(new[] { "settings menu: frame 3, 7 tiles + ABOUT laid out" + SameFrameDone }, rig.GridLines);
-            Assert.Equal(2, rig.State.Layouts);
+            Assert.Equal(1, rig.State.Layouts);     // build 22: the second focus-in found it in place before setup()
             AssertLaidOut(rig, "second entry");
         }
 
         [Fact]
         public void WhileTheGridCannotBeReadTheTileIsInactiveAndLaterItIsLaidOut()
         {
+            // Without the FORUM remap (it cannot be installed: no World), as in build 21.
             var rig = new Rig(false, sameFrame: false);
+            rig.Ui.World = null;
             FlashObject menu = rig.Ui.OpenSettings();
             FlashObject panel = menu.Child("mc_panel");
             FlashObject more = panel.Child("btn_more");
@@ -306,8 +319,17 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.Equal(new[] { SettingsMenuLayoutTests.GaveUp("no btn_help") }, rig.GridLines);
             Assert.Equal(SettingsMenuLayout.MaxFrames, rig.Host.Frames);
             Assert.Equal(0, rig.State.Layouts);
-            Assert.False(rig.State.TileActive);
-            Assert.Equal(!steam, rig.State.RedressFailed);
+            // Android (build 22): the FORUM remap has setup()'s own dress write PERFORMANCE, so the tile opens the page and the
+            // Gameplay rows may go to it; without the remap the tile stays FORUM and the rows stay.
+            Assert.Equal(!steam, rig.State.TileActive);
+            Assert.False(rig.State.RedressFailed);
+            if (!steam) Assert.Equal("setting.Performance", rig.Ui.TileText("btn_forum"));
+            var bare = new Rig(steam, sameFrame: false);
+            bare.Ui.World = null;
+            bare.Ui.OpenSettings().Child("mc_panel").Children.Remove(bare.Ui.Instance("btn_help"));
+            bare.Host.Drain();
+            Assert.False(bare.State.TileActive);
+            Assert.Equal(!steam, bare.State.RedressFailed);
             Assert.Empty(rig.Ui.HostWrites.Where(w => !w.Contains("Native")));
         }
 
@@ -321,6 +343,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.True(rig.State.TileActive);
 
             var waiting = new Rig(false, sameFrame: false);
+            waiting.Ui.World = null;                // without the remap: the tile stays FORUM
             waiting.Host.CanPostNextFrame = false;
             FlashObject menu = waiting.Ui.OpenSettings();
             menu.Child("mc_panel").Children.Remove(waiting.Ui.Instance("btn_more"));
@@ -343,6 +366,9 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             rig.Ui.SteamReplacesInstances = newInstances;
             rig.Ui.PoppedStaysOnTopFrames = 3;
             rig.Open();
+            // Android (build 22): the run's writes persist through setup() (y, alpha, the icon's slot) and the remap dresses the
+            // title, so a return finds the grid in place even on build 20's path: one layout, at the first entry.
+            int second = steam ? 2 : 1;
             int at = rig.Ui.Stack.FindIndex(m => m.Name == McvsMenuNames.Settings);
             string frame = ", panel frame " + (steam ? 1 : 3) + ", btn_social ";
             string tail = "; same frame: no look (" + (steam ? "GetLanguage" : "GetPlatformId") + " calls 0, looks 0)";
@@ -353,7 +379,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
                 "settings menu: focus-in 1 (layouts so far: 0): on top menu_settings, menu_settings at " + at + " in the stack" + frame + "shown" + tail,
                 // The submenu still on top, Settings found below it; btn_social as the last layout left it, or a new one.
                 "settings menu: focus-in 2 (layouts so far: 1): on top menu_help, menu_settings at " + at + " in the stack" + frame + (newInstances ? "shown" : "hidden") + tail,
-                "settings menu: focus-in 3 (layouts so far: 2): on top menu_audio, menu_settings at " + at + " in the stack" + frame + (newInstances ? "shown" : "hidden") + tail,
+                "settings menu: focus-in 3 (layouts so far: " + second + "): on top menu_audio, menu_settings at " + at + " in the stack" + frame + (newInstances ? "shown" : "hidden") + tail,
             }, rig.Host.Lines("settings menu: focus-in "));
             AssertLaidOut(rig, "back from AUDIO");
         }
@@ -385,7 +411,9 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         [Fact]
         public void AnotherPanelAfterTheWriteDropsTheTileAndItsReDressIsNotALayoutAgain()
         {
+            // Without the FORUM remap (as in build 21): with it the other panel's tile reads PERFORMANCE too.
             var rig = new Rig(false);
+            rig.Ui.World = null;
             FlashObject menu = rig.Ui.OpenSettings();
             rig.Host.RunFrame();
             FlashObject panel = menu.Child("mc_panel");
@@ -413,8 +441,9 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             Assert.Equal(new[] { "settings menu: not laid out (no btn_help; Settings left after 4 frames)" }, rig.GridLines);
             Assert.Equal(4, rig.Host.Frames);
             Assert.Equal(0, rig.Host.Pending);
-            // Settings was read and its panel is one this build cannot lay out: the Gameplay rows stay (the in-match gate needs no tile).
-            Assert.Equal(!steam, rig.State.RedressFailed);
+            // Settings was read and its panel is one this build cannot lay out. Android's tile still reads PERFORMANCE by the
+            // remap (build 22), so the page stays reachable and the Gameplay rows may go: no RedressFailed.
+            Assert.False(rig.State.RedressFailed);
         }
 
         [Fact]

@@ -20,6 +20,28 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         bool SettingsMenuTrim { get; }
 
         /// <summary>
+        /// settings <c>admin.settingsMenu.sameFrame</c> (server copy, read per call; default true): our Flash work inside the game's
+        /// natives, the Android dress before <c>setup()</c> (<see cref="SettingsMenuLayout.PreDress"/>) and, with the trim on, the
+        /// same-frame step (<see cref="SettingsMenuLayout.SameFrame"/>); off, only the run lays the grid out, from the next frame
+        /// (build 20). Both platforms.
+        /// </summary>
+        bool SettingsMenuSameFrame { get; }
+
+        /// <summary>
+        /// Where the same-frame breadcrumb may be (<see cref="SameFrameBreadcrumb"/>), in order: <see cref="SettingsMenuNames.SameFrameMarkerFile"/>
+        /// in the host's log folder (the folder of <c>restart-requested.txt</c>: the data folder's <c>logs</c>, McvsOffline\logs on
+        /// PC), then in the fallback log folder the log files move to when that one cannot be written (Android internal storage,
+        /// %TEMP%\McvsOffline\logs on PC). Empty when the host knows neither. Never null.
+        /// </summary>
+        string[] SameFrameMarkerPaths { get; }
+
+        /// <summary>
+        /// Stores <c>admin.settingsMenu.sameFrame</c> = false in the server copy and saves it now (the settings page shows the switch
+        /// off). False when it could not be saved (logged). Never throws; it writes settings.json, so not per frame.
+        /// </summary>
+        bool SwitchSameFrameOff();
+
+        /// <summary>
         /// settings <c>admin.settingsMenu.performance</c> (server copy, read per call; default true) on Android; always false on PC,
         /// which keeps Steam's own PERFORMANCE tile and page: the tile re-dress, the page and R4.
         /// </summary>
@@ -120,6 +142,44 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         /// (AND-AS MenuSettings.as:214), calls it at :363 after the last stock write (:213).
         /// </summary>
         public const string GetPlatformId = "GetPlatformId";
+
+        /// <summary>
+        /// The same-frame step's breadcrumb in the host's log folder (<see cref="SameFrameBreadcrumb"/>): it exists only while a
+        /// process's first look runs inside the native and until the next frame.
+        /// </summary>
+        public const string SameFrameMarkerFile = "settings-menu-same-frame.txt";
+
+        // ------------------------------------------------------------------ build 22: what Android's setup() writes, made to draw nothing
+
+        /// <summary>
+        /// Android's removed instances sit this far below the panel (panel units; y + alpha 0, which setup() never writes: AND-AS
+        /// MenuSettings.as:42-215 writes no y but mc_blocker's and no alpha), so its <c>btn_more.visible = true</c> (:210) and the
+        /// bottom row's x (:211-212) draw nothing.
+        /// </summary>
+        public const double OffPanelY = 4000;
+
+        /// <summary>
+        /// btn_more.x as our writes leave it: a value setup() never writes, so the same-frame gate sees its own :212 write
+        /// (<see cref="StockMoreGamesX"/>) come back.
+        /// </summary>
+        public const double MoreGamesMarkerX = 0;
+
+        /// <summary>setup()'s btn_more.x (AND-AS MenuSettings.as:212, <c>_loc1_[2][1]</c>).</summary>
+        public const double StockMoreGamesX = -177;
+
+        /// <summary>
+        /// setup()'s ABOUT x whenever MORE GAMES is shown (AND-AS :213, <c>_loc1_[2][2]</c>; :210 has just set btn_more.visible true
+        /// on every Android but Kayac's). Build 22 leaves ABOUT there by design, so that write is a no-op: ThinBtn's own timeline
+        /// moves its children on every button state (_library.swf sprite 1047: mc_bg x 0, 8.85 to 17.25 and txt x -2.9 to 2.25 on
+        /// frames 15-44, focus_in to enabled_end), so a shift of the children cannot hold ABOUT centred.
+        /// </summary>
+        public const double AndroidAboutX = 208;
+
+        /// <summary>BtnBase's icon (<c>public var mc_image:ImageContainer</c>, BtnBase.as:33; set at :130-134 when it reads true).</summary>
+        public const string IconSlot = "mc_image";
+
+        /// <summary>The name btn_forum's dressed PERFORMANCE icon gets, so neither the slot nor a child by name reaches it from setup().</summary>
+        public const string PerformanceIconName = "mcvs_perfIcon";
 
         /// <summary>
         /// MenuComponent.NativeGetLanguage, <c>Func&lt;string&gt;</c> (registered in the MenuComponent constructor, MenuComponent.cs:345,
@@ -262,11 +322,23 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         private int layouts;
         private int registrations;
         private int layoutRun;
+        private int breadcrumbChecked;
+        private int breadcrumbWritten;
+        private string breadcrumbPath;
+        private string breadcrumbProblem;
+        private volatile string sameFrameSkipped;
+        private volatile bool sameFrameBlocked;
+        private volatile bool forumRemapped;
+        private volatile string remapReported;
+        private volatile string preDressText;
+        private volatile string preDressDone;
+        private int preDressRun;
 
         /// <summary>
-        /// Android: btn_forum reads PERFORMANCE on the grid shown now (set by <see cref="SettingsMenuLayout"/> only after every write
-        /// of the step succeeded, cleared at every <c>EnterSection("settings_main_screen")</c> before the step runs). A tap on the
-        /// tile opens the page only while it is set; otherwise GoToForum is the game's.
+        /// Android: btn_forum reads PERFORMANCE on the grid shown now (set by <see cref="SettingsMenuLayout"/> after every write of a
+        /// re-dress succeeded, or while the FORUM remap is on, <see cref="ForumRemapped"/>; cleared at every
+        /// <c>EnterSection("settings_main_screen")</c> before the steps run). A tap on the tile opens the page only while it is set;
+        /// otherwise GoToForum is the game's.
         /// </summary>
         public bool TileActive
         {
@@ -350,6 +422,117 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         {
             get { return sameFrame; }
             set { sameFrame = value; }
+        }
+
+        // ------------------------------------------------------------------ build 22: the FORUM remap and the dress before setup()
+
+        /// <summary>
+        /// Android: the client World's remap turns setting.ForumButton into setting.Performance (<see cref="ForumRemap"/>), as the
+        /// last <c>EnterSection("settings_main_screen")</c> found or made it. While it is set the stock dress of btn_forum writes
+        /// PERFORMANCE, so the tile reads PERFORMANCE on every grid whatever our steps did.
+        /// </summary>
+        public bool ForumRemapped
+        {
+            get { return forumRemapped; }
+            set { forumRemapped = value; }
+        }
+
+        /// <summary>The remap state last logged ("installed", "removed" or the reason), so each change is one line.</summary>
+        public string RemapReported
+        {
+            get { return remapReported; }
+            set { remapReported = value; }
+        }
+
+        /// <summary>
+        /// The run (<see cref="LayoutRun"/>) whose focus-in may dress the panel before <c>setup()</c> (<see cref="SettingsMenuLayout.PreDress"/>):
+        /// set by <see cref="SettingsMenuLayout.Schedule"/> when the same-frame switch allows our Flash work inside a native and the
+        /// run's first frame is posted (it deletes the breadcrumb); 0 otherwise.
+        /// </summary>
+        public int PreDressRun
+        {
+            get { return Interlocked.CompareExchange(ref preDressRun, 0, 0); }
+            set { Interlocked.Exchange(ref preDressRun, value); }
+        }
+
+        /// <summary>What the dress before setup() did, for the run's focus-in line ("kept (...)", "laid out (...)"), or null.</summary>
+        public string PreDressText
+        {
+            get { return preDressText; }
+            set { preDressText = value; }
+        }
+
+        /// <summary>
+        /// The laid-out line of <see cref="PreDressRun"/>'s dress before setup() when it left the grid laid out (written or found
+        /// so), or null: the run then counts it as its write at frame 0, as a same-frame layout.
+        /// </summary>
+        public string PreDressDone
+        {
+            get { return preDressDone; }
+            set { preDressDone = value; }
+        }
+
+        // ------------------------------------------------------------------ the same-frame step's breadcrumb (SameFrameBreadcrumb)
+
+        /// <summary>True for the first caller only: the check of the previous process's marker runs once per process.</summary>
+        public bool BeginBreadcrumbCheck()
+        {
+            return Interlocked.CompareExchange(ref breadcrumbChecked, 1, 0) == 0;
+        }
+
+        /// <summary>The check has run in this process (at start, or at the first arm).</summary>
+        public bool BreadcrumbChecked { get { return Interlocked.CompareExchange(ref breadcrumbChecked, 0, 0) != 0; } }
+
+        /// <summary>True for the first caller only: the marker is written before the process's first Flash work inside a native, never again.</summary>
+        public bool BeginBreadcrumb()
+        {
+            return Interlocked.CompareExchange(ref breadcrumbWritten, 1, 0) == 0;
+        }
+
+        /// <summary>The marker this process wrote and has not deleted yet (the step is running, or its frame has not ended), or null.</summary>
+        public string BreadcrumbPath
+        {
+            get { return Interlocked.CompareExchange(ref breadcrumbPath, null, null); }
+            set { Interlocked.Exchange(ref breadcrumbPath, value); }
+        }
+
+        /// <summary>Takes <see cref="BreadcrumbPath"/>: the one caller that gets it deletes the marker.</summary>
+        public string TakeBreadcrumbPath()
+        {
+            return Interlocked.Exchange(ref breadcrumbPath, null);
+        }
+
+        /// <summary>Why the marker could not be written or deleted (for the next focus-in line, once), or null.</summary>
+        public string BreadcrumbProblem
+        {
+            get { return Interlocked.CompareExchange(ref breadcrumbProblem, null, null); }
+            set { Interlocked.Exchange(ref breadcrumbProblem, value); }
+        }
+
+        /// <summary>Takes <see cref="BreadcrumbProblem"/> (it is reported once).</summary>
+        public string TakeBreadcrumbProblem()
+        {
+            return Interlocked.Exchange(ref breadcrumbProblem, null);
+        }
+
+        /// <summary>
+        /// The line of the check that found the previous process's marker (the step was skipped for this install), or null. The
+        /// focus-in line then says "same frame: off (skipped: ...)" while the step stays off.
+        /// </summary>
+        public string SameFrameSkipped
+        {
+            get { return sameFrameSkipped; }
+            set { sameFrameSkipped = value; }
+        }
+
+        /// <summary>
+        /// The marker was found but <c>admin.settingsMenu.sameFrame</c> could not be saved as off: no step in this process whatever
+        /// the setting reads (the marker stays, so the next start skips it too).
+        /// </summary>
+        public bool SameFrameBlocked
+        {
+            get { return sameFrameBlocked; }
+            set { sameFrameBlocked = value; }
         }
 
         /// <summary>Re-ensure steps that had to put one of our delegates back (the game re-registered or removed the name; risk 1).</summary>

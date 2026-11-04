@@ -385,8 +385,14 @@ no longer has GRAPHICS SETTINGS and FRAME RATE LIMIT, in the main menu and durin
 from the main menu. Two settings on the page (Settings › Gameplay, on by default, applied the next time Settings opens)
 undo this: **Shorter Settings menu** (`admin.settingsMenu.trim`) brings the hidden tiles back, **PERFORMANCE in the
 Settings menu** (`admin.settingsMenu.performance`) removes the PERFORMANCE tile and puts the two Gameplay rows back
-(FRAME RATE LIMIT then has 30, 60 and UNLIMITED again from the next start, your choice carried over). If the menu
-cannot be rearranged, it stays as the game draws it and `server.log` says why in a `settings menu:` line.
+(FRAME RATE LIMIT then has 30, 60 and UNLIMITED again from the next start, your choice carried over). A third,
+**Lay out Settings before it is drawn** (`admin.settingsMenu.sameFrame`, on by default), prepares the menu before the
+game draws it, so MORE GAMES and FORUM never flash on a return; off, the first opening can show the stock menu for one
+frame. It turns itself off when the game closed during that step at the last start (the status page's "Recent problems"
+then has a `same frame skipped` line): switch it back on to try again (if settings.json could not be saved, the line
+names the marker file to delete instead). With build 22 ABOUT sits at the right of the
+bottom row, where the game itself puts it. If the menu cannot be rearranged, it stays as the game draws it and
+`server.log` says why in a `settings menu:` line.
 
 **Chrome is not supported.** Open the page only from the game. In Chrome (or any other browser)
 `http://127.0.0.1:51780/_mcvs/ui/` shows a view-only page at most: Android freezes the game about a minute after it leaves the screen, and the page's

@@ -72,6 +72,7 @@ namespace McvsOffline.Tests.Admin
             Assert.Contains("admin.redeemCode", keys);
             // The trim of the Settings grid is the same on both platforms; the PERFORMANCE page is Android's only.
             Assert.Contains("admin.settingsMenu.trim", keys);
+            Assert.Equal(keys.IndexOf("admin.settingsMenu.trim") + 1, keys.IndexOf("admin.settingsMenu.sameFrame"));
             Assert.DoesNotContain("admin.settingsMenu.performance", keys);
             Assert.DoesNotContain("graphics.msaa", keys);
             Assert.DoesNotContain("graphics.fpsListVersion", keys);
