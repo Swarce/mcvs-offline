@@ -288,6 +288,15 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         /// <summary>A tile whose width is further than this from <see cref="TileWidth"/> aborts the layout (§3.2).</summary>
         public const double TileWidthTolerance = 2;
 
+        /// <summary>
+        /// Build 24: the smallest scale of a tile's own focus and pressed animation (and_UI.swf sprite 6716, frames 19 and 25-29:
+        /// sx 0.970). A tile still in it reads narrower, between this share of <see cref="TileWidth"/> and the full width: the
+        /// tile just tapped, on the return from its tab (the owner's S22 log, build 23: "btn_general is 454 wide", so build 23
+        /// laid nothing out before setup() and ABOUT ended at the right). Such a tile is accepted; the in-match 0.8 panel and a
+        /// ThinBtn (about 401) still abort the layout.
+        /// </summary>
+        public const double TileFocusScale = 0.97;
+
         /// <summary>ThinBtn's plate (<c>mc_bg</c>); its runtime <c>.width</c> is about 401 (txt and mc_new stick out).</summary>
         public const double ThinButtonPlateWidth = 365.8;
 

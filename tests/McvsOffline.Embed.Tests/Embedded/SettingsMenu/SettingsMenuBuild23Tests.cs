@@ -287,6 +287,35 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
             rig.Ui.AssertAllDisposed();
         }
 
+        [Theory]
+        [InlineData("btn_general")]
+        [InlineData("btn_language")]
+        public void Build24_TheReturnFromATab_TheTappedTileStillInItsFocusAnimation_AboutStaysCentred(string tile)
+        {
+            // The owner's S22 log, build 23: on the return from a tab the tile just tapped reads 454 wide (its focus/pressed
+            // animation, sx 0.97), the read refused it ("btn_general is 454 wide"), nothing was dressed before setup() and
+            // ABOUT ended at the right.
+            var rig = new Rig();
+            rig.Open();
+            rig.Frame(() => Assert.True(rig.Ui.Tap(tile)));
+            rig.Host.RunFrames(5);
+            Assert.NotEqual(McvsMenuNames.Settings, rig.Ui.Top.Name);
+            rig.Ui.Instance(tile).Members["width"] = 454f;
+            int from = rig.Ui.Renders.Count;
+            rig.Frame(() => rig.Ui.Back());
+            rig.Stay();
+            List<RenderPoint> panels = rig.Ui.Renders.Skip(from).Where(r => r.Top == McvsMenuNames.Settings && r.PanelFrame == 3).ToList();
+            Assert.NotEmpty(panels);
+            foreach (RenderPoint r in panels)
+            {
+                List<string> row = Bottom(r);
+                Assert.True(row.Count == 1 && row[0].StartsWith("btn_more (-177, 354.1) ", StringComparison.Ordinal), r + ": " + string.Join("; ", row));
+                Assert.Equal(About, r.Instances["btn_more"].Text);
+            }
+            Assert.DoesNotContain(rig.Host.Lines("settings menu: "), l => l.Contains("wide") || l.Contains("not dressed"));
+            Assert.Equal(2, rig.Host.Lines(Notes).Count(l => l.Contains("ABOUT on MORE GAMES (-177), ABOUT tile off the panel")));
+        }
+
         [Fact]
         public void TheTopBarsGameloftButton_StillGoesToTheGame()
         {

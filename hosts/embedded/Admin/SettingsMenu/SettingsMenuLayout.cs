@@ -153,6 +153,18 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
         public const string ForumIcon = "Menus/assets/png/icons/settings_forum.png";
 
         /// <summary>The grid of §1.1 (<paramref name="windows"/>: Steam, frame 1) or §1.2 (Android, frame 3, with PERFORMANCE). Pure (T-B1).</summary>
+        /// <summary>
+        /// A BtnSetting's width: <see cref="SettingsMenuNames.TileWidth"/> (±<see cref="SettingsMenuNames.TileWidthTolerance"/>),
+        /// or narrower down to <see cref="SettingsMenuNames.TileFocusScale"/> of it while the tile plays its focus or pressed
+        /// animation (build 24).
+        /// </summary>
+        internal static bool TileWidthOk(double width)
+        {
+            double tolerance = SettingsMenuNames.TileWidthTolerance;
+            return width <= SettingsMenuNames.TileWidth + tolerance
+                && width >= SettingsMenuNames.TileWidth * SettingsMenuNames.TileFocusScale - tolerance;
+        }
+
         public static LayoutPlan Plan(bool windows)
         {
             return Plan(windows, true);
@@ -1516,8 +1528,7 @@ namespace McvsOffline.Embedded.Admin.SettingsMenu
                 {
                     double? width = flash.Number(item, "width");
                     string wrong = width == null ? p.Name + " has no width"
-                        : Math.Abs(width.Value - SettingsMenuNames.TileWidth) > SettingsMenuNames.TileWidthTolerance
-                            ? p.Name + " is " + FlashInterop.Text(width.Value) + " wide" : null;
+                        : !TileWidthOk(width.Value) ? p.Name + " is " + FlashInterop.Text(width.Value) + " wide" : null;
                     if (wrong != null)
                     {
                         changed = false;

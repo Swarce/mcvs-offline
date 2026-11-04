@@ -369,6 +369,10 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         [InlineData(false, "btn_forum", 467.5f, false)]
         [InlineData(false, "btn_forum", 467.3f, true)]
         [InlineData(false, "btn_general", 463.4f, true)]
+        [InlineData(false, "btn_general", 454f, true)]    // the tile just tapped, in its focus animation (S22, build 23)
+        [InlineData(false, "btn_language", 449.5f, true)]  // 0.97 of the width, less the 2 of tolerance
+        [InlineData(false, "btn_language", 449.2f, false)]
+        [InlineData(true, "btn_help", 454f, true)]
         [InlineData(true, "btn_performance", 400f, false)]
         [InlineData(true, "btn_help", 372.28f, false)]   // the in-match 0.8 scale
         public void ATileOfAnotherWidthMeansNoWrite(bool steam, string tile, float width, bool laidOut)
