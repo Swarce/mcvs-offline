@@ -1,7 +1,7 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-Last updated for build 24 (November 2026, on `wip/pc-port`; APK and PC kit): build 24 keeps ABOUT centred on the return from a tab (the owner's build-23 log: the tile just tapped was still in its pressed animation and our width check refused it); see "Build 24". Build 23 fixes what the owner saw on the phone in build 22 (the PERFORMANCE title drawn over its icon, ABOUT right of centre, a small stutter on the gear tap) and adds timings to the `settings menu:` log lines; Steam is unchanged apart from log text; not yet tested on a phone or on Windows; see "Build 23". The Steam bots' report (they idle at spawn and sometimes stop moving) is open: its investigation was stopped before any result, see "Build 23". Build 22: on the owner's phone build 21 still flashed
+Last updated for build 25 (November 2026, on `wip/pc-port`; APK and PC kit): build 25 brings the project's own launcher icon (the owner's art), a dark red launch screen and a new background for the game's data installer (kept outside the repository); see "Build 25". Build 24 keeps ABOUT centred on the return from a tab (the owner's build-23 log: the tile just tapped was still in its pressed animation and our width check refused it); see "Build 24". Build 23 fixes what the owner saw on the phone in build 22 (the PERFORMANCE title drawn over its icon, ABOUT right of centre, a small stutter on the gear tap) and adds timings to the `settings menu:` log lines; Steam is unchanged apart from log text; not yet tested on a phone or on Windows; see "Build 23". The Steam bots' report (they idle at spawn and sometimes stop moving) is open: its investigation was stopped before any result, see "Build 23". Build 22: on the owner's phone build 21 still flashed
 MORE GAMES and the FORUM tile on a return to Settings; build 22 no longer races the game's own `setup()`: on the phone
 its stock writes are made to draw nothing (the engine's text remap turns FORUM into PERFORMANCE, the icon is out of its
 reach, the removed tiles are off the panel, ABOUT stays at the game's own place on the bottom row), prepared before
@@ -65,6 +65,35 @@ HD texture probe and a Windows test kit for the Steam version. Build 11 installs
 version into the game's own data. Build 12 accepts a full ASTC data pack with 2,215 PC textures in it: **device test 9:
 the HD textures and the graphics profiles work, at the same frame rate as before**, and builds 10 to 12 (target Android
 15) installed and played fine.
+
+## Build 25 (November 2026): the launcher icon, the launch screen colour, the data installer's background
+
+`f868b10` on `wip/pc-port` (`McvsVersion.Build` is `25`). APK `mcvs-offline-f868b10.apk` (SHA-256
+`ea226b71c5563a9bca0560b856e8ee9640a896b1a10d642bc8b8d595ec315f74`, built with `--art-extra art/local`; a second build
+gave the same bytes; same key, apksigner and zipalign OK). Against build 24's `mcvs-offline-2259991.apk`: the same 952
+entries in the same order; changed the 20 launcher icon PNGs, `resources.arsc` (the v31 launch screen style), the three
+`res/drawable/installing_splash_bg*.png`, the server DLL (the build number), the signature files and the MVID spans. PC kit
+SHA-256 `ea5fac33191f17d54ecaf7a0952f9429b8d152b2d319dc09e37a6e90da72ed70` (two publishes, same bytes; build 24's kept as
+`McvsOffline.PcKit-2259991.exe`); PC end to end as before. Tests: 1578/1578, Embed 1299/1299, PcKit 63/63, PcSpike
+62/62; 0 skipped.
+
+* **Launcher icon** (`art/android/icon/`, the owner's own art, committed): the pink cat-helmet picture as the adaptive
+  icon's background layer (1728 px master; the picture fills the 74 dp centre and its blurred edges the bleed; a light
+  blur before the patcher's resampling, so the launcher's own minification does not shimmer), a transparent foreground,
+  and the rounded-square legacy icon for Android 5-7. In a circle mask the "encore" sticker's right end is cut; One UI's
+  squircle shows all of it. A launcher may keep the old icon until its cache refreshes (reboot).
+* **Launch screen** (`art/android/art.json`): `#3B1210`, the deep red of Marketing Detail B's band, day and night, with
+  the icon. Android 12+ draws only a colour and the icon there; a full picture is not possible on that screen.
+* **The game's data installer** (Gameloft's download and data-check screens): Marketing Detail B, with the VERSUS logo
+  moved up onto the black band (a wide phone shows only the middle 61 % of the picture's height) and the owner's "encore"
+  logo under VERSUS. The picture is Gameloft's promotional art, so it is **not in the repository**: the files live in
+  `art/local/installer/` (git-ignored), made by `tools/art/installer-background.py`, and the patcher takes them with the
+  new `--art-extra <folder>`, which lays a folder over the built-in art. The patcher checks them against the shipped
+  files' fingerprints and sizes (800x600, two 512x768 halves that come together). art/android/README.md §5.
+
+**Checklist:** the launcher shows the pink icon (after a reboot if the old one stays); a cold start shows the dark red
+screen with the icon, then the black installer with its spinner, then the new background with VERSUS and encore at the
+bottom right, nothing cut; the settings page and the game look as before.
 
 ## Build 24 (November 2026): ABOUT stays centred on the return from a tab
 
