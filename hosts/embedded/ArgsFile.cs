@@ -92,7 +92,7 @@ namespace McvsOffline.Embedded
         public static readonly string[] KnownManagedKeys =
         {
             "ServerLocation", "AnubisCommand", "EnvironmentSwitcherUrl", "SuperCredential", "SuperPassword", "DeviceId",
-            "DataCenter", "LocalAnubisHost",
+            "DataCenter", "LocalAnubisHost", "LocalAnubisFinderPort",
         };
 
         /// <summary>
@@ -236,6 +236,57 @@ namespace McvsOffline.Embedded
                 if (!inside) continue;
                 List<string> tokens = Tokenize(line);
                 if (tokens.Count >= 2 && string.Equals(tokens[0], "-" + key, StringComparison.Ordinal)) return tokens[1];
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// The value of <paramref name="key"/> as the player set it outside the managed block of <paramref name="existing"/> (first
+        /// occurrence, key compared case-insensitively like ApplicationArguments.Parse; the words up to the next argument joined
+        /// with spaces), or null when the player does not set it.
+        /// </summary>
+        public static string ReadUserValue(byte[] existing, string key)
+        {
+            return ReadValue(existing, key, false);
+        }
+
+        /// <summary>
+        /// The value of <paramref name="key"/> as the game reads it from the whole file <paramref name="content"/> (first occurrence,
+        /// the managed block included), or null.
+        /// </summary>
+        public static string ReadEffectiveValue(byte[] content, string key)
+        {
+            return ReadValue(content, key, true);
+        }
+
+        private static string ReadValue(byte[] bytes, string key, bool includeManaged)
+        {
+            if (bytes == null || string.IsNullOrEmpty(key)) return null;
+            string text = Latin1Decode(bytes);
+            if (text.StartsWith("\u00ef\u00bb\u00bf", StringComparison.Ordinal)) text = text.Substring(3);
+            var tokens = new List<string>();
+            bool inside = false;
+            foreach (string line in SplitLines(text))
+            {
+                string first = FirstToken(line);
+                if (!includeManaged)
+                {
+                    if (string.Equals(first, BeginMarker, StringComparison.Ordinal)) { inside = true; continue; }
+                    if (string.Equals(first, EndMarker, StringComparison.Ordinal)) { inside = false; continue; }
+                    if (inside) continue;
+                }
+                tokens.AddRange(Tokenize(line));
+            }
+            for (int i = 0; i < tokens.Count; i++)
+            {
+                if (tokens[i].Length < 2 || tokens[i][0] != '-' || !string.Equals(tokens[i].Substring(1), key, StringComparison.OrdinalIgnoreCase)) continue;
+                var value = new StringBuilder();
+                for (int j = i + 1; j < tokens.Count && !(tokens[j].Length > 0 && tokens[j][0] == '-'); j++)
+                {
+                    if (value.Length > 0) value.Append(' ');
+                    value.Append(tokens[j]);
+                }
+                return value.ToString();
             }
             return null;
         }

@@ -544,7 +544,8 @@ namespace McvsOffline.Server.Services.Admin.Logs
             }
             var sb = new StringBuilder();
             sb.Append("version ").Append(JsonValue.GetString(status, "version")).Append(" (build ").Append(JsonValue.GetString(status, "build")).Append(")\n");
-            Line(sb, "server", JsonValue.GetObject(status, "server"), "started", "uptimeSeconds", "port", "bind", "lanMode", "instance");
+            Line(sb, "server", JsonValue.GetObject(status, "server"), "started", "uptimeSeconds", "port", "configuredPort", "portNote", "bind", "lanMode",
+                 "instance");
             Line(sb, "host", JsonValue.GetObject(status, "host"), "platform", "sdkInt", "browser", "mirror", "watchdog", "restartVia", "freeBytes");
             Line(sb, "settings", JsonValue.GetObject(status, "settings"), "fallback", "error", "restartPending");
             Line(sb, "player", JsonValue.GetObject(status, "player"), "account", "source", "level", "revision", "modified", "lastGameSave", "hasGameProfile");

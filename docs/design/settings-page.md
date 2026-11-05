@@ -363,7 +363,7 @@ default `game`; §8.8), `security.hostCheck` (bool, true; the Host allowlist on 
 
 Shown with their effective value: `port`, `bind`, `publicUrl`, `lanMode`, `superCredential`, `superPassword` (shown as
 `•••• (default)` or `•••• (custom)`), `dataCenter`, `logging.consoleLevel`, `logging.bodyLimit`,
-`logging.fileMaxBytes`, `logging.fileCount`, `embedded.manageArgs`, `embedded.lanAdvertiseHost`,
+`logging.fileMaxBytes`, `logging.fileCount`, `embedded.manageArgs`, `embedded.lanAdvertiseHost`, `embedded.portFallback`,
 `embedded.nativeOnlineSdk`, `embedded.physics.serverMultithreaded`, `embedded.physics.clientMultithreaded`,
 `embedded.physics.stepGate`, `embedded.physics.stepGateTimeoutMs`, `install.manageInstaller`,
 `install.suppressUpdateCheck`, `install.rebuildIndex`, `install.verifyRestoredData`, `install.monitorInstaller`,
@@ -375,8 +375,8 @@ FRAME RATE LIMIT list the stored index belongs to, written by the embedded host 
 
 **Server-side denylist** (refused with 400 `not_editable` even if a future schema edit marked them editable):
 `port`, `bind`, `publicUrl`, `lanMode`, `superCredential`, `superPassword`, `dataCenter`, `pandora.*`,
-`embedded.manageArgs`, `embedded.lanAdvertiseHost`, `crm.overlay`, `crm.pointcutActions`, `crm.developerIpRange`,
-`assets.coupons`, `admin.enabled`, `admin.openVia`, `admin.restartVia`, `security.*`, `install.*`. Any key not in §3.1 is
+`embedded.manageArgs`, `embedded.lanAdvertiseHost`, `embedded.portFallback`, `crm.overlay`, `crm.pointcutActions`,
+`crm.developerIpRange`, `assets.coupons`, `admin.enabled`, `admin.openVia`, `admin.restartVia`, `security.*`, `install.*`. Any key not in §3.1 is
 refused the same way.
 
 ### 3.3 Presets (Economy)
@@ -497,7 +497,8 @@ calls `IAdminHost.PageAlive()` (watchdog lease, §8.5).
 ```json
 {
   "version": "0.1.0-dev", "build": "9",
-  "server": {"started": "...", "uptimeSeconds": 3600, "instance": "mcvs1a2b3c4d", "port": 51780, "bind": "127.0.0.1",
+  "server": {"started": "...", "uptimeSeconds": 3600, "instance": "mcvs1a2b3c4d", "port": 51780, "configuredPort": 51780,
+             "portNote": null, "bind": "127.0.0.1",
              "lanMode": false, "hostCheck": true, "dataDir": "/storage/emulated/0/Android/data/.../files/McvsOffline",
              "dataPack": ".../files/Data"},
   "host": {"platform": "android", "sdkInt": 36, "deviceId": "...", "logsDir": "...", "fallbackLogsDir": null,

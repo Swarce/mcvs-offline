@@ -49,6 +49,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             "System.Void McvsOffline.PcHooks::DefaultAutomatchHost(System.Object)",
             "System.Void McvsOffline.PcHooks::ServerWorldFailed(System.Exception)",
             "System.Void McvsOffline.PcHooks::ComponentCreateFailed(System.Exception,System.Type)",
+            "System.String McvsOffline.PortHooks::GeolocalizationUrl(System.String)",
         };
 
         [Fact]

@@ -63,6 +63,15 @@ adb reverse --list          # should list tcp:51780 tcp:51780
 
 `adb reverse` lasts until the USB connection or the adb server restarts; run it again after reconnecting.
 
+With the **patched** game (build 26 on) the same works: when the game starts, its host finds 127.0.0.1:51780 taken (adbd
+listens there for the reverse), asks `GET /_mcvs/status` and, when a working MCVS Offline server answers, uses it:
+`args.txt` keeps 51780 and the game's own server stays off (`bootstrap.log`: "port 51780 is held by a working MCVS
+Offline server ...: the game uses it"). Start the standalone server **before** the game. If nothing answers behind the
+reverse (the server is not running, the cable is out) or something else holds the port, the patched game starts its own
+server on another port instead (51781..): it never waits for the reverse. Builds up to 25 waited 30 s and then used
+whatever held the port. To force the patched game onto the PC server anyway, set `embedded.manageArgs` to `false` and
+point `args.txt` at it yourself.
+
 ## 4. Push args.txt
 
 The exact file (seven lines, LF line endings, no BOM, no tabs; values are case-sensitive, so `Embedded`, not
@@ -175,7 +184,7 @@ its `-DeviceId` and, if you changed it, its port.
 | Symptom | Check |
 |---|---|
 | No request reaches the server | `adb reverse --list`; `args.txt` next to `Data/`; no BOM/tabs; `Embedded` spelled exactly |
-| The server refuses to start: port in use | Another host is running on 51780 (two hosts can no longer share a port); stop it or use `--port` and change `args.txt` |
+| The server refuses to start: port in use | Another host is running on 51780 (two hosts can no longer share a port); stop it or use `--port` and change `args.txt`. The standalone server never moves to another port by itself (only the in-game host does) |
 | Requests arrive, the game shows "Incorrect datacenter" or an update popup | `GET /config/.../urls` must answer without a `status` key (eve, verify-C2 §1.2); look for errors in `server.log` |
 | The game waits forever at "connecting" | `configs/users/me/game` must answer 200 (the GS waits otherwise); check `GET /_mcvs/crm` |
 | The profile resets | Look for a 403/404 on a `profiles/...` request or `storage unavailable` in the log; restore from `data/storage/backups/` |

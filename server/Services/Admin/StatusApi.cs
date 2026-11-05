@@ -52,6 +52,9 @@ namespace McvsOffline.Server.Services.Admin
             server["uptimeSeconds"] = (long)Math.Max(0, (now - context.StartedUtc).TotalSeconds);
             server["instance"] = context.InstanceId;
             server["port"] = (long)context.Port;
+            // The port the host prefers (settings.json "port") and, after a port fallback, why this run listens elsewhere.
+            server["configuredPort"] = (long)context.Settings.Port;
+            server["portNote"] = context.PortNote;
             server["bind"] = context.Settings.Bind;
             server["lanMode"] = context.Settings.LanMode;
             server["hostCheck"] = context.Settings.GetBool("security.hostCheck", true);

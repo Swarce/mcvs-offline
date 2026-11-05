@@ -31,6 +31,10 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
     /// (<see cref="Build20BotTilePatch"/>, the same one-byte edit at the same place in the plan) the output is still exactly
     /// the pinned values above, so the stand-in is that patch and its removal is the only change; build 21's own Game.dll
     /// is pinned in <see cref="Build21"/>.
+    /// Build 26 (port fallback, docs/design/port-fallback.md) changes two files on purpose: 'geo' (Gameloft.Util.dll) gains the
+    /// McvsOffline.PortHooks call and the new mandatory 'finderport' edits ClientSettings (Gameloft.Engine.dll). With build 25's
+    /// 'geo' as a test stand-in (<see cref="Build25GeoPatch"/>) and without 'finderport' the output is still exactly the
+    /// pinned values; build 26's two files are pinned in <see cref="Build26"/>.
     /// Skipped without MCVS_REFS, unless MCVS_REQUIRE_REAL_CLIENT=1. On a mismatch the test prints the current values.
     /// </summary>
     public class AndroidOutputUnchangedTests
@@ -59,6 +63,13 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             ["Game.dll"] = new[] { "c65c94e96fea7156cd1edb9b6f36f45dfd3f19a37c261c55cd5c540cba0ce9bb", "6506627f7bbcee613092cb52b09ed99fa5f20bb7d2d0273d8c213b2150c48ae7", "023c53c26c859c5d55e17f7c29b2e13aa5836546c01431b331a7df2522f69465" },
         };
 
+        /// <summary>Gameloft.Engine.dll and Gameloft.Util.dll patched for build 26's default set (the other files equal <see cref="Build21"/>/<see cref="Expected"/>).</summary>
+        private static readonly Dictionary<string, string[]> Build26 = new Dictionary<string, string[]>(StringComparer.Ordinal)
+        {
+            ["Gameloft.Engine.dll"] = new[] { "acdf216b6c24e508268d70d533a37c7092b1d2570b7e10e88f4ab50510ea2910", "54613162ef2e64eed644ff59312a5f3a7ef6de20e332961a9bff4569cae03133", "d847fdc647d16b4a250e6e0deb537c825fb054a5db4afe46f9be23ffc1898022" },
+            ["Gameloft.Util.dll"] = new[] { "e9f21ed9f597012ffcfa11ede25958d1fe628515248bea26241de4bc50eb67f7", "dff3d08f1c35a27459187ab815354abc073a39a1a85e6cc75c172813e9c67ef0", "37f45859aedef101d34cf514476cc0e99b11ce4dc3cbfaa499041a62d24528c8" },
+        };
+
         private readonly ITestOutputHelper output;
 
         public AndroidOutputUnchangedTests(ITestOutputHelper output)
@@ -72,7 +83,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         {
             string refs = Refs();
             if (refs == null) return;
-            AssertOutput(PatchDefault(refs, true, "inbox"), Expected);
+            AssertOutput(PatchDefault(refs, true, true, "inbox"), Expected);
         }
 
         /// <summary>
@@ -84,7 +95,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         {
             string refs = Refs();
             if (refs == null) return;
-            Dictionary<string, byte[]> patched = PatchDefault(refs, false);
+            Dictionary<string, byte[]> patched = PatchDefault(refs, false, true);
             var expected = new Dictionary<string, string[]>(Expected, StringComparer.Ordinal);
             foreach (var pair in Build21) expected[pair.Key] = pair.Value;
             AssertOutput(patched, expected);
@@ -101,13 +112,36 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             string refs = Refs();
             if (refs == null) return;
             Assert.Contains("inbox", new PatcherOptions().Patches);
-            Dictionary<string, byte[]> patched = PatchDefault(refs, true);
+            Dictionary<string, byte[]> patched = PatchDefault(refs, true, true);
             var expected = new Dictionary<string, string[]>(Expected, StringComparer.Ordinal);
             foreach (var pair in WithInbox) expected[pair.Key] = pair.Value;
             AssertOutput(patched, expected);
             Assert.NotEqual(Expected["Game.dll"][1], WithInbox["Game.dll"][1]);
             using (ModuleDefinition game = ModuleDefinition.ReadModule(new MemoryStream(patched["Game.dll"]), new ReaderParameters { InMemory = true }))
                 Assert.NotNull(game.GetType("Game." + InboxPatch.HelperType));
+        }
+
+        /// <summary>
+        /// Build 26's default set: build 21's output except Gameloft.Util.dll (the 'geo' hook call and its new reference to
+        /// McvsOffline.Server) and Gameloft.Engine.dll ('finderport'), pinned in <see cref="Build26"/>; Game.dll and NicePlaySDK.dll unchanged.
+        /// </summary>
+        [Fact]
+        public void TheBuild26DefaultOutputIsTheBuild21OutputPlusThePortHooks()
+        {
+            string refs = Refs();
+            if (refs == null) return;
+            Dictionary<string, byte[]> patched = PatchDefault(refs, false, false);
+            var expected = new Dictionary<string, string[]>(Expected, StringComparer.Ordinal);
+            foreach (var pair in Build21) expected[pair.Key] = pair.Value;
+            foreach (var pair in Build26) expected[pair.Key] = pair.Value;
+            AssertOutput(patched, expected);
+            foreach (string file in Build26.Keys)
+            {
+                Assert.NotEqual(Expected[file][1], Build26[file][1]);
+                Assert.NotEqual(Expected[file][2], Build26[file][2]);
+            }
+            using (ModuleDefinition util = ModuleDefinition.ReadModule(new MemoryStream(patched["Gameloft.Util.dll"]), new ReaderParameters { InMemory = true }))
+                Assert.Contains(util.AssemblyReferences, r => r.Name == "McvsOffline.Server");
         }
 
         private string Refs()
@@ -146,11 +180,23 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         /// </summary>
         internal static Dictionary<string, byte[]> PatchDefault(string refs, bool build20BotTile, params string[] without)
         {
-            byte[] server = FixtureCompiler.Compile("McvsOffline.Server", RealGamePatchTests.HookServerSource);
+            return PatchDefault(refs, build20BotTile, false, without);
+        }
+
+        /// <summary>As above; <paramref name="build25Ports"/>: build 25's 'geo' (<see cref="Build25GeoPatch"/>) and no 'finderport'.</summary>
+        internal static Dictionary<string, byte[]> PatchDefault(string refs, bool build20BotTile, bool build25Ports, params string[] without)
+        {
+            byte[] server = FixtureCompiler.Compile("McvsOffline.Server", RealGamePatchTests.HookServerSource,
+                                                    FixtureCompiler.RepoSource("hosts", "embedded", "PortHooks.cs"));
             var ids = new PatcherOptions().Patches;
             foreach (string id in without) Assert.True(ids.Remove(id), id + " is not a default patch");
             List<IlPatch> patches = ApkPatcher.SelectPatches(ids);
             if (build20BotTile) patches.Insert(patches.FindIndex(p => p.Id == "finder"), new Build20BotTilePatch());
+            if (build25Ports)
+            {
+                patches.RemoveAll(p => p is FinderPortPatch);
+                patches[patches.FindIndex(p => p is GeoPatch)] = new Build25GeoPatch();
+            }
             var result = new Dictionary<string, byte[]>(StringComparer.Ordinal);
             using (var resolver = new DefaultAssemblyResolver())
             {
@@ -205,6 +251,33 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         private static string Sha256(byte[] data)
         {
             using (SHA256 sha = SHA256.Create()) return string.Concat(sha.ComputeHash(data).Select(b => b.ToString("x2")));
+        }
+    }
+
+    /// <summary>
+    /// Build 25's 'geo' as a test stand-in (AndroidOutputUnchangedTests): the same locator, the URL baked as a string and nothing
+    /// else (build 26 adds the McvsOffline.PortHooks call after it).
+    /// </summary>
+    public sealed class Build25GeoPatch : IlPatch
+    {
+        public override string Id => "geo";
+
+        public override string AssemblyFile => "Gameloft.Util.dll";
+
+        public override string Description => "build 25's geo (test stand-in)";
+
+        public override void Apply(ModuleDefinition module, PatchContext context)
+        {
+            TypeDefinition type = RequireType(module, GeoPatch.TypeName);
+            MethodDefinition getter = RequireMethod(type, GeoPatch.Getter, m => !m.HasParameters && m.ReturnType.MetadataType == MetadataType.String, "string getter");
+            var sites = getter.Body.Instructions
+                .Where(i => i.OpCode == Mono.Cecil.Cil.OpCodes.Ldstr && ((string)i.Operand).StartsWith(GeoPatch.OriginalPrefix, StringComparison.Ordinal))
+                .ToList();
+            Assert.Single(sites);
+            string original = (string)sites[0].Operand;
+            string replaced = GeoPatch.ReplacementPrefix(context.Port) + original.Substring(GeoPatch.OriginalPrefix.Length);
+            sites[0].Operand = replaced;
+            context.Notes.Add(type.FullName + "::" + GeoPatch.Getter + ": \"" + original + "\" -> \"" + replaced + "\"");
         }
     }
 }

@@ -49,7 +49,7 @@ namespace McvsOffline.Patcher.Core
             new[] { "hook-pc", "headless", "headless-engine", "physics", "quicklaunch", "headless-diag", "graphics", "gameload" },
             new[] { "nativeonline", "waits", "adminlink", "geo", "store", "signatures", "inbox", "adminpage" },
             new[] { "forum" },
-            new[] { "hook", "finder", "lan", "debloat", "targetsdk", "game" });
+            new[] { "hook", "finder", "finderport", "lan", "debloat", "targetsdk", "game" });
 
         private static readonly PatchIds AndroidIds = new PatchIds(
             PatcherOptions.MandatoryPatches,

@@ -59,9 +59,10 @@ namespace McvsOffline.Patcher
 
         /// <summary>
         /// Patches applied whatever --patch says: the server hook and the fixes the in-process TS/GS Worlds need (headless-World
-        /// components, device test 1; single-threaded server physics and one Havok step at a time, device test 2).
+        /// components, device test 1; single-threaded server physics and one Havok step at a time, device test 2), and since build 26
+        /// the client's LocalAnubis Finder port, which the host moves when 51750 is busy at start (port fallback).
         /// </summary>
-        public static readonly string[] MandatoryPatches = { "hook", "headless", "headless-engine", "physics" };
+        public static readonly string[] MandatoryPatches = { "hook", "headless", "headless-engine", "physics", "finderport" };
 
         public string InputApk { get; set; }
 
