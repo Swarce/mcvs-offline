@@ -33,8 +33,9 @@ namespace McvsOffline.Embedded
         string ArgsReader { get; }
 
         /// <summary>
-        /// One sentence appended to the error when the server cannot bind its port after every retry (Android: a standalone
-        /// server connected with adb reverse; Windows: another program or a reserved port range).
+        /// One sentence appended to the error when the server cannot bind its port after every retry: only when the port
+        /// fallback is off (embedded.portFallback false) or no port at all could be bound (Android: another app, a phone restart
+        /// frees it; Windows: another program or a reserved port range).
         /// </summary>
         string PortInUseHint { get; }
     }
@@ -235,7 +236,7 @@ namespace McvsOffline.Embedded
 
         public string ArgsReader { get { return "nobody"; } }
 
-        public string PortInUseHint { get { return "Another program holds the port; stop it or change 'port' in settings.json."; } }
+        public string PortInUseHint { get { return "Another program holds the port; stop it, or change 'port' or 'embedded.portFallback' in settings.json."; } }
 
         public string ResolveGameRoot(Log log)
         {

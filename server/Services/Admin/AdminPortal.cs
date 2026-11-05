@@ -61,10 +61,27 @@ namespace McvsOffline.Server.Services.Admin
 
         public bool IsPageMarker(string url)
         {
-            // Runs for every URL the game opens: compare first, read the setting only for the marker itself.
+            // Runs for every URL the game opens: compare first, read the setting only for the marker itself. Any loopback port: an
+            // inbox message built before a port fallback (or by an earlier start on another port) still opens the page here
+            // instead of a dead URL; the marker carries no secret.
             if (url == null) return false;
-            string m = PageMarkerUrl;
-            return url.Length == m.Length && string.Equals(url, m, StringComparison.Ordinal) && Enabled;
+            return IsMarkerOnAnyPort(url) && Enabled;
+        }
+
+        /// <summary>"http://127.0.0.1:&lt;1-5 digits&gt;/_mcvs/ui/#news", exactly (ordinal).</summary>
+        internal static bool IsMarkerOnAnyPort(string url)
+        {
+            const string Scheme = "http://127.0.0.1:";
+            const string Path = "/_mcvs/ui/#news";
+            if (url == null || url.Length < Scheme.Length + 1 + Path.Length || url.Length > Scheme.Length + 5 + Path.Length) return false;
+            if (!url.StartsWith(Scheme, StringComparison.Ordinal) || !url.EndsWith(Path, StringComparison.Ordinal)) return false;
+            int digits = url.Length - Scheme.Length - Path.Length;
+            for (int i = 0; i < digits; i++)
+            {
+                char c = url[Scheme.Length + i];
+                if (c < '0' || c > '9') return false;
+            }
+            return true;
         }
 
         public string MintPageUrl(string trigger, string screen)

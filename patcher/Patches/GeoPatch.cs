@@ -11,6 +11,15 @@ namespace McvsOffline.Patcher.Patches
     /// hard-coded <c>http://ip.ecomapis.gameloft.org/location/?ip=</c>, queried during the TS handshake with a
     /// timeout (100 s) longer than the handshake's own (60 s). Offline that request can hang on DNS; pointed at the
     /// embedded server it answers at once (the MISC group's Geo module serves <c>GET location/?ip=</c>).
+    /// <para>Build 26 (port fallback, docs/design/port-fallback.md): the URL follows the port the host bound at this start,
+    /// which is not always the one known at patch time:</para>
+    /// <code>
+    /// get_GeolocalizationUrl: ldstr "http://127.0.0.1:&lt;--port&gt;/location/?ip="
+    ///                         call string McvsOffline.PortHooks::GeolocalizationUrl(string)   // added
+    ///                         ret
+    /// </code>
+    /// The hook returns the baked string until the host has decided, so <c>--port</c> remains the fallback value; with the port
+    /// free the URL is the same as before. Gameloft.Util.dll references McvsOffline.Server.dll from this build on.
     /// </summary>
     public sealed class GeoPatch : IlPatch
     {
@@ -22,7 +31,9 @@ namespace McvsOffline.Patcher.Patches
 
         public override string AssemblyFile => "Gameloft.Util.dll";
 
-        public override string Description => "IP geolocation URL -> the embedded server (no DNS wait during the TS handshake)";
+        public override string Description => "IP geolocation URL -> the embedded server on this start's port (no DNS wait during the TS handshake)";
+
+        public const string HooksType = "McvsOffline.PortHooks";
 
         public static string ReplacementPrefix(int port)
         {
@@ -43,10 +54,15 @@ namespace McvsOffline.Patcher.Patches
                 throw new PatchException(type.FullName + "::" + Getter + ": expected one ldstr \"" + OriginalPrefix + "...\", found " +
                                          sites.Count + ":\n" + Dump(getter));
             }
+            MethodReference hook = ImportServerMethod(module, context, HooksType, "GeolocalizationUrl", "System.String", "System.String");
+
             string original = (string)sites[0].Operand;
             string replaced = ReplacementPrefix(context.Port) + original.Substring(OriginalPrefix.Length);
             sites[0].Operand = replaced;
-            context.Notes.Add(type.FullName + "::" + Getter + ": \"" + original + "\" -> \"" + replaced + "\"");
+            ILProcessor il = getter.Body.GetILProcessor();
+            il.InsertAfter(sites[0], il.Create(OpCodes.Call, hook));
+            context.Notes.Add(type.FullName + "::" + Getter + ": \"" + original + "\" -> " + HooksType + ".GeolocalizationUrl(\"" + replaced +
+                              "\") (this start's port)");
         }
     }
 }

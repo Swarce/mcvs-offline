@@ -68,7 +68,7 @@ namespace McvsOffline.Patcher
     {
         public static readonly IlPatch[] AllPatches =
         {
-            new BootstrapHookPatch(), new HeadlessGamePatch(), new HeadlessEnginePatch(), new PhysicsPatch(), new NativeOnlinePatch(),
+            new BootstrapHookPatch(), new HeadlessGamePatch(), new HeadlessEnginePatch(), new PhysicsPatch(), new FinderPortPatch(), new NativeOnlinePatch(),
             new WaitsPatch(), new GeoPatch(), new FinderPatch(), new LanPatch(), new StorePatch(), new SignaturesPatch(),
             new InboxPatch(), new AdminPagePatch(), new DebloatEnginePatch(), new AdminLinkPatch(), new ForumPatch(), new GraphicsPatch(),
         };

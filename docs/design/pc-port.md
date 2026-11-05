@@ -46,7 +46,7 @@ with its offset and operand full name, and every exception handler.
 | D4 | Only if WR2 shows that http.sys refuses `http://localhost:51750/` to a normal user: option (b), no admin step, our own server replaces the Finder routes | designed as the optional WP6 (§15), not implemented unless WR2 Q2 fails |
 | D5 | A second Windows round (WR2) with the new kit | §13; WP5 is split around it: WP5a publishes the kit, WP5b records WR2 and finishes the docs (§11.1) |
 | A | **Option A**: `ModernCombatVersus.exe.config` `<codeBase>` redirects to patched copies; no Steam file is changed | §7.4 |
-| X | Excluded on PC: LAN (`lanMode`), patches `finder`, `lan`, `debloat`, `targetsdk`, `game`, `hook`; the Android installer-data restore (`hosts/embedded/Install/`) and HD textures (`Hd/`) | §5.2, §8.1 |
+| X | Excluded on PC: LAN (`lanMode`), patches `finder`, `finderport` (build 26), `lan`, `debloat`, `targetsdk`, `game`, `hook`; the Android installer-data restore (`hosts/embedded/Install/`) and HD textures (`Hd/`) | §5.2, §8.1 |
 | G | Android side task: a new default manifest patch `game` adding `android:isGame=true` (0x010103f4) and `android:appCategory=game` (0x01010545, value 0) to `<application>`, per [SG] option A with the [SG-V] corrections | §10 |
 
 ### 1.2 Choices this design makes (the critic's open choices)
@@ -216,6 +216,7 @@ Signature strings for `ImportServerMethod` (the patch side):
 | P3 | `McvsOffline.PcHooks`, `DefaultAutomatchHost` | `System.Void` | `System.Object` |
 | M1 | `McvsOffline.PcHooks`, `ServerWorldFailed` | `System.Void` | `System.Exception` |
 | M4 | `McvsOffline.PcHooks`, `ComponentCreateFailed` | `System.Void` | `System.Exception`, `System.Type` |
+| geo (build 26) | `McvsOffline.PortHooks`, `GeolocalizationUrl` | `System.String` | `System.String` (port fallback, [port-fallback.md](port-fallback.md)) |
 
 ### 3.3 Host interfaces (`hosts/embedded/IEmbeddedPlatform.cs`)
 
@@ -1223,7 +1224,7 @@ access denial: a virus scanner holding the file) up to 10 times 100 ms apart (`P
 | `inbox` | Game.dll | default | new (build 17): `GenerateRewardsObjects` and `GetObject` as Android's, PC fingerprints for `RefreshUI` and the `ClaimRewardsForMessage` state machine (anonymous-type numbers), and I5 (`KillSignatureRewardItem.IsRandom` gets Android's null check) on PC only | `patcher/Patches/InboxPatch.cs` |
 | `adminpage` | Game.dll | default | new fingerprints, A1 offsets, `op_Equality` source | §8.7 |
 | `forum` | Game.dll | optional | unchanged | [PP] §3 |
-| `hook`, `finder`, `lan`, `debloat`, `targetsdk`, `game` | — | **excluded** | Android only | X; [PP] §3 |
+| `hook`, `finder`, `finderport`, `lan`, `debloat`, `targetsdk`, `game` | — | **excluded** | Android only (`finderport`: build 26, the PC ClientSettings has no Finder port; PcHooks use the Finder's PublicPort) | X; [PP] §3 |
 
 Order inside a file (as `ApkPatcher.AllPatches`, `:66-71`, then the new ones): Game.dll `headless`, `store`,
 `signatures`, `inbox`, `adminpage`, `forum`; Gameloft.Engine.dll `headless-engine`, `physics`, `quicklaunch`, `headless-diag`,
@@ -1434,7 +1435,7 @@ description texts take `BuildProfile.GameOptionsFile`. The MEM rule and profiles
 
 ### 8.8 Excluded patches refuse cleanly
 
-`PatchPlan.For(PcSteam6372049, …)` refuses `hook`, `finder`, `lan`, `debloat`, `targetsdk`, `game` (`PatchPlanTests`,
+`PatchPlan.For(PcSteam6372049, …)` refuses `hook`, `finder`, `finderport`, `lan`, `debloat`, `targetsdk`, `game` (`PatchPlanTests`,
 §12.4); and every patch class asked to apply on a build it has no table for throws `PatchException` before changing
 anything (the cross-build refusals of §12.4, per patch).
 
@@ -1877,7 +1878,7 @@ ILVerify before/after equal; reference set (P3). Every one of these reads throug
 the resolved corlib with `AssertPcCorlib` (C12).
 
 * `PatchPlanTests`: for `PcSteam6372049`, `Ids().Mandatory` = {`hook-pc`, `headless`, `headless-engine`, `physics`,
-  `quicklaunch`, `headless-diag`, `graphics`}, `Default` and `Optional` as in §8.1, `Excluded` = {`hook`, `finder`,
+  `quicklaunch`, `headless-diag`, `graphics`}, `Default` and `Optional` as in §8.1, `Excluded` = {`hook`, `finder`, `finderport`,
   `lan`, `debloat`, `targetsdk`, `game`}; `For(build, [])` contains every mandatory id, in the §8.1 order;
   `For(build, ["forum"])` adds it at its place; each excluded id throws `ArgumentException`; for `Android1_17_32`,
   the ids and order of `For` equal `ApkPatcher.SelectPatches` for the same options (P5).

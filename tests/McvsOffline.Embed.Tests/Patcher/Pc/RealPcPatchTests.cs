@@ -314,9 +314,8 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 List<string> original, now;
                 using (ModuleDefinition m = ModuleDefinition.ReadModule(Path.Combine(pc, kv.Key))) original = m.AssemblyReferences.Select(r => r.FullName).ToList();
                 using (ModuleDefinition m = ModuleDefinition.ReadModule(new MemoryStream(kv.Value))) now = m.AssemblyReferences.Select(r => r.FullName).ToList();
-                List<string> expected = kv.Key == "Gameloft.Util.dll"
-                    ? original
-                    : original.Concat(new[] { "McvsOffline.Server, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null" }).ToList();
+                // Every patched file, Gameloft.Util.dll included from build 26 on ('geo' calls McvsOffline.PortHooks).
+                List<string> expected = original.Concat(new[] { "McvsOffline.Server, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null" }).ToList();
                 output.WriteLine(kv.Key + ": " + string.Join("; ", now));
                 Assert.Equal(expected.OrderBy(r => r, StringComparer.Ordinal), now.OrderBy(r => r, StringComparer.Ordinal));
                 Assert.Single(now, r => r.StartsWith("mscorlib,", StringComparison.Ordinal));

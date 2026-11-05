@@ -31,6 +31,7 @@ namespace McvsOffline.Server.Core.Http
         private readonly HashSet<Connection> connections = new HashSet<Connection>();
 
         private Socket listener;
+        private Socket adopted;
         private Thread acceptThread;
         private ManualResetEvent acceptThreadDone;
         private long nextRequestId;
@@ -43,6 +44,26 @@ namespace McvsOffline.Server.Core.Http
             if (handler == null) throw new ArgumentNullException("handler");
             this.address = address;
             requestedPort = port;
+            this.handler = handler;
+            this.log = log;
+            this.limits = limits ?? new HttpServerLimits();
+        }
+
+        /// <summary>
+        /// A server that adopts <paramref name="listening"/>, a socket already bound and listening (made by <see cref="Listen"/>):
+        /// <see cref="Start"/> binds nothing and only starts accepting, so connections queued in the backlog meanwhile are served.
+        /// The embedded host reserves its port this way before the game reads args.txt (docs/design/port-fallback.md). The server
+        /// owns the socket from here on: <see cref="Stop"/> closes it.
+        /// </summary>
+        public HttpServer(Socket listening, Func<HttpRequest, HttpResponse> handler, Log log, HttpServerLimits limits = null)
+        {
+            if (listening == null) throw new ArgumentNullException("listening");
+            if (handler == null) throw new ArgumentNullException("handler");
+            var local = listening.LocalEndPoint as IPEndPoint;
+            if (local == null) throw new ArgumentException("the socket is not bound", "listening");
+            address = local.Address;
+            requestedPort = local.Port;
+            adopted = listening;
             this.handler = handler;
             this.log = log;
             this.limits = limits ?? new HttpServerLimits();
@@ -71,38 +92,16 @@ namespace McvsOffline.Server.Core.Http
             get { lock (gate) return connections.Count; }
         }
 
-        /// <summary>Binds and starts accepting. Throws SocketException if the port is in use.</summary>
+        /// <summary>
+        /// Binds and starts accepting (an adopted socket: starts accepting on it). Throws SocketException if the port is in use.
+        /// </summary>
         public void Start()
         {
             lock (gate)
             {
                 if (listener != null) throw new InvalidOperationException("server already started");
-                var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-                try
-                {
-                    if (address.AddressFamily == AddressFamily.InterNetworkV6 && address.Equals(IPAddress.IPv6Any))
-                        socket.DualMode = true;
-#if MCVS_ANDROID
-                    // SO_REUSEADDR alone, through libc: a restarted game can bind again while its previous connections
-                    // sit in TIME_WAIT (up to 60 s on Linux) instead of failing to start the server. Not
-                    // SetSocketOption(ReuseAddress): Mono also sets SO_REUSEPORT then, and a second listener of the same
-                    // UID could share the port (see SocketReuse).
-                    string reuse = SocketReuse.TrySetReuseAddressOnly(socket);
-                    if (reuse != null) Warn("SO_REUSEADDR not set (" + reuse + "); right after a restart the port may stay busy for up to a minute", null);
-#endif
-                    // net8: deliberately not set. .NET on Unix already enables SO_REUSEADDR for TCP before bind, and its
-                    // ReuseAddress option additionally sets SO_REUSEPORT, which lets a second host bind the same port
-                    // and silently take half of the connections (MISC request). HttpServerTests pins the net8 behaviour,
-                    // SocketReuseTests the libc call the Android build makes. On Windows (the PC build) the flag would
-                    // allow two servers on one port as well, so it is not set there either.
-                    socket.Bind(new IPEndPoint(address, requestedPort));
-                    socket.Listen(128);
-                }
-                catch
-                {
-                    socket.Close();
-                    throw;
-                }
+                Socket socket = adopted ?? Listen(address, requestedPort, msg => Warn(msg, null));
+                adopted = null;
                 listener = socket;
                 LocalEndPoint = (IPEndPoint)socket.LocalEndPoint;
                 Port = LocalEndPoint.Port;
@@ -115,6 +114,43 @@ namespace McvsOffline.Server.Core.Http
                 acceptThread.Start();
             }
             Info("listening on " + LocalEndPoint);
+        }
+
+        /// <summary>
+        /// A TCP socket bound to <paramref name="address"/>:<paramref name="port"/> and listening (backlog 128), with this build's
+        /// address-reuse rule. Throws SocketException (AddressAlreadyInUse, AccessDenied...) and leaves nothing open then.
+        /// <paramref name="warn"/> gets the one-line reason when the Android build could not set SO_REUSEADDR (may be null).
+        /// </summary>
+        public static Socket Listen(IPAddress address, int port, Action<string> warn)
+        {
+            if (address == null) throw new ArgumentNullException("address");
+            var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            try
+            {
+                if (address.AddressFamily == AddressFamily.InterNetworkV6 && address.Equals(IPAddress.IPv6Any))
+                    socket.DualMode = true;
+#if MCVS_ANDROID
+                // SO_REUSEADDR alone, through libc: a restarted game can bind again while its previous connections
+                // sit in TIME_WAIT (up to 60 s on Linux) instead of failing to start the server. Not
+                // SetSocketOption(ReuseAddress): Mono also sets SO_REUSEPORT then, and a second listener of the same
+                // UID could share the port (see SocketReuse).
+                string reuse = SocketReuse.TrySetReuseAddressOnly(socket);
+                if (reuse != null && warn != null) warn("SO_REUSEADDR not set (" + reuse + "); right after a restart the port may stay busy for up to a minute");
+#endif
+                // net8: deliberately not set. .NET on Unix already enables SO_REUSEADDR for TCP before bind, and its
+                // ReuseAddress option additionally sets SO_REUSEPORT, which lets a second host bind the same port
+                // and silently take half of the connections (MISC request). HttpServerTests pins the net8 behaviour,
+                // SocketReuseTests the libc call the Android build makes. On Windows (the PC build) the flag would
+                // allow two servers on one port as well, so it is not set there either.
+                socket.Bind(new IPEndPoint(address, port));
+                socket.Listen(128);
+                return socket;
+            }
+            catch
+            {
+                socket.Close();
+                throw;
+            }
         }
 
         /// <summary>Stops accepting, closes every connection and waits (bounded) for the threads to finish.</summary>
@@ -150,6 +186,17 @@ namespace McvsOffline.Server.Core.Http
 
         public void Dispose()
         {
+            Socket unused;
+            lock (gate)
+            {
+                // An adopted socket of a server that never started: nobody else closes it.
+                unused = adopted;
+                adopted = null;
+            }
+            if (unused != null)
+            {
+                try { unused.Close(); } catch (Exception) { }
+            }
             Stop();
         }
 

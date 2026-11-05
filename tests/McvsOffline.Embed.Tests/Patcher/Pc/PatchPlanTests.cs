@@ -20,7 +20,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             Assert.Equal(new[] { "gameload", "graphics", "headless", "headless-diag", "headless-engine", "hook-pc", "physics", "quicklaunch" }, Sorted(ids.Mandatory));
             Assert.Equal(new[] { "adminlink", "adminpage", "geo", "inbox", "nativeonline", "signatures", "store", "waits" }, Sorted(ids.Default));
             Assert.Equal(new[] { "forum" }, Sorted(ids.Optional));
-            Assert.Equal(new[] { "debloat", "finder", "game", "hook", "lan", "targetsdk" }, Sorted(ids.Excluded));
+            Assert.Equal(new[] { "debloat", "finder", "finderport", "game", "hook", "lan", "targetsdk" }, Sorted(ids.Excluded));
         }
 
         [Fact]
@@ -45,6 +45,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         [Theory]
         [InlineData("hook")]
         [InlineData("finder")]
+        [InlineData("finderport")]
         [InlineData("lan")]
         [InlineData("debloat")]
         [InlineData("targetsdk")]
@@ -94,7 +95,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 PatchException refused = Assert.Throws<PatchException>(() => patch.Apply(null, new PatchContext(null, 51780, BuildProfile.Android1_17_32)));
                 Assert.Equal(patch.Id + " is not supported on build android-1.17.32", refused.Message);
             }
-            foreach (IlPatch patch in new IlPatch[] { new BootstrapHookPatch(), new FinderPatch(), new LanPatch(), new DebloatEnginePatch() })
+            foreach (IlPatch patch in new IlPatch[] { new BootstrapHookPatch(), new FinderPatch(), new FinderPortPatch(), new LanPatch(), new DebloatEnginePatch() })
             {
                 PatchException refused = Assert.Throws<PatchException>(() => patch.Apply(null, new PatchContext(null, 51780, Pc)));
                 Assert.Equal(patch.Id + " is not supported on build pc-steam-6372049", refused.Message);

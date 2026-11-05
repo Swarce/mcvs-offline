@@ -3,8 +3,10 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
+using System.Text;
 using McvsOffline.Embed.Tests.Support;
 using McvsOffline.Embedded;
+using McvsOffline.Server;
 using McvsOffline.Server.Core;
 using Xunit;
 
@@ -161,26 +163,489 @@ namespace McvsOffline.Embed.Tests.Embedded
             return host;
         }
 
+        // ------------------------------------------------------------------ port fallback (docs/design/port-fallback.md)
+
+        /// <summary>
+        /// The build-24 S22 case: another process holds the port, accepts connections and never answers (a frozen earlier copy
+        /// of the game). Build 25 retried for 30 s and left args.txt on the busy port, so the game's eve request hung for good.
+        /// </summary>
         [Fact]
-        public void BusyPortIsReportedNotThrownAndArgsAreStillWritten()
+        public void ASilentHolderOfThePortMovesTheServerAndArgsFollowAtOnce()
         {
             string root = TestEnvironment.NewTempDir("busy");
-            var blocker = new TcpListener(IPAddress.Loopback, 0);
-            blocker.Start();
-            int port = ((IPEndPoint)blocker.LocalEndpoint).Port;
+            using var blocker = new PortFallbackTests.SilentHolder();
+            int port = blocker.Port;
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            EmbeddedHost host = EmbeddedHost.Start(new DirectoryPlatform(root, false), new EmbeddedHostOptions { Port = port });
             try
             {
-                EmbeddedHost host = EmbeddedHost.Start(new DirectoryPlatform(root, false),
-                                                       new EmbeddedHostOptions { Port = port, StartAttempts = 2, RetryDelayMs = 50 });
                 Assert.True(host.WaitForServer(30000));
-                Assert.Null(host.Server);
-                Assert.IsAssignableFrom<SocketException>(host.ServerError);
-                Assert.Equal("http://127.0.0.1:" + port + "/",
+                watch.Stop();
+                Assert.Null(host.ServerError);
+                Assert.NotNull(host.Server);
+                int actual = host.Server.Port;
+                Assert.NotEqual(port, actual);
+                Assert.Equal(actual, host.Port);
+                Assert.Equal(port, host.ConfiguredPort);
+                Assert.Equal(PortOutcome.Fallback, host.PortReservation.Outcome);
+                Assert.InRange(watch.ElapsedMilliseconds, 0, 3000);
+
+                // args.txt was written with the bound port before the game could read it; the hooks follow too.
+                var game = GameArgsSimulator.Parse(File.ReadAllBytes(Path.Combine(root, "args.txt")));
+                Assert.Equal("http://127.0.0.1:" + actual + "/", game["EnvironmentSwitcherUrl"]);
+                Assert.Equal("http://127.0.0.1:" + actual + "/", McvsOffline.PortHooks.ServerBase);
+                Assert.Equal("http://127.0.0.1:" + actual + "/location/?ip=", McvsOffline.PortHooks.GeolocalizationUrl("http://127.0.0.1:51780/location/?ip="));
+                using (var http = new HttpClient())
+                {
+                    Assert.Equal(HttpStatusCode.OK, http.GetAsync("http://127.0.0.1:" + actual + "/").Result.StatusCode);
+                }
+
+                // settings.json keeps the configured port; the server knows why it listens elsewhere.
+                Assert.Equal(port, host.Server.Context.Settings.Port);
+                Assert.Contains("was busy", host.Server.Context.PortNote);
+                Assert.True(host.FlushLogs(10000));
+                string bootstrap = File.ReadAllText(Path.Combine(root, "McvsOffline", "logs", "bootstrap.log"));
+                Assert.Contains("port " + port + " is held by another program that does not answer as MCVS Offline: it accepted the connection but sent nothing in 500 ms; " +
+                                "this start uses port " + actual + ": args.txt, the eve URLs, the settings page and the geo lookup follow it", bootstrap);
+                Assert.Contains("port fallback: " + port + " busy, the offline server listens on " + actual, bootstrap);
+                Assert.DoesNotContain("retrying", bootstrap);
+                Assert.DoesNotContain("\"port\": " + actual, File.ReadAllText(Path.Combine(root, "McvsOffline", "settings.json")));
+            }
+            finally
+            {
+                host.Server?.Dispose();
+                McvsOffline.PortHooks.Configure(0, 0);
+            }
+        }
+
+        /// <summary>A holder that accepts and resets every connection (an adb reverse with no server on the PC side).</summary>
+        [Fact]
+        public void AResettingHolderOfThePortMovesTheServerToo()
+        {
+            string root = TestEnvironment.NewTempDir("reset");
+            using var blocker = new PortFallbackTests.ResettingHolder();
+            EmbeddedHost host = EmbeddedHost.Start(new DirectoryPlatform(root, false), new EmbeddedHostOptions { Port = blocker.Port });
+            try
+            {
+                Assert.True(host.WaitForServer(30000));
+                Assert.NotNull(host.Server);
+                Assert.NotEqual(blocker.Port, host.Server.Port);
+                Assert.Equal(PortHolderKind.Closed, host.PortReservation.Holder.Kind);
+                Assert.Equal("http://127.0.0.1:" + host.Server.Port + "/",
                              GameArgsSimulator.Parse(File.ReadAllBytes(Path.Combine(root, "args.txt")))["EnvironmentSwitcherUrl"]);
             }
             finally
             {
-                blocker.Stop();
+                host.Server?.Dispose();
+                McvsOffline.PortHooks.Configure(0, 0);
+            }
+        }
+
+        /// <summary>The dev loop: a working MCVS Offline server already answers on the port (a standalone through adb reverse).</summary>
+        [Fact]
+        public void AWorkingMcvsServerOnThePortIsUsedAndNoSecondServerStarts()
+        {
+            string root = TestEnvironment.NewTempDir("defer");
+            string other = TestEnvironment.NewTempDir("standalone");
+            using McvsServer standalone = McvsServer.Create(new ServerOptions { DataDir = other, Port = 0, ConsoleLog = false, FileLog = false });
+            standalone.Start();
+            int port = standalone.Port;
+            WarmUp(port);
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            EmbeddedHost host = EmbeddedHost.Start(new DirectoryPlatform(root, false), new EmbeddedHostOptions { Port = port });
+            try
+            {
+                Assert.True(host.WaitForServer(30000));
+                watch.Stop();
+                Assert.InRange(watch.ElapsedMilliseconds, 0, 3000);
+                Assert.Null(host.Server);
+                Assert.Null(host.ServerError);
+                Assert.Equal(PortOutcome.Deferred, host.PortReservation.Outcome);
+                Assert.Equal(port, host.Port);
+                Assert.Equal("http://127.0.0.1:" + port + "/",
+                             GameArgsSimulator.Parse(File.ReadAllBytes(Path.Combine(root, "args.txt")))["EnvironmentSwitcherUrl"]);
+                Assert.True(host.FlushLogs(10000));
+                string bootstrap = File.ReadAllText(Path.Combine(root, "McvsOffline", "logs", "bootstrap.log"));
+                Assert.Contains("port " + port + " is held by a working MCVS Offline server", bootstrap);
+                Assert.Contains("this game's own server stays off", bootstrap);
+                Assert.DoesNotContain("another copy of the game is still running", bootstrap);
+            }
+            finally
+            {
+                McvsOffline.PortHooks.Configure(0, 0);
+            }
+        }
+
+        /// <summary>embedded.portFallback false pins the port: the build-25 behaviour (retries, server off, args.txt on that port).</summary>
+        [Fact]
+        public void APinnedBusyPortIsReportedNotThrownAndArgsKeepIt()
+        {
+            string root = TestEnvironment.NewTempDir("pinned");
+            Directory.CreateDirectory(Path.Combine(root, "McvsOffline"));
+            File.WriteAllText(Path.Combine(root, "McvsOffline", "settings.json"), "{\"embedded\": {\"portFallback\": false}}");
+            using var blocker = new PortFallbackTests.SilentHolder();
+            int port = blocker.Port;
+            EmbeddedHost host = EmbeddedHost.Start(new DirectoryPlatform(root, false),
+                                                   new EmbeddedHostOptions { Port = port, StartAttempts = 2, RetryDelayMs = 50 });
+            try
+            {
+                Assert.True(host.WaitForServer(30000));
+                Assert.Null(host.Server);
+                Assert.IsAssignableFrom<SocketException>(host.ServerError);
+                Assert.Equal(PortOutcome.Failed, host.PortReservation.Outcome);
+                Assert.Equal("http://127.0.0.1:" + port + "/",
+                             GameArgsSimulator.Parse(File.ReadAllBytes(Path.Combine(root, "args.txt")))["EnvironmentSwitcherUrl"]);
+                Assert.True(host.FlushLogs(10000));
+                Assert.Contains("embedded.portFallback is false", File.ReadAllText(Path.Combine(root, "McvsOffline", "logs", "bootstrap.log")));
+            }
+            finally
+            {
+                McvsOffline.PortHooks.Configure(0, 0);
+            }
+        }
+
+        /// <summary>The player's own -EnvironmentSwitcherUrl keeps the game on the busy port: an ERROR says so, not a silent switch.</summary>
+        [Fact]
+        public void APlayersEnvironmentSwitcherUrlThatCannotFollowIsAnError()
+        {
+            string root = TestEnvironment.NewTempDir("override");
+            using var blocker = new PortFallbackTests.SilentHolder();
+            int port = blocker.Port;
+            File.WriteAllText(Path.Combine(root, "args.txt"), "-EnvironmentSwitcherUrl http://127.0.0.1:" + port + "/\n");
+            EmbeddedHost host = EmbeddedHost.Start(new DirectoryPlatform(root, false), new EmbeddedHostOptions { Port = port });
+            try
+            {
+                Assert.True(host.WaitForServer(30000));
+                Assert.NotNull(host.Server);
+                Assert.True(host.FlushLogs(10000));
+                string bootstrap = File.ReadAllText(Path.Combine(root, "McvsOffline", "logs", "bootstrap.log"));
+                Assert.Contains("ERROR", bootstrap);
+                Assert.Contains("port fallback: the game will use -EnvironmentSwitcherUrl http://127.0.0.1:" + port + "/ from args.txt (set outside the managed block), " +
+                                "not this start's server at http://127.0.0.1:" + host.Server.Port + "/", bootstrap);
+            }
+            finally
+            {
+                host.Server?.Dispose();
+                McvsOffline.PortHooks.Configure(0, 0);
+            }
+        }
+
+        /// <summary>A frozen copy holds the LocalAnubis Finder's port as well: the game's Finder and the patched client move with it.</summary>
+        [Fact]
+        public void ABusyFinderPortIsMovedThroughArgsAndTheHook()
+        {
+            string root = TestEnvironment.NewTempDir("finder");
+            using var finder = new PortFallbackTests.SilentHolder(IPAddress.Any);
+            EmbeddedHost host = EmbeddedHost.Start(new DirectoryPlatform(root, false),
+                                                   new EmbeddedHostOptions { Port = TestEnvironment.FreePort(), FinderPort = finder.Port });
+            try
+            {
+                Assert.True(host.WaitForServer(30000));
+                Assert.NotEqual(finder.Port, host.FinderPort);
+                var game = GameArgsSimulator.Parse(File.ReadAllBytes(Path.Combine(root, "args.txt")));
+                Assert.Equal(host.FinderPort.ToString(), game["LocalAnubisFinderPort"]);
+                Assert.Equal(host.FinderPort, McvsOffline.PortHooks.LocalAnubisFinderPort(51750));
+                Assert.True(host.FlushLogs(10000));
+                Assert.Contains("the LocalAnubis Finder port " + finder.Port + " is busy",
+                                File.ReadAllText(Path.Combine(root, "McvsOffline", "logs", "bootstrap.log")));
+            }
+            finally
+            {
+                host.Server?.Dispose();
+                McvsOffline.PortHooks.Configure(0, 0);
+            }
+        }
+
+        /// <summary>
+        /// One /_mcvs/status request to a freshly started server, as a running one has had: its first answer JITs the router and
+        /// can take longer than the probe's 500 ms on a loaded test machine.
+        /// </summary>
+        private static void WarmUp(int port)
+        {
+            PortHolder warm = PortProbe.Probe(port, 5000, 10000);
+            Assert.Equal(PortHolderKind.Mcvs, warm.Kind);
+        }
+
+        /// <summary>
+        /// Holds a port like a copy of the game whose server is still being built: the socket listens (connections wait in the
+        /// backlog) and nothing answers for <c>delayMs</c>; then every connection, the waiting ones too, gets an MCVS Offline
+        /// /_mcvs/status answer naming <c>dataDir</c>.
+        /// </summary>
+        private sealed class StartingMcvsHolder : IDisposable
+        {
+            private readonly TcpListener listener;
+            private volatile bool stopped;
+
+            public StartingMcvsHolder(int delayMs, string dataDir)
+            {
+                listener = new TcpListener(IPAddress.Loopback, 0);
+                listener.Start();
+                Port = ((IPEndPoint)listener.LocalEndpoint).Port;
+                string body = "{\"server\": \"mcvs-offline\", \"version\": \"test\", \"dataDir\": \"" + dataDir.Replace("\\", "\\\\") + "\"}";
+                byte[] answer = Encoding.UTF8.GetBytes("HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nContent-Length: " +
+                                                       Encoding.UTF8.GetByteCount(body) + "\r\n\r\n" + body);
+                new System.Threading.Thread(() =>
+                {
+                    System.Threading.Thread.Sleep(delayMs);
+                    while (!stopped)
+                    {
+                        try
+                        {
+                            using Socket s = listener.AcceptSocket();
+                            s.ReceiveTimeout = 2000;
+                            s.Receive(new byte[4096]);
+                            s.Send(answer);
+                            s.Shutdown(SocketShutdown.Both);
+                        }
+                        catch (Exception)
+                        {
+                        }
+                    }
+                }) { IsBackground = true }.Start();
+            }
+
+            public int Port { get; }
+
+            public void Dispose()
+            {
+                stopped = true;
+                listener.Stop();
+            }
+        }
+
+        /// <summary>
+        /// Two copies of the game started at the same moment on one data folder: the first holds the port and builds its server
+        /// (silent for about a second). Its start marker makes the second wait for that server and use it, not start a second
+        /// server on the same folder on another port.
+        /// </summary>
+        [Fact]
+        public void ASecondCopyStartedAtTheSameMomentUsesTheFirstCopysServer()
+        {
+            string root = TestEnvironment.NewTempDir("twin");
+            string data = Path.Combine(root, "McvsOffline");
+            Directory.CreateDirectory(Path.Combine(data, "logs"));
+            using var first = new StartingMcvsHolder(1200, data);
+            int port = first.Port;
+            StartMarker.Write(Path.Combine(data, "logs", StartMarker.FileName), port, StartMarker.Starting, DateTime.UtcNow);
+            EmbeddedHost host = EmbeddedHost.Start(new DirectoryPlatform(root, false), new EmbeddedHostOptions { Port = port, PortWatchIntervalMs = 60000 });
+            try
+            {
+                Assert.True(host.WaitForServer(30000));
+                Assert.Null(host.Server);
+                Assert.Equal(PortOutcome.Deferred, host.PortReservation.Outcome);
+                Assert.Contains("which was still starting", host.PortReservation.Reason);
+                Assert.Equal(port, host.Port);
+                Assert.Equal("http://127.0.0.1:" + port + "/",
+                             GameArgsSimulator.Parse(File.ReadAllBytes(Path.Combine(root, "args.txt")))["EnvironmentSwitcherUrl"]);
+                Assert.True(host.WatchingPort);
+                Assert.True(host.FlushLogs(10000));
+                string bootstrap = File.ReadAllText(Path.Combine(data, "logs", "bootstrap.log"));
+                Assert.Contains("another copy of the game is still running", bootstrap);
+                Assert.DoesNotContain("this start uses port", bootstrap);
+            }
+            finally
+            {
+                host.StopPortWatch();
+                host.Server?.Dispose();
+                McvsOffline.PortHooks.Configure(0, 0);
+            }
+        }
+
+        /// <summary>
+        /// Deferring to another copy's server on this game's data folder: a WARN (not INFO), and when that copy quits, this game's
+        /// own server takes the same port over, so the running game keeps a server.
+        /// </summary>
+        [Fact]
+        public void WhenTheOtherCopysServerStopsThisGamesOwnServerTakesThePortOver()
+        {
+            string root = TestEnvironment.NewTempDir("takeover");
+            string data = Path.Combine(root, "McvsOffline");
+            McvsServer other = McvsServer.Create(new ServerOptions { DataDir = data, Port = 0, ConsoleLog = false, FileLog = false });
+            other.Start();
+            int port = other.Port;
+            WarmUp(port);
+            EmbeddedHost host = EmbeddedHost.Start(new DirectoryPlatform(root, false), new EmbeddedHostOptions { Port = port, PortWatchIntervalMs = 100 });
+            try
+            {
+                Assert.True(host.WaitForServer(30000));
+                Assert.Null(host.Server);
+                Assert.Equal(PortOutcome.Deferred, host.PortReservation.Outcome);
+                Assert.True(host.WatchingPort);
+                System.Threading.Thread.Sleep(400);
+                Assert.Null(host.Server);   // still held: no second listener
+
+                other.Dispose();
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                while (host.Server == null && watch.ElapsedMilliseconds < 15000) System.Threading.Thread.Sleep(50);
+                Assert.NotNull(host.Server);
+                Assert.Equal(port, host.Server.Port);
+                Assert.Equal(PortOutcome.Configured, host.PortReservation.Outcome);
+                Assert.False(host.WatchingPort);
+                using (var http = new HttpClient())
+                {
+                    Assert.Equal(HttpStatusCode.OK, http.GetAsync("http://127.0.0.1:" + port + "/").Result.StatusCode);
+                }
+                Assert.True(host.FlushLogs(10000));
+                string bootstrap = File.ReadAllText(Path.Combine(data, "logs", "bootstrap.log"));
+                Assert.Matches(@"WARN.*port " + port + @" is held by a working MCVS Offline server.*It uses this game's own data folder", bootstrap);
+                Assert.Contains("this game's own server takes port " + port + " over", bootstrap);
+                Assert.Contains("state=running", File.ReadAllText(Path.Combine(data, "logs", StartMarker.FileName)));
+            }
+            finally
+            {
+                host.StopPortWatch();
+                host.Server?.Dispose();
+                other.Dispose();
+                McvsOffline.PortHooks.Configure(0, 0);
+            }
+        }
+
+        /// <summary>The Android build's "SO_REUSEADDR not set" line, from the reserving bind, reaches bootstrap.log (build 25 logged it on the server's bind).</summary>
+        [Fact]
+        public void TheAddressReuseWarningOfTheReservingBindIsLogged()
+        {
+            string root = TestEnvironment.NewTempDir("reuse");
+            EmbeddedHost host = EmbeddedHost.Start(new DirectoryPlatform(root, false), new EmbeddedHostOptions
+            {
+                Port = TestEnvironment.FreePort(),
+                Listen = (a, p, w) =>
+                {
+                    w?.Invoke("SO_REUSEADDR not set (setsockopt failed: test); right after a restart the port may stay busy for up to a minute");
+                    return McvsOffline.Server.Core.Http.HttpServer.Listen(a, p, w);
+                },
+            });
+            try
+            {
+                Assert.True(host.WaitForServer(30000));
+                Assert.NotNull(host.Server);
+                Assert.True(host.FlushLogs(10000));
+                string bootstrap = File.ReadAllText(Path.Combine(root, "McvsOffline", "logs", "bootstrap.log"));
+                Assert.Matches("WARN.*SO_REUSEADDR not set \\(setsockopt failed: test\\)", bootstrap);
+            }
+            finally
+            {
+                host.Server?.Dispose();
+                McvsOffline.PortHooks.Configure(0, 0);
+            }
+        }
+
+        /// <summary>
+        /// A LAN guest's line names its host's server: after a fallback it is a WARN that the game uses that server, not an ERROR
+        /// telling the player to remove the line.
+        /// </summary>
+        [Fact]
+        public void AnEnvironmentSwitcherUrlForAnotherServerIsAWarningNotAnError()
+        {
+            string root = TestEnvironment.NewTempDir("guest");
+            using var blocker = new PortFallbackTests.SilentHolder();
+            int port = blocker.Port;
+            File.WriteAllText(Path.Combine(root, "args.txt"), "-EnvironmentSwitcherUrl http://192.168.1.20:" + port + "/\n");
+            EmbeddedHost host = EmbeddedHost.Start(new DirectoryPlatform(root, false), new EmbeddedHostOptions { Port = port });
+            try
+            {
+                Assert.True(host.WaitForServer(30000));
+                Assert.NotNull(host.Server);
+                Assert.Equal(PortOutcome.Fallback, host.PortReservation.Outcome);
+                Assert.True(host.FlushLogs(10000));
+                string bootstrap = File.ReadAllText(Path.Combine(root, "McvsOffline", "logs", "bootstrap.log"));
+                Assert.DoesNotContain("it will not reach its server", bootstrap);
+                Assert.Matches("WARN.*port fallback: the game uses -EnvironmentSwitcherUrl http://192\\.168\\.1\\.20:" + port +
+                               "/ from args.txt \\(set outside the managed block\\), not this device's server \\(port " + host.Server.Port + "\\)", bootstrap);
+            }
+            finally
+            {
+                host.Server?.Dispose();
+                McvsOffline.PortHooks.Configure(0, 0);
+            }
+        }
+
+        /// <summary>
+        /// A LAN guest (-RemoteIp) asks the host's Finder with the same client property: its own Finder moves, the port it asks the
+        /// host on does not.
+        /// </summary>
+        [Fact]
+        public void ALanGuestKeepsAskingTheHostsFinderPortWhenItsOwnFinderMoves()
+        {
+            string root = TestEnvironment.NewTempDir("guestfinder");
+            using var finder = new PortFallbackTests.SilentHolder(IPAddress.Any);
+            File.WriteAllText(Path.Combine(root, "args.txt"), "-RemoteIp 192.168.1.20\n");
+            EmbeddedHost host = EmbeddedHost.Start(new DirectoryPlatform(root, false),
+                                                   new EmbeddedHostOptions { Port = TestEnvironment.FreePort(), FinderPort = finder.Port });
+            try
+            {
+                Assert.True(host.WaitForServer(30000));
+                Assert.NotEqual(finder.Port, host.FinderPort);
+                Assert.Equal(host.FinderPort.ToString(), GameArgsSimulator.Parse(File.ReadAllBytes(Path.Combine(root, "args.txt")))["LocalAnubisFinderPort"]);
+                Assert.Equal(finder.Port, host.ClientFinderPort);
+                Assert.Equal(finder.Port, McvsOffline.PortHooks.LocalAnubisFinderPort(51750));
+                Assert.True(host.FlushLogs(10000));
+                Assert.Contains("the client still looks for the host's Finder on " + finder.Port,
+                                File.ReadAllText(Path.Combine(root, "McvsOffline", "logs", "bootstrap.log")));
+            }
+            finally
+            {
+                host.Server?.Dispose();
+                McvsOffline.PortHooks.Configure(0, 0);
+            }
+        }
+
+        /// <summary>A LAN host whose Finder moved tells its guests which -LocalAnubisFinderPort they need for this start.</summary>
+        [Fact]
+        public void ALanHostWhoseFinderMovedNamesThePortGuestsNeed()
+        {
+            string root = TestEnvironment.NewTempDir("lanfinder");
+            Directory.CreateDirectory(Path.Combine(root, "McvsOffline"));
+            File.WriteAllText(Path.Combine(root, "McvsOffline", "settings.json"), "{\"lanMode\": true}");
+            using var finder = new PortFallbackTests.SilentHolder(IPAddress.Any);
+            EmbeddedHost host = EmbeddedHost.Start(new DirectoryPlatform(root, false),
+                                                   new EmbeddedHostOptions { Port = TestEnvironment.FreePort(), FinderPort = finder.Port });
+            try
+            {
+                Assert.True(host.WaitForServer(30000));
+                Assert.NotEqual(finder.Port, host.FinderPort);
+                Assert.Equal(host.FinderPort, host.ClientFinderPort);
+                Assert.True(host.FlushLogs(10000));
+                Assert.Contains("LAN guests look for this host's LocalAnubis Finder on " + finder.Port + ": for this start they need -LocalAnubisFinderPort " +
+                                host.FinderPort, File.ReadAllText(Path.Combine(root, "McvsOffline", "logs", "bootstrap.log")));
+            }
+            finally
+            {
+                host.Server?.Dispose();
+                McvsOffline.PortHooks.Configure(0, 0);
+            }
+        }
+
+        /// <summary>Nothing busy: the managed block is exactly build 25's, and a second start leaves args.txt alone.</summary>
+        [Fact]
+        public void WithFreePortsTheManagedBlockIsUnchanged()
+        {
+            string root = TestEnvironment.NewTempDir("same");
+            int port = TestEnvironment.FreePort();
+            EmbeddedHost first = EmbeddedHost.Start(new DirectoryPlatform(root, false), new EmbeddedHostOptions { Port = port });
+            Assert.True(first.WaitForServer(30000));
+            first.Server?.Dispose();
+            byte[] written = File.ReadAllBytes(Path.Combine(root, "args.txt"));
+            string expected =
+                ArgsFile.BeginMarker + " " + ArgsFile.BlockHint + "\n" +
+                "-ServerLocation Embedded\n-AnubisCommand QuickLaunch\n-EnvironmentSwitcherUrl http://127.0.0.1:" + port + "/\n" +
+                "-SuperCredential game:mcvsoffline\n-SuperPassword mcvsoffline\n-DeviceId " + first.DeviceId + "\n-DataCenter mcvs\n" +
+                ArgsFile.EndMarker + "\n";
+            Assert.Equal(expected, Encoding.ASCII.GetString(written));
+            Assert.Equal(51750, first.FinderPort);
+
+            EmbeddedHost second = EmbeddedHost.Start(new DirectoryPlatform(root, false), new EmbeddedHostOptions { Port = port });
+            try
+            {
+                Assert.True(second.WaitForServer(30000));
+                Assert.Equal(PortOutcome.Configured, second.PortReservation.Outcome);
+                Assert.Equal(written, File.ReadAllBytes(Path.Combine(root, "args.txt")));
+                Assert.True(second.FlushLogs(10000));
+                Assert.Contains("args.txt is up to date", File.ReadAllText(Path.Combine(root, "McvsOffline", "logs", "bootstrap.log")));
+            }
+            finally
+            {
+                second.Server?.Dispose();
+                McvsOffline.PortHooks.Configure(0, 0);
             }
         }
 

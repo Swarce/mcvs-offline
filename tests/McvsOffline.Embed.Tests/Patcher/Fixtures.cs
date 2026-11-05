@@ -43,6 +43,7 @@ namespace McvsOffline
             return FixtureCompiler.Compile("McvsOffline.Server",
                 bootstrap,
                 FixtureCompiler.RepoSource("hosts", "embedded", "LanSupport.cs"),
+                FixtureCompiler.RepoSource("hosts", "embedded", "PortHooks.cs"),
                 FixtureCompiler.RepoSource("server", "Core", "Num.cs"));
         }
 

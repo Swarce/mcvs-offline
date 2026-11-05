@@ -235,6 +235,7 @@ namespace McvsOffline.Server.Services.Admin
             "logging.consoleLevel", "Console log detail", "logging.bodyLimit", "Logged body limit",
             "logging.fileMaxBytes", "server.log size", "logging.fileCount", "server.log files",
             "embedded.manageArgs", "Manage args.txt", "embedded.lanAdvertiseHost", "LAN address to advertise",
+            "embedded.portFallback", "Use another port when the port is busy",
             "embedded.nativeOnlineSdk", "Native online SDK",
             "embedded.physics.serverMultithreaded", "Server physics threads",
             "embedded.physics.clientMultithreaded", "Client physics threads",
@@ -259,7 +260,7 @@ namespace McvsOffline.Server.Services.Admin
         private static readonly string[] Denylist =
         {
             "port", "bind", "publicUrl", "lanMode", "superCredential", "superPassword", "dataCenter", "pandora.",
-            "embedded.manageArgs", "embedded.lanAdvertiseHost", "crm.overlay", "crm.pointcutActions", "crm.developerIpRange",
+            "embedded.manageArgs", "embedded.lanAdvertiseHost", "embedded.portFallback", "crm.overlay", "crm.pointcutActions", "crm.developerIpRange",
             "assets.coupons", "admin.enabled", "admin.openVia", "admin.restartVia", "security.", "install.",
         };
 

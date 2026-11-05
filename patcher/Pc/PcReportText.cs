@@ -49,7 +49,11 @@ namespace McvsOffline.Patcher.Pc
             {
                 string ports = "port:        settings.json " + (r.SettingsPort.HasValue ? r.SettingsPort.Value.ToString(CultureInfo.InvariantCulture) : "(default)") +
                                ", install.json " + (r.InstalledPort.HasValue ? r.InstalledPort.Value.ToString(CultureInfo.InvariantCulture) : "-");
-                if (r.SettingsPort.HasValue && r.InstalledPort.HasValue && r.SettingsPort != r.InstalledPort) ports += " (they differ: the server listens on settings.json's, the geo patch calls install.json's; run install again)";
+                if (r.SettingsPort.HasValue && r.InstalledPort.HasValue && r.SettingsPort != r.InstalledPort)
+                {
+                    ports += " (they differ: the server prefers settings.json's; from build 26 on the geo lookup follows the port the server " +
+                             "actually uses, so this is harmless; an older install calls install.json's: run install again)";
+                }
                 lines.Add(ports);
             }
             if (r.Activation != null) lines.Add("activation:  " + r.Activation);

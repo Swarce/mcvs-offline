@@ -29,6 +29,12 @@ namespace McvsOffline.Embed.Tests.Support
             "LogCategoryFilter", "RemoteIp", "GSRemoteIp", "EnvironmentSwitcherUrl", "LocalAnubisHost", "ServerType",
         };
 
+        /// <summary>int / int? fields (ApplicationArguments.Parse: int.Parse with the invariant culture).</summary>
+        private static readonly HashSet<string> Ints = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "LocalAnubisControllerPort", "LocalAnubisLobbyPort", "LocalAnubisFinderPort",
+        };
+
         private static readonly HashSet<string> Bools = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "Server", "Headless", "Offline", "UseDlc", "AllowP2P", "Tunneling",
@@ -88,6 +94,14 @@ namespace McvsOffline.Embed.Tests.Support
                 if (Bools.Contains(text))
                 {
                     result[text] = "True";
+                    continue;
+                }
+                if (Ints.Contains(text))
+                {
+                    i++;
+                    if (i == array.Length) throw new ArgumentException("Need to set a value for " + text);
+                    int.Parse(array[i], System.Globalization.CultureInfo.InvariantCulture);
+                    result[Ints.First(k => string.Equals(k, text, StringComparison.OrdinalIgnoreCase))] = array[i];
                     continue;
                 }
                 bool isEnum = Enums.TryGetValue(text, out string[] values);

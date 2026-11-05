@@ -65,6 +65,8 @@ Federation base URL: `http://127.0.0.1:51780/` (any non-80/443 port; `FormatUri`
 on default ports). One host at the root serves every service; `pandora/locate/{svc}` returns
 `http://127.0.0.1:51780/<svc>/` (explicit `http://`, trailing slash: relative storage paths replace
 the last segment of the located URL). The server must also answer `GET /` and tolerate `//config/...`.
+51780 is the configured port (`settings.json` `port`); when it is busy at start, the embedded host binds another one
+before it writes args.txt and every URL above follows it for that start (port fallback, `docs/design/port-fallback.md`).
 
 Client boot arguments (`<GlfRootPath>/args.txt` = the folder that contains `Data/`; see verify-C1 for
 the exact format — space/CR/LF delimited, no tabs, no BOM, case-sensitive enum values):

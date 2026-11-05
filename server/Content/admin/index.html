@@ -1116,7 +1116,8 @@ p { margin: 4px 0 8px; }
     add(body, el('h3', null, 'Server'));
     var sv = d.server || {};
     kv(body, 'Started', sv.started ? fmtTime(sv.started) + ' (' + fmtDuration(sv.uptimeSeconds) + ' ago)' : '–');
-    kv(body, 'Address', (sv.bind || '?') + ':' + (sv.port || '?') + (sv.lanMode ? ' (LAN mode)' : ''));
+    kv(body, 'Address', (sv.bind || '?') + ':' + (sv.port || '?') + (sv.lanMode ? ' (LAN mode)' : '') +
+       (sv.portNote ? ' (' + sv.portNote + ')' : ''));
     kv(body, 'Host check', sv.hostCheck === false ? 'off' : 'on');
     kv(body, 'Data folder', sv.dataDir, 'mono');
     kv(body, 'Game data', sv.dataPack || 'not found', 'mono');

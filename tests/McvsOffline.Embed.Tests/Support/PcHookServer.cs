@@ -189,8 +189,11 @@ namespace McvsOffline
                 var references = new[] { "mscorlib.dll", "System.dll", "System.Core.dll" }
                     .Select(f => (MetadataReference)MetadataReference.CreateFromFile(Path.Combine(refs, f)))
                     .ToList();
-                var tree = CSharpSyntaxTree.ParseText(Source, new CSharpParseOptions(LanguageVersion.CSharp7_3));
-                var compilation = CSharpCompilation.Create("McvsOffline.Server", new[] { tree }, references,
+                var parse = new CSharpParseOptions(LanguageVersion.CSharp7_3);
+                var tree = CSharpSyntaxTree.ParseText(Source, parse);
+                // The port hooks ('geo'; build 26) are the real file: System only, C# 7.3.
+                var ports = CSharpSyntaxTree.ParseText(FixtureCompiler.RepoSource("hosts", "embedded", "PortHooks.cs"), parse);
+                var compilation = CSharpCompilation.Create("McvsOffline.Server", new[] { tree, ports }, references,
                     new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Release, deterministic: true));
                 using (var stream = new MemoryStream())
                 {

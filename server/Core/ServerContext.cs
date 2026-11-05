@@ -69,8 +69,15 @@ namespace McvsOffline.Server.Core
 
         public DateTime StartedUtc { get; private set; }
 
-        /// <summary>The port actually listened on (set when the HTTP server starts).</summary>
+        /// <summary>
+        /// The port actually listened on: set when the HTTP server starts, or from <c>McvsServer.Create</c> on when the host handed
+        /// over a bound socket (ServerOptions.Listener). Can differ from settings.port (the configured one) for one run: see
+        /// <see cref="PortNote"/>.
+        /// </summary>
         public int Port { get; internal set; }
+
+        /// <summary>Why <see cref="Port"/> is not settings.port this run (the embedded host's port fallback), or null.</summary>
+        public string PortNote { get; internal set; }
 
         /// <summary>
         /// The server logger's WARN and ERROR entries since boot (bounded; created by <c>McvsServer.Create</c> before

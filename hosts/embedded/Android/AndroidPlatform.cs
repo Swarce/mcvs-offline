@@ -52,7 +52,14 @@ namespace McvsOffline.Embedded.Android
 
         public string ArgsReader { get { return "JNIBridge.NativeInit"; } }
 
-        public string PortInUseHint { get { return "If a standalone server is connected with 'adb reverse', the game will use that one."; } }
+        public string PortInUseHint
+        {
+            get
+            {
+                return "Another app holds the port (a frozen earlier copy of the game?); a phone restart frees it. With embedded.portFallback " +
+                       "true (the default) the server moves to a free port by itself.";
+            }
+        }
 
         public string ResolveGameRoot(Log log)
         {
