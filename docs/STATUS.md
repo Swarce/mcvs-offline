@@ -1,7 +1,7 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-Last updated for build 25 (November 2026, on `wip/pc-port`; APK and PC kit): build 25 brings the project's own launcher icon (the owner's art), a dark red launch screen and a new background for the game's data installer (kept outside the repository); see "Build 25". Build 24 keeps ABOUT centred on the return from a tab (the owner's build-23 log: the tile just tapped was still in its pressed animation and our width check refused it); see "Build 24". Build 23 fixes what the owner saw on the phone in build 22 (the PERFORMANCE title drawn over its icon, ABOUT right of centre, a small stutter on the gear tap) and adds timings to the `settings menu:` log lines; Steam is unchanged apart from log text; not yet tested on a phone or on Windows; see "Build 23". The Steam bots' report (they idle at spawn and sometimes stop moving) is open: its investigation was stopped before any result, see "Build 23". Build 22: on the owner's phone build 21 still flashed
+Last updated for build 26 (November 2026, on `wip/pc-port`; APK and PC kit): build 26 starts normally when another program holds the server's port (it moves to a free one and everything follows); see "Build 26". Build 25 brings the project's own launcher icon (the owner's art), a dark red launch screen and a new background for the game's data installer (kept outside the repository); see "Build 25". Build 24 keeps ABOUT centred on the return from a tab (the owner's build-23 log: the tile just tapped was still in its pressed animation and our width check refused it); see "Build 24". Build 23 fixes what the owner saw on the phone in build 22 (the PERFORMANCE title drawn over its icon, ABOUT right of centre, a small stutter on the gear tap) and adds timings to the `settings menu:` log lines; Steam is unchanged apart from log text; not yet tested on a phone or on Windows; see "Build 23". The Steam bots' report (they idle at spawn and sometimes stop moving) is open: its investigation was stopped before any result, see "Build 23". Build 22: on the owner's phone build 21 still flashed
 MORE GAMES and the FORUM tile on a return to Settings; build 22 no longer races the game's own `setup()`: on the phone
 its stock writes are made to draw nothing (the engine's text remap turns FORUM into PERFORMANCE, the icon is out of its
 reach, the removed tiles are off the panel, ABOUT stays at the game's own place on the bottom row), prepared before
@@ -65,6 +65,39 @@ HD texture probe and a Windows test kit for the Steam version. Build 11 installs
 version into the game's own data. Build 12 accepts a full ASTC data pack with 2,215 PC textures in it: **device test 9:
 the HD textures and the graphics profiles work, at the same frame rate as before**, and builds 10 to 12 (target Android
 15) installed and played fine.
+
+## Build 26 (November 2026): the port fallback
+
+`3bc93a6` on `wip/pc-port` (`McvsVersion.Build` is `26`; the code is the merge of `wip/b26-port`: `a222818` and the
+review fixes `fc52863`). APK `mcvs-offline-3bc93a6.apk` (SHA-256
+`367fcfe690f9e6f65717b17a97cad132e37baf6ea87c5850b735e7d5a2ee9442`, with `--art-extra art/local`; same key, apksigner
+and zipalign OK). Against build 25's `mcvs-offline-f868b10.apk`: the same 952 entries; changed the server DLL,
+`Gameloft.Engine.dll` and `Gameloft.Util.dll` (the `geo` hook and the new mandatory `finderport` patch), the MVIDs of
+`Game.dll` and `NicePlaySDK.dll`, and the signature files. PC kit SHA-256
+`c1d293833767b316cfbbac074eadc1427fd53681e36c14a18338315917efb380` (two publishes, same bytes; embeds the PC server DLL;
+build 25's kept as `McvsOffline.PcKit-f868b10.exe`); PC end to end as before. Not run: the upgrade over a build-25
+install. Tests: 1584/1584, Embed 1336/1336, PcKit 63/63, PcSpike 62/62; 0 skipped (three earlier full Embed runs each had
+one or two timing-dependent tests fail under load: they pass alone and in the final full run).
+
+**The owner's report (build 24):** a long boot and a loading screen that never ended. The log: `port 51780 is busy`
+15 times, then `cannot listen on port 51780`; the game's first Federation request went to whatever held the port. A phone
+restart fixed it (most likely a frozen earlier copy of the game).
+
+**The fix** ([design/port-fallback.md](design/port-fallback.md)): the host binds the port before the game starts reading
+its arguments. If the port is busy it asks the holder: a working MCVS Offline server is used as it is (the adb-reverse dev
+loop; a second copy of the game, watched and taken over once it lets the port go); anything else (silent, closed,
+refused, foreign) gets two quick retries, then the next free port of 51781-51789 (else any free one). One WARN line names
+the busy port, what the probe saw and the port used. args.txt, the eve URLs, the settings page, the inbox marker, the geo
+lookup (an IL hook) and the game's LocalAnubis Finder (its fixed port 51750 moves the same way, with the client side
+following through the `finderport` hook) all follow. The worst case costs about 1 s instead of 30 s and a dead game.
+`settings.json` keeps 51780 (the next start tries it first); `embedded.portFallback` (file-only, default on) set to
+false gives build 25's behaviour. Known limits: no data-folder lock yet (a frozen copy that thaws could still save through
+its own server), Windows' `ExclusiveAddressUse` unchecked on a real PC, the PC kit's probe still checks 51780 only.
+
+**Checklist:** normal starts look as before (no new WARN lines). To see the fallback without waiting for a frozen copy:
+any app that listens on 127.0.0.1:51780 (or a second phone with `adb reverse` and nothing behind it) and start the game:
+it reaches the menu, and `server.log` has one `port 51780 is held by ...; this start uses port 51781` line; the settings
+page opens and shows the note; a bot match works (the Finder line if 51750 was busy too).
 
 ## Build 25 (November 2026): the launcher icon, the launch screen colour, the data installer's background
 
