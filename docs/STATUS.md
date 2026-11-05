@@ -91,6 +91,8 @@ SHA-256 `ea5fac33191f17d54ecaf7a0952f9429b8d152b2d319dc09e37a6e90da72ed70` (two 
   new `--art-extra <folder>`, which lays a folder over the built-in art. The patcher checks them against the shipped
   files' fingerprints and sizes (800x600, two 512x768 halves that come together). art/android/README.md §5.
 
+**Owner's check (S22, November 2026): everything works as intended** (icon, launch screen, installer background; build 24's centred ABOUT too).
+
 **Checklist:** the launcher shows the pink icon (after a reboot if the old one stays); a cold start shows the dark red
 screen with the icon, then the black installer with its spinner, then the new background with VERSUS and encore at the
 bottom right, nothing cut; the settings page and the game look as before.
