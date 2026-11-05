@@ -282,6 +282,108 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.Null(r.Reason);
         }
 
+        /// <summary>
+        /// A second copy of the game started at the same moment: the first copy holds the port but is still building its server
+        /// (silent for a while). The start marker says so, and the second copy waits for that server instead of starting its own.
+        /// </summary>
+        [Fact]
+        public void ASilentHolderThatIsThisGameStartingIsWaitedForAndUsed()
+        {
+            var tried = new List<int>();
+            int probes = 0;
+            var asked = new List<int>();
+            PortReservation r = PortReservation.Reserve(IPAddress.Loopback, 51780, true, (a, p, w) =>
+            {
+                tried.Add(p);
+                throw new SocketException((int)SocketError.AddressAlreadyInUse);
+            }, p => ++probes < 3 ? new PortHolder(PortHolderKind.Silent, "silent") : new PortHolder(PortHolderKind.Mcvs, "MCVS Offline 0.26 answers"),
+            null, p => { asked.Add(p); return true; });
+            Assert.Equal(PortOutcome.Deferred, r.Outcome);
+            Assert.Equal(51780, r.Port);
+            Assert.Null(r.Listener);
+            Assert.Equal(3, probes);
+            Assert.Equal(new[] { 51780 }, asked);
+            Assert.Equal(new[] { 51780 }, tried);
+            Assert.Contains("is held by a working MCVS Offline server (MCVS Offline 0.26 answers), which was still starting", r.Reason);
+        }
+
+        [Fact]
+        public void WithoutAFreshStartMarkerASilentHolderIsProbedOnceAndLeft()
+        {
+            int probes = 0;
+            PortReservation r = PortReservation.Reserve(IPAddress.Loopback, 51780, true, (a, p, w) =>
+            {
+                if (p != 0) throw new SocketException((int)SocketError.AddressAlreadyInUse);
+                return HttpServer.Listen(a, 0, w);
+            }, p => { probes++; return new PortHolder(PortHolderKind.Silent, "silent"); }, null, p => false);
+            r.Release();
+            Assert.Equal(PortOutcome.Fallback, r.Outcome);
+            Assert.Equal(1, probes);
+
+            // A holder that stays silent through the whole wait: the fallback, at most StartingWaitMs (plus a probe) later.
+            probes = 0;
+            var watch = Stopwatch.StartNew();
+            r = PortReservation.Reserve(IPAddress.Loopback, 51780, true, (a, p, w) =>
+            {
+                if (p != 0) throw new SocketException((int)SocketError.AddressAlreadyInUse);
+                return HttpServer.Listen(a, 0, w);
+            }, p => { probes++; return new PortHolder(PortHolderKind.Silent, "silent"); }, null, p => true);
+            watch.Stop();
+            r.Release();
+            Assert.Equal(PortOutcome.Fallback, r.Outcome);
+            Assert.True(probes > 2, "probes " + probes);
+            Assert.InRange(watch.ElapsedMilliseconds, PortReservation.StartingWaitMs, PortReservation.StartingWaitMs + 2000);
+            Assert.Contains("claimed the port moments ago; waited", r.Reason);
+        }
+
+        /// <summary>The Android build's "SO_REUSEADDR not set" line reaches the caller (the bootstrap log), once for all the ports tried.</summary>
+        [Fact]
+        public void TheAddressReuseWarningReachesTheCallerOnce()
+        {
+            var warnings = new List<string>();
+            PortReservation r = PortReservation.Reserve(IPAddress.Loopback, 51780, true, (a, p, w) =>
+            {
+                if (w != null) w("SO_REUSEADDR not set (test); right after a restart the port may stay busy for up to a minute");
+                if (p != 0) throw new SocketException((int)SocketError.AddressAlreadyInUse);
+                return HttpServer.Listen(a, 0, w);
+            }, p => new PortHolder(PortHolderKind.Refused, "refused"), warnings.Add, null);
+            r.Release();
+            Assert.Equal(PortOutcome.Fallback, r.Outcome);
+            Assert.Equal(new[] { "SO_REUSEADDR not set (test); right after a restart the port may stay busy for up to a minute" }, warnings);
+        }
+
+        [Fact]
+        public void TheStartMarkerSaysStartingOnlyForAFreshStartOnThatPort()
+        {
+            string dir = TestEnvironment.NewTempDir("marker");
+            string path = Path.Combine(dir, StartMarker.FileName);
+            DateTime now = new DateTime(2026, 11, 5, 18, 0, 0, DateTimeKind.Utc);
+            Assert.False(StartMarker.IsStarting(path, 51780, now));
+
+            StartMarker.Write(path, 51780, StartMarker.Starting, now);
+            Assert.Equal("port=51780\nstate=starting\nutcTicks=" + now.Ticks + "\n", File.ReadAllText(path));
+            Assert.True(StartMarker.IsStarting(path, 51780, now.AddSeconds(2)));
+            Assert.False(StartMarker.IsStarting(path, 51781, now.AddSeconds(2)));
+            Assert.False(StartMarker.IsStarting(path, 51780, now.AddMilliseconds(StartMarker.StartingWindowMs + 1)));
+
+            StartMarker.Write(path, 51780, StartMarker.Running, now);
+            Assert.False(StartMarker.IsStarting(path, 51780, now.AddSeconds(2)));
+            File.WriteAllText(path, "garbage");
+            Assert.False(StartMarker.IsStarting(path, 51780, now));
+        }
+
+        [Fact]
+        public void OnlyALoopbackUrlOnTheBusyPortCountsAsTheBusyPort()
+        {
+            Assert.True(EmbeddedHost.NamesLoopbackPort("http://127.0.0.1:51780/", 51780));
+            Assert.True(EmbeddedHost.NamesLoopbackPort("http://localhost:51780/", 51780));
+            Assert.True(EmbeddedHost.NamesLoopbackPort("http://[::1]:51780/", 51780));
+            Assert.False(EmbeddedHost.NamesLoopbackPort("http://127.0.0.1:51781/", 51780));
+            Assert.False(EmbeddedHost.NamesLoopbackPort("http://192.168.1.20:51780/", 51780));
+            Assert.False(EmbeddedHost.NamesLoopbackPort("not a url", 51780));
+            Assert.False(EmbeddedHost.NamesLoopbackPort(null, 51780));
+        }
+
         // ------------------------------------------------------------------ finder
 
         [Fact]

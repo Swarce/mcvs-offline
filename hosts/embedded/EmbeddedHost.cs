@@ -33,6 +33,7 @@ namespace McvsOffline.Embedded
             SystemLogLevel = LogLevel.Info;
             Watchdog = true;
             StatusIntervalMs = 60000;
+            PortWatchIntervalMs = 2000;
         }
 
         /// <summary>Start the game-thread watchdog (settings diagnostics.watchdog can still turn it off).</summary>
@@ -58,6 +59,17 @@ namespace McvsOffline.Embedded
         public int StartAttempts { get; set; }
 
         public int RetryDelayMs { get; set; }
+
+        /// <summary>
+        /// Binds and listens for the port reservation, with the address-reuse warning callback (tests; null: HttpServer.Listen).
+        /// </summary>
+        public Func<IPAddress, int, Action<string>, Socket> Listen { get; set; }
+
+        /// <summary>
+        /// How often the host checks whether the configured port came free while it defers to another copy of the game's server on
+        /// the same data folder (then its own server takes the port over; docs/design/port-fallback.md §2).
+        /// </summary>
+        public int PortWatchIntervalMs { get; set; }
 
         public LogLevel SystemLogLevel { get; set; }
 
@@ -110,6 +122,11 @@ namespace McvsOffline.Embedded
         private IHostExtensions extensions;
         private volatile string argsWarning;
         private DateTime startedUtc;
+        private IPAddress reservedAddress;
+        private readonly ManualResetEvent portWatchStop = new ManualResetEvent(false);
+        private volatile bool portWatching;
+        private int finderPreferred = PortHooks.DefaultFinderPort;
+        private bool finderMoved;
 
         private EmbeddedHost(Logger logger, Log log)
         {
@@ -145,6 +162,15 @@ namespace McvsOffline.Embedded
 
         /// <summary>The LocalAnubis Finder port the game uses this start (51750 unless it was busy or the player set another).</summary>
         public int FinderPort { get; private set; }
+
+        /// <summary>
+        /// The Finder port the patched client contacts ('finderport' hook): <see cref="FinderPort"/>, except on a LAN guest
+        /// (-RemoteIp) whose own Finder was moved: the client then still looks for the host's Finder on the unmoved port.
+        /// </summary>
+        public int ClientFinderPort { get; private set; }
+
+        /// <summary>True while the host defers to another copy's server on its data folder and waits to take the port over.</summary>
+        public bool WatchingPort { get { return portWatching; } }
 
         /// <summary>The boot trace ("[boot]" milestones), shared with the server (it adds the request milestones).</summary>
         public BootTrace Boot { get; private set; }
@@ -229,6 +255,7 @@ namespace McvsOffline.Embedded
                 if (ports != null && ports.Outcome != PortOutcome.Configured)
                     sb.Append("\nport: ").Append(ports.Outcome).Append(", ").Append(ports.Port).Append(" (configured ").Append(ConfiguredPort).Append("): ").Append(ports.Reason);
                 if (FinderPort != PortHooks.DefaultFinderPort) sb.Append("\nLocalAnubis Finder port: ").Append(FinderPort);
+                if (ClientFinderPort != FinderPort) sb.Append(" (the client contacts ").Append(ClientFinderPort).Append(": LAN guest)");
 #if !MCVS_WINDOWS
                 sb.Append('\n').Append(HdInstaller.Status);
 #endif
@@ -406,7 +433,8 @@ namespace McvsOffline.Embedded
             PortReservation = reservation;
             if (reservation != null) Port = reservation.Port;
             FinderPort = ChooseFinderPort(options, manageArgs, existingArgs);
-            PortHooks.Configure(Port, FinderPort);
+            ClientFinderPort = ChooseClientFinderPort(existingArgs);
+            PortHooks.Configure(Port, ClientFinderPort);
 
             byte[] gameArgs = existingArgs;
             if (manageArgs)
@@ -431,6 +459,7 @@ namespace McvsOffline.Embedded
                 // Never two servers on one port, nor (another copy of the game) on one data folder: the game uses the one that answers.
                 StartLogCleanup(null);
                 serverReady.Set();
+                if (IsOwnData(reservation.Holder)) WatchDeferredPort(options, port, reservation);
             }
             else
             {
@@ -1033,6 +1062,7 @@ namespace McvsOffline.Embedded
                         if (admin != null) AdminHooks.Host = admin;
                         if (admin != null) Admin.SettingsMenu.UiNatives.Start(admin);
                         StartNotificationPrompt(created, admin);
+                        StartMarker.Write(StartMarkerPath, created.Port, StartMarker.Running, DateTime.UtcNow);
                         Log.Info("offline server running at " + created.Context.BaseUrl);
                         Boot.Mark("offline server listening at " + created.Context.BaseUrl);
                         return;
@@ -1042,6 +1072,7 @@ namespace McvsOffline.Embedded
                         if (attempt >= attempts)
                         {
                             serverError = ex;
+                            StartMarker.Write(StartMarkerPath, port, StartMarker.Stopped, DateTime.UtcNow);
                             Log.Error("cannot listen on port " + port + " after " + attempt + " attempts (" + ex.Message + "). " + portInUseHint);
                             created.Dispose();
                             return;
@@ -1055,6 +1086,7 @@ namespace McvsOffline.Embedded
             {
                 serverError = ex;
                 if (reservation != null) reservation.Release();   // not adopted: McvsServer.Create failed
+                StartMarker.Write(StartMarkerPath, port, StartMarker.Stopped, DateTime.UtcNow);
                 try
                 {
                     Log.Error("the offline server failed to start", ex);
@@ -1125,7 +1157,10 @@ namespace McvsOffline.Embedded
             try
             {
                 IPAddress address = McvsServer.ParseBind(BindAddress(options) ?? Settings.Bind);
-                r = PortReservation.Reserve(address, port, fallback, null, null);
+                reservedAddress = address;
+                string marker = StartMarkerPath;
+                r = PortReservation.Reserve(address, port, fallback, options.Listen, null, m => Log.Warn(m),
+                                            p => StartMarker.IsStarting(marker, p, DateTime.UtcNow));
             }
             catch (Exception ex)
             {
@@ -1133,11 +1168,23 @@ namespace McvsOffline.Embedded
                 return null;
             }
             string url = ManagedArgs.EnvironmentSwitcherUrl(r.Port);
+            // This start's server is being built on the reserved socket: a second copy started now waits for it (StartMarker).
+            if (r.Listener != null) StartMarker.Write(StartMarkerPath, r.Port, StartMarker.Starting, DateTime.UtcNow);
             switch (r.Outcome)
             {
                 case PortOutcome.Deferred:
-                    Log.Info(r.Reason + ": the game uses it at " + url + " (a standalone server through adb reverse, or another copy of the game); " +
-                             "this game's own server stays off, so its settings page is that server's" + SameData(r.Holder));
+                    string line = r.Reason + ": the game uses it at " + url + " (a standalone server through adb reverse, or another copy of the game); " +
+                                  "this game's own server stays off, so its settings page is that server's";
+                    if (IsOwnData(r.Holder))
+                    {
+                        // The likeliest deferral to end badly: the other copy may be quit at any time. WatchDeferredPort takes over then.
+                        Log.Warn(line + ". It uses this game's own data folder: another copy of the game is still running; quit it before playing " +
+                                 "(when its server stops, this game's own server takes port " + port + " over)");
+                    }
+                    else
+                    {
+                        Log.Info(line);
+                    }
                     Boot.Mark("offline server: the MCVS Offline server already answering on port " + port + " is used");
                     break;
                 case PortOutcome.Fallback:
@@ -1160,22 +1207,118 @@ namespace McvsOffline.Embedded
             return r;
         }
 
-        /// <summary>" It uses this game's own data folder (...)" when the answering server shares our McvsOffline folder, else "".</summary>
-        private string SameData(PortHolder holder)
+        /// <summary>True when the answering server uses this game's own McvsOffline folder (another copy of the game).</summary>
+        private bool IsOwnData(PortHolder holder)
         {
             try
             {
-                if (holder == null || string.IsNullOrEmpty(holder.DataDir)) return "";
+                if (holder == null || string.IsNullOrEmpty(holder.DataDir)) return false;
                 StringComparison cmp = isWindows ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
                 string theirs = Path.GetFullPath(holder.DataDir).TrimEnd(Path.DirectorySeparatorChar);
                 string ours = Path.GetFullPath(Paths.DataDir).TrimEnd(Path.DirectorySeparatorChar);
-                return string.Equals(theirs, ours, cmp)
-                    ? ". It uses this game's own data folder: another copy of the game is still running; quit it before playing"
-                    : "";
+                return string.Equals(theirs, ours, cmp);
             }
             catch (Exception)
             {
-                return "";
+                return false;
+            }
+        }
+
+        /// <summary>logs/server-start.txt (<see cref="StartMarker"/>).</summary>
+        private string StartMarkerPath
+        {
+            get { return Paths == null ? null : Path.Combine(Paths.LogsDir, StartMarker.FileName); }
+        }
+
+        /// <summary>
+        /// Deferring to another copy of the game's server on this data folder: a background thread tries to bind the configured
+        /// port every <see cref="EmbeddedHostOptions.PortWatchIntervalMs"/>. The bind only succeeds once that server has let the
+        /// port go (never two listeners), and then this game's own server starts on it: port and args.txt are unchanged, so the
+        /// game's next requests reach it. Never throws.
+        /// </summary>
+        private void WatchDeferredPort(EmbeddedHostOptions options, int port, PortReservation reservation)
+        {
+            IPAddress address = reservedAddress;
+            if (address == null) return;
+            Func<IPAddress, int, Action<string>, Socket> listen = options.Listen ?? ((a, p, w) => HttpServer.Listen(a, p, w));
+            int interval = options.PortWatchIntervalMs > 0 ? options.PortWatchIntervalMs : 2000;
+            try
+            {
+                portWatching = true;
+                var thread = new Thread(() =>
+                {
+                    try
+                    {
+                        while (!portWatchStop.WaitOne(interval))
+                        {
+                            Socket socket;
+                            try
+                            {
+                                socket = listen(address, port, null);
+                            }
+                            catch (SocketException)
+                            {
+                                continue;   // still held: the other server is up
+                            }
+                            if (portWatchStop.WaitOne(0))
+                            {
+                                try { socket.Close(); } catch (Exception) { }
+                                return;
+                            }
+                            reservation.TakeOver(socket);
+                            Log.Warn("the MCVS Offline server of the other copy of the game (port " + port + ", this game's data folder) has stopped; " +
+                                     "this game's own server takes port " + port + " over, and the game's next requests reach it");
+                            Boot.Mark("offline server: took port " + port + " over after the other copy's server stopped");
+                            portWatching = false;
+                            RunServer(options, port, reservation);
+                            return;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        try { Log.Warn("the port watch stopped", ex); } catch (Exception) { }
+                    }
+                    finally
+                    {
+                        portWatching = false;
+                    }
+                });
+                thread.IsBackground = true;
+                thread.Name = "mcvs-port-watch";
+                thread.Start();
+            }
+            catch (Exception ex)
+            {
+                portWatching = false;
+                Log.Warn("the port watch could not start", ex);
+            }
+        }
+
+        /// <summary>Stops the port watch of a deferring start (tests).</summary>
+        internal void StopPortWatch()
+        {
+            portWatchStop.Set();
+        }
+
+        /// <summary>
+        /// The Finder port for the 'finderport' hook. A LAN guest (args.txt sets -RemoteIp; the 'lan' patch points
+        /// ClientSettings.LocalAnubisFinderHost at the host) contacts the host's Finder with the same property, so a move of its own
+        /// Finder must not move the port it asks the host on: the unmoved port then (the player's -LocalAnubisFinderPort still wins).
+        /// </summary>
+        private int ChooseClientFinderPort(byte[] existingArgs)
+        {
+            if (!finderMoved) return FinderPort;
+            try
+            {
+                string remoteIp = ArgsFile.ReadEffectiveValue(existingArgs, "RemoteIp");
+                if (string.IsNullOrEmpty(remoteIp) || remoteIp.Trim().Length == 0) return FinderPort;
+                Log.Info("LAN guest (-RemoteIp " + remoteIp.Trim() + "): this device's own LocalAnubis Finder uses " + FinderPort +
+                         ", the client still looks for the host's Finder on " + finderPreferred);
+                return finderPreferred;
+            }
+            catch (Exception)
+            {
+                return FinderPort;
             }
         }
 
@@ -1186,6 +1329,8 @@ namespace McvsOffline.Embedded
         private int ChooseFinderPort(EmbeddedHostOptions options, bool manageArgs, byte[] existingArgs)
         {
             int preferred = options.FinderPort ?? PortHooks.DefaultFinderPort;
+            finderPreferred = preferred;
+            finderMoved = false;
             try
             {
                 string user = manageArgs ? ArgsFile.ReadUserValue(existingArgs, "LocalAnubisFinderPort")
@@ -1208,6 +1353,10 @@ namespace McvsOffline.Embedded
                     Log.Warn("the LocalAnubis Finder port " + preferred + " is busy (a frozen earlier copy of the game?); this start uses " + chosen +
                              " (-LocalAnubisFinderPort in args.txt; the patched client follows it)");
                     Boot.Mark("port fallback: LocalAnubis Finder " + preferred + " busy, the game uses " + chosen);
+                    finderMoved = true;
+                    if (Settings.LanMode)
+                        Log.Warn("LAN guests look for this host's LocalAnubis Finder on " + preferred + ": for this start they need -LocalAnubisFinderPort " +
+                                 chosen + " in their own args.txt (it moves their own Finder too), or quick launch against this host fails");
                 }
                 return chosen;
             }
@@ -1228,14 +1377,33 @@ namespace McvsOffline.Embedded
                 string expected = ManagedArgs.EnvironmentSwitcherUrl(r.Port);
                 string actual = ArgsFile.ReadEffectiveValue(gameArgs, "EnvironmentSwitcherUrl");
                 if (string.Equals(actual, expected, StringComparison.Ordinal)) return;
-                Log.Error("port fallback: the game will use -EnvironmentSwitcherUrl " + (actual ?? "(none)") + " from args.txt" +
-                          (manageArgs ? " (set outside the managed block)" : " (embedded.manageArgs is false)") + ", not this start's server at " +
-                          expected + ": it will not reach its server; remove that line (or point it at this URL)");
+                string where = manageArgs ? " (set outside the managed block)" : " (embedded.manageArgs is false)";
+                if (actual != null && !NamesLoopbackPort(actual, r.ConfiguredPort))
+                {
+                    // A server the player chose on purpose (a LAN host, a PC server): the game reaches it, whatever this device's port.
+                    Log.Warn("port fallback: the game uses -EnvironmentSwitcherUrl " + actual + " from args.txt" + where + ", not this device's server (port " +
+                             r.Port + "); fine when that is the server you mean (a LAN host, a PC server), otherwise remove the line");
+                    return;
+                }
+                Log.Error("port fallback: the game will use -EnvironmentSwitcherUrl " + (actual ?? "(none)") + " from args.txt" + where + ", not this start's server at " +
+                          expected + ": it will not reach its server" + (actual == null ? "" : " (the busy port, unless a server you start yourself answers there, " +
+                                                                                            "e.g. a standalone through adb reverse)") +
+                          "; remove that line (or point it at this URL)");
             }
             catch (Exception ex)
             {
                 Log.Warn("args.txt could not be checked after the port fallback", ex);
             }
+        }
+
+        /// <summary>True when <paramref name="url"/> is http://127.0.0.1, localhost or [::1] on <paramref name="port"/>: the busy port.</summary>
+        internal static bool NamesLoopbackPort(string url, int port)
+        {
+            Uri uri;
+            if (url == null || !Uri.TryCreate(url.Trim(), UriKind.Absolute, out uri)) return false;
+            string host = uri.Host.ToLowerInvariant();
+            bool loopback = host == "127.0.0.1" || host == "localhost" || host == "[::1]" || host == "::1";
+            return loopback && uri.Port == port;
         }
 
         private static bool IsLoopbackBind(string bind)

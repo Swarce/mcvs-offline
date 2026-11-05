@@ -70,7 +70,8 @@ Offline server ...: the game uses it"). Start the standalone server **before** t
 reverse (the server is not running, the cable is out) or something else holds the port, the patched game starts its own
 server on another port instead (51781..): it never waits for the reverse. Builds up to 25 waited 30 s and then used
 whatever held the port. To force the patched game onto the PC server anyway, set `embedded.manageArgs` to `false` and
-point `args.txt` at it yourself.
+point `args.txt` at it yourself; if the standalone was not answering yet when the game started, `bootstrap.log` then has
+an ERROR that the game uses the busy port 51780 (expected in this setup: the game reaches the PC server once it is up).
 
 ## 4. Push args.txt
 

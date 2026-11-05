@@ -598,8 +598,11 @@ for testing only:
 
   If 51780 was busy on the host when it started, the host's server uses another port for that start, and the guests'
   line has to name it: the host's `bootstrap.log` says which (`LAN guests must use -EnvironmentSwitcherUrl
-  http://<this device's address>:51781/ for this start`). Restart the host to get 51780 back, or set
-  `embedded.portFallback` to `false` on the host.
+  http://<this device's address>:51781/ for this start`). Likewise, if the host's own LocalAnubis Finder port (51750) was
+  busy, its log names the `-LocalAnubisFinderPort <n>` line guests need for that start (it moves the guest's own Finder
+  too). Restart the host to get 51780 back, or set `embedded.portFallback` to `false` on the host. A guest whose own
+  ports were busy keeps asking the host on 51750, and its log line about the host's `-EnvironmentSwitcherUrl` is a WARN,
+  not an error.
 
 ## What the patcher changes, exactly
 

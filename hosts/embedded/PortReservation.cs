@@ -32,7 +32,9 @@ namespace McvsOffline.Embedded
     /// <item>Bind the configured port (normal case: one bind, well under a millisecond).</item>
     /// <item>Busy (EADDRINUSE): ask the holder what it is (<see cref="PortProbe"/>, at most about 0.75 s). A working MCVS Offline
     /// server: use it (<see cref="PortOutcome.Deferred"/>, never two servers on one port or, for another copy of the game, on one
-    /// data folder). Anything else: try the configured port <see cref="Rebinds"/> more times (a dying process lets it go).</item>
+    /// data folder). A silent holder while <see cref="StartMarker"/> says a start of this game on the same folder claimed the
+    /// port moments ago: probe again for up to <see cref="StartingWaitMs"/> (a second copy started at the same moment).
+    /// Anything else: try the configured port <see cref="Rebinds"/> more times (a dying process lets it go).</item>
     /// <item>Then, unless the fallback is off: the next <see cref="FallbackRange"/> ports in order (deterministic, so a LAN guest's
     /// line is predictable), then any free port (port 0). Windows' excluded port ranges (AccessDenied) skip the probe and the
     /// neighbours, which sit in the same reserved block, and go straight to port 0.</item>
@@ -74,16 +76,58 @@ namespace McvsOffline.Embedded
         public string Reason { get; private set; }
 
         /// <summary>
+        /// How long a silent holder is given to start answering when a start of this game on the same data folder claimed the
+        /// port moments ago (<see cref="StartMarker"/>), and the pause between the probes meanwhile.
+        /// </summary>
+        public const int StartingWaitMs = 2000;
+
+        public const int StartingPollMs = 100;
+
+        /// <summary>
         /// Reserves the server port. <paramref name="listen"/> binds and listens (HttpServer.Listen; tests inject failures),
         /// <paramref name="probe"/> asks a holder (PortProbe.Probe). Never throws for socket errors.
         /// </summary>
         public static PortReservation Reserve(IPAddress address, int configured, bool allowFallback,
                                               Func<IPAddress, int, Socket> listen, Func<int, PortHolder> probe)
         {
+            Func<IPAddress, int, Action<string>, Socket> bind = null;
+            if (listen != null) bind = (a, p, w) => listen(a, p);
+            return Reserve(address, configured, allowFallback, bind, probe, null, null);
+        }
+
+        /// <summary>
+        /// Reserves the server port. <paramref name="listen"/> binds and listens with a warning callback (HttpServer.Listen: the
+        /// Android build's "SO_REUSEADDR not set" line; tests inject failures), <paramref name="probe"/> asks a holder
+        /// (PortProbe.Probe), <paramref name="warn"/> gets that warning once (the bootstrap log; may be null), and
+        /// <paramref name="startingHere"/> says whether a start of this game on the same data folder claimed the port moments ago
+        /// and its server is not up yet (<see cref="StartMarker.IsStarting"/>; may be null): a silent holder is then given
+        /// <see cref="StartingWaitMs"/> to answer before the fallback. Never throws for socket errors.
+        /// </summary>
+        public static PortReservation Reserve(IPAddress address, int configured, bool allowFallback,
+                                              Func<IPAddress, int, Action<string>, Socket> listen, Func<int, PortHolder> probe,
+                                              Action<string> warn, Func<int, bool> startingHere)
+        {
             if (address == null) throw new ArgumentNullException("address");
-            listen = listen ?? ((a, p) => HttpServer.Listen(a, p, null));
+            Func<IPAddress, int, Action<string>, Socket> bindAndListen = listen ?? ((a, p, w) => HttpServer.Listen(a, p, w));
+            // The reason is the same for every socket: logged once, not once per port tried.
+            bool warned = false;
+            Action<string> warnOnce = message =>
+            {
+                if (warned || warn == null) return;
+                warned = true;
+                try { warn(message); } catch (Exception) { }
+            };
+            Func<IPAddress, int, Socket> listenOne = (a, p) => bindAndListen(a, p, warnOnce);
             probe = probe ?? (p => PortProbe.Probe(p, PortProbe.DefaultConnectMs, PortProbe.DefaultReadMs));
             var r = new PortReservation { ConfiguredPort = configured, Port = configured };
+            return r.Run(address, allowFallback, listenOne, probe, startingHere);
+        }
+
+        private PortReservation Run(IPAddress address, bool allowFallback, Func<IPAddress, int, Socket> listen,
+                                    Func<int, PortHolder> probe, Func<int, bool> startingHere)
+        {
+            int configured = ConfiguredPort;
+            PortReservation r = this;
 
             Socket socket = TryListen(listen, address, configured, r);
             if (socket != null) return r.Bound(PortOutcome.Configured, socket);
@@ -97,14 +141,27 @@ namespace McvsOffline.Embedded
             else
             {
                 PortHolder holder = probe(configured) ?? new PortHolder(PortHolderKind.Silent, "unknown");
+                string waited = null;
+                if (holder.Kind == PortHolderKind.Silent && IsStartingHere(startingHere, configured))
+                {
+                    // Another copy of the game on this data folder reserved the port moments ago and is still building its server
+                    // (it binds in Prepare and answers only once McvsServer.Create and Start have run): give it time to answer
+                    // rather than starting a second server on the same folder.
+                    int started = Environment.TickCount;
+                    holder = WaitForStartingServer(probe, configured, holder);
+                    waited = Num(Environment.TickCount - started);
+                }
                 r.Holder = holder;
                 if (holder.Kind == PortHolderKind.Mcvs)
                 {
                     r.Outcome = PortOutcome.Deferred;
-                    r.Reason = "port " + Num(configured) + " is held by a working MCVS Offline server (" + holder.Detail + ")";
+                    r.Reason = "port " + Num(configured) + " is held by a working MCVS Offline server (" + holder.Detail + ")" +
+                               (waited == null ? "" : ", which was still starting (it answered after " + waited + " ms)");
                     return r;
                 }
-                r.Reason = "port " + Num(configured) + " is held by another program that does not answer as MCVS Offline: " + holder.Detail;
+                r.Reason = "port " + Num(configured) + " is held by another program that does not answer as MCVS Offline: " + holder.Detail +
+                           (waited == null ? "" : " (a start of this game on the same data folder claimed the port moments ago; waited " + waited +
+                                                  " ms for its server to answer)");
                 for (int i = 0; i < Rebinds; i++)
                 {
                     Thread.Sleep(RebindDelayMs);
@@ -138,6 +195,46 @@ namespace McvsOffline.Embedded
             if (socket != null) return r.Bound(PortOutcome.Fallback, socket);
             r.Outcome = PortOutcome.Failed;
             return r;
+        }
+
+        /// <summary>
+        /// The deferred server stopped and the configured port could be bound (<paramref name="socket"/>): this start's own server
+        /// takes it over. Port and args.txt stay the configured ones, so the game's next requests reach the new server.
+        /// </summary>
+        internal void TakeOver(Socket socket)
+        {
+            if (socket == null) throw new ArgumentNullException("socket");
+            Holder = null;
+            Reason = null;
+            Bound(PortOutcome.Configured, socket);
+        }
+
+        private static bool IsStartingHere(Func<int, bool> startingHere, int port)
+        {
+            if (startingHere == null) return false;
+            try
+            {
+                return startingHere(port);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>Probes again until the holder answers as MCVS Offline, stops being silent, or <see cref="StartingWaitMs"/> is over.</summary>
+        private static PortHolder WaitForStartingServer(Func<int, PortHolder> probe, int port, PortHolder first)
+        {
+            int started = Environment.TickCount;
+            PortHolder last = first;
+            while (Environment.TickCount - started < StartingWaitMs)
+            {
+                Thread.Sleep(StartingPollMs);
+                PortHolder next = probe(port) ?? new PortHolder(PortHolderKind.Silent, "unknown");
+                last = next;
+                if (next.Kind != PortHolderKind.Silent) break;
+            }
+            return last;
         }
 
         /// <summary>Closes the socket if nobody adopted it (a failed server creation).</summary>
@@ -193,6 +290,70 @@ namespace McvsOffline.Embedded
         private static string Num(int port)
         {
             return port.ToString(CultureInfo.InvariantCulture);
+        }
+    }
+
+    /// <summary>
+    /// logs/server-start.txt (docs/design/port-fallback.md §2): which port this game's latest start reserved for its server, and
+    /// whether that server is up yet. A second copy of the game started at the same moment on the same data folder finds the port
+    /// busy while the first copy is still building its server (it binds in Prepare, before McvsServer.Create and Start, and
+    /// answers nothing until then); the marker tells it to wait for that server instead of falling back and running a second
+    /// server on the same folder. A frozen copy wrote it long ago or already wrote "running", so it costs nothing then.
+    /// Three lines (<c>port=51780</c>, <c>state=starting</c>, <c>utcTicks=...</c>). Best effort: never throws.
+    /// </summary>
+    public static class StartMarker
+    {
+        public const string FileName = "server-start.txt";
+
+        /// <summary>A "starting" marker older than this is stale (a start that crashed or froze before its server was up).</summary>
+        public const int StartingWindowMs = 10000;
+
+        public const string Starting = "starting";
+        public const string Running = "running";
+        public const string Stopped = "stopped";
+
+        public static void Write(string path, int port, string state, DateTime utcNow)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(path)) return;
+                string text = "port=" + port.ToString(CultureInfo.InvariantCulture) + "\nstate=" + state + "\nutcTicks=" +
+                              utcNow.Ticks.ToString(CultureInfo.InvariantCulture) + "\n";
+                System.IO.File.WriteAllText(path, text);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>True when the marker says a start reserved <paramref name="port"/> less than StartingWindowMs ago and its server is not up yet.</summary>
+        public static bool IsStarting(string path, int port, DateTime utcNow)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(path) || !System.IO.File.Exists(path)) return false;
+                int markedPort = -1;
+                string state = null;
+                long ticks = -1;
+                foreach (string raw in System.IO.File.ReadAllText(path).Split('\n'))
+                {
+                    string line = raw.Trim();
+                    int eq = line.IndexOf('=');
+                    if (eq <= 0) continue;
+                    string key = line.Substring(0, eq);
+                    string value = line.Substring(eq + 1);
+                    if (key == "port") int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out markedPort);
+                    else if (key == "state") state = value;
+                    else if (key == "utcTicks") long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out ticks);
+                }
+                if (markedPort != port || state != Starting || ticks <= 0) return false;
+                double ageMs = (utcNow - new DateTime(ticks, DateTimeKind.Utc)).TotalMilliseconds;
+                return ageMs >= -1000 && ageMs < StartingWindowMs;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
     }
 

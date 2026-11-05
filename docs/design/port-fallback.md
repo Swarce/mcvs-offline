@@ -28,19 +28,34 @@ before args.txt is written.
    `GET /_mcvs/status HTTP/1.0` with `Host: 127.0.0.1:<port>`, at most 500 ms and 16 KiB of answer. The holder is
    - **Mcvs**: a working MCVS Offline server answered (`"server": "mcvs-offline"`). The game uses it: args.txt keeps the
      configured port and this game's own server stays off (INFO line). This is the dev loop (a standalone server on the PC
-     through `adb reverse`), and for a second copy of the game it avoids two servers on one data folder (the log line says
-     so when the answering server's data directory is ours);
+     through `adb reverse`), and for a second copy of the game it avoids two servers on one data folder. When the
+     answering server's data directory is ours (another copy of the game), the line is a WARN ("quit it before playing"),
+     and a background thread tries to bind the configured port every 2 s: the bind only succeeds once that server has let
+     the port go (never two listeners), and then this game's own server starts on it. Port and args.txt are unchanged, so
+     the running game's next requests reach it (state the other server kept only in memory, such as a token, may still
+     need a game restart). A standalone server with another data directory is not watched: taking over would switch the
+     game's data mid-session;
    - **Silent** (the connection is accepted, or left waiting, and nothing comes: a frozen process), **Closed** (accepted and
      closed or reset: an adb reverse with nothing behind it), **Refused** (bound but not listening, or just gone), **Foreign**
      (an HTTP or other answer that is not ours): the configured port is tried twice more, 150 ms apart (a dying process lets
      it go), then the fallback.
+   - **A second copy started at the same moment.** A copy reserves the port in `Prepare` but answers only once
+     `McvsServer.Create` and `Start` have run on its server thread, so a second copy on the same data folder started a
+     fraction of a second later sees **Silent**. Each start that reserves a socket writes `logs/server-start.txt`
+     (`port=`, `state=starting`, `utcTicks=`; `state=running` once its server listens, `stopped` when it failed). When
+     the holder is Silent and the marker says `starting` on the configured port less than 10 s ago, the second copy probes
+     again every 100 ms for up to 2 s and uses that server when it answers (Deferred, and the watch above). A frozen copy
+     wrote `running` long ago (or `starting` more than 10 s ago), so the owner's case costs nothing extra; a start that
+     froze within 10 s of its own start costs at most about 2.8 s more before the fallback.
 3. Fallback: the next 9 ports in order (51781..51789: deterministic, so a LAN guest's line is predictable), then any free
    port (port 0). `AccessDenied` (Windows' Hyper-V/WSL excluded port ranges, usually 100 ports wide) skips the probe and the
    neighbours and goes straight to port 0.
 4. One WARN line names the busy port, what the probe saw and the port used, for example:
    `port 51780 is held by another program that does not answer as MCVS Offline: it accepted the connection but sent nothing
    in 500 ms; this start uses port 51781: args.txt, the eve URLs, the settings page and the geo lookup follow it;
-   settings.json keeps 51780 and the next start tries it first (a phone restart frees it)`, plus a `[boot]` mark.
+   settings.json keeps 51780 and the next start tries it first (a phone restart frees it)`, plus a `[boot]` mark. The
+   Android build's `SO_REUSEADDR not set (...)` warning, when the libc call fails, comes from this bind now and is logged
+   once to `bootstrap.log` (build 25 logged it on the server's own bind): it explains a busy port right after a restart.
 
 The worst case adds about 1.05 s to the start, only when the port is busy (build 25: 30 s, and no working game).
 
@@ -70,7 +85,7 @@ error carries the platform hint). Only the deferral to an answering MCVS Offline
 | `geo` patch (Gameloft.Util, TS handshake) | `ldstr "http://127.0.0.1:<--port>/location/?ip="` is now followed by `call McvsOffline.PortHooks::GeolocalizationUrl(string)`; the hook returns this start's port (the baked string until the host decided) |
 | LocalAnubis Finder (51750) | see §4 |
 | LAN guests | they name the host's port by hand: after a fallback the host logs the `-EnvironmentSwitcherUrl` line guests must use for that start (LAN is experimental) |
-| the player's `-EnvironmentSwitcherUrl` outside the managed block, or `embedded.manageArgs` false | the game cannot follow: an ERROR names the URL the game will use instead of a misleading "switched" line |
+| the player's `-EnvironmentSwitcherUrl` outside the managed block, or `embedded.manageArgs` false | the game cannot follow. An ERROR when the line names the busy port on loopback (`127.0.0.1`, `localhost`, `[::1]`) or there is no line: the game will not reach this start's server (the ERROR mentions the one exception, a standalone behind `adb reverse` that starts later, DEV-LOOP §3). Any other URL (a LAN guest's host, a PC server) is a server chosen on purpose: one WARN that the game uses it, not this device's server |
 | `publicUrl` | it wins over the port for the URLs the server hands out: a WARN after a fallback |
 | res/raw/args.txt, notifications, the game's own caches | carry no port (verified) |
 
@@ -100,11 +115,25 @@ real Windows machine whether a raw bind sees http.sys's port as busy).
 A player's own `-LocalAnubisFinderPort` outside the block is used as it is (the hook returns it), with an ERROR when it is
 busy.
 
+LAN (experimental). The same client property names the Finder a guest contacts: with the `lan` patch,
+`LocalAnubisFinderHost` is the host from `-RemoteIp`, so QuickLaunch, FindRooms and locate go to
+`<host>:LocalAnubisFinderPort`. So:
+
+- a guest (args.txt sets `-RemoteIp`) whose own 51750 was busy moves its own Finder (`-LocalAnubisFinderPort` in the
+  block), but the hook keeps returning the unmoved port, the one the host listens on (INFO line). A guest's own
+  `-LocalAnubisFinderPort` still wins: that is how a guest names a host's moved Finder (it moves the guest's own Finder
+  too). With `-RemoteIp` but without the `lan` patch the client asks its local Finder on the unmoved port, which then fails
+  if that one was moved (both are unsupported combinations);
+- a host in LAN mode whose Finder moved logs a WARN with the `-LocalAnubisFinderPort <n>` guests need for that start, next
+  to the `-EnvironmentSwitcherUrl` WARN of a server-port fallback.
+
 ## 5. Known limits
 
 - Two servers on one data folder: when a frozen copy still holds the port, the new copy runs its own server on the same
   `McvsOffline/` folder. If the old process thaws instead of dying, its game can still save through its own server. There
-  is no data-folder lock yet (a future pid/flock lock would close this).
+  is no data-folder lock yet (a future pid/flock lock would close this). Two copies started at the same moment are covered
+  by the start marker only while the first one's server answers within about 3.5 s of the second's first probe; a slower first
+  start (or a first copy that fell back to another port itself) still leads to a second server.
 - 51780 and 51750 lie in the ephemeral ranges of Linux/Android (32768-60999) and Windows (49152-65535): an outgoing
   connection can briefly own either port. The fallback covers that too; it is a reason not to read "busy" as "another copy".
 - The probe runs on the thread that starts the game; its budget is hard (connect 250 ms, answer 500 ms, two re-binds of

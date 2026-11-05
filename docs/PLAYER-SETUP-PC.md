@@ -195,7 +195,10 @@ it crashes soon after you chose High, go back to Mid. The `[boot] graphics:` lin
   …; this start uses port 51781: …`, and `args.txt`, the settings page and the match's geo lookup use the new port for
   that start. `McvsOffline\settings.json` keeps 51780 and the next start tries it first. If what answers on 51780 is a
   working MCVS Offline server (a second copy of the game, or a developer's standalone server), the game uses that one
-  and its own server stays off (an INFO line says so; quit the other copy). The game's own LocalAnubis port (51750) is
+  and its own server stays off (a WARN line says so when it is another copy on the same `McvsOffline` folder: quit it;
+  when that copy's server stops, this game's own server takes 51780 over). Two copies started at the same moment do
+  not both run a server: the second waits up to 2 s for the first one's server and uses it
+  (`McvsOffline\logs\server-start.txt`). The game's own LocalAnubis port (51750) is
   checked the same way; when it moves, the managed block of `args.txt` gets `-LocalAnubisFinderPort <n>` (not yet tried
   on a real PC). `"embedded": {"portFallback": false}` in `settings.json` turns this off (the server then keeps trying
   51780, as before build 26); `install --port <n>` still changes the preferred port.
