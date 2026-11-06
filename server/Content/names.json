@@ -1,0 +1,83 @@
+{
+  "format": 1,
+  "version": 1,
+  "limits": {
+    "min": 3,
+    "max": 16
+  },
+  "years": [1990,2012],
+  "defaultShare": 8,
+  "parts": {
+    "adj": ["Silent","Swift","Dark","Grim","Iron","Steel","Frozen","Burning","Rapid","Lethal","Rogue","Savage","Crimson","Scarlet","Cobalt","Golden","Silver","Onyx","Jade","Amber","Ivory","Neon","Toxic","Atomic","Cyber","Hyper","Ultra","Turbo","Nitro","Static","Primal","Feral","Wild","Brave","Bold","Lucky","Sneaky","Crazy","Lazy","Salty","Spicy","Chill","Cold","Frosty","Stormy","Mystic","Cosmic","Lunar","Solar","Stellar","Astral","Hollow","Broken","Lost","Lone","Last","Final","Prime","Alpha","Omega","Sigma","Elite","Royal","Noble","Ancient","Eternal","Hidden","Masked","Quick","Sharp","Heavy","Tiny","Little","Mighty","Fatal","Deadly","Vicious","Furious","Angry","Happy","Sleepy","Hungry","Rusty","Dusty","Misty","Smoky","Blazing","Electric","Magnetic","Quantum","Digital","Retro","Tactical","Stealth","Covert","Rebel","Red","Blue","Grey","Green","Purple","Violet","Arctic","Polar","Shady","Wicked","Clever","Humble","Mad","Odd","Calm","Fierce","Glacial","Radiant","Phantom","Spectral","Thunder","Rocket","Shadow","Night","Storm","Fire","Frost","Ember","Nova"],
+    "noun": ["Wolf","Fox","Hawk","Falcon","Eagle","Raven","Crow","Owl","Viper","Cobra","Python","Mamba","Adder","Lynx","Panther","Tiger","Lion","Leopard","Cheetah","Bear","Grizzly","Badger","Jackal","Hyena","Coyote","Dingo","Bison","Rhino","Shark","Orca","Kraken","Piranha","Scorpion","Hornet","Wasp","Mantis","Raptor","Otter","Moose","Stag","Bull","Boar","Gecko","Iguana","Gator","Dragon","Wyvern","Gryphon","Phoenix","Golem","Yeti","Kitsune","Ghost","Specter","Phantom","Wraith","Reaper","Sniper","Ranger","Hunter","Scout","Striker","Raider","Ronin","Samurai","Knight","Paladin","Viking","Spartan","Warden","Sentinel","Guardian","Nomad","Drifter","Outlaw","Bandit","Pirate","Rogue","Jester","Rook","Baron","Titan","Atlas","Goliath","Cyclone","Tornado","Typhoon","Tsunami","Thunder","Frost","Blaze","Inferno","Ember","Cinder","Smoke","Mist","Shade","Shadow","Eclipse","Comet","Meteor","Nova","Nebula","Quasar","Pulsar","Orbit","Rocket","Vector","Cipher","Pixel","Glitch","Byte","Vertex","Vortex","Volt","Ion","Plasma","Laser","Photon","Neutron","Zenith","Echo","Delta","Bravo","Tango","Kilo","Blade","Dagger","Saber","Katana","Arrow","Bullet","Trigger","Hammer","Anvil","Spear","Lance","Shield","Talon","Fang","Claw","Spike","Bolt","Rifle","Mortar","Pilot","Runner","Racer","Wanderer","Rebel","Legend","Shogun","Warrior","Soldier","Commando","Medic","Gunner","Tank","Marshal","Sheriff","Cowboy","Wren","Finch","Heron","Osprey","Kestrel","Condor","Vulture","Pelican","Penguin","Puffin","Magpie","Panda","Koala","Lemur","Sloth","Llama","Walrus","Narwhal","Squid","Octopus","Beetle","Cricket","Lizard","Komodo","Turtle","Lobster","Crab","Glacier","Canyon","Summit","Volcano","Reef","Spectre","Cobweb","Lantern","Compass","Anchor","Beacon","Rampart","Bastion","Citadel","Outpost"],
+    "handle": ["Kryptik","Nocturne","Frostbyte","Shadowstep","Wildfire","Thunderclap","Ironclad","Blackout","Overdrive","Afterburn","Backfire","Bulletproof","Deadeye","Headhunter","Hailstorm","Nightfall","Sandstorm","Snowblind","Starfall","Sunburn","Undertow","Silverback","Copperhead","Razorback","Blackthorn","Frostfang","Ironside","Steelrain","Ashfall","Cloudburst","Dreadnought","Nightowl","Riptide","Lagswitch","Noscope","Quickscope","Headshot","Clutch","Flanker","Fragger","Pwnage","Rekt","Tryhard","Camper","Spawnkill","Oneshot","Wallbang","Airstrike","Ricochet","Killstreak","Payload","Overtime","Sidestep","Nightshift","Skydive","Zipline","Firewall","Mainframe","Bytecode","Overclock","Gridlock","Warpath","Stormchaser","Wolfpack","Ironwill","Lowkey","Highground","Outrider","Lockdown","Checkmate","Stalemate","Lastlight","Coldfront","Heatwave","Sunspot","Smokescreen","Blindside","Turncoat","Wildcard","Longshot","Moonlight","Darkstar","Northwind","Westwind","Driftwood"],
+    "short": ["Vex","Rift","Nyx","Hex","Zap","Rex","Grim","Bolt","Flux","Dex","Ryn","Tox","Vyx","Pyx","Onyx","Echo","Nova","Zinc","Volt","Kilo","Mako","Noxx","Rook","Wisp","Pike","Lynx","Fang","Gale","Haze","Kite","Mist","Rune","Sage","Tusk","Vale","Wren","Zest","Jolt","Kuro","Taka","Kaze","Orb","Ion","Arc","Ark","Brix","Crux","Glyph","Hask","Jynk","Krux","Lyx","Morx","Nax","Riv","Ulk","Vos","Wyx","Xyl","Zyx","Zook","Blip","Byte","Dusk","Fuse","Grit","Husk","Ink"],
+    "foreign": ["Halcon","Aguila","Rayo","Fuego","Tormenta","Noche","Fantasma","Tigre","Oso","Toro","Acero","Hielo","Nieve","Trueno","Viento","Lince","Raposa","Trovao","Gaviao","Onca","Coruja","Ferro","Volpe","Orso","Fulmine","Tempesta","Ombra","Aquila","Notte","Vento","Loup","Renard","Faucon","Orage","Ombre","Fantome","Corbeau","Tonnerre","Eclair","Brume","Givre","Acier","Fuchs","Adler","Sturm","Blitz","Nebel","Eisen","Donner","Schatten","Rabe","Luchs","Geist","Wilk","Orzel","Sokol","Burza","Grom","Kruk","Kartal","Simsek","Gece","Bora","Susi","Kettu","Sisu","Myrsky","Kotka","Ulv","Ravn","Isbjorn","Falk","Ugle","Torden","Kaze","Kuro","Kitsune","Tenshi","Yami","Kage","Kumo","Taka","Kuma","Hoshi","Tsuki","Kaminari","Horangi","Byeol","Baram","Harimau","Elang","Petir","Agila","Kidlat","Bagyo","Chui","Burya","Zima","Baagh","Toofan","Bijli","Sher","Saqr","Barq"],
+    "prefix": ["Mr","Sir","Lil","Big","Its","iAm","Not","Just","Agent","Sgt","Cpt","Kid","Old","Pro","Ez"],
+    "suffix": ["GG","Pro","Prime","Main","Ace","One","X","Z","Jr","Wins","Plays","Gaming","EZ","OP","Zero","Lol","Six","Two"],
+    "country": ["FR","DE","ES","IT","PT","BR","MX","AR","CL","CO","PE","NL","BE","SE","NO","FI","DK","PL","CZ","GR","RO","HU","TR","JP","KR","PH","ID","VN","TH","MY","IN","UK","US","CA","AU","NZ","ZA","NG","MA"]
+  },
+  "styles": [
+    {"id":"adjNoun","pattern":"{adj}{noun}","case":"asis","leet":false,"weight":16},
+    {"id":"adj_noun","pattern":"{adj}_{noun}","case":"lower","leet":false,"weight":6},
+    {"id":"adjNounCamel","pattern":"{adj}{noun}","case":"camel","leet":false,"weight":3},
+    {"id":"nounNoun","pattern":"{noun}{noun}","case":"asis","leet":false,"weight":5},
+    {"id":"noun_d2","pattern":"{noun}{d2}","case":"asis","leet":false,"weight":5},
+    {"id":"noun_d3","pattern":"{noun}{d3}","case":"asis","leet":false,"weight":4},
+    {"id":"noun_d4","pattern":"{noun}{d4}","case":"asis","leet":false,"weight":2},
+    {"id":"adjNoun_d2","pattern":"{adj}{noun}{d2}","case":"asis","leet":false,"weight":5},
+    {"id":"noun_year","pattern":"{noun}{year}","case":"asis","leet":false,"weight":2},
+    {"id":"leetAdjNoun","pattern":"{adj}{noun}","case":"asis","leet":true,"weight":5},
+    {"id":"leetNoun_d2","pattern":"{noun}{d2}","case":"asis","leet":true,"weight":2},
+    {"id":"handle","pattern":"{handle}","case":"lower","leet":false,"weight":1},
+    {"id":"Handle","pattern":"{handle}","case":"asis","leet":false,"weight":1},
+    {"id":"handle_d2","pattern":"{handle}{d2}","case":"asis","leet":false,"weight":4},
+    {"id":"handle__d3","pattern":"{handle}_{d3}","case":"lower","leet":false,"weight":3},
+    {"id":"short_d2","pattern":"{short}_{d2}","case":"asis","leet":false,"weight":3},
+    {"id":"SHORT_d2","pattern":"{short}{d2}","case":"upper","leet":false,"weight":1},
+    {"id":"shortNoun","pattern":"{short}{noun}","case":"asis","leet":false,"weight":3},
+    {"id":"xXnounXx","pattern":"xX{noun}Xx","case":"asis","leet":false,"weight":1},
+    {"id":"x_noun_x","pattern":"x_{noun}_x","case":"lower","leet":false,"weight":1},
+    {"id":"theNoun","pattern":"The{noun}","case":"asis","leet":false,"weight":1},
+    {"id":"theAdjNoun","pattern":"The{adj}{noun}","case":"asis","leet":false,"weight":2},
+    {"id":"prefixNoun","pattern":"{prefix}{noun}","case":"asis","leet":false,"weight":3},
+    {"id":"nounSuffix","pattern":"{noun}{suffix}","case":"asis","leet":false,"weight":3},
+    {"id":"noun_country","pattern":"{noun}_{country}","case":"asis","leet":false,"weight":3},
+    {"id":"leetNoun_country","pattern":"{noun}_{country}","case":"asis","leet":true,"weight":1},
+    {"id":"foreign","pattern":"{foreign}{d2}","case":"asis","leet":false,"weight":3},
+    {"id":"foreign_d3","pattern":"{foreign}_{d3}","case":"lower","leet":false,"weight":2},
+    {"id":"adjForeign","pattern":"{adj}{foreign}","case":"asis","leet":false,"weight":2},
+    {"id":"foreignSuffix","pattern":"{foreign}{suffix}","case":"asis","leet":false,"weight":1},
+    {"id":"foreign_country","pattern":"{foreign}_{country}","case":"asis","leet":false,"weight":1},
+    {"id":"adj.noun","pattern":"{adj}.{noun}","case":"lower","leet":false,"weight":1},
+    {"id":"noun-d2","pattern":"{noun}-{d2}","case":"lower","leet":false,"weight":1},
+    {"id":"default","pattern":"agent-{alias}","case":"asis","leet":false,"weight":2}
+  ],
+  "leet": {
+    "a": "4",
+    "e": "3",
+    "i": "1",
+    "o": "0",
+    "s": "5",
+    "t": "7"
+  },
+  "blocklist": {
+    "substrings": ["fuck","fuk","fck","shit","bitch","bastard","whore","slut","cunt","twat","wank","pussy","penis","vagina","dildo","jizz","semen","orgasm","boob","tits","titty","nipple","porn","horny","milf","nude","naked","sexy","hentai","rapist","molest","incest","pedophil","paedo","faggot","nigger","nigga","negro","retard","tranny","dyke","spastic","cripple","midget","chink","gook","kike","wetback","beaner","raghead","towelhead","gypsy","piss","poop","turd","anus","butthole","suicide","kys","killyourself","terrorist","jihad","isis","daesh","taliban","alqaeda","hamas","hezbollah","intifada","nazi","hitler","himmler","goebbels","mengele","rommel","reich","fuhrer","fuehrer","heil","swastika","aryan","whitepower","whitepride","whitelives","blacklives","kkk","klan","stormfront","waffen","totenkopf","thule","wolfsangel","sonnenrad","valknut","ironcross","ironguard","ironmarch","blacksun","goldendawn","silverlegion","greywolf","graywolf","proudboy","boogaloo","oathkeeper","eaglesnest","azov","wagner","falange","ustasha","chetnik","zion","maga","antifa","trump","biden","obama","putin","stalin","lenin","maozedong","zelensk","netanyahu","xijinping","kimjong","erdogan","clinton","kamala","brexit","ukrain","russia","israel","palestin","gaza","taiwan","tibet","kashmir","crimea","communis","fascis","socialis","commie","elonmusk","bezos","zuckerberg","kanye","eminem","taylorswift","messi","ronaldo","neymar","mbappe","lebron","pewdiepie","markiplier","septiceye","mrbeast","pokimane","shroud","ninja","xqc","tfue","drlupo","timthetatman","nickmercs","drdisrespect","disrespect","nadeshot","scump","faze","optic","technoblade","sypher","vikkstar","syndicate","valkyrae","sykkuno","asmongold","hasanabi","kaicenat","ishowspeed","tyler1","s1mple","zywoo","gaules","rubius","auronplay","ibai","grefg","vegetta","willyrex","bugha","mongraal","benjyfishy","jynxzi","caseoh","lirik","sodapoppin","summit1g","dakotaz","mythic","jesus","christ","allah","satan","lucifer","buddha","krishna","muhammad","mohammed","prophet","bible","quran","church","mosque","cocaine","heroin","meth","weed","stoner","xanax","opium","kush","ironman","spiderman","batman","superman","antman","aquaman","catwoman","wonderwoman","hawkeye","blackwidow","blackpanther","deadpool","wolverine","darkknight","ghostrider","greengoblin","greenarrow","greenlantern","greenhornet","silversurfer","nightwing","deadshot","redskull","ironfist","irongiant","starlord","thanos","joker","harleyquinn","venomous","masterchief","solidsnake","bigboss","captainprice","soapmactavish","simonriley","darthvader","vader","yoda","skywalker","stormtrooper","mandalorian","rogueone","gandalf","frodo","sauron","voldemort","goku","vegeta","naruto","sasuke","pikachu","mario","luigi","zelda","kirby","samus","kratos","geralt","sephiroth","laracroft","johnwick","rambo","terminator","jamesbond","goldeneye","skyfall","agent47","agentorange","jacksparrow","blackmamba","megaman","subzero","goldenknight","doomslayer","cyberpunk","titanfall","warzone","battlefield","blackops","modernwarfare","moderncombat","callofduty","fortnite","valorant","overwatch","minecraft","roblox","pubg","apexlegend","rocketleague","counterstrike","gameloft","ubisoft","activision","blizzard","nintendo","playstation","xbox","steam","twitch","youtube","tiktok","discord","reddit","google","samsung","huawei","nvidia","razer","corsair","logitech","alienware","tesla","ferrari","lambo","adidas","gucci","redbull","pepsi","cocacola","doritos","mrrobot","thematrix","shadowfight","thewasp","rocketraccoon","goldenbear","smokybear","smokeybear","bluebeetle","redarrow","darkphoenix","stormshadow","loneranger","redbaron","greyfox","grayfox","firefox","bladerunner","mrfox","mrwolf","iamlegend","therocket","redranger","blueranger","greenranger","purpleranger","ravenclaw","sharktank","racerx","bigsmoke","luckystrike","blackbolt","whitefang","onlyfans","puta","merda","cazzo","scheiss","kurwa","blyat","blyad","pendejo","joder","putain","merde","salope","fotze","arschloch","caralho","chinga","verga","pinche","cabron","stronzo","vaffanculo","wichser","pizda","jebac","orospu","siktir","vittu","helvete","kanker"],
+    "words": ["akuma","amd","amk","anal","apple","arse","asad","aslan","ass","assassin","avenger","baka","bintang","chuj","clix","cock","coke","coon","corvette","corvo","courage","culo","cum","diablo","dick","doom","dope","drake","dream","drug","faen","fag","faker","falco","fap","figa","garuda","gay","god","halo","hayate","hitman","hoe","homo","hure","intel","jaguar","jap","jew","ken","kurt","kuso","kut","loki","lsd","lul","lupo","maverick","monster","mustang","myth","neo","nig","nike","odin","okami","oni","oracle","paska","pedo","porra","puma","punisher","raiden","rape","ryu","sex","sik","simba","sketch","sombra","sony","sora","speed","spic","sprite","suka","swagg","tard","thor","tit","tora","torah","varg","volk","zorro"],
+    "digits": ["88","666","420","69","187","1312","911","007","1488","2488"],
+    "digitRuns": ["14","311"]
+  },
+  "emblems": {
+    "avatars": "1-6,9-224",
+    "backgrounds": "1-35"
+  },
+  "summary": {
+    "styles": 34,
+    "wordNames": 182885,
+    "estimatedNames": 905016594,
+    "blockedCombinations": 2147,
+    "tooLongCombinations": 1779,
+    "avatars": 222,
+    "backgrounds": 35
+  }
+}

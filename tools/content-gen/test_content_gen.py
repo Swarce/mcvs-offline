@@ -272,7 +272,10 @@ class GeneratorTests(unittest.TestCase):
         with open(self.pricing_path, "w") as f:
             json.dump(sample_pricing(), f)
         files = {}
-        for asset in (b"Menus/x/emblem3.png", b"Menus/x/banner.png", b"Menus/x/crate.png"):
+        for asset in (b"Menus/x/emblem3.png", b"Menus/x/banner.png", b"Menus/x/crate.png",
+                      # the plain profile avatars the rivals may show (names.json emblems)
+                      b"Menus/assets/png/profile/avatars/avatar01.png", b"Menus/assets/png/profile/avatars/avatar05.png",
+                      b"Menus/assets/png/profile/avatars/avatar06.png"):
             h = "%x" % zlib.crc32(asset)
             files[h[0] + "/" + h[1:] + ".f"] = {}
         self.asset_files = set(files)
@@ -535,6 +538,61 @@ class GeneratorTests(unittest.TestCase):
         with self.assertRaises(cg.ContentError) as raised:
             self.outputs()
         self.assertIn("collector: crate.locId: localization id Crate.Cosmetic_Crate does not exist", str(raised.exception))
+
+    # ------------------------------------------------------------------------------------------- names
+
+    def names_tuning(self):
+        return cg.load_json(os.path.join(HERE, "names_tuning.json"))
+
+    def test_names_document(self):
+        names = self.outputs()["names.json"]
+        tuning = self.names_tuning()
+        self.assertEqual(list(names), ["format", "version", "limits", "years", "defaultShare", "parts", "styles", "leet",
+                                       "blocklist", "emblems", "summary"])
+        self.assertEqual(names["parts"], tuning["parts"])
+        self.assertEqual(names["limits"], {"min": 3, "max": 16})
+        # Plain profile avatars (folder and file name) with Unlockable=true whose image is in the pack: 1, 5, 6; never the
+        # Kayac emblem filed under avatars/ (10, 11), a season emblem or an avatar without its image (2, 3, 4).
+        self.assertEqual(names["emblems"], {"avatars": "1,5-6", "backgrounds": "1-5"})
+        self.assertGreaterEqual(names["summary"]["wordNames"], tuning["minCombinations"])
+        self.assertTrue(all(s["case"] in cg.NAME_CASES and isinstance(s["leet"], bool) for s in names["styles"]))
+        self.assertIn({"name": "names.json", "entries": sum(len(v) for v in tuning["parts"].values())},
+                      self.outputs()["manifest.json"]["files"])
+
+    def test_names_refuse_bad_tuning(self):
+        cat, collector = self.collector_inputs()
+
+        def refused(change, text):
+            tuning = self.names_tuning()
+            change(tuning)
+            with self.assertRaises(cg.ContentError) as e:
+                cg.build_names(cat, tuning, collector)
+            self.assertIn(text, str(e.exception))
+
+        refused(lambda t: t["parts"]["noun"].append("Nazi"), "refused by the blocklist")
+        refused(lambda t: t["parts"]["noun"].append("Wolf"), "'Wolf' twice")
+        refused(lambda t: t["parts"]["noun"].append("Zoë"), "ASCII letters")
+        refused(lambda t: t["parts"]["adj"].append("Way2Long4AName"), "1-12 ASCII")
+        refused(lambda t: t["styles"].append({"id": "x", "pattern": "{nouns}"}), "unknown token {nouns}")
+        refused(lambda t: t["styles"].append({"id": "x", "pattern": "{noun}<3"}), "literal")
+        refused(lambda t: t["styles"].append({"id": "x", "pattern": "_{noun}"}), "starts or ends with a separator")
+        refused(lambda t: t["styles"].append({"id": "x", "pattern": "{d3}"}), "word token")
+        refused(lambda t: t["limits"].update({"max": 17}), "limits")
+        refused(lambda t: t.update({"minCombinations": 10 ** 9}), "fewer than minCombinations")
+        refused(lambda t: t["blocklist"]["words"].append("Ass"), "blocklist.words")
+
+    def test_names_blocklist_and_shape(self):
+        block = cg.NameBlocklist(self.names_tuning()["blocklist"])
+        for pieces in (["Sh1tStorm"], ["N_A_Z_I"], ["Wolf", "455"], ["Atlas", "Sniper"], ["Fox", "88"], ["Ranger", "14"],
+                       ["Ninja", "07"]):
+            self.assertIsNotNone(block.problem(pieces), pieces)
+        for pieces in (["Silent", "Fox"], ["Ranger", "1448"], ["Glass", "Cannon"]):
+            self.assertIsNone(block.problem(pieces), pieces)
+        limits = {"min": 3, "max": 16}
+        for bad in ("1337", "1e5", "NaN", "_Fox", "Fo__x", "A<b", "Fox Co", "ThisNameIsWayTooLong", "ab"):
+            self.assertIsNotNone(cg.name_shape_problem(bad, limits), bad)
+        for good in ("SilentFox", "silent_fox", "xXRavenXx", "agent-123456789", "fox.ace"):
+            self.assertIsNone(cg.name_shape_problem(good, limits), good)
 
     def test_check_mode_reports_stale_files(self):
         out_dir = os.path.join(self.tmp, "out")

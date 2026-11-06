@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Accounts;
+using McvsOffline.Server.Core.Names;
 using McvsOffline.Server.Services.Misc;
 
 namespace McvsOffline.Server.Services.Leaderboards
@@ -24,22 +25,26 @@ namespace McvsOffline.Server.Services.Leaderboards
     /// 20%, 81% for the top 10%; only a near-zero score falls into the demotion zone. Everything derives from the
     /// board name: the same board always shows the same rivals.
     /// </para>
+    /// <para>
+    /// Names and emblems (<see cref="RivalIdentity"/>, build 28): from the rival's id (board and slot k) alone, so a rival
+    /// keeps them when the number of real players on the board changes; unique on the board.
+    /// </para>
     /// </summary>
     public static class VirtualPlayers
     {
-        private static readonly string[] Callsigns =
+        /// <summary><see cref="Generate(string, int, long, GamerTags, IEnumerable{string})"/> with the built-in names and no real players.</summary>
+        public static List<Dictionary<string, object>> Generate(string boardKey, int count, long topScore)
         {
-            "Viper", "Ghost", "Raptor", "Nomad", "Hawk", "Frost", "Blaze", "Cobra", "Echo", "Reaper", "Titan", "Jackal",
-            "Onyx", "Phantom", "Rogue", "Sable", "Talon", "Vandal", "Warden", "Zephyr", "Atlas", "Bishop", "Cinder",
-            "Dagger", "Ember", "Falcon", "Gunner", "Havoc", "Ion", "Jinx", "Kodiak", "Lynx", "Maverick", "Nova", "Oracle",
-            "Pike", "Quartz", "Ranger", "Specter", "Tempest", "Umbra", "Valkyrie", "Wolf", "Xeno", "Yeti", "Zulu",
-        };
+            return Generate(boardKey, count, topScore, null, null);
+        }
 
         /// <summary>
         /// <paramref name="count"/> rivals for a board, best first. Each entry has credential, display_name, score and
-        /// the custom fields the leaderboard UI reads (_fed_id, _level), plus "_mcvs_bot": true.
+        /// the custom fields the leaderboard UI reads (_fed_id, _level, _killSignatureEmblem, _killSignatureBg), plus
+        /// "_mcvs_bot": true. No rival takes a name of <paramref name="realNames"/> (the real players on the board).
         /// </summary>
-        public static List<Dictionary<string, object>> Generate(string boardKey, int count, long topScore)
+        public static List<Dictionary<string, object>> Generate(string boardKey, int count, long topScore, GamerTags tags,
+                                                                IEnumerable<string> realNames)
         {
             var result = new List<Dictionary<string, object>>(Num.Max(0, count));
             if (count <= 0) return result;
@@ -53,11 +58,12 @@ namespace McvsOffline.Server.Services.Leaderboards
             }
             scores.Sort((a, b) => b.CompareTo(a));
 
+            HashSet<string> taken = RivalIdentity.Taken(realNames);
             for (int k = 0; k < count; k++)
             {
                 string id = Ids.Sha1Hex("mcvs-offline/leaderboard-rival/v1|" + boardKey + "|" + k).Substring(0, 24);
-                string name = Callsigns[(int)(NextRaw(ref state) % (ulong)Callsigns.Length)]
-                              + "_" + (10 + (int)(NextRaw(ref state) % 90)).ToString(System.Globalization.CultureInfo.InvariantCulture);
+                string name = RivalIdentity.Name(tags, id, taken);
+                SkipNameDraws(ref state);
                 // Better-ranked rivals tend to have higher levels (1-50, like the player levels).
                 int level = (int)Num.Clamp(50 - (k * 45 / Num.Max(1, count)) - (int)(NextRaw(ref state) % 6), 1, 50);
                 var entry = Fed.Obj();
@@ -67,16 +73,21 @@ namespace McvsOffline.Server.Services.Leaderboards
                 entry["_fed_id"] = Fed.FedIdOf(id);
                 entry["_level"] = level.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 entry["_mcvs_bot"] = true;
+                RivalIdentity.SetEmblem(entry, tags, id);
                 result.Add(entry);
             }
             return result;
         }
 
-        /// <summary>A rival display name ("Viper_42") drawn from <paramref name="state"/>.</summary>
-        public static string Callsign(ref ulong state)
+        /// <summary>
+        /// Advances <paramref name="state"/> by the two draws a rival's name took up to build 27 (a callsign and a number).
+        /// Names now come from the rival's id (<see cref="RivalIdentity"/>); keeping the draws keeps every level here and
+        /// every pace and level of <see cref="SeasonRivals"/> as they were, also in a season that is running.
+        /// </summary>
+        public static void SkipNameDraws(ref ulong state)
         {
-            return Callsigns[(int)(NextRaw(ref state) % (ulong)Callsigns.Length)]
-                   + "_" + (10 + (int)(NextRaw(ref state) % 90)).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            NextRaw(ref state);
+            NextRaw(ref state);
         }
 
         private static ulong Seed(string text)

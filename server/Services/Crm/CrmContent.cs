@@ -23,6 +23,7 @@ namespace McvsOffline.Server.Services.Crm
             OfflineStore["prices"] = new List<object>();
             Overlay = NewObject();
             Economy = NewObject();
+            BotNames = new List<KeyValuePair<string, string>>();
         }
 
         /// <summary><c>offline_store</c> as generated: <c>{"prices":[...]}</c>.</summary>
@@ -33,6 +34,12 @@ namespace McvsOffline.Server.Services.Crm
 
         /// <summary><c>{"multipliers":{"credits":[target...],"versusCoins":[...],"xp":[...]}}</c>.</summary>
         public Dictionary<string, object> Economy { get; set; }
+
+        /// <summary>
+        /// The in-match bot renames (stock name → ours, <see cref="CrmBotNames"/>) the mirror carries; set by the cache from
+        /// the player's data pack and names.json, empty when <c>crm.botNames</c> is off or there is no data pack.
+        /// </summary>
+        public IList<KeyValuePair<string, string>> BotNames { get; set; }
 
         public static CrmContent Load(IContentProvider content, Log log)
         {

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Json;
+using McvsOffline.Server.Core.Names;
 using McvsOffline.Server.Services.Admin;
 using McvsOffline.Server.Services.Crm.Collector;
 using McvsOffline.Server.Services.Social.LiveOps;
@@ -324,6 +325,8 @@ namespace McvsOffline.Server.Services.Crm
         private bool retryRunning;
         private bool retried;
         private int lastRetryTick;
+        private string botNamesKey;
+        private List<KeyValuePair<string, string>> botNames;
 
         public CrmDocumentCache(ServerContext context, CrmPreconfiguration preconfiguration, Log log)
         {
@@ -454,13 +457,18 @@ namespace McvsOffline.Server.Services.Crm
             string collectorKey;
             CrmCollector collector = CollectorFor(liveOps, out collectorKey);
 
+            // The in-match bot names (CrmBotNames): a new window each UTC day, from the data pack's stock names and names.json.
+            string botKey;
+            List<KeyValuePair<string, string>> botNames = BotNamesFor(o, out botKey);
+
             lock (gate)
             {
                 string key = optionsFingerprint + "|" + (withPre ? "pre" : "nopre") + "|" + generation + "|" + (liveOps == null ? "-" : liveOps.Key)
-                             + "|" + newsKey + "|" + collectorKey;
+                             + "|" + newsKey + "|" + collectorKey + "|" + botKey;
                 if (cached != null && cachedKey == key) return cached;
 
                 var content = CrmContent.Load(context.Content, log);
+                content.BotNames = botNames;
                 var root = CrmDocumentBuilder.Build(withPre ? preconfiguration.GetCopy() : null, content, o, log, liveOps, newsfeeds, collector);
                 var problems = CrmDocumentValidator.Validate(root);
                 foreach (string p in problems) log.Warn("CRM document: " + p);
@@ -477,8 +485,53 @@ namespace McvsOffline.Server.Services.Crm
                                 : "")
                          + ", inbox item " + (newsfeeds.Count > 0 ? "on" : "off")
                          + ", collector " + DescribeCollector(collector)
+                         + ", bot names " + (botNames.Count > 0 ? botNames.Count + " renamed" : botKey)
                          + ", " + cached.Json.Length + " chars" + (problems.Count > 0 ? ", " + problems.Count + " problem(s)" : ""));
                 return cached;
+            }
+        }
+
+        /// <summary>
+        /// The bot renames of today and their cache key: "bots:off" (crm.botNames false), "bots:nopack" (no stock names) or
+        /// the day, the stock names' hash and names.json's hash. Never throws: a failure leaves the bots their stock names.
+        /// </summary>
+        private List<KeyValuePair<string, string>> BotNamesFor(CrmOptions o, out string key)
+        {
+            var none = new List<KeyValuePair<string, string>>();
+            if (!o.BotNames)
+            {
+                key = "bots:off";
+                return none;
+            }
+            try
+            {
+                string stockHash;
+                List<string> stock = CrmBotNames.For(context).StockNames(o, out stockHash);
+                if (stock == null)
+                {
+                    key = "bots:nopack";
+                    return none;
+                }
+                DateTime now = context.Clock.UtcNow;
+                GamerTags tags = GamerTags.For(context.Content, log);
+                key = "bots:" + CrmBotNames.Day(now).ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" + stockHash + ":" + tags.Hash;
+                lock (gate)
+                {
+                    if (botNamesKey == key) return botNames;
+                }
+                List<KeyValuePair<string, string>> renames = CrmBotNames.Renames(stock, tags, now);
+                lock (gate)
+                {
+                    botNamesKey = key;
+                    botNames = renames;
+                }
+                return renames;
+            }
+            catch (Exception ex)
+            {
+                log.Error("CRM: bot names unavailable; the bots keep the game's names", ex);
+                key = "bots:error";
+                return none;
             }
         }
 

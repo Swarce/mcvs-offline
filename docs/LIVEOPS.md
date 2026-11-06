@@ -160,6 +160,55 @@ matches at 50 %); staying put takes about a sixth of that. The numbers are ours 
 `tools/content-gen/liveops_tuning.json`); `liveops.difficulty` scales them all at run time. Other boards (not
 `mcvs_division_*`) keep the static rivals of `leaderboards.virtualTopScore`.
 
+### 5.1 Rival names and emblems (build 28)
+
+Every rival (season boards and the static boards alike) carries a gamer tag, an emblem and an emblem background of its
+own (`server/Services/Leaderboards/RivalIdentity.cs`, generator `server/Core/Names/GamerTags.cs`, content
+`server/Content/names.json` from `tools/content-gen/names_tuning.json`):
+
+- **Name.** One of 34 styles (word combinations such as `SilentFox` or `silent_fox`, word + 2-4 digits or a year,
+  leetspeak `S1lentF0x`, single handles `Nightshift`, clan-like `xXRavenXx`, `The…`, `Mr…`/`iAm…`, `…GG`/`…Prime`,
+  country tags `Raven_FR`, romanised words of more than a dozen languages such as `Kaze`, `Sturm`, `Halcon`,
+  `Kartal`, and a few uncustomised `agent-<9 digits>` like the game's default name) filled from our own word lists: about 183,000
+  distinct names without digits, hundreds of millions with them. No first names, surnames, real people, celebrities,
+  streamers, brands or other games' and films' characters. Every name is 3..16 characters of `[A-Za-z0-9_.-]` (the
+  game's rename popup takes 16, `popups/PopupChangeName.as` maxChars; the default `agent-<alias>` has 15), a letter or
+  digit at both ends, no two separators in a row, never a number (`GamerTags.ShapeProblem`). Plain ASCII: the client's
+  `FormatName` reads `<`, `>` as markup and picks a font per character (`LocalizationFormatterComponent.cs:122-163`).
+- **Blocklist** (`names_tuning.json` `blocklist`): every name is read lower case, without `_ . -`, with digits as
+  letters (`0`→o, `1`→i and l, `3`→e, `4`→a, `5`→s, `7`→t, `8`→b), and refused when it contains a `substrings` entry
+  (profanity, slurs, political and hate terms and symbols, celebrities, streamers, brands, franchises), when a part, the
+  whole name or the join of two parts spells a `words` entry (short words that harmless words contain, so `Glass`
+  stays but `Atlas`+`Sniper` does not), or when a run of digits holds 88, 666, 420, 69, 187, 1312, 911, 007, 1488 or
+  is 14 or 311. content-gen checks every part and every two-part combination of every style (2,147 combinations are
+  refused today); the server checks every name it makes again and draws the next attempt.
+- **Deterministic per player id.** Name, emblem and background are a pure function of the rival's id (FNV-1a 64 over
+  `"mcvs-offline/rival-name/v1|v<version>|<id>|<attempt>"` and `".../rival-emblem/v1|<id>"`, xorshift64*, integers
+  only). The id is the one the board already gave the slot (`Sha1Hex("mcvs-offline/leaderboard-rival/v1|<board>|<k>")`,
+  `season-rival/v1|<board>|<i>`), so the same rival keeps its name and emblem across sessions and on Android and PC,
+  also when the number of real players on the board changes (up to build 27 the static rivals' names moved with it).
+- **Unique on a board.** Rivals are named in slot order; each takes the first draw for its id that no real player on
+  the board and no earlier rival has (ignoring case). Only a real player who takes a rival's exact name moves that
+  rival (and a later one that then collides) to another name.
+- **Emblem** (`_killSignatureEmblem`) and **background** (`_killSignatureBg`), ids as strings like the game's own posts
+  (`GM/LeaderboardsComponent.cs:138-161`): 8 % keep the starting pair (1, 1) as an uncustomised player does, the rest
+  draw from the 222 plain profile avatars (`KillsignatureAvatars` rows in `profile/avatars/` with `Unlockable=true`:
+  1-6, 9-224 in 1.17.32; never a Kayac/collab emblem, a season placement emblem, an agent emblem or a medal) and the 35
+  backgrounds. `_level` keeps driving the badge border. Before build 28 rivals sent neither id and every rival showed
+  the viewer's own emblem (the client's fallback, `GetEntriesObject`). `_avatar`, `_leagueId` and the clan fields stay
+  out (default profile picture, no league, no clan).
+- **What changes for existing saves.** Rivals are made when a board is read and never stored, so every board shows
+  the new names and emblems from build 28 on, the same ones from then on. Scores, paces and levels are unchanged: the
+  two draws the old callsign took from the board's state are still drawn (`VirtualPlayers.SkipNameDraws`), so a season
+  that is running keeps its curve.
+- **Season boards** are per season (the board name holds the season id), so each new week brings a new group of
+  rivals, as a new league group did. The local view of the division board shows the profile picture (`_avatar`, the
+  default for rivals) instead of the emblem; the global view, the match result and the season-end list show the
+  emblem. "Visit profile" on a rival still opens an empty profile: the game loads a stored profile there, which
+  rivals do not have.
+- A `<data>/content/names.json` overrides the built-in file; a file that does not parse, breaks a limit, has a part
+  the blocklist refuses or an emblem id outside the client's tables is logged and the built-in file is used.
+
 ## 6. Daily missions
 
 A `TimeLimitedDailyQuestEvent` per day (`mcvs_daily_<yyyyMMddHH>`, 24 h). The TS tells daily missions from other

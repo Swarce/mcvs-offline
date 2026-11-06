@@ -155,6 +155,26 @@ namespace McvsOffline.Tests.Conformance
         }
 
         /// <summary>
+        /// A new <c>Database.Table</c> holding the shipped rows of <paramref name="name"/> of another database of the data pack
+        /// (e.g. "Design/MCVS_AI.xlsx"), made the way <c>Database.Load</c> makes it.
+        /// </summary>
+        public object NewTable(string databasePath, string name)
+        {
+            string text = readText(databasePath) ?? throw new InvalidOperationException(databasePath + " is not in the data pack");
+            object root = LoadObject(text);
+            foreach (object property in (IEnumerable)GameClient.Call(root, "Properties"))
+            {
+                if ((string)GameClient.Get(property, "Name") != name) continue;
+                object table = Activator.CreateInstance(TableType);
+                GameClient.Set(table, "Database", database);
+                GameClient.Set(table, "Name", name);
+                populate.Invoke(null, new[] { GameClient.Get(property, "Value"), table });
+                return table;
+            }
+            throw new KeyNotFoundException(databasePath + " has no table " + name);
+        }
+
+        /// <summary>
         /// The CRM changer the client builds for MCVS_Meta from a <c>game</c> object (the TS's and the client's
         /// <c>RawGameParameters</c>) or a mirror (<c>_ServerConfig.default</c>, what server Worlds install):
         /// <c>CRMComponent.GetChanger(gameParams, "Design/MCVS_Meta.xlsx")</c> (EN/CRMComponent.cs).

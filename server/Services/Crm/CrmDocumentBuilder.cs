@@ -167,12 +167,31 @@ namespace McvsOffline.Server.Services.Crm
             PruneOverrideTables(tables, "game._OverrideTables", log);
             var serverDefault = ChildObject(ChildObject(game, "_ServerConfig"), "default");
             var mirrored = JsonValue.DeepCloneObject(tables);
+            ApplyBotNames(mirrored, content.BotNames, log);
             var existing = JsonValue.AsObject(JsonValue.Get(serverDefault, "_OverrideTables"));
             if (existing != null) JsonPath.DeepMerge(mirrored, existing);
             PruneOverrideTables(mirrored, "game._ServerConfig.default._OverrideTables", log);
             serverDefault["_OverrideTables"] = mirrored;
             FinishCollector(tables, mirrored, existing, collector, log);
             return doc;
+        }
+
+        /// <summary>
+        /// The in-match bot renames (<see cref="CrmBotNames"/>) into the mirror only: the GS installs it on the global AI
+        /// database the bots are named from. Before the explicit mirror of an overlay, which wins; a cell an overlay put
+        /// into <c>game._OverrideTables</c> for the same stock name also stays.
+        /// </summary>
+        private static void ApplyBotNames(Dictionary<string, object> mirrored, IList<KeyValuePair<string, string>> renames, Log log)
+        {
+            if (renames == null || renames.Count == 0) return;
+            try
+            {
+                CrmBotNames.Apply(mirrored, renames);
+            }
+            catch (ArgumentException ex)
+            {
+                log.Error("CRM: bot names left out: " + ex.Message);
+            }
         }
 
         // ---------------------------------------------------------------------------------------- collector

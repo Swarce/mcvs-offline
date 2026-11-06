@@ -137,6 +137,20 @@ namespace McvsOffline.Tests.Misc
             Assert.Equal(fedId, (string)self.myEntry.FedId);
             dynamic top = await GameClient.Await(board.Top(0, 100, ct, null));
             Assert.Equal(100, (int)top.entries.Count);
+            // Every rival has its own gamer tag, emblem and background, which GM/LeaderboardsComponent.cs GetEntriesObject
+            // reads from the entry's data as strings (without them it shows the viewer's own emblem).
+            var rivalNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (dynamic entry in top.entries)
+            {
+                if ((string)entry.FedId == fedId) continue;
+                Assert.True(rivalNames.Add((string)entry.Name), "two rivals are named " + (string)entry.Name);
+                Assert.Matches("^[A-Za-z0-9_.-]{3,16}$", (string)entry.Name);
+                string emblem = entry.Data["_killSignatureEmblem"]?.ToString();
+                string background = entry.Data["_killSignatureBg"]?.ToString();
+                Assert.True(int.TryParse(emblem, out int emblemId) && emblemId > 0, "emblem '" + emblem + "'");
+                Assert.True(int.TryParse(background, out int backgroundId) && backgroundId is >= 1 and <= 35, "background '" + background + "'");
+            }
+            Assert.Equal(99, rivalNames.Count);
             dynamic around = await GameClient.Await(board.AroundMe(0, 4, ct, "me"));
             Assert.Equal(4, (int)around.entries.Count);
             dynamic friends = await GameClient.Await(board.Friends(ct, 0, 100));

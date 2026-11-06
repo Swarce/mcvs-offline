@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Json;
+using McvsOffline.Server.Core.Names;
 using McvsOffline.Server.Core.Storage;
 using McvsOffline.Server.Services.Misc;
 using McvsOffline.Server.Services.Social.LiveOps;
@@ -209,17 +210,21 @@ namespace McvsOffline.Server.Services.Leaderboards
         /// <summary>
         /// The rivals completing a board: a division season board gets <see cref="SeasonRivals"/> (calibrated to the
         /// division and the player's level, growing over the season, frozen after it), any other board the static
-        /// <see cref="VirtualPlayers"/>.
+        /// <see cref="VirtualPlayers"/>. Their names and emblems come from names.json (<see cref="GamerTags"/>,
+        /// <see cref="RivalIdentity"/>), never one of the real players' names on the board.
         /// </summary>
         private List<Dictionary<string, object>> Rivals(string sort, string name, List<RankedEntry> real, int groupSize, DateTime now)
         {
+            GamerTags tags = GamerTags.For(context.Content, log);
+            var realNames = new List<string>(real.Count);
+            foreach (RankedEntry e in real) realNames.Add(e.DisplayName);
             SeasonBoardInfo season;
             if (LiveOpsService.For(context).TryGetSeasonBoard(name, out season))
             {
                 int level = SeasonRivals.PlayerLevel(real, season.DefaultLevel);
-                return SeasonRivals.Generate(BoardKey(sort, name), season, groupSize - real.Count, groupSize, level, now);
+                return SeasonRivals.Generate(BoardKey(sort, name), season, groupSize - real.Count, groupSize, level, now, tags, realNames);
             }
-            return VirtualPlayers.Generate(BoardKey(sort, name), groupSize - real.Count, TopScore());
+            return VirtualPlayers.Generate(BoardKey(sort, name), groupSize - real.Count, TopScore(), tags, realNames);
         }
 
         /// <summary>Whether simulated rivals complete this board (settings leaderboards.virtualPlayers / virtualExclude).</summary>
