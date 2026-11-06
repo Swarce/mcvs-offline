@@ -55,6 +55,12 @@ namespace McvsOffline.Embedded
         /// <summary>gameload (Gameloft.Engine.dll): the engine loads Game by its full name (WR2 F1).</summary>
         public const string GameLoadType = "Gameloft.Engine.McvsGameLoad";
 
+        /// <summary>botmove (Game.dll, build 27): a resting bot always takes its first step.</summary>
+        public const string BotMoveType = "Gameloft.Sequences.McvsBotMove";
+
+        /// <summary>fpslimit (Game.dll, PC, build 27): settings graphics.pcFpsLimit can replace the in-game FPS LIMIT.</summary>
+        public const string FrameRateType = "Game.McvsFrameRate";
+
         /// <summary>The assemblies the "[boot] assemblies:" lines report.</summary>
         public static readonly string[] WatchedAssemblies = { EngineBridgeAssembly, ServerAssembly, EngineAssembly, GameAssembly, UtilAssembly };
 
@@ -158,7 +164,7 @@ namespace McvsOffline.Embedded
         public const string NotApplied = "off (not applied)";
 
         /// <summary>
-        /// "patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload yes, store yes, inbox yes" from the loaded assemblies ("NO" for a
+        /// "patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload yes, store yes, inbox yes, botmove yes, fpslimit yes" from the loaded assemblies ("NO" for a
         /// missing witness, "unknown" for an assembly that is not loaded). With <paramref name="applied"/> (install.json
         /// <c>options.patches</c>), a missing witness of a patch the install did not apply is <see cref="NotApplied"/> instead of
         /// "NO" (e.g. <c>--patch none</c> leaves out the default 'store'); null: every missing witness is "NO".
@@ -177,6 +183,8 @@ namespace McvsOffline.Embedded
             sb.Append(", gameload ").Append(YesNo(engine, "gameload", applied, a => a.GetType(GameLoadType, false, false) != null));
             sb.Append(", store ").Append(YesNo(game, "store", applied, a => a.GetType(StoreSafetyType, false, false) != null));
             sb.Append(", inbox ").Append(YesNo(game, "inbox", applied, a => a.GetType(InboxType, false, false) != null));
+            sb.Append(", botmove ").Append(YesNo(game, "botmove", applied, a => a.GetType(BotMoveType, false, false) != null));
+            sb.Append(", fpslimit ").Append(YesNo(game, "fpslimit", applied, a => a.GetType(FrameRateType, false, false) != null));
             return sb.ToString();
         }
 

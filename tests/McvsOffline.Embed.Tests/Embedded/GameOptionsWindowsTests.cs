@@ -343,7 +343,8 @@ namespace Game
                     Assert.Equal(expected, GraphicsHooks.InGame);
                     prefs.GetProperty("Performance").SetValue(component, 1);
                     Assert.Equal(expected, GraphicsHooks.CaptureInGame(prefs));           // read once
-                    Assert.EndsWith("; " + expected, GraphicsHooks.Describe());
+                    // Build 27: the frame rate limit follows (patch 'fpslimit' has not been called here).
+                    Assert.EndsWith("; " + expected + "; frame rate limit not passed through patch 'fpslimit' yet", GraphicsHooks.Describe());
                     Assert.Single(sink.Snapshot(), e => e.Message.Contains("graphics: " + expected));
                     Assert.DoesNotContain(sink.Snapshot(), e => e.Message.Contains("GameOptions_SelectedProfile"));
                 }

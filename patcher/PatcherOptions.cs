@@ -50,11 +50,16 @@ namespace McvsOffline.Patcher
             "nativeonline", "waits", "geo", "finder", "store", "signatures", "inbox", "debloat", "adminpage", "adminlink", "graphics", "targetsdk", "game",
         };
 
-        /// <summary>Every id --patch accepts; "lan" and "forum" are the ones not in <see cref="DefaultPatches"/>.</summary>
+        /// <summary>
+        /// Every id --patch accepts; "lan", "forum" and "botmove" are the ones not in <see cref="DefaultPatches"/>. "botmove" (build 27)
+        /// lets a resting bot take its first step on frames shorter than 1/60 s (Patches.BotMovePatch): the PC's 60 FPS limit froze
+        /// the bots, the phone's are fine, so the default APK stays without it (its Game.dll unchanged); an uncapped 90/120 Hz phone
+        /// whose bots wait at spawn can add it.
+        /// </summary>
         public static readonly string[] OptionalPatches =
         {
             "nativeonline", "waits", "geo", "finder", "lan", "store", "signatures", "inbox", "debloat", "adminpage", "adminlink", "targetsdk", "forum",
-            "graphics", "game",
+            "graphics", "game", "botmove",
         };
 
         /// <summary>

@@ -26,8 +26,9 @@ namespace McvsOffline.Embed.Tests.Embedded
             internal static class McvsQuickLaunch { } internal static class McvsWorldDiagnostics { } internal static class McvsGraphics { } }";
         private const string Root = "C:\\Steam\\steamapps\\common\\Modern Combat Versus";
         private const string StockEngineSource = @"namespace Gameloft.Engine { public class World { } }";
-        private const string GameSource = @"namespace Game { internal static class McvsStoreSafety { } internal static class McvsInbox { } }";
-        private const string GameWithoutInboxSource = @"namespace Game { internal static class McvsStoreSafety { } }";
+        private const string BotMoveSource = @" namespace Gameloft.Sequences { internal static class McvsBotMove { } } namespace Game { internal static class McvsFrameRate { } }";
+        private const string GameSource = @"namespace Game { internal static class McvsStoreSafety { } internal static class McvsInbox { } }" + BotMoveSource;
+        private const string GameWithoutInboxSource = @"namespace Game { internal static class McvsStoreSafety { } }" + BotMoveSource;
 
         /// <summary>Nothing loaded yet (the test process's own list could hold another test's sandboxed "Game").</summary>
         private static IEnumerable<Assembly> Nothing() { return new Assembly[0]; }
@@ -93,7 +94,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                 loads.Callback(typeof(object).Assembly);   // not watched
                 loads.Callback(sandbox.Get("Game"));
                 Assert.True(target.StorePatch);
-                Assert.Equal("patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload yes, store yes, inbox yes", watcher.PatchesLine);
+                Assert.Equal("patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload yes, store yes, inbox yes, botmove yes, fpslimit yes", watcher.PatchesLine);
                 loads.Callback(sandbox.Get("Game"));       // seen once
                 List<string> lines = sink.Snapshot().Select(e => e.Message).ToList();
                 Assert.Single(lines, l => l.Contains("patches: hook-pc"));
@@ -151,11 +152,11 @@ namespace McvsOffline.Embed.Tests.Embedded
                 loads.Callback(sandbox.Get("Game"));
                 loads.Callback(sandbox.Get("Gameloft.Engine"));
                 Assert.False(target.StorePatch);
-                Assert.Equal("patches: hook-pc unknown (not loaded), quicklaunch NO, headless-diag NO, graphics NO, gameload NO, store NO, inbox NO", watcher.PatchesLine);
+                Assert.Equal("patches: hook-pc unknown (not loaded), quicklaunch NO, headless-diag NO, graphics NO, gameload NO, store NO, inbox NO, botmove NO, fpslimit NO", watcher.PatchesLine);
                 Assert.Contains(sink.Snapshot(), e => e.Level == LogLevel.Warn && e.Message.Contains("patches: hook-pc unknown"));
                 Assert.StartsWith("Game loaded from outside McvsOffline\\bin (elsewhere); Gameloft.Engine loaded from outside McvsOffline\\bin (elsewhere); " +
                                   "the 'quicklaunch' patch is missing; the 'headless-diag' patch is missing", target.NotActive);
-                Assert.EndsWith("the 'gameload' patch is missing; the 'store' patch is missing; the 'inbox' patch is missing", target.NotActive);
+                Assert.EndsWith("the 'gameload' patch is missing; the 'store' patch is missing; the 'inbox' patch is missing; the 'botmove' patch is missing; the 'fpslimit' patch is missing", target.NotActive);
             }
         }
 
@@ -189,7 +190,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                 PatchWatcher watcher = GamePatchProbe.Watch(target, logger.For("game"), loads.Watch, boot, Root, Nothing);
                 watcher.LocationOf = Locations();
                 foreach (string name in new[] { "EngineBridge", "Gameloft.Engine", "Game" }) loads.Callback(sandbox.Get(name));
-                Assert.Equal("patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload yes, store yes, inbox yes", watcher.PatchesLine);
+                Assert.Equal("patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload yes, store yes, inbox yes, botmove yes, fpslimit yes", watcher.PatchesLine);
                 Assert.Null(watcher.NotActive);
                 Assert.Null(target.NotActive);
                 Assert.DoesNotContain(sink.Snapshot(), e => e.Level >= LogLevel.Warn);
@@ -214,11 +215,11 @@ namespace McvsOffline.Embed.Tests.Embedded
                 loads.Callback(sandbox.Get("EngineBridge"));
                 loads.Callback(sandbox.Get("Gameloft.Engine"));
                 loads.Callback(sandbox.Get("Game"));
-                Assert.Equal("Game loaded from the game folder; the 'store' patch is missing; the 'inbox' patch is missing", watcher.NotActive);
+                Assert.Equal("Game loaded from the game folder; the 'store' patch is missing; the 'inbox' patch is missing; the 'botmove' patch is missing; the 'fpslimit' patch is missing", watcher.NotActive);
                 Assert.Equal(watcher.NotActive, target.NotActive);
-                Assert.Equal("installed, NOT ACTIVE (Game loaded from the game folder; the 'store' patch is missing; the 'inbox' patch is missing)", PatchWatcher.NotActiveText(target.NotActive));
+                Assert.Equal("installed, NOT ACTIVE (Game loaded from the game folder; the 'store' patch is missing; the 'inbox' patch is missing; the 'botmove' patch is missing; the 'fpslimit' patch is missing)", PatchWatcher.NotActiveText(target.NotActive));
                 LogEntry error = Assert.Single(sink.Snapshot(), e => e.Level == LogLevel.Error);
-                Assert.Contains("install: installed, NOT ACTIVE (Game loaded from the game folder; the 'store' patch is missing; the 'inbox' patch is missing): the game runs its own files", error.Message);
+                Assert.Contains("install: installed, NOT ACTIVE (Game loaded from the game folder; the 'store' patch is missing; the 'inbox' patch is missing; the 'botmove' patch is missing; the 'fpslimit' patch is missing): the game runs its own files", error.Message);
                 Assert.Contains(sink.Snapshot(), e => e.Level == LogLevel.Warn && e.Message.Contains("assemblies: Game " + Root + "\\Game.dll (GAME FOLDER): the .exe.config redirect did not apply"));
                 Assert.Contains(boot.Milestones(), m => m.Contains(" ERROR install: installed, NOT ACTIVE (Game loaded from the game folder"));
 
@@ -228,7 +229,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                     watcher.LocationOf = Locations("Game", "Gameloft.Util");
                     loads.Callback(late.Get("Gameloft.Util"));
                 }
-                Assert.Equal("Game loaded from the game folder; the 'store' patch is missing; the 'inbox' patch is missing; Gameloft.Util loaded from the game folder", target.NotActive);
+                Assert.Equal("Game loaded from the game folder; the 'store' patch is missing; the 'inbox' patch is missing; the 'botmove' patch is missing; the 'fpslimit' patch is missing; Gameloft.Util loaded from the game folder", target.NotActive);
                 Assert.Equal(2, sink.Snapshot().Count(e => e.Level == LogLevel.Error));
             }
         }
@@ -245,7 +246,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                 PatchWatcher watcher = GamePatchProbe.Watch(target, logger.For("game"), loads.Watch, boot, Root, Nothing);
                 watcher.LocationOf = Locations();
                 foreach (string name in new[] { "EngineBridge", "Gameloft.Engine", "Game" }) loads.Callback(sandbox.Get(name));
-                Assert.Equal("patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload NO, store yes, inbox yes", watcher.PatchesLine);
+                Assert.Equal("patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload NO, store yes, inbox yes, botmove yes, fpslimit yes", watcher.PatchesLine);
                 Assert.Equal("the 'gameload' patch is missing", target.NotActive);
                 Assert.Single(sink.Snapshot(), e => e.Level == LogLevel.Error && e.Message.Contains("install: installed, NOT ACTIVE (the 'gameload' patch is missing)"));
             }
@@ -266,7 +267,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                 PatchWatcher watcher = GamePatchProbe.Watch(target, logger.For("game"), loads.Watch, boot, Root, Nothing);
                 watcher.LocationOf = Locations();
                 foreach (string name in new[] { "EngineBridge", "Gameloft.Engine", "Game" }) loads.Callback(sandbox.Get(name));
-                Assert.Equal("patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload yes, store yes, inbox NO", watcher.PatchesLine);
+                Assert.Equal("patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload yes, store yes, inbox NO, botmove yes, fpslimit yes", watcher.PatchesLine);
                 Assert.Equal("the 'inbox' patch is missing", target.NotActive);
                 Assert.True(target.StorePatch);
                 Assert.False(target.InboxPatch);
@@ -293,7 +294,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                 watcher.AppliedOf = root => { askedRoot = root; return mandatoryOnly; };
                 foreach (string name in new[] { "EngineBridge", "Gameloft.Engine", "Game" }) loads.Callback(sandbox.Get(name));
                 Assert.Equal(Root, askedRoot);
-                Assert.Equal("patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload yes, store off (not applied), inbox off (not applied)", watcher.PatchesLine);
+                Assert.Equal("patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload yes, store off (not applied), inbox off (not applied), botmove off (not applied), fpslimit off (not applied)", watcher.PatchesLine);
                 Assert.Null(watcher.NotActive);
                 Assert.Null(target.NotActive);
                 Assert.False(target.StorePatch);
@@ -312,7 +313,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                 watcher.LocationOf = Locations();
                 watcher.AppliedOf = root => withStore;
                 foreach (string name in new[] { "EngineBridge", "Gameloft.Engine", "Game" }) loads.Callback(sandbox.Get(name));
-                Assert.Equal("patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload NO, store NO, inbox off (not applied)", watcher.PatchesLine);
+                Assert.Equal("patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload NO, store NO, inbox off (not applied), botmove off (not applied), fpslimit off (not applied)", watcher.PatchesLine);
                 Assert.Equal("the 'gameload' patch is missing; the 'store' patch is missing", target.NotActive);
             }
         }

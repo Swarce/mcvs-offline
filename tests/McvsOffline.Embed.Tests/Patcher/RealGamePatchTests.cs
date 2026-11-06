@@ -73,6 +73,20 @@ namespace McvsOffline
         public static System.Exception LastInboxException;
 
         public static void InboxRewardException(object reward, System.Exception exception) { InboxCalls++; LastInboxReward = reward; LastInboxException = exception; }
+
+        // patch 'botmove': records its calls; BotEcho = answer the game's own value, else BotAnswer; BotThrows = throw
+        public static int BotCalls;
+        public static float LastRamped, LastPrevSq, LastDt;
+        public static bool BotEcho = true;
+        public static float BotAnswer;
+        public static bool BotThrows;
+
+        public static float BotMoveRamp(float ramped, float prevSq, float dt)
+        {
+            BotCalls++; LastRamped = ramped; LastPrevSq = prevSq; LastDt = dt;
+            if (BotThrows) throw new System.InvalidOperationException(""hook failed"");
+            return BotEcho ? ramped : BotAnswer;
+        }
     }
 
     // patch 'graphics': records its calls; JsonAnswer null = return null, JsonThrows = throw

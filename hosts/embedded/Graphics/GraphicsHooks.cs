@@ -176,14 +176,16 @@ namespace McvsOffline
         public static string Describe()
         {
             string c = choice;
+            string frame = windows ? "; " + (FrameRateSummary ?? "frame rate limit not passed through patch 'fpslimit' yet") : "";
             if (jsonCalls == 0 && appliedCalls == 0)
-                return "graphics: graphics.profile " + c + "; the game has not read " + OptionsFile + " through patch 'graphics' (yet)";
+                return "graphics: graphics.profile " + c + "; the game has not read " + OptionsFile + " through patch 'graphics' (yet)" + frame;
             string forced = forcedProfile;
             string mem = memRule;
             string game = windows ? CaptureInGame() : null;
             return "graphics: graphics.profile " + c + (forced == null ? " (the game's own choice)" : ", forced " + forced) +
                    (fullProfile ? ", fullProfile" : "") + (mem != null ? ", MEM rule " + mem : "") + "; " + (NativeSummary ?? "native profile unknown") +
                    (windows ? "; " + (game ?? "in-game graphics options not read yet") : "") +
+                   frame +
                    (!windows && PerformancePrefs.Summary != null ? "; " + PerformancePrefs.Summary : "");
         }
 
@@ -610,6 +612,246 @@ namespace McvsOffline
             else SelfLog.Write(SelfLog.Info, "[boot] " + text);
         }
 
+        // ------------------------------------------------------------------ frame rate (patch 'fpslimit', PC, build 27)
+
+        private static readonly object frameGate = new object();
+        private static volatile Func<object> frameSetting;
+        private static volatile Func<Action, bool> framePost;
+        private static bool frameGameKnown;
+        private static float frameGame;
+        private static float frameLimit;
+        private static string frameChoice;
+        private static string frameLine;
+
+        /// <summary>The game's VSYNC (LocalStorage "Vsync" of the client World's preferences), or null (tests replace it).</summary>
+        internal static Func<bool?> VsyncReader = ReadVsync;
+
+        /// <summary>Sets <c>GameApplication.Instance.WCPFramerateLimit</c> on the game thread (tests replace it).</summary>
+        internal static Action<float> WcpLimitSetter = SetWcpLimit;
+
+        /// <summary>
+        /// PC (EmbeddedHost): where <c>graphics.pcFpsLimit</c> is read (the host's copy at start, the server's, which the settings
+        /// page saves, once it runs) and how a change reaches the game thread (<c>GameApplication.Context</c>; null: not yet).
+        /// </summary>
+        public static void ConfigureFrameRate(Func<object> setting, Func<Action, bool> post)
+        {
+            frameSetting = setting;
+            framePost = post;
+        }
+
+        /// <summary>
+        /// Called by the patched <c>GamePreferencesComponent</c> (patch 'fpslimit', <c>Game.McvsFrameRate.Limit</c>) on the game
+        /// thread with the value the game is about to give <c>GameApplication.WCPFramerateLimit</c>: the start value
+        /// (<c>LoadPreferencesWindows</c>) and every FPS LIMIT change (<c>OnPreferencesChangedWindows</c>). Returns the limit the
+        /// pacer gets (<see cref="PcFrameRate.Resolve"/>): with <c>graphics.pcFpsLimit</c> "game" (the default) the game's own value
+        /// bit for bit (30 to 120; only a NaN, infinite, zero or negative one is replaced), otherwise the setting's. Logs one
+        /// "graphics: frame rate limit ..." line whenever the limit, the in-game value, the setting or VSYNC differ from the last
+        /// line. Never throws (the game's value on any failure).
+        /// </summary>
+        public static float FrameRateLimit(float gameValue)
+        {
+            try
+            {
+                Func<object> read = frameSetting;
+                object raw = read == null ? null : read();
+                string choice = PcFrameRate.Normalize(raw);
+                float limit = PcFrameRate.Resolve(gameValue, choice);
+                lock (frameGate)
+                {
+                    frameGameKnown = true;
+                    frameGame = gameValue;
+                    frameLimit = limit;
+                    frameChoice = choice;
+                }
+                ReportFrameRate(gameValue, raw, choice, limit, null);
+                return limit;
+            }
+            catch (Exception)
+            {
+                return gameValue;
+            }
+        }
+
+        /// <summary>
+        /// Settings page (the server's settings.json saved <c>graphics.pcFpsLimit</c>): the new limit goes to the pacer at once, on the
+        /// game thread, from the in-game value the game last passed through <see cref="FrameRateLimit"/>. Before that first call
+        /// (the game has not set its limit yet, or Game.dll lacks patch 'fpslimit') nothing is set: the value applies when the game
+        /// sets its limit. Never throws.
+        /// </summary>
+        public static void FrameRateSettingChanged()
+        {
+            try
+            {
+                Func<object> read = frameSetting;
+                object raw = read == null ? null : read();
+                bool known;
+                lock (frameGate) known = frameGameKnown;
+                if (!known)
+                {
+                    Info("graphics: settings " + PcFrameRate.SettingsKey + " " + ShowSetting(raw) + " saved; it applies when the game sets its " +
+                         "frame rate limit (at start and when FPS LIMIT changes; needs patch 'fpslimit')");
+                    return;
+                }
+                Func<Action, bool> post = framePost;
+                if (post == null || !post(ApplyFrameRateSetting))
+                    Warn("graphics: settings " + PcFrameRate.SettingsKey + " " + ShowSetting(raw) + " saved, but the game thread could not be " +
+                         "reached; it applies at the next start or FPS LIMIT change");
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>On the game thread: the setting as it is now, over the game's last value, to the pacer.</summary>
+        private static void ApplyFrameRateSetting()
+        {
+            Func<object> read = frameSetting;
+            object raw = read == null ? null : read();
+            string choice = PcFrameRate.Normalize(raw);
+            float game;
+            lock (frameGate) game = frameGame;
+            float limit = PcFrameRate.Resolve(game, choice);
+            try
+            {
+                WcpLimitSetter(limit);
+            }
+            catch (Exception ex)
+            {
+                Warn("graphics: the frame rate limit " + limit.ToString("R", CultureInfo.InvariantCulture) + " could not be set (" +
+                     ex.GetType().Name + ": " + ex.Message + "); it applies at the next start or FPS LIMIT change");
+                return;
+            }
+            lock (frameGate)
+            {
+                frameLimit = limit;
+                frameChoice = choice;
+            }
+            ReportFrameRate(game, raw, choice, limit, " (from the settings page)");
+        }
+
+        private static void ReportFrameRate(float game, object raw, string choice, float limit, string suffix)
+        {
+            bool? vsync = null;
+            try
+            {
+                Func<bool?> reader = VsyncReader;
+                if (reader != null) vsync = reader();
+            }
+            catch (Exception)
+            {
+            }
+            string line = "graphics: " + PcFrameRate.Describe(game, raw, choice, limit, vsync);
+            lock (frameGate)
+            {
+                if (line == frameLine) return;
+                frameLine = line;
+            }
+            Info(line + (suffix ?? ""));
+        }
+
+        /// <summary>
+        /// "frame rate limit 144 from settings graphics.pcFpsLimit (in-game FPS LIMIT 60 not used); VSYNC on: ..." for the status
+        /// block, or null before the game passed its limit through patch 'fpslimit'.
+        /// </summary>
+        public static string FrameRateSummary
+        {
+            get
+            {
+                string line;
+                lock (frameGate) line = frameLine;
+                return line == null ? null : line.Substring("graphics: ".Length);
+            }
+        }
+
+        /// <summary>
+        /// "; pacer limit 144 (settings graphics.pcFpsLimit)" for the bots' world line while the setting replaces the in-game value,
+        /// else null.
+        /// </summary>
+        internal static string FrameRateOverrideNote()
+        {
+            lock (frameGate)
+            {
+                if (!frameGameKnown || !PcFrameRate.Overrides(frameChoice)) return null;
+                return "; pacer limit " + frameLimit.ToString("R", CultureInfo.InvariantCulture) + " (settings " + PcFrameRate.SettingsKey + ")";
+            }
+        }
+
+        private static string ShowSetting(object raw)
+        {
+            return raw == null ? PcFrameRate.Game + " (not set)" : "'" + Convert.ToString(raw, CultureInfo.InvariantCulture) + "'";
+        }
+
+        /// <summary><c>GameApplication.Instance.WCPFramerateLimit = limit</c> by reflection on the loaded engine (never a load).</summary>
+        private static void SetWcpLimit(float limit)
+        {
+            Type app = Embedded.LoadedTypes.EngineType("Gameloft.Engine.GameApplication");
+            if (app == null) throw new InvalidOperationException("Gameloft.Engine.GameApplication is not loaded");
+            PropertyInfo instance = app.GetProperty("Instance", BindingFlags.Public | BindingFlags.Static);
+            object application = instance == null ? null : instance.GetValue(null, null);
+            if (application == null) throw new InvalidOperationException("GameApplication.Instance is null");
+            PropertyInfo wcp = app.GetProperty("WCPFramerateLimit", BindingFlags.Public | BindingFlags.Instance);
+            MethodInfo set = wcp == null ? null : wcp.GetSetMethod();
+            if (set == null) throw new InvalidOperationException("GameApplication has no WCPFramerateLimit setter");
+            set.Invoke(application, new object[] { limit });
+        }
+
+        /// <summary>
+        /// The game's VSYNC as its LocalStorage holds it: <c>GamePreferencesComponent.instance.World.LocalStorage</c>'s JObject
+        /// <c>mData</c>, <c>Property("Vsync").Value</c> as text ("True"/"False"), true when the member is missing (the game's
+        /// default; it writes true then). During <c>LoadPreferencesWindows</c> the <c>Vsync</c> property is not loaded yet, the
+        /// member is (every VSYNC change writes it). No generic reflection: the Android BCL stubs MakeGenericMethod, and this file
+        /// is compiled there too. Null when it cannot be read.
+        /// </summary>
+        internal static bool? ReadVsync()
+        {
+            return ReadVsync(LoadedType(PreferencesAssembly, PreferencesType));
+        }
+
+        /// <summary><see cref="ReadVsync()"/> with the preferences type given (tests pass a look-alike).</summary>
+        internal static bool? ReadVsync(Type preferences)
+        {
+            try
+            {
+                if (preferences == null) return null;
+                FieldInfo instance = preferences.GetField("instance", BindingFlags.Public | BindingFlags.Static);
+                object component = instance == null ? null : instance.GetValue(null);
+                if (component == null) return null;
+                object storage = LocalStorageOf(component);
+                if (storage == null) return null;
+                FieldInfo dataField = null;
+                for (Type t = storage.GetType(); t != null && dataField == null; t = t.BaseType)
+                    dataField = t.GetField("mData", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly);
+                object data = dataField == null ? null : dataField.GetValue(storage);
+                if (data == null) return null;
+                MethodInfo property = data.GetType().GetMethod("Property", BindingFlags.Public | BindingFlags.Instance, null, new[] { typeof(string) }, null);
+                if (property == null) return null;
+                object member = property.Invoke(data, new object[] { "Vsync" });
+                if (member == null) return true;
+                PropertyInfo valueProperty = member.GetType().GetProperty("Value", BindingFlags.Public | BindingFlags.Instance);
+                object value = valueProperty == null ? null : valueProperty.GetValue(member, null);
+                bool parsed;
+                return value != null && bool.TryParse(value.ToString(), out parsed) ? (bool?)parsed : null;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        private static void Info(string text)
+        {
+            Log l = log;
+            if (l != null) l.Info(text);
+            else SelfLog.Write(SelfLog.Info, text);
+        }
+
+        private static void Warn(string text)
+        {
+            Log l = log;
+            if (l != null) l.Warn(text);
+            else SelfLog.Write(SelfLog.Warn, text);
+        }
+
         /// <summary>Tests: back to the state before <see cref="Configure"/>.</summary>
         internal static void ResetForTests()
         {
@@ -628,6 +870,18 @@ namespace McvsOffline
             memRule = null;
             inGame = null;
             inGameMarked = 0;
+            frameSetting = null;
+            framePost = null;
+            lock (frameGate)
+            {
+                frameGameKnown = false;
+                frameGame = 0f;
+                frameLimit = 0f;
+                frameChoice = null;
+                frameLine = null;
+            }
+            VsyncReader = ReadVsync;
+            WcpLimitSetter = SetWcpLimit;
             PerformancePrefs.ResetForTests();
         }
     }

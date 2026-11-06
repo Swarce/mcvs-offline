@@ -72,6 +72,9 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             ("inbox", "Game.dll", "Game.InboxComponent/<ClaimRewardsForMessage>d__57", "MoveNext", 0, InboxPatch.PcClaimFingerprint),
             ("inbox", "Game.dll", "Game.KillSignatureRewardItem", "get_IsRandom", 0, InboxPatch.PcIsRandomFingerprint),
             ("forum", "Game.dll", "Game.UIComponent", "GoToForum", -1, ForumPatch.ForumFingerprint),
+            ("botmove", "Game.dll", "Gameloft.Sequences.BT_Action_MoveTo", "adaptSpeed", 0, BotMovePatch.AdaptSpeedFingerprint),
+            ("fpslimit", "Game.dll", "Game.GamePreferencesComponent", "LoadPreferencesWindows", 0, FpsLimitPatch.PcLoadFingerprint),
+            ("fpslimit", "Game.dll", "Game.GamePreferencesComponent", "OnPreferencesChangedWindows", 2, FpsLimitPatch.PcChangedFingerprint),
         };
 
         [Fact]

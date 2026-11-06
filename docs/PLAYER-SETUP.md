@@ -78,7 +78,7 @@ The patcher prints every change it makes and finishes with a signature check. Us
 
 | Option | Meaning |
 |---|---|
-| `--patch nativeonline,waits,geo,finder,store,signatures,inbox,debloat,adminpage,adminlink,graphics,targetsdk,game` | The optional patches (this is the default set; `debloat` removes dead ad/analytics/social/push pieces, see ARCHITECTURE.md §2; `adminpage` and `adminlink` open the MCVS Offline page, section 7; `graphics` is needed for the graphics profile, section 7; `targetsdk` raises the app's target Android version, see `--target-sdk`; `game` marks the app as a game for Android's Game Mode, section 6). `none` keeps only the mandatory patches (the server hook, the headless-server fixes, the server physics and, from build 26, `finderport`: the game follows its LocalAnubis port when the host moves it), `all` adds `lan` and `forum`, `default,forum` adds only `forum`. An older list that still names `bottile` (removed in build 21) works: the patcher prints a warning and leaves it out. |
+| `--patch nativeonline,waits,geo,finder,store,signatures,inbox,debloat,adminpage,adminlink,graphics,targetsdk,game` | The optional patches (this is the default set; `debloat` removes dead ad/analytics/social/push pieces, see ARCHITECTURE.md §2; `adminpage` and `adminlink` open the MCVS Offline page, section 7; `graphics` is needed for the graphics profile, section 7; `targetsdk` raises the app's target Android version, see `--target-sdk`; `game` marks the app as a game for Android's Game Mode, section 6). `none` keeps only the mandatory patches (the server hook, the headless-server fixes, the server physics and, from build 26, `finderport`: the game follows its LocalAnubis port when the host moves it), `all` adds `lan`, `forum` and `botmove`, `default,forum` adds only `forum`. An older list that still names `bottile` (removed in build 21) works: the patcher prints a warning and leaves it out. |
 | `--target-sdk 29` | The Android version the app declares it was built for (`targetsdk` patch). The default, 35, avoids Play Protect's "built for an older version of Android" warning up to Android 17; 36 also covers Android 18. For both the patcher also fixes the game's own Java code (`classes.dex`) where a newer target would make Android refuse it. `--target-sdk 29` keeps the game's own value and files, exactly as builds 9 and earlier: the fallback if something misbehaves on 35. By Android's rules a 29 build installs over a 35 build signed with the same key, but this has not been tried on a phone yet. 35 and 36 need `debloat` (so `--patch` without `debloat` also needs `--target-sdk 29`), and 36 also needs `game`. |
 | `--game-log all` | The game's own log at every level in logcat (`mono-stdout`), for bug reports; this is the default while the offline build is being tested. `--game-log fatal` keeps the game's original setting (fatal errors only). |
 | `--keystore <file.p12>` | Your signing key. Without it a key is created once in `~/.config/McvsOffline/` (Windows: `%APPDATA%\McvsOffline\`) and reused. |
@@ -158,6 +158,13 @@ What the patches do:
   menu" are off.
 - **lan** (experimental): groundwork for LAN play (see the end of this guide). It changes nothing for single-device
   play.
+- **botmove** (build 27, not in the default set): a bot standing still always takes its first step. The game starts a
+  resting bot with a step of 3 × the frame time and stops it again unless that step is above 0.05, so a bot can only
+  start on frames of at least 1/60 s. The Steam version at its 60 FPS limit never gets there, and its bots waited at
+  spawn (the PC kit applies this patch by default). A phone whose bots are lively does not need it: nothing changes on
+  frames of 1/60 s or longer. Add it (`--patch default,botmove`) if your phone runs the game above 60 frames per second
+  and the bots stand at spawn until they see you. The settings page's "Bots start moving at any frame rate" (Gameplay)
+  turns its effect off without a new APK.
 - **Icon and launch screen** (`--art`, not a `--patch` id): once the project's own art exists in `art/android/` and the
   patcher is rebuilt, the offline build gets the project's launcher icon (and, if drawn, a themed icon for Android 13+)
   and a launch-screen colour on Android 12+. Until then nothing changes. After installing a build with a new icon, the

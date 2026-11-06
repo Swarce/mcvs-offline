@@ -183,8 +183,12 @@ namespace McvsOffline.Patcher
                 "                          forum    Settings > Forum opens the settings page (not in the default set)\n" +
                 "                          graphics settings.json graphics.profile (auto, mid, high, ultra) picks Gameloft's own GPU\n" +
                 "                                   profile in GameOptions_android.json; the effective options are logged\n" +
+                "                          botmove  a bot standing still always takes its first step, also on frames shorter than\n" +
+                "                                   1/60 s (an uncapped 90/120 Hz phone); unchanged at 60 frames/s or less\n" +
+                "                                   (settings.json embedded.bots.moveFromRest; not in the default set)\n" +
                 "                        'none' = only the mandatory patches (server hook, headless TS/GS fixes, server physics),\n" +
-                "                        'all' = everything (the default set plus lan and forum), 'default' = the default set,\n" +
+                "                        'all' = everything (the default set plus lan, forum and botmove), 'default' = the\n" +
+                "                        default set,\n" +
                 "                        e.g. default,forum\n" +
                 "  --game-log <m>        all (default): the game logs every level to logcat (mono-stdout); fatal: Fatal only,\n" +
                 "                        as shipped (res/raw/args.txt unchanged)\n" +

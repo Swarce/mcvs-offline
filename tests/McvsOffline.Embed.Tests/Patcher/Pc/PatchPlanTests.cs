@@ -18,7 +18,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         {
             PatchIds ids = PatchPlan.Ids(Pc);
             Assert.Equal(new[] { "gameload", "graphics", "headless", "headless-diag", "headless-engine", "hook-pc", "physics", "quicklaunch" }, Sorted(ids.Mandatory));
-            Assert.Equal(new[] { "adminlink", "adminpage", "geo", "inbox", "nativeonline", "signatures", "store", "waits" }, Sorted(ids.Default));
+            Assert.Equal(new[] { "adminlink", "adminpage", "botmove", "fpslimit", "geo", "inbox", "nativeonline", "signatures", "store", "waits" }, Sorted(ids.Default));
             Assert.Equal(new[] { "forum" }, Sorted(ids.Optional));
             Assert.Equal(new[] { "debloat", "finder", "finderport", "game", "hook", "lan", "targetsdk" }, Sorted(ids.Excluded));
         }
@@ -35,7 +35,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             {
                 "hook-pc", "headless", "store", "signatures", "inbox", "adminpage", "forum",
                 "headless-engine", "physics", "quicklaunch", "headless-diag", "nativeonline", "waits", "adminlink", "graphics", "gameload",
-                "geo",
+                "geo", "botmove", "fpslimit",
             }, full.Select(p => p.Id));
             Assert.Equal(new[] { "EngineBridge.dll", "Game.dll", "Gameloft.Engine.dll", "Gameloft.Util.dll" },
                          full.Select(p => p.AssemblyFile).Distinct());
@@ -61,6 +61,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         [InlineData("quicklaunch")]
         [InlineData("headless-diag")]
         [InlineData("gameload")]
+        [InlineData("fpslimit")]
         public void APcOnlyIdIsRefusedOnAndroid(string id)
         {
             Assert.Throws<ArgumentException>(() => PatchPlan.For(BuildProfile.Android1_17_32, new[] { id }));
@@ -76,6 +77,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 PatcherOptions.OptionalPatches,
                 new[] { "lan" },
                 new[] { "forum", "geo" },
+                new[] { "botmove" },
             };
             foreach (ICollection<string> options in cases)
             {
@@ -83,7 +85,10 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             }
             PatchIds ids = PatchPlan.Ids(BuildProfile.Android1_17_32);
             Assert.Equal(PatcherOptions.MandatoryPatches, ids.Mandatory);
-            Assert.Equal(new[] { "forum", "lan" }, Sorted(ids.Optional));
+            Assert.Equal(new[] { "botmove", "forum", "lan" }, Sorted(ids.Optional));
+            // Build 27: 'botmove' is a PC default but Android-optional (the default APK keeps its Game.dll).
+            Assert.DoesNotContain(ids.Default, id => id == "botmove");
+            Assert.Contains("botmove", PatchPlan.Ids(Pc).Default);
         }
 
         [Fact]

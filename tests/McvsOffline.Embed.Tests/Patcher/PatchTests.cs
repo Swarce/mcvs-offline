@@ -298,7 +298,7 @@ namespace McvsOffline.Embed.Tests.Patcher
                          ApkPatcher.SelectPatches(PatcherOptions.ParsePatchList("default")).Select(p => p.Id));
             Assert.Equal(new[] { "finder", "lan" }, PatcherOptions.ParsePatchList("lan"));
             Assert.Empty(PatcherOptions.ParsePatchList("none"));
-            Assert.Equal(new[] { "adminlink", "adminpage", "debloat", "finder", "forum", "game", "geo", "graphics", "inbox", "lan", "nativeonline", "signatures", "store", "targetsdk", "waits" },
+            Assert.Equal(new[] { "adminlink", "adminpage", "botmove", "debloat", "finder", "forum", "game", "geo", "graphics", "inbox", "lan", "nativeonline", "signatures", "store", "targetsdk", "waits" },
                          PatcherOptions.ParsePatchList("all"));
             Assert.Equal(new[] { "adminlink", "adminpage", "debloat", "finder", "game", "geo", "graphics", "inbox", "nativeonline", "signatures", "store", "targetsdk", "waits" },
                          PatcherOptions.ParsePatchList("default"));
@@ -316,7 +316,12 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Equal(new[] { "hook", "headless", "headless-engine", "physics", "finderport", "graphics" }, ApkPatcher.SelectPatches(new[] { "graphics" }).Select(p => p.Id));
             Assert.Equal(new[] { "forum" }, PatcherOptions.ParsePatchList("FORUM"));
             Assert.DoesNotContain("forum", PatcherOptions.DefaultPatches);
-            Assert.Equal(new[] { "lan", "forum" }, PatcherOptions.OptionalPatches.Except(PatcherOptions.DefaultPatches));
+            Assert.Equal(new[] { "lan", "forum", "botmove" }, PatcherOptions.OptionalPatches.Except(PatcherOptions.DefaultPatches));
+            // Build 27: 'botmove' only on request (the default APK's Game.dll is unchanged), after every other IL patch.
+            Assert.DoesNotContain("botmove", PatcherOptions.DefaultPatches);
+            Assert.Equal(new[] { "botmove" }, PatcherOptions.ParsePatchList("BotMove"));
+            Assert.Equal(new[] { "hook", "headless", "headless-engine", "physics", "finderport", "graphics", "botmove" },
+                         ApkPatcher.SelectPatches(new[] { "botmove", "graphics" }).Select(p => p.Id));
             Assert.Equal(new[] { "hook", "headless", "headless-engine", "physics", "finderport", "adminpage", "forum" },
                          ApkPatcher.SelectPatches(new[] { "forum", "adminpage" }).Select(p => p.Id));
             Assert.Equal(new[] { "hook", "headless", "headless-engine", "physics", "finderport", "adminlink" }, ApkPatcher.SelectPatches(new[] { "adminlink" }).Select(p => p.Id));
@@ -353,6 +358,7 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Equal("Gameloft.Engine.dll", Assert.Single(ApkPatcher.AllPatches, p => p.Id == "adminlink").AssemblyFile);
             Assert.Equal("Game.dll", Assert.Single(ApkPatcher.AllPatches, p => p.Id == "forum").AssemblyFile);
             Assert.Equal("Gameloft.Engine.dll", Assert.Single(ApkPatcher.AllPatches, p => p.Id == "graphics").AssemblyFile);
+            Assert.Equal("Game.dll", Assert.Single(ApkPatcher.AllPatches, p => p.Id == "botmove").AssemblyFile);
         }
 
         [Fact]

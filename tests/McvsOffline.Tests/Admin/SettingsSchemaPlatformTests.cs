@@ -47,7 +47,8 @@ namespace McvsOffline.Tests.Admin
                     continue;
                 }
                 Assert.Empty(view.Advanced);
-                List<SettingDefinition> expected = SettingsSchema.Keys.Where(k => k.Group == view.Group.Id).ToList();
+                // Every key but the PC-only ones (build 27: graphics.pcFpsLimit).
+                List<SettingDefinition> expected = SettingsSchema.Keys.Where(k => k.Group == view.Group.Id && !SettingsSchema.IsWindowsOnly(k.Key)).ToList();
                 Assert.Equal(expected.Count, view.Keys.Count);
                 for (int i = 0; i < expected.Count; i++)
                 {
@@ -62,6 +63,7 @@ namespace McvsOffline.Tests.Admin
             Assert.Contains("graphics.fpsListVersion", AllKeys(views));
             Assert.Contains("logging.keepStarts", AllKeys(views));
             Assert.DoesNotContain("embedded.physics.keepPhysicsLayer", AllKeys(views));
+            Assert.DoesNotContain(SettingsSchema.GraphicsPcFpsLimitKey, AllKeys(views));
         }
 
         [Fact]
@@ -83,8 +85,56 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal(keys.IndexOf("logging.fileLevel") + 1, keys.IndexOf("logging.keepStarts"));
             // Everything else is still there, in the same order.
             List<string> android = AllKeys(SettingsSchema.GroupsFor("android")).Where(k => !AndroidOnly(k)).ToList();
-            Assert.Equal(android, keys.Where(k => k != "embedded.physics.keepPhysicsLayer").ToList());
+            Assert.Equal(android, keys.Where(k => k != "embedded.physics.keepPhysicsLayer" && k != SettingsSchema.GraphicsPcFpsLimitKey).ToList());
             Assert.Equal(SettingsSchema.Groups.Select(g => g.Id), views.Select(v => v.Group.Id));
+        }
+
+        [Theory]
+        [InlineData("windows")]
+        [InlineData("android")]
+        public void TheBotSwitchIsAGameplayKeyOnBothPlatforms(string platform)
+        {
+            SettingDefinition key = SettingsSchema.GroupsFor(platform).Single(v => v.Group.Id == "gameplay").Keys.Single(k => k.Key == "embedded.bots.moveFromRest");
+            Assert.Same(SettingsSchema.Find(SettingsSchema.BotsMoveFromRestKey), key);
+            Assert.Equal("Bots start moving at any frame rate", key.Label);
+            Assert.Equal(SettingsSchema.TypeBool, key.Type);
+            Assert.Equal(true, key.Default);
+            Assert.Equal(SettingsSchema.Restart, key.Apply);
+            Assert.True(key.Editable);
+            Assert.Contains("1/60 s", key.Help);
+            Assert.Contains("60 FPS limit", key.Help);
+            Assert.Contains("'botmove' patch", key.Help);
+            Assert.DoesNotContain(SettingsSchema.GroupsFor(platform).Single(v => v.Group.Id == "advanced").Advanced, kv => kv.Key == key.Key);
+        }
+
+        /// <summary>
+        /// Build 27 (patch 'fpslimit'): the PC page's frame rate limit, right after the graphics profile keys; editable, applied at
+        /// once, "game" by default, the choices of PcFrameRate.Options; never shown on another platform.
+        /// </summary>
+        [Fact]
+        public void TheFrameRateLimitIsAPcGraphicsKeyAppliedAtOnce()
+        {
+            List<SettingDefinition> pc = SettingsSchema.GroupsFor("windows").Single(v => v.Group.Id == "graphics").Keys;
+            Assert.Equal(new[] { "graphics.profile", "graphics.fullProfile", "graphics.pcFpsLimit" }, pc.Select(k => k.Key));
+            SettingDefinition key = pc[2];
+            Assert.Same(SettingsSchema.Find(SettingsSchema.GraphicsPcFpsLimitKey), key);
+            Assert.Equal("graphics.pcFpsLimit", SettingsSchema.GraphicsPcFpsLimitKey);
+            Assert.Equal("Frame rate limit", key.Label);
+            Assert.Equal(SettingsSchema.TypeEnum, key.Type);
+            Assert.Equal("game", key.Default);
+            Assert.Equal(SettingsSchema.Live, key.Apply);
+            Assert.True(key.Editable);
+            Assert.Equal(new[] { "game", "30", "60", "90", "120", "144", "165", "240", "unlimited" }, key.Options);
+            foreach (string phrase in new[] { "in-game FPS LIMIT", "VSYNC", "Unlimited", "1000 FPS", "'botmove'", "'fpslimit'", "Applies at once" })
+                Assert.Contains(phrase, key.Help);
+            Assert.True(SettingsSchema.Validate(key, "unlimited", out object normalized, out string problem), problem);
+            Assert.Equal("unlimited", normalized);
+            Assert.False(SettingsSchema.Validate(key, "75", out normalized, out problem));
+            Assert.False(SettingsSchema.Validate(key, -1L, out normalized, out problem));
+            Assert.True(SettingsSchema.IsWindowsOnly(key.Key));
+            Assert.False(SettingsSchema.IsWindowsOnly("graphics.profile"));
+            foreach (string other in new[] { "android", "directory", null })
+                Assert.DoesNotContain(SettingsSchema.GroupsFor(other).SelectMany(v => v.Keys), k => k.Key == key.Key);
         }
 
         [Fact]
@@ -199,6 +249,7 @@ namespace McvsOffline.Tests.Admin
             Assert.Contains("\"hd.enabled\"", android);
             Assert.Contains("\"notifications.request\"", android);
             Assert.DoesNotContain("keepPhysicsLayer", android);
+            Assert.DoesNotContain("pcFpsLimit", android);
 
             host.Info.Platform = "windows";
             var groups = (List<object>)AdminTestClient.Json(client.Get("settings"))["groups"];
@@ -207,6 +258,7 @@ namespace McvsOffline.Tests.Admin
                                            "\"diagnostics.publicLogCopy\"", "\"diagnostics.threadDump\"" })
                 Assert.DoesNotContain(key, windows);
             Assert.Contains("this PC", windows);
+            Assert.Contains("\"graphics.pcFpsLimit\"", windows);
             var keep = groups.Cast<Dictionary<string, object>>().Single(g => (string)g["id"] == "advanced")["keys"] as List<object>;
             var entry = keep.Cast<Dictionary<string, object>>().Single(e => (string)e["key"] == "embedded.physics.keepPhysicsLayer");
             Assert.Equal("Keep the levels' Physics layer", entry["label"]);

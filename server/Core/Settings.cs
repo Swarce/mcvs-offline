@@ -204,12 +204,39 @@ namespace McvsOffline.Server.Core
         }
 
         /// <summary>
+        /// Raised after <see cref="SetAndSave"/> has saved, with the paths it wrote (a fresh array), on the saving thread and
+        /// outside the lock. A handler that throws is ignored and the others still run. For a host that applies a key at once
+        /// (the PC's graphics.pcFpsLimit); most keys are simply read again where they are used.
+        /// </summary>
+        public event Action<ICollection<string>> Changed;
+
+        /// <summary>
         /// Sets several persisted values and saves them in one step: when <see cref="Save"/> throws, every value is put
-        /// back as it was (also keys that did not exist) and the exception propagates. Thread-safe.
+        /// back as it was (also keys that did not exist) and the exception propagates. Thread-safe. <see cref="Changed"/>
+        /// follows a successful save.
         /// </summary>
         public void SetAndSave(IDictionary<string, object> changes)
         {
             if (changes == null) throw new ArgumentNullException("changes");
+            Write(changes);
+            Action<ICollection<string>> handlers = Changed;
+            if (handlers == null) return;
+            var keys = new string[changes.Count];
+            changes.Keys.CopyTo(keys, 0);
+            foreach (Delegate handler in handlers.GetInvocationList())
+            {
+                try
+                {
+                    ((Action<ICollection<string>>)handler)((string[])keys.Clone());
+                }
+                catch (Exception)
+                {
+                }
+            }
+        }
+
+        private void Write(IDictionary<string, object> changes)
+        {
             lock (gate)
             {
                 Dictionary<string, object> before = JsonValue.DeepCloneObject(values);

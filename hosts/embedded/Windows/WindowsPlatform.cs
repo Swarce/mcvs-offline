@@ -61,6 +61,9 @@ namespace McvsOffline.Embedded.Windows
         /// <summary>Runs the install check of §6.2 on a background thread (default true; tests turn it off or wait for it).</summary>
         internal bool CheckInstall { get; set; } = true;
 
+        /// <summary>Subscribe to the engine's input-device disconnects for the "bots:" lines (PcHooks.WatchInputDevices; tests: false).</summary>
+        internal bool WatchInputDevices { get; set; } = true;
+
         /// <summary>Set when the install check finished (tests).</summary>
         internal ManualResetEvent InstallChecked { get; } = new ManualResetEvent(false);
 
@@ -207,6 +210,7 @@ namespace McvsOffline.Embedded.Windows
             try
             {
                 PcHooks.Configure(embeddedHost.Logger.For("pc"), embeddedHost.Boot);
+                if (WatchInputDevices) PcHooks.WatchInputDevices();
             }
             catch (Exception ex)
             {

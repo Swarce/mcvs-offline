@@ -18,9 +18,9 @@ namespace McvsOffline.Tests.Admin
         /// <summary>§3.1, in page order.</summary>
         private static readonly string[] EditableKeys =
         {
-            "instantBots", "admin.settingsMenu.trim", "admin.settingsMenu.sameFrame", "admin.settingsMenu.aboutCentre", "admin.settingsMenu.performance", "devMenu",
+            "instantBots", "embedded.bots.moveFromRest", "admin.settingsMenu.trim", "admin.settingsMenu.sameFrame", "admin.settingsMenu.aboutCentre", "admin.settingsMenu.performance", "devMenu",
             "leaderboards.virtualPlayers", "geo.country",
-            "graphics.profile", "graphics.fullProfile", "graphics.msaa", "graphics.renderScale", "graphics.lowResMaps", "hd.enabled",
+            "graphics.profile", "graphics.fullProfile", "graphics.pcFpsLimit", "graphics.msaa", "graphics.renderScale", "graphics.lowResMaps", "hd.enabled",
             "economy.versusCoinsMultiplier", "economy.creditsMultiplier", "economy.xpMultiplier", "economy.priceMultiplier", "crm.dailyCapMultiplier",
             "economy.collector.enabled", "economy.collector.itemsPerCrate",
             "unlockAll", "assets.couponsEnabled", "crm.redeemCoupons", "admin.accountMenu.hideDeadButtons", "unlocks.batchSize", "admin.redeemCode",
@@ -192,18 +192,21 @@ namespace McvsOffline.Tests.Admin
         }
 
         /// <summary>
-        /// Every Graphics key applies at the next start from this page: the embedded host reads them from its own copy of
-        /// settings.json at start (GraphicsHooks.Configure, PerformancePrefs.Configure, the HD installer), and nothing applies a save
-        /// of the server's copy to the running engine. Only the game's PERFORMANCE page applies its own SCREEN SCALE and LOW
-        /// RESOLUTION MAPS changes live, and the help says so; a "live" or "menu" badge here would promise a change that never comes.
+        /// Every Graphics key but the PC's frame rate limit applies at the next start from this page: the embedded host reads them
+        /// from its own copy of settings.json at start (GraphicsHooks.Configure, PerformancePrefs.Configure, the HD installer), and
+        /// nothing applies a save of the server's copy to the running engine. Only the game's PERFORMANCE page applies its own SCREEN
+        /// SCALE and LOW RESOLUTION MAPS changes live, and the help says so; a "live" or "menu" badge here would promise a change
+        /// that never comes. graphics.pcFpsLimit (build 27) is the exception: the PC host listens to the server's copy
+        /// (Settings.Changed) and sets the pacer at once.
         /// </summary>
         [Fact]
         public void EveryGraphicsKeyAppliesAtTheNextStartFromThisPage()
         {
             SettingDefinition[] graphics = SettingsSchema.Keys.Where(d => d.Group == "graphics").ToArray();
-            Assert.Equal(new[] { "graphics.profile", "graphics.fullProfile", "graphics.msaa", "graphics.renderScale", "graphics.lowResMaps", "hd.enabled" },
+            Assert.Equal(new[] { "graphics.profile", "graphics.fullProfile", "graphics.pcFpsLimit", "graphics.msaa", "graphics.renderScale", "graphics.lowResMaps", "hd.enabled" },
                          graphics.Select(d => d.Key).ToArray());
-            Assert.All(graphics, d => Assert.True(d.Apply == "restart", d.Key + " is " + d.Apply));
+            Assert.All(graphics.Where(d => d.Key != SettingsSchema.GraphicsPcFpsLimitKey), d => Assert.True(d.Apply == "restart", d.Key + " is " + d.Apply));
+            Assert.Equal("live", Def(SettingsSchema.GraphicsPcFpsLimitKey).Apply);
             Assert.Contains("applies at the next start; the game's PERFORMANCE page applies it at once", Def(SettingsSchema.GraphicsRenderScaleKey).Help);
             Assert.Contains("applies at the next start; the game's PERFORMANCE page applies it from the next match", Def(SettingsSchema.GraphicsLowResMapsKey).Help);
         }

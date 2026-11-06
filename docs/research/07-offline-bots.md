@@ -739,3 +739,39 @@ Optional extras:
 * **Does GameServerComponent run in-process for these matches?** For offline bot, practice and tutorial matches:
   **no**. The client World is master. The (embedded or remote) TS only brokers parameters and rewards. For
   bot-filled PvP: **yes**, through the embedded GS (`ServerManager` headless World). **[V]**
+
+---
+
+## 15. The MoveTo start threshold: why bots froze at 60 frames/s (build 27)
+
+The owner's Steam report: at FRAME RATE LIMIT 60 the bots wait at spawn until the player reaches mid-map and sometimes stop
+for good while still aiming and firing; at 30 FPS they behave; the phone's bots are lively. **[V]** in code and IL, **[L]**
+for the PC frame periods (the WCP pacer's disassembly, not a measurement).
+
+* `BT_Action_MoveTo.adaptSpeed` (Game.dll, identical IL on Android 1.17.32 and Steam 6372049): outside the deceleration
+  branch, while the input differs from the wanted speed, `num = Sqrt(Forward² + Strafe²) + world.DeltaTime.Seconds *
+  acceleration` (`public static float acceleration = 3f`), clamped to 1. `moveToVector` then moves the bot only when
+  `speed > 0.05f`; otherwise `stopCharacter()` writes 0. Every MoveTo node of `basicBehavior.tree` has `Speed` 1. **[V]**
+* So the first step from rest is exactly 3·dt: a resting bot starts only on an AI-tick frame of at least 1/60 s (float32:
+  3 × 1/60 = 0.05000001; 3 × 0.016566 = 0.049698). The ramp's dt is one frame's, not multiplied by `BT_Root.AiModulo` (the
+  decel branch is). Once moving, each AI tick adds 3·dt and there are 1/(AiModulo·dt) ticks per second: frame-rate
+  independent. **[V]**
+* Every World, the in-process GS included, is updated with the client frame's dt. The PC frame cap is the WCP limiter
+  (the in-game FPS LIMIT, preference `FPS` 30/60/90/120 → `GameApplication.WCPFramerateLimit`; `FpsValues` {30, 60} feeds only
+  the hidden `MaxFramerate` row, pc-port.md §8.11; WCPToolkit.dll 0x10011430 spins until
+  `target_us <= elapsed_us + 100`), so a 60 FPS frame lasts about 16.57 ms: every start is blocked. At 30 FPS (33.2 ms) it
+  passes. The phone has no limiter (limit -1, vsync only). Gameloft's servers ran at `HeadlessFramerateLimit` 40 (25 ms),
+  where the threshold never mattered. **[L]**
+* A bot at rest moves only through the deceleration branch (a short path ending in front of it: strafe, cover and follow
+  paths once someone is in view) or on a hitch frame of 16.667 ms or more. Every stop brings it back to 0: arrival, respawn
+  (`CharacterInputComponent.OnRespawn` → `ResetInputs`), `SetInput Stop` nodes, and on PC each input-device disconnect
+  (`CharacterComponent` subscribes `ResetInputsWin` to `InputManager.OnDeviceDisconnect`, server-World bots included).
+  Stuck detection is an empty `if` on both platforms. Aiming and firing are sibling branches that do not depend on
+  movement. **[V]**
+
+The fix is patch `botmove` (docs/design/pc-port.md §8.10): the step after the ramp goes through
+`McvsBotMove.Ramp` → `GameHooks.BotMoveRamp`, which raises a step at or under 0.05 to 0.051 (settings
+`embedded.bots.moveFromRest`, default true) and returns everything else bit for bit. Default on PC; optional on Android,
+where the owner's bots are fine today (so the phone's in-match frames last at least 1/60 s) and the default APK keeps its
+Game.dll. The `bots:` log lines count the blocked starts and the AI-tick dt, so a log with the switch on and one with it off
+settle it.

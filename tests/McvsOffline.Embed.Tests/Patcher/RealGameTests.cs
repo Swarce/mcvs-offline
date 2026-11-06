@@ -30,7 +30,7 @@ namespace McvsOffline.Embed.Tests.Patcher
         {
             ["hook"] = 1, ["headless"] = 5, ["headless-engine"] = 3, ["physics"] = 2, ["finderport"] = 1, ["nativeonline"] = 1, ["waits"] = 2, ["geo"] = 1,
             ["finder"] = 1, ["lan"] = 3, ["store"] = 2, ["signatures"] = 2, ["inbox"] = 4, ["debloat"] = 7, ["adminpage"] = 2,
-            ["adminlink"] = 1, ["forum"] = 1, ["graphics"] = 1,
+            ["adminlink"] = 1, ["forum"] = 1, ["graphics"] = 1, ["botmove"] = 1,
         };
 
         /// <summary>
@@ -82,11 +82,12 @@ namespace McvsOffline.Embed.Tests.Patcher
                                  "classes.dex", "res/layout-land/activity_in_game_browser.xml", "res/layout-port/activity_in_game_browser.xml", "res/raw/args.txt" },
                          report.Modified.OrderBy(m => m, StringComparer.Ordinal));
             Assert.Equal(new[] { "assemblies/McvsOffline.Server.dll" }, report.Added);
-            // 40 IL patch notes (finderport from build 26), the manifest permission rename, the res/raw/args.txt rewrite, the ABI selection, debloat's
-            // 44 manifest removals and file drop, targetsdk's 7 manifest, 2 layout, 4 Google Analytics removal and 14
-            // classes.dex edits, and game's 2 manifest flags: 117 (see IlPatchNotes / ExpectedNotes).
+            // 41 IL patch notes (finderport from build 26, botmove from build 27), the manifest permission rename, the res/raw/args.txt rewrite, the ABI
+            // selection, debloat's 44 manifest removals and file drop, targetsdk's 7 manifest, 2 layout, 4 Google Analytics removal and 14
+            // classes.dex edits, and game's 2 manifest flags: 118 (see IlPatchNotes / ExpectedNotes).
             Assert.Equal(14, DexNotes);
-            Assert.Equal(117, ExpectedNotes(options.Patches, target: 35));
+            Assert.Equal(118, ExpectedNotes(options.Patches, target: 35));
+            Assert.Contains(report.Notes, n => n.Contains("BT_Action_MoveTo::adaptSpeed") && n.Contains("McvsBotMove.Ramp"));
             Assert.Equal(2, report.Notes.Count(n => n.StartsWith(ManifestGame.NotePrefix, StringComparison.Ordinal)));
             Assert.Equal(ExpectedNotes(options.Patches, target: 35), report.Notes.Count);
             Assert.Equal(ManifestDebloat.Targets.Count, report.Notes.Count(n => n.StartsWith("manifest: removed <", StringComparison.Ordinal)));
@@ -154,6 +155,7 @@ namespace McvsOffline.Embed.Tests.Patcher
             // classes.dex edits, and game's 2: 113.
             Assert.Equal(113, ExpectedNotes(PatcherOptions.DefaultPatches));
             Assert.Equal(ExpectedNotes(PatcherOptions.DefaultPatches), report.Notes.Count);
+            Assert.DoesNotContain(report.Notes, n => n.Contains("McvsBotMove"));   // build 27: 'botmove' is not in the default APK
             Assert.Contains("patch targetsdk: targetSdkVersion 29 -> 35, with what that target needs in the manifest, the settings page's layouts and classes.dex", log);
             Assert.Contains("patch game: android:isGame=\"true\" and android:appCategory=\"game\" on <application> (Game Mode / OEM game detection)", log);
             Assert.Contains(ManifestTargetSdk.DexEntry, report.Modified);
