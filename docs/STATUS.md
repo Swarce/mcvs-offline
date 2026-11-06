@@ -1,7 +1,7 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-Last updated for build 26 (November 2026, on `wip/pc-port`; APK and PC kit): build 26 starts normally when another program holds the server's port (it moves to a free one and everything follows); see "Build 26". Build 25 brings the project's own launcher icon (the owner's art), a dark red launch screen and a new background for the game's data installer (kept outside the repository); see "Build 25". Build 24 keeps ABOUT centred on the return from a tab (the owner's build-23 log: the tile just tapped was still in its pressed animation and our width check refused it); see "Build 24". Build 23 fixes what the owner saw on the phone in build 22 (the PERFORMANCE title drawn over its icon, ABOUT right of centre, a small stutter on the gear tap) and adds timings to the `settings menu:` log lines; Steam is unchanged apart from log text; not yet tested on a phone or on Windows; see "Build 23". The Steam bots' report (they idle at spawn and sometimes stop moving) is open: its investigation was stopped before any result, see "Build 23". Build 22: on the owner's phone build 21 still flashed
+Last updated for build 27 (November 2026, on `wip/pc-port`; APK and PC kit): build 27 fixes the Steam bots (a resting bot could not start on frames shorter than 1/60 s) and adds a Steam frame rate setting up to unlimited; see "Build 27". Build 26 starts normally when another program holds the server's port (it moves to a free one and everything follows); see "Build 26". Build 25 brings the project's own launcher icon (the owner's art), a dark red launch screen and a new background for the game's data installer (kept outside the repository); see "Build 25". Build 24 keeps ABOUT centred on the return from a tab (the owner's build-23 log: the tile just tapped was still in its pressed animation and our width check refused it); see "Build 24". Build 23 fixes what the owner saw on the phone in build 22 (the PERFORMANCE title drawn over its icon, ABOUT right of centre, a small stutter on the gear tap) and adds timings to the `settings menu:` log lines; Steam is unchanged apart from log text; not yet tested on a phone or on Windows; see "Build 23". The Steam bots' report (they idle at spawn and sometimes stop moving) is open: its investigation was stopped before any result, see "Build 23". Build 22: on the owner's phone build 21 still flashed
 MORE GAMES and the FORUM tile on a return to Settings; build 22 no longer races the game's own `setup()`: on the phone
 its stock writes are made to draw nothing (the engine's text remap turns FORUM into PERFORMANCE, the icon is out of its
 reach, the removed tiles are off the panel, ABOUT stays at the game's own place on the bottom row), prepared before
@@ -65,6 +65,46 @@ HD texture probe and a Windows test kit for the Steam version. Build 11 installs
 version into the game's own data. Build 12 accepts a full ASTC data pack with 2,215 PC textures in it: **device test 9:
 the HD textures and the graphics profiles work, at the same frame rate as before**, and builds 10 to 12 (target Android
 15) installed and played fine.
+
+## Build 27 (November 2026): the Steam bots, and the Steam frame rate
+
+`251f8c9` on `wip/pc-port` (`McvsVersion.Build` is `27`; the code is the merge of `wip/b27-bots`: `0fd3f4f`, `69be58a`
+and the review fix `74f0e31`). APK `mcvs-offline-251f8c9.apk` (SHA-256
+`73dcf29caad757e7e18a8f1b01cbcce42077e3fe0eb151c813663a62ba92f99d`, with `--art-extra art/local`; same key, apksigner and
+zipalign OK): against build 26's `mcvs-offline-3bc93a6.apk` only the server DLL, the four MVID spans and the signature
+files differ (`botmove` is optional on Android, so the default APK's game code is unchanged). PC kit SHA-256
+`b9f51d113d7c835614ee09a9ee15c0991614da11367c360f9f52100de62a2e9e` (two publishes, same bytes; embeds the PC server DLL;
+build 26's kept as `McvsOffline.PcKit-3bc93a6.exe`); PC end to end as before, the install now lists `botmove` and
+`fpslimit`. Not run: the upgrade over a build-26 install. Tests: 1588/1588, Embed 1365/1365 (one earlier full run had two
+timing-dependent port-fallback tests fail under load; they pass alone, three times, and in the next full run), PcKit
+63/63, PcSpike 62/62.
+
+**The owner's report:** on Steam the bots idled at spawn until the player reached the middle, and sometimes stopped
+moving for good while still aiming and shooting; doubling the AI rate helped only a little. The diagnosis
+(five investigations, three skeptics; [design/pc-port.md](design/pc-port.md) §8.10, research 07 §15) found it in the game's
+own bot code, the same on both platforms: a bot at rest starts with a step of 3 x the frame time, and a step of 0.05 or
+less stops it again, so it can only start on frames of at least 1/60 s. Steam's frame limiter ends each frame about
+0.1 ms early, so at FPS 60 every frame is about 16.57 ms and a resting bot never starts on its long paths (it moves only
+on the short combat paths it takes once it sees someone); the phone's limiter never ends a frame early. **The owner
+confirmed it: at FPS 30 the bots behave.**
+
+**The fixes:**
+* `botmove` (Game.dll, `BT_Action_MoveTo.adaptSpeed`, one fingerprint for both builds): a blocked first step is raised to
+  0.051, so a resting bot always starts; on frames of 1/60 s or longer the result is bit for bit the game's. Default on
+  Steam; optional on Android (`--patch ...,botmove`), since the phone's bots are fine. Setting
+  `embedded.bots.moveFromRest` (Gameplay, "Bots start moving at any frame rate", default on). The PC-only reset of every
+  character's movement input when an input device disconnects (`CharacterComponent.ResetInputsWin`, server bots included)
+  is now logged. `bots:` lines per match: blocked starts, the frame period, input resets, headless-World exceptions.
+* `fpslimit` (Game.dll, PC only) and the setting `graphics.pcFpsLimit` ("Frame rate limit", Graphics, applied at once):
+  `game` (default: the in-game FPS LIMIT row, which already offers 30, 60, 90 and 120), 30, 60, 90, 120, 144, 165, 240
+  or `unlimited` (a cap of 1000 FPS: Android's -1 cannot be passed on Steam, the limiter would run at 1 FPS). Every value
+  is sanitised before it reaches the limiter. One `graphics: frame rate limit ...` line names the effective limit and
+  VSYNC. Seeing 60 at most with the in-game 90 or 120 is most likely VSYNC ON on a 60 Hz screen (not traced natively).
+
+**Checklist (Steam):** at FPS 60, then 120 or unlimited (VSYNC off), a bot match: bots leave spawn at once and do not
+stay stuck; `server.log` has the `bots:` lines (blocked starts counted) and the frame rate line. Optional: set
+`embedded.bots.moveFromRest` off to see the old behaviour at 60. Note the FPS actually shown at 144/unlimited with VSYNC
+on and off.
 
 ## Build 26 (November 2026): the port fallback
 
