@@ -230,6 +230,7 @@ namespace McvsOffline
             {
                 use = requested && (headless ? serverPhysicsMultithreaded : clientPhysicsMultithreaded);
                 if (headless && requested && !use) Interlocked.Increment(ref serverWorldsSingleThreaded);
+                if (headless) NoteServerWorld();
                 int n = Interlocked.Increment(ref physicsWorlds);
                 if (n <= 8)
                 {
@@ -351,7 +352,10 @@ namespace McvsOffline
         /// <summary>A "bots:" line every 30 s while MoveTo ramp calls arrive.</summary>
         internal const int BotLineIntervalMs = 30000;
 
-        /// <summary>A ramp call after this long without one starts a new match (the counters restart).</summary>
+        /// <summary>
+        /// A ramp call after this long without one starts a new match (the counters restart), as does the first ramp call after
+        /// a headless World was created (<see cref="PhysicsMultithreading"/>: each match's GS World), however soon it comes.
+        /// </summary>
         internal const int BotMatchGapMs = 60000;
 
         /// <summary>The p50 is taken over the last this many AI-tick dts of the match (a ring; min and max cover the whole match).</summary>
@@ -361,6 +365,9 @@ namespace McvsOffline
         private static readonly object botGate = new object();
         private static readonly float[] botDt = new float[BotDtSamples];
         private static int botCalls, botFromRest, botBlocked, botHelped, botShortFrames, botMatches, botHeadlessBase;
+        private static int botHeadlessEnd;                    // headlessReports at the last ramp call
+        private static int serverWorlds, serverWorldReports;  // headless Worlds created; headlessReports when the last one was
+        private static int botServerWorlds;                   // serverWorlds at the last ramp call
         private static float botMinDt, botMaxDt;
         private static int botLastCall, botLastLine, botFirstBlockLogged;
         private static int botInputResets;
@@ -408,20 +415,25 @@ namespace McvsOffline
             bool newMatch = false, line = false;
             lock (botGate)
             {
-                if (botCalls > 0 && now - botLastCall >= BotMatchGapMs)
+                bool newWorld = serverWorlds != botServerWorlds;
+                if (botCalls > 0 && (newWorld || now - botLastCall >= BotMatchGapMs))
                 {
-                    finished = BotLines();
+                    finished = BotLines(botHeadlessEnd);
                     ClearBotStats();
                 }
                 if (botCalls == 0)
                 {
                     newMatch = true;
+                    // The match's exceptions start where its server World was created (its load included), else where the
+                    // last match's ramp calls ended, else (no World and no match seen: no 'physics' patch) here.
+                    botHeadlessBase = newWorld ? serverWorldReports : botMatches > 0 ? botHeadlessEnd : headlessReports;
                     botMatches++;
-                    botHeadlessBase = headlessReports;
                     botLastLine = now;
                     botMinDt = dt;
                     botMaxDt = dt;
                 }
+                botServerWorlds = serverWorlds;
+                botHeadlessEnd = headlessReports;
                 botLastCall = now;
                 botCalls++;
                 if (prevSq == 0f) botFromRest++;
@@ -480,11 +492,27 @@ namespace McvsOffline
 
         private static string[] BotLinesLocked()
         {
-            lock (botGate) return BotLines();
+            lock (botGate) return BotLines(headlessReports);
         }
 
-        /// <summary>The three "bots:" lines of the current match (under <see cref="botGate"/>).</summary>
-        private static string[] BotLines()
+        /// <summary>
+        /// <see cref="PhysicsMultithreading"/>: a headless World was created (the TS World at boot, a GS World for each match).
+        /// The next ramp call starts a new match, whose headless-World exceptions are counted from here.
+        /// </summary>
+        private static void NoteServerWorld()
+        {
+            lock (botGate)
+            {
+                serverWorldReports = headlessReports;
+                serverWorlds++;
+            }
+        }
+
+        /// <summary>
+        /// The three "bots:" lines of the current match (under <see cref="botGate"/>), its headless-World exceptions counted up to
+        /// <paramref name="headlessNow"/> (the live count, or the one at the match's last ramp call for the "(match ended)" lines).
+        /// </summary>
+        private static string[] BotLines(int headlessNow)
         {
             var ramp = new System.Text.StringBuilder("bots: MoveTo ramp ");
             ramp.Append(botCalls.ToString(CultureInfo.InvariantCulture)).Append(" calls, ").Append(botFromRest.ToString(CultureInfo.InvariantCulture))
@@ -497,8 +525,8 @@ namespace McvsOffline
                     .Append(((botShortFrames * 100L + botCalls / 2) / botCalls).ToString(CultureInfo.InvariantCulture)).Append("% under 1/60 s");
             }
             string world = botWorldLine ?? "bots: the match servers' Worlds were not read yet";
-            string resets = "bots: input device resets " + botInputResets.ToString(CultureInfo.InvariantCulture) + "; headless-World exceptions this match " +
-                            (headlessReports - botHeadlessBase).ToString(CultureInfo.InvariantCulture);
+            string resets = "bots: input device resets " + botInputResets.ToString(CultureInfo.InvariantCulture) + " (process total); headless-World exceptions this match " +
+                            (headlessNow - botHeadlessBase).ToString(CultureInfo.InvariantCulture) + " (its load included)";
             return new[] { world, ramp.ToString(), resets };
         }
 
@@ -553,7 +581,7 @@ namespace McvsOffline
                         return "bots: no MoveTo ramp call yet (no bot match, or no 'botmove' patch); settings embedded.bots.moveFromRest " +
                                Bool(botMoveFromRest) + ", input device resets " + botInputResets.ToString(CultureInfo.InvariantCulture);
                     }
-                    return "bots: match " + botMatches.ToString(CultureInfo.InvariantCulture) + "\n" + string.Join("\n", BotLines());
+                    return "bots: match " + botMatches.ToString(CultureInfo.InvariantCulture) + "\n" + string.Join("\n", BotLines(headlessReports));
                 }
             }
             catch (Exception)
@@ -591,6 +619,8 @@ namespace McvsOffline
             {
                 ClearBotStats();
                 botMatches = 0;
+                botHeadlessBase = botHeadlessEnd = 0;
+                serverWorlds = serverWorldReports = botServerWorlds = 0;
                 botInputResets = 0;
                 botFirstBlockLogged = 0;
                 botWorldLine = null;

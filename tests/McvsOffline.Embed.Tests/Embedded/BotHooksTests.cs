@@ -102,7 +102,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.StartsWith("bots: match 1\n", described);
             Assert.Contains("bots: MoveTo ramp 100 calls, 97 from rest; 97 under the 0.05 start threshold (moveFromRest on: 97 helped); " +
                             "AI-tick dt ms min 16.566 p50 16.566 max 20.000, 97% under 1/60 s", described);
-            Assert.Contains("bots: input device resets 0; headless-World exceptions this match 0", described);
+            Assert.Contains("bots: input device resets 0 (process total); headless-World exceptions this match 0 (its load included)", described);
             Assert.Contains("bots: no server World", described);   // no engine loaded in the tests
             List<string> lines = Lines();
             Assert.Single(lines, l => l.StartsWith("bots: match 1: the first MoveTo ramp call (settings embedded.bots.moveFromRest true); ", StringComparison.Ordinal));
@@ -123,6 +123,55 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.Contains(lines, l => l.StartsWith("bots: match 2: the first MoveTo ramp call", StringComparison.Ordinal));
             Assert.Contains("bots: MoveTo ramp 1 calls, 1 from rest; 0 under the 0.05 start threshold (moveFromRest on: 0 helped); " +
                             "AI-tick dt ms min 16.667 p50 16.667 max 16.667, 0% under 1/60 s", GameHooks.DescribeBots());
+        }
+
+        [Fact]
+        public void EachMatchCountsItsOwnHeadlessExceptionsAndANewServerWorldEndsTheLastMatch()
+        {
+            // Match 1: its GS World is created, throws twice while it loads, then once during the match.
+            GameHooks.PhysicsMultithreading(headless: true, requested: true);
+            Throw(2);
+            GameHooks.BotMoveRamp(PcFrame * 3f, 0f, PcFrame);
+            Throw(1);
+            now += 1000;
+            GameHooks.BotMoveRamp(PcFrame * 3f, 0f, PcFrame);
+            Assert.Contains("headless-World exceptions this match 3 (its load included)", GameHooks.DescribeBots());
+
+            // A quick rematch, 10 s later: a new GS World ends match 1 although no minute passed; its load throws 4 times.
+            now += 10000;
+            GameHooks.PhysicsMultithreading(headless: true, requested: true);
+            Throw(4);
+            GameHooks.BotMoveRamp(PcFrame * 3f, 0f, PcFrame);
+            List<string> lines = Lines();
+            Assert.Single(lines, l => l.StartsWith("bots: (match ended) MoveTo ramp 2 calls", StringComparison.Ordinal));
+            Assert.Single(lines, l => l == "bots: (match ended) input device resets 0 (process total); headless-World exceptions this match 3 (its load included)");
+            Assert.Single(lines, l => l.StartsWith("bots: match 2: the first MoveTo ramp call", StringComparison.Ordinal));
+            string described = GameHooks.DescribeBots();
+            Assert.StartsWith("bots: match 2\n", described);
+            Assert.Contains("bots: MoveTo ramp 1 calls", described);
+            Assert.Contains("headless-World exceptions this match 4 (its load included)", described);
+
+            // A minute without a ramp call and no new World (the GS World kept): the exceptions after match 2's last ramp call
+            // belong to match 3, not to match 2's "(match ended)" line.
+            Throw(2);
+            now += GameHooks.BotMatchGapMs;
+            GameHooks.BotMoveRamp(PcFrame * 3f, 0f, PcFrame);
+            lines = Lines();
+            Assert.Single(lines, l => l == "bots: (match ended) input device resets 0 (process total); headless-World exceptions this match 4 (its load included)");
+            Assert.Single(lines, l => l.StartsWith("bots: match 3: the first MoveTo ramp call", StringComparison.Ordinal));
+            Assert.Contains("headless-World exceptions this match 2 (its load included)", GameHooks.DescribeBots());
+
+            // The client World is no match boundary.
+            now += 1000;
+            GameHooks.PhysicsMultithreading(headless: false, requested: true);
+            GameHooks.BotMoveRamp(PcFrame * 3f, 0f, PcFrame);
+            Assert.StartsWith("bots: match 3\n", GameHooks.DescribeBots());
+            Assert.Contains("bots: MoveTo ramp 2 calls", GameHooks.DescribeBots());
+        }
+
+        private static void Throw(int times)
+        {
+            for (int i = 0; i < times; i++) GameHooks.HeadlessComponentException("Game.SomeComponent", "OnCreate", new InvalidOperationException("test"));
         }
 
         [Fact]
