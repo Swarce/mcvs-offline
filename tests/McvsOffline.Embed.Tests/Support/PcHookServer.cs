@@ -105,6 +105,15 @@ namespace McvsOffline
         {
             HookLog.Record(""GameHooks.InboxRewardException"", reward, exception);
         }
+
+        /// <summary>NaN: answer the game's own value (ramped).</summary>
+        public static float BotMoveRampAnswer = float.NaN;
+
+        public static float BotMoveRamp(float ramped, float prevSq, float dt)
+        {
+            HookLog.Record(""GameHooks.BotMoveRamp"", ramped, prevSq, dt);
+            return float.IsNaN(BotMoveRampAnswer) ? ramped : BotMoveRampAnswer;
+        }
     }
 
     public static class AdminHooks

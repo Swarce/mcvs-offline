@@ -1,6 +1,7 @@
 // Host: embedded - owner group: EMBED (hosts/embedded, patcher/)
 // Platform-independent: compiled into the embedded DLL and into the net8 tests.
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Reflection;
 using System.Threading;
@@ -9,7 +10,8 @@ using McvsOffline.Server.Core;
 namespace McvsOffline
 {
     /// <summary>
-    /// Entry points the patched game code calls (patcher/Patches: NativeOnlinePatch, HeadlessEnginePatch, PhysicsPatch, StorePatch, InboxPatch). Their
+    /// Entry points the patched game code calls (patcher/Patches: NativeOnlinePatch, HeadlessEnginePatch, PhysicsPatch, StorePatch, InboxPatch,
+    /// BotMovePatch). Their
     /// signatures are part of the patch contract (the patcher looks them up by name and parameter types). They run on the game
     /// thread or a loading-pool thread: cheap, never throw (the patched IL also guards every call), and the only one that can
     /// wait is <see cref="EnterPhysicsStep"/>, for at most <c>embedded.physics.stepGateTimeoutMs</c>.
@@ -336,6 +338,365 @@ namespace McvsOffline
                                       physicsMaxWaitMs.ToString(CultureInfo.InvariantCulture) + " ms), " +
                                       physicsTimeouts.ToString(CultureInfo.InvariantCulture) + " timeouts"
                                     : "off");
+        }
+
+        // ------------------------------------------------------------------ bots (patch 'botmove', build 27)
+
+        /// <summary><c>BT_Action_MoveTo.moveToVector</c> stops a bot whose speed is not above this.</summary>
+        public const float BotStartThreshold = 0.05f;
+
+        /// <summary>The first step a resting bot gets when its own is at or under the threshold: a 17 ms frame's 3*dt.</summary>
+        public const float BotFirstStep = 0.051f;
+
+        /// <summary>A "bots:" line every 30 s while MoveTo ramp calls arrive.</summary>
+        internal const int BotLineIntervalMs = 30000;
+
+        /// <summary>A ramp call after this long without one starts a new match (the counters restart).</summary>
+        internal const int BotMatchGapMs = 60000;
+
+        /// <summary>The p50 is taken over the last this many AI-tick dts of the match (a ring; min and max cover the whole match).</summary>
+        internal const int BotDtSamples = 4096;
+
+        private static volatile bool botMoveFromRest = true;
+        private static readonly object botGate = new object();
+        private static readonly float[] botDt = new float[BotDtSamples];
+        private static int botCalls, botFromRest, botBlocked, botHelped, botShortFrames, botMatches, botHeadlessBase;
+        private static float botMinDt, botMaxDt;
+        private static int botLastCall, botLastLine, botFirstBlockLogged;
+        private static int botInputResets;
+        private static volatile string botWorldLine;
+
+        /// <summary>Milliseconds for the match and line timers (tests replace it).</summary>
+        internal static Func<int> BotClock = () => Environment.TickCount;
+
+        /// <summary>settings.json <c>embedded.bots.moveFromRest</c> (default true): a resting bot always takes its first step.</summary>
+        public static void ConfigureBots(bool moveFromRest)
+        {
+            botMoveFromRest = moveFromRest;
+        }
+
+        /// <summary>
+        /// Called by <c>BT_Action_MoveTo.adaptSpeed</c> (patch 'botmove', <c>Gameloft.Sequences.McvsBotMove.Ramp</c>) on the game
+        /// thread, for a bot whose speed is ramping (an AI tick of a match server's World): <paramref name="ramped"/> is the game's
+        /// <c>Sqrt(prevSq) + dt * acceleration</c>, <paramref name="prevSq"/> the bot's input Forward² + Strafe² (0 = at rest),
+        /// <paramref name="dt"/> the frame's DeltaTime. Returns the speed the game goes on with: <paramref name="ramped"/> unchanged,
+        /// except a step at or under 0.05 (which <c>moveToVector</c> would turn into a stop) is raised to 0.051 while
+        /// <c>embedded.bots.moveFromRest</c> is on. 3 * dt is above 0.05 for every frame of at least 1/60 s, so the game's own
+        /// value comes back bit for bit there; the PC's 60 FPS limit ends its frames about 0.1 ms early (dt 16.57 ms, 3*dt =
+        /// 0.0497), which left every resting bot where it stood. Counts what it sees for the "bots:" lines. Never throws.
+        /// </summary>
+        public static float BotMoveRamp(float ramped, float prevSq, float dt)
+        {
+            float result = ramped;
+            try
+            {
+                bool blocked = ramped <= BotStartThreshold;
+                bool help = blocked && botMoveFromRest;
+                if (help) result = BotFirstStep;
+                RecordBotRamp(ramped, prevSq, dt, blocked, help);
+            }
+            catch (Exception)
+            {
+            }
+            return result;
+        }
+
+        private static void RecordBotRamp(float ramped, float prevSq, float dt, bool blocked, bool help)
+        {
+            int now = BotClock();
+            string[] finished = null;
+            bool newMatch = false, line = false;
+            lock (botGate)
+            {
+                if (botCalls > 0 && now - botLastCall >= BotMatchGapMs)
+                {
+                    finished = BotLines();
+                    ClearBotStats();
+                }
+                if (botCalls == 0)
+                {
+                    newMatch = true;
+                    botMatches++;
+                    botHeadlessBase = headlessReports;
+                    botLastLine = now;
+                    botMinDt = dt;
+                    botMaxDt = dt;
+                }
+                botLastCall = now;
+                botCalls++;
+                if (prevSq == 0f) botFromRest++;
+                if (blocked) botBlocked++;
+                if (help) botHelped++;
+                if (dt < 1f / 60f) botShortFrames++;
+                if (dt < botMinDt) botMinDt = dt;
+                if (dt > botMaxDt) botMaxDt = dt;
+                botDt[(botCalls - 1) % BotDtSamples] = dt;
+                if (now - botLastLine >= BotLineIntervalMs)
+                {
+                    botLastLine = now;
+                    line = true;
+                }
+            }
+            if (finished != null)
+            {
+                foreach (string text in finished) BotInfo(text.Replace("bots: ", "bots: (match ended) "));
+            }
+            if (newMatch)
+            {
+                botWorldLine = DescribeBotWorlds();
+                BotInfo("bots: match " + botMatches.ToString(CultureInfo.InvariantCulture) + ": the first MoveTo ramp call (settings embedded.bots.moveFromRest " +
+                        Bool(botMoveFromRest) + "); " + botWorldLine.Substring("bots: ".Length));
+            }
+            if (blocked && Interlocked.Exchange(ref botFirstBlockLogged, 1) == 0)
+            {
+                Mark("bots: a bot's step from speed " + Number(prevSq <= 0f ? 0f : Math.Sqrt(prevSq), "0.000") + " was " + Number(ramped, "0.0000") +
+                     " (frame " + Ms(dt) + " ms, under 1/60 s), not above the game's 0.05 start threshold: " +
+                     (help ? "raised to " + Number(BotFirstStep, "0.000") + " (settings embedded.bots.moveFromRest true)"
+                           : "left as it is, the bot stays where it is (settings embedded.bots.moveFromRest false)"));
+            }
+            if (line)
+            {
+                botWorldLine = DescribeBotWorlds();
+                foreach (string text in BotLinesLocked()) BotInfo(text);
+            }
+        }
+
+        /// <summary>Seconds as milliseconds with three decimals ("16.566"): 1/60 s is 16.667.</summary>
+        private static string Ms(float seconds)
+        {
+            return Number(seconds * 1000.0, "0.000");
+        }
+
+        private static string Number(double value, string format)
+        {
+            return value.ToString(format, CultureInfo.InvariantCulture);
+        }
+
+        private static void ClearBotStats()
+        {
+            botCalls = botFromRest = botBlocked = botHelped = botShortFrames = 0;
+            for (int i = 0; i < botDt.Length; i++) botDt[i] = 0f;
+        }
+
+        private static string[] BotLinesLocked()
+        {
+            lock (botGate) return BotLines();
+        }
+
+        /// <summary>The three "bots:" lines of the current match (under <see cref="botGate"/>).</summary>
+        private static string[] BotLines()
+        {
+            var ramp = new System.Text.StringBuilder("bots: MoveTo ramp ");
+            ramp.Append(botCalls.ToString(CultureInfo.InvariantCulture)).Append(" calls, ").Append(botFromRest.ToString(CultureInfo.InvariantCulture))
+                .Append(" from rest; ").Append(botBlocked.ToString(CultureInfo.InvariantCulture)).Append(" under the 0.05 start threshold (moveFromRest ")
+                .Append(botMoveFromRest ? "on: " + botHelped.ToString(CultureInfo.InvariantCulture) + " helped" : "off: none raised").Append(')');
+            if (botCalls > 0)
+            {
+                ramp.Append("; AI-tick dt ms min ").Append(Ms(botMinDt)).Append(" p50 ").Append(Ms(BotMedian()))
+                    .Append(" max ").Append(Ms(botMaxDt)).Append(", ")
+                    .Append(((botShortFrames * 100L + botCalls / 2) / botCalls).ToString(CultureInfo.InvariantCulture)).Append("% under 1/60 s");
+            }
+            string world = botWorldLine ?? "bots: the match servers' Worlds were not read yet";
+            string resets = "bots: input device resets " + botInputResets.ToString(CultureInfo.InvariantCulture) + "; headless-World exceptions this match " +
+                            (headlessReports - botHeadlessBase).ToString(CultureInfo.InvariantCulture);
+            return new[] { world, ramp.ToString(), resets };
+        }
+
+        /// <summary>The median of the last <see cref="BotDtSamples"/> AI-tick dts, in seconds (the lower middle value).</summary>
+        private static float BotMedian()
+        {
+            int n = botCalls < BotDtSamples ? botCalls : BotDtSamples;
+            if (n == 0) return 0f;
+            var values = new float[n];
+            Array.Copy(botDt, values, n);
+            return Select(values, (n - 1) / 2);
+        }
+
+        /// <summary>The <paramref name="k"/>-th smallest value (quickselect; the game's trimmed mscorlib has no Array.Sort(Array)).</summary>
+        internal static float Select(float[] values, int k)
+        {
+            int left = 0, right = values.Length - 1;
+            while (left < right)
+            {
+                float pivot = values[(left + right) / 2];
+                int i = left, j = right;
+                while (i <= j)
+                {
+                    while (values[i] < pivot) i++;
+                    while (values[j] > pivot) j--;
+                    if (i > j) break;
+                    float t = values[i];
+                    values[i] = values[j];
+                    values[j] = t;
+                    i++;
+                    j--;
+                }
+                if (k <= j) right = j;
+                else if (k >= i) left = i;
+                else break;
+            }
+            return values[k];
+        }
+
+        /// <summary>
+        /// One status-line part: the current (or last) match's "bots:" lines, or "bots: no MoveTo ramp call yet" before the first
+        /// one (no bot match yet, or no 'botmove' patch).
+        /// </summary>
+        public static string DescribeBots()
+        {
+            try
+            {
+                lock (botGate)
+                {
+                    if (botMatches == 0)
+                    {
+                        return "bots: no MoveTo ramp call yet (no bot match, or no 'botmove' patch); settings embedded.bots.moveFromRest " +
+                               Bool(botMoveFromRest) + ", input device resets " + botInputResets.ToString(CultureInfo.InvariantCulture);
+                    }
+                    return "bots: match " + botMatches.ToString(CultureInfo.InvariantCulture) + "\n" + string.Join("\n", BotLines());
+                }
+            }
+            catch (Exception)
+            {
+                return "bots: unavailable";
+            }
+        }
+
+        /// <summary>
+        /// PC (PcHooks, <c>InputManager.OnDeviceDisconnect</c>): an input device went away, and <c>CharacterComponent.ResetInputsWin</c>
+        /// zeroes the movement input of every character, the match servers' bots included: from 0 a bot needs a first step again.
+        /// The first 20 lines, then every 50th. Never throws.
+        /// </summary>
+        internal static void BotInputDeviceReset(string device)
+        {
+            try
+            {
+                int n = Interlocked.Increment(ref botInputResets);
+                if (n > 20 && n % 50 != 0) return;
+                BotInfo("bots: input device disconnected (" + (device ?? "?") + "): the game zeroes every character's movement input, the match " +
+                        "servers' bots included (CharacterComponent.ResetInputsWin; reset " + n.ToString(CultureInfo.InvariantCulture) + ")");
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>Input device resets seen so far (tests, status).</summary>
+        public static int BotInputResets { get { return botInputResets; } }
+
+        /// <summary>Resets every bot counter (tests).</summary>
+        internal static void ResetBots()
+        {
+            lock (botGate)
+            {
+                ClearBotStats();
+                botMatches = 0;
+                botInputResets = 0;
+                botFirstBlockLogged = 0;
+                botWorldLine = null;
+            }
+            botMoveFromRest = true;
+            BotClock = () => Environment.TickCount;
+        }
+
+        /// <summary>
+        /// "bots: server Worlds w2 at 60.1 frames/s (TotalFrames/TotalTime), BT_Root.AiModulo 4 -> 15.0 thinks/s; client FPS cap
+        /// 60, Vsync true (in-game)", read by reflection from the loaded engine and Game (never a load) on the game thread.
+        /// </summary>
+        private static string DescribeBotWorlds()
+        {
+            try
+            {
+                Type app = Embedded.LoadedTypes.EngineType("Gameloft.Engine.GameApplication");
+                PropertyInfo instance = app == null ? null : app.GetProperty("Instance", BindingFlags.Public | BindingFlags.Static);
+                object application = instance == null ? null : instance.GetValue(null, null);
+                FieldInfo worlds = application == null ? null : app.GetField("Worlds", BindingFlags.Public | BindingFlags.Instance);
+                Type root = Embedded.LoadedTypes.Find(Embedded.LoadedTypes.GameAssembly, "Game.BT_Root");
+                FieldInfo modulo = root == null ? null : root.GetField("AiModulo", BindingFlags.Public | BindingFlags.Static);
+                IDictionary<string, string> prefs = GraphicsHooks.ReadInGamePreferences(
+                    Embedded.LoadedTypes.Find(Embedded.LoadedTypes.GameAssembly, "Game.GamePreferencesComponent"));
+                return FormatBotWorlds(worlds == null ? null : worlds.GetValue(application) as System.Collections.IEnumerable,
+                                       modulo == null ? null : modulo.GetValue(null) as int?, prefs);
+            }
+            catch (Exception ex)
+            {
+                return "bots: the match servers' Worlds could not be read (" + ex.GetType().Name + ")";
+            }
+        }
+
+        /// <summary>The world line from a <c>GameApplication.Worlds</c> list, <c>BT_Root.AiModulo</c> and the PC preferences (tests).</summary>
+        internal static string FormatBotWorlds(System.Collections.IEnumerable worlds, int? aiModulo, IDictionary<string, string> prefs)
+        {
+            var sb = new System.Text.StringBuilder("bots: ");
+            double fps = 0;
+            int index = 0, headless = 0;
+            if (worlds != null)
+            {
+                foreach (object w in worlds)
+                {
+                    index++;
+                    if (w == null || !(InstanceValue(w, "Headless") is bool) || !(bool)InstanceValue(w, "Headless")) continue;
+                    object frames = InstanceValue(w, "TotalFrames");
+                    object time = InstanceValue(w, "TotalTime");
+                    object seconds = time == null ? null : InstanceValue(time, "Seconds");
+                    double s = seconds == null ? 0 : Convert.ToDouble(seconds, CultureInfo.InvariantCulture);
+                    double f = frames == null ? 0 : Convert.ToDouble(frames, CultureInfo.InvariantCulture);
+                    sb.Append(headless == 0 ? "server Worlds " : ", ").Append('w').Append(index.ToString(CultureInfo.InvariantCulture));
+                    if (s > 0)
+                    {
+                        fps = f / s;
+                        sb.Append(" at ").Append(Number(fps, "0.0"));
+                    }
+                    else
+                    {
+                        fps = 0;
+                        sb.Append(" at ?");
+                    }
+                    headless++;
+                }
+            }
+            if (headless == 0) sb.Append("no server World");
+            else sb.Append(" frames/s (TotalFrames/TotalTime)");
+            if (aiModulo.HasValue)
+            {
+                sb.Append(", BT_Root.AiModulo ").Append(aiModulo.Value.ToString(CultureInfo.InvariantCulture));
+                if (fps > 0 && aiModulo.Value > 0) sb.Append(" -> ").Append(Number(fps / aiModulo.Value, "0.0")).Append(" thinks/s");
+            }
+            else
+            {
+                sb.Append(", BT_Root.AiModulo ?");
+            }
+            string cap, vsync;
+            if (prefs != null && prefs.TryGetValue("FPS", out cap))
+            {
+                sb.Append("; client FPS cap ").Append(cap);
+                if (prefs.TryGetValue("Vsync", out vsync)) sb.Append(", Vsync ").Append(vsync);
+                sb.Append(" (in-game)");
+            }
+            return sb.ToString();
+        }
+
+        private static object InstanceValue(object target, string name)
+        {
+            try
+            {
+                Type t = target.GetType();
+                PropertyInfo p = t.GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (p != null && p.GetIndexParameters().Length == 0) return p.GetValue(target, null);
+                FieldInfo f = t.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                return f == null ? null : f.GetValue(target);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        private static void BotInfo(string text)
+        {
+            Log l = log;
+            if (l != null) l.Info(text);
+            else SelfLog.Write(SelfLog.Info, "[bots] " + text);
         }
 
         /// <summary>The engine's threading choices (GameOptions), read once by reflection for the boot trace.</summary>

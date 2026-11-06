@@ -65,6 +65,74 @@ namespace McvsOffline
                    automatchDefaults.ToString(CultureInfo.InvariantCulture);
         }
 
+        // ------------------------------------------------------------------ bots: the PC-only input reset (build 27, F2)
+
+        /// <summary>The engine's input manager, whose static event <c>OnDeviceDisconnect</c> PC characters listen to.</summary>
+        public const string InputManagerType = "Gameloft.Engine.InputManager";
+
+        private static int inputWatch;
+
+        /// <summary>
+        /// Subscribes once to <c>Gameloft.Engine.InputManager.OnDeviceDisconnect</c> (public static <c>event Action&lt;IInputDevice&gt;</c>):
+        /// on PC every <c>CharacterComponent</c> subscribes <c>ResetInputsWin</c>, which zeroes the character's movement input, the
+        /// match servers' bots included, and a bot at rest then needs a first step again (patch 'botmove'). Each event is counted and
+        /// logged (<see cref="GameHooks.BotInputDeviceReset"/>); nothing of the game changes. The engine is already loaded when the
+        /// host boots on PC (<see cref="Embedded.LoadedTypes.EngineType"/> never loads it). True when subscribed. Never throws.
+        /// </summary>
+        public static bool WatchInputDevices()
+        {
+            return WatchInputDevices(Embedded.LoadedTypes.EngineType(InputManagerType));
+        }
+
+        /// <summary><see cref="WatchInputDevices()"/> with the input manager type given (tests pass a look-alike).</summary>
+        internal static bool WatchInputDevices(Type inputManager)
+        {
+            try
+            {
+                if (inputManager == null)
+                {
+                    Info("bots: " + InputManagerType + " is not loaded: input device resets are not counted");
+                    return false;
+                }
+                EventInfo disconnect = inputManager.GetEvent("OnDeviceDisconnect", BindingFlags.Public | BindingFlags.Static);
+                MethodInfo invoke = disconnect == null ? null : disconnect.EventHandlerType.GetMethod("Invoke");
+                ParameterInfo[] parameters = invoke == null ? null : invoke.GetParameters();
+                if (parameters == null || parameters.Length != 1 || invoke.ReturnType != typeof(void))
+                {
+                    Info("bots: " + inputManager.FullName + " has no static event OnDeviceDisconnect(device): input device resets are not counted");
+                    return false;
+                }
+                if (Interlocked.CompareExchange(ref inputWatch, 1, 0) != 0) return true;
+                MethodInfo thunk = typeof(DeviceThunk).GetMethod("Disconnected", BindingFlags.Public | BindingFlags.Static)
+                                                      .MakeGenericMethod(parameters[0].ParameterType);
+                disconnect.AddEventHandler(null, Delegate.CreateDelegate(disconnect.EventHandlerType, thunk));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Interlocked.Exchange(ref inputWatch, 0);
+                Exception inner = Unwrap(ex);
+                Warn("bots: cannot watch " + InputManagerType + ".OnDeviceDisconnect: " + inner.GetType().Name + ": " + inner.Message, inner);
+                return false;
+            }
+        }
+
+        /// <summary>Stops watching (tests: a look-alike per test).</summary>
+        internal static void UnwatchInputDevices()
+        {
+            Interlocked.Exchange(ref inputWatch, 0);
+        }
+
+        /// <summary>The handler, generic over the engine's <c>IInputDevice</c> (an Action&lt;IInputDevice&gt; is built on it).</summary>
+        private static class DeviceThunk
+        {
+            public static void Disconnected<T>(T device)
+            {
+                object d = device;
+                GameHooks.BotInputDeviceReset(d == null ? "null" : d.GetType().Name);
+            }
+        }
+
         // ------------------------------------------------------------------ P2: ClientComponent.QuickLaunch
 
         /// <summary>
@@ -342,6 +410,7 @@ namespace McvsOffline
             automatchDefaults = 0;
             startedLogged = 0;
             noContextLogged = 0;
+            inputWatch = 0;
         }
 
         /// <summary>LocalAnubisManager from the assembly of <paramref name="type"/>, its declaring type or a base type, or null.</summary>

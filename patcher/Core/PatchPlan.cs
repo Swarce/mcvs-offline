@@ -42,12 +42,12 @@ namespace McvsOffline.Patcher.Core
             "hook-pc",
             "headless", "store", "signatures", "inbox", "adminpage", "forum",
             "headless-engine", "physics", "quicklaunch", "headless-diag", "nativeonline", "waits", "adminlink", "graphics", "gameload",
-            "geo",
+            "geo", "botmove",
         };
 
         private static readonly PatchIds PcIds = new PatchIds(
             new[] { "hook-pc", "headless", "headless-engine", "physics", "quicklaunch", "headless-diag", "graphics", "gameload" },
-            new[] { "nativeonline", "waits", "adminlink", "geo", "store", "signatures", "inbox", "adminpage" },
+            new[] { "nativeonline", "waits", "adminlink", "geo", "store", "signatures", "inbox", "adminpage", "botmove" },
             new[] { "forum" },
             new[] { "hook", "finder", "finderport", "lan", "debloat", "targetsdk", "game" });
 
@@ -120,6 +120,7 @@ namespace McvsOffline.Patcher.Core
                 case "graphics": return new GraphicsPatch();
                 case "gameload": return new GameAssemblyLoadPatch();
                 case "geo": return new GeoPatch();
+                case "botmove": return new BotMovePatch();
                 default: throw new ArgumentException("unknown PC patch '" + id + "'");
             }
         }

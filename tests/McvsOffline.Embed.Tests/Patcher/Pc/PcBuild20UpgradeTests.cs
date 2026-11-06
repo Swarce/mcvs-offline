@@ -114,9 +114,14 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                     return o;
                 };
                 Assert.DoesNotContain("bottile", PatchPlan.Ids(BuildProfile.PcSteam6372049).Default);
+                // Build 20's default set: today's without 'botmove' (build 27), which an explicit build-20 list cannot name.
+                List<string> build20Ids = PatchPlan.Ids(BuildProfile.PcSteam6372049).Default.Where(id => id != "botmove").ToList();
+                Assert.Equal(build20Ids.OrderBy(id => id, StringComparer.Ordinal),
+                             PcReportText.ParsePatchList(Build20Defaults.Replace("bottile,", "")).OrderBy(id => id, StringComparer.Ordinal));
 
-                // What a fresh build-21 install writes (a dry run on the untouched copy).
+                // What a fresh build-21 install with that set writes (a dry run on the untouched copy).
                 PcInstallOptions dry = real();
+                dry.OptionalPatches = build20Ids;
                 dry.DryRun = true;
                 PcInstallReport fresh = PcInstaller.Install(dry);
                 Assert.True(fresh.ExitCode == 0, fresh.Error);
@@ -125,7 +130,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
 
                 // A build-20 install: its plan had 'bottile' right before 'store' (Game.dll), and install.json says build 20.
                 PcInstallOptions o20 = real();
-                List<IlPatch> plan20 = PatchPlan.For(BuildProfile.PcSteam6372049, PatchPlan.Ids(BuildProfile.PcSteam6372049).Default).ToList();
+                List<IlPatch> plan20 = PatchPlan.For(BuildProfile.PcSteam6372049, build20Ids).ToList();
                 plan20.Insert(plan20.FindIndex(p => p.Id == "store"), new Build20BotTilePatch());
                 o20.Patches = plan20;
                 PcInstallReport r20 = PcInstaller.Install(o20);
@@ -159,6 +164,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 Assert.Equal(new[] { BotTileWarning }, r21.Warnings);
                 Assert.Contains("warning: " + BotTileWarning, installText);
                 Assert.DoesNotContain("bottile", r21.Applied);
+                Assert.DoesNotContain("botmove", r21.Applied);   // an explicit list is applied as typed
                 Assert.Equal(fresh.Applied, r21.Applied);
 
                 // The Game.dll a fresh build-21 install writes, from the game folder's own Game.dll; install.json without 'bottile'.

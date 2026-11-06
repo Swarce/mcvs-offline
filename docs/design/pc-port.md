@@ -217,6 +217,7 @@ Signature strings for `ImportServerMethod` (the patch side):
 | M1 | `McvsOffline.PcHooks`, `ServerWorldFailed` | `System.Void` | `System.Exception` |
 | M4 | `McvsOffline.PcHooks`, `ComponentCreateFailed` | `System.Void` | `System.Exception`, `System.Type` |
 | geo (build 26) | `McvsOffline.PortHooks`, `GeolocalizationUrl` | `System.String` | `System.String` (port fallback, [port-fallback.md](port-fallback.md)) |
+| botmove (build 27) | `McvsOffline.GameHooks`, `BotMoveRamp` | `System.Single` | `System.Single`, `System.Single`, `System.Single` (§8.10; both platforms) |
 
 ### 3.3 Host interfaces (`hosts/embedded/IEmbeddedPlatform.cs`)
 
@@ -390,6 +391,7 @@ works): the listing records its size and time without hashing it, and `collect` 
 | `admin.openVia` | `auto` | `auto` = overlay when `IsOverlayEnabled`, else system browser, and the system browser also when the previous overlay open showed no page (§6.5); `overlay` = overlay only; `system` = system browser only; `game` = the game's own `BrowserComponent.OpenUrl` (the overlay, after login) | file-only (settings-page denylist, `SettingsSchema.cs:162`). `jni`/`post` on PC and `overlay`/`system` on Android are treated as `auto` with one WARN |
 | `admin.restartVia` | `game` | `game` = `MenuManager.ExitAppAndroid` + relaunch helper; `host` = helper + `Process.Kill`; `none` | as on Android |
 | `embedded.physics.keepPhysicsLayer` | `true` | the `graphics` hook removes `Physics` from every `excludedLoadingLayers` of GameOptions_windows.json | new; read by the host at boot (restart); ignored on Android; label "Keep the levels' Physics layer" in `SettingsSchema.AdvancedList` |
+| `embedded.bots.moveFromRest` | `true` | patch `botmove` (§8.10): a resting bot always takes its first step; `false` = the game's own code (A/B run, the `bots:` lines still count the blocked starts) | build 27; written on both platforms, inert without the patch (the default APK has none); read by the host at boot (restart); editable, Gameplay group, label "Bots start moving at any frame rate" |
 | `graphics.profile` | `auto` | `mid` → MidGPU, `high` → HighGPU; `ultra` → HighGPU with a note (no High_Ultra on PC) | existing key |
 | `graphics.fullProfile` | `false` | as on Android (forced profile keeps its own world options) | existing |
 | `embedded.nativeOnlineSdk` | `false` | as on Android (patch `nativeonline`) | existing |
@@ -417,12 +419,16 @@ works): the listing records its size and time without hashing it, and `collect` 
 | `[boot] runtime: CLR <v>, mscorlib <file version>, Release <n> (<name>), <FrameworkDescription>; process x86, LAA no; OS <build>` | WP2 host | once at start (PC) |
 | `[boot] assemblies: EngineBridge <path> (McvsOffline\bin\|GAME FOLDER), Gameloft.Engine …, Game …, Gameloft.Util …, McvsOffline.Server …` | WP2 host | as each loads (`AppDomain.AssemblyLoad`); `GAME FOLDER` is a WARN (the redirect did not apply, Q1) |
 | `[boot] load stack: <name> (GAME FOLDER) was loaded by (innermost first):` + up to 25 indented `at …` frames, or `[boot] load stack: <name> (GAME FOLDER): already loaded when the host started watching, so its loader is unknown` (build 18) | WP2 host (`PatchWatcher.ReportLoader`) | WARN right after a `GAME FOLDER` assemblies line: `Environment.StackTrace` inside the `AssemblyLoad` event, from the loader's caller on (our handler, `AppDomain.OnAssemblyLoadEvent` and the `System.Reflection`/`System.AppDomain`/`System.RuntimeType*` loader frames cut, `PatchWatcher.LoadStack`); not an `assemblies:` line, so the kit does not count it |
-| `[boot] patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload yes, store yes, inbox yes` (`inbox` since build 17) | WP2 host (`GamePatchProbe`, witnesses of §3.9) | once `Game` and `Gameloft.Engine` are loaded; a missing witness is `NO`, or `off (not applied)` when `install.json` `options.patches` does not list that patch (`--patch none` leaves out the default `store`) |
+| `[boot] patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload yes, store yes, inbox yes, botmove yes` (`inbox` since build 17, `botmove` since build 27) | WP2 host (`GamePatchProbe`, witnesses of §3.9) | once `Game` and `Gameloft.Engine` are loaded; a missing witness is `NO`, or `off (not applied)` when `install.json` `options.patches` does not list that patch (`--patch none` leaves out the default `store`) |
 | `[boot] <name>_args.txt present: the engine ignores args.txt` | WP2 host | WARN at start when a `*_args.txt` is in the game folder (also in the status) |
 | `[boot] install: current` / WARN `[boot] install: stale: …` | WP2 host | optional boot check (§6.2) |
 | `[pc] quicklaunch: …` | `PcHooks` | §8.3 |
 | `[McvsOffline] headless world: <Type>.<Event> threw …` | existing H3 hook | unchanged |
 | `[McvsOffline] server world: …`, `[McvsOffline] component <type> was not created: …` | `PcHooks` M1/M4 | §8.5 |
+| `bots: match <n>: the first MoveTo ramp call (settings embedded.bots.moveFromRest <b>); server Worlds w<i> at <f> frames/s (TotalFrames/TotalTime), BT_Root.AiModulo <n> -> <f> thinks/s; client FPS cap <f>, Vsync <b> (in-game)` | `GameHooks` (patch `botmove`, build 27) | the first ramp call of a match (a call after 60 s without one starts the next match) |
+| `bots: a bot's step from speed <f> was <f> (frame <ms> ms, under 1/60 s), not above the game's 0.05 start threshold: raised to 0.051 …` / `… left as it is, the bot stays where it is …` | `GameHooks` | once per start, at the first blocked start |
+| `bots: <world line>`, `bots: MoveTo ramp <n> calls, <n> from rest; <n> under the 0.05 start threshold (moveFromRest on: <n> helped); AI-tick dt ms min <ms> p50 <ms> max <ms>, <p>% under 1/60 s`, `bots: input device resets <n>; headless-World exceptions this match <n>` | `GameHooks` | every 30 s while ramp calls arrive, once more prefixed `(match ended)` when the next match starts, and in every `[status]` block (`GameHooks.DescribeBots`) |
+| `bots: input device disconnected (<device type>): the game zeroes every character's movement input, the match servers' bots included (CharacterComponent.ResetInputsWin; reset <n>)` | `PcHooks` (PC only, build 27) | each `InputManager.OnDeviceDisconnect` (the first 20, then every 50th) |
 | `[boot] graphics: …` (PC adds `MEM profile`, `MEM rule on, removed <n>` or `MEM rule off`, `excludedLoadingLayers`, `, overridden by the in-game graphics quality` when the loaded GPU profile is not the optimum and none was forced) | `GraphicsHooks` | §6.7, §8.6 |
 | `[boot] graphics: in-game graphics quality Performance <n> (<Low\|Mid\|High>)` (or `Performance not set (the game's own choice)`; start values, then `, changed in-game to <n> (applies at the next start)` after a menu change)`, RenderScale <f>, FPS <f>, Vsync <b>, FullScreen <b>` | `GraphicsHooks` (PC) | once, when the client World's `GamePreferencesComponent` has loaded; the `[status]` line's `graphics:` part repeats it |
 | `[status] …; memory: private <n> MB, virtual <n> MB (<p> % of 2048 MB), GC heap <n> MB` | `WindowsPlatform.StatusExtras` (PC) | every status line (WR2 F9) |
@@ -1224,10 +1230,11 @@ access denial: a virus scanner holding the file) up to 10 times 100 ms apart (`P
 | `inbox` | Game.dll | default | new (build 17): `GenerateRewardsObjects` and `GetObject` as Android's, PC fingerprints for `RefreshUI` and the `ClaimRewardsForMessage` state machine (anonymous-type numbers), and I5 (`KillSignatureRewardItem.IsRandom` gets Android's null check) on PC only | `patcher/Patches/InboxPatch.cs` |
 | `adminpage` | Game.dll | default | new fingerprints, A1 offsets, `op_Equality` source | §8.7 |
 | `forum` | Game.dll | optional | unchanged | [PP] §3 |
+| `botmove` | Game.dll | default (build 27; optional on Android) | unchanged (identical fingerprint) | §8.10 |
 | `hook`, `finder`, `finderport`, `lan`, `debloat`, `targetsdk`, `game` | — | **excluded** | Android only (`finderport`: build 26, the PC ClientSettings has no Finder port; PcHooks use the Finder's PublicPort) | X; [PP] §3 |
 
 Order inside a file (as `ApkPatcher.AllPatches`, `:66-71`, then the new ones): Game.dll `headless`, `store`,
-`signatures`, `inbox`, `adminpage`, `forum`; Gameloft.Engine.dll `headless-engine`, `physics`, `quicklaunch`, `headless-diag`,
+`signatures`, `inbox`, `adminpage`, `forum`, `botmove` (build 27, last in `PcOrder`); Gameloft.Engine.dll `headless-engine`, `physics`, `quicklaunch`, `headless-diag`,
 `nativeonline`, `waits`, `adminlink`, `graphics`, `gameload`. The PC list lives in `PatchPlan` only; `ApkPatcher.AllPatches` and its
 test (`PatchTests.cs:277-303`) are not touched by the PC work.
 
@@ -1513,6 +1520,59 @@ stack lines). `RealPcGameLoadTests` (the stock `GetAssembly`
 asks the loader for the bare name and the patched one for the full name, executed on net8 with a recording load context;
 the mjson and static-reference facts; the identity refusal), `RealPcPatchTests` (fingerprint, exact IL, second
 application, ILVerify).
+
+### 8.10 `botmove` (`BotMovePatch`, Game.dll, build 27; default on PC, optional on Android)
+
+The owner's report: on Steam at FRAME RATE LIMIT 60 the bots wait at spawn until the player reaches mid-map and sometimes
+stop for good while still aiming and firing; at 30 FPS they behave; the phone's bots are lively. The cause
+([07-offline-bots.md](../research/07-offline-bots.md) §15): `BT_Action_MoveTo.adaptSpeed` ramps a bot's speed from its
+input, `Sqrt(Forward² + Strafe²) + world.DeltaTime.Seconds * acceleration` (`acceleration` = 3, a public static float), and
+`moveToVector` stops the bot unless that speed is above 0.05. From rest the first step is exactly 3·dt, so a resting bot
+starts only on an AI-tick frame of at least 1/60 s (float32: 3 × 1/60 = 0.05000001). Every World, the in-process match
+servers included, gets the client frame's dt (`GameApplication` updates each World with it), and the PC frame cap is the
+WCP limiter: the in-game FPS setting (`GamePreferencesComponent.FpsValues` = {30, 60}) goes to
+`GameApplication.WCPFramerateLimit`, and WCPToolkit.dll's pacer (0x10011430) computes `target_us = 1e6 / limit` and spins
+until `target_us <= elapsed_us + 100`, so frames end about 0.1 ms early: about 16.57 ms at 60 (3·dt = 0.0497, blocked) and
+33.23 ms at 30 (passes). The engine's own `GameApplication_LimitFramerate` (NativeEngine 0x100cbf60) acts only while loading.
+Gameloft's dedicated servers ran headless at `HeadlessFramerateLimit` 40 (dt 25 ms), where the threshold never mattered.
+Only the first step depends on the frame rate: once moving, each AI tick adds 3·dt and there are 1/(AiModulo·dt) ticks per
+second. A bot at rest moves only through the deceleration branch (a short path ending in front of it, which is why bots woke
+up once someone came into view) or on a hitch frame; every stop (arrival, respawn, a `SetInput Stop` node, and on PC each
+input-device disconnect) brings it back to 0.
+
+The site: `float32 adaptSpeed()`, fingerprint `88f1ea324aba6c96beba0b604173d751142735bbcb19267d9951f430ac9c4a78` on both
+builds (the IL is identical; `BotMovePatch.AdaptSpeedFingerprint`), the unique `ldsfld acceleration; mul; add; stloc.0`
+(IL_0239..IL_0240), whose next instruction (IL_0241 `ldloc.0`, the `> 1` clamp) is no branch target; locals 10 and 11 are
+`Time` and `float32`. Inserted after the `stloc.0`: `ldloc.0; ldloc.s 11; ldloca.s 10; call Time::get_Seconds(); call
+McvsBotMove::Ramp(float32, float32, float32); stloc.0`. The decel branch and `forceDefaultSpeed` are untouched. The helper
+`Gameloft.Sequences.McvsBotMove` (internal static; its presence is the witness, `[boot] patches: … botmove yes`) has a
+[NoInlining] `Forward` to `GameHooks.BotMoveRamp` and `Ramp`: `r = ramped <= 0.05f ? 0.051f : ramped` (the IL's own
+answer without McvsOffline.Server.dll), then `if (!hooksMissing) try { r = Forward(...); } catch { hooksMissing = true; }`.
+`GameHooks.BotMoveRamp` returns 0.051 (what a 17 ms frame gives) for a step at or under 0.05 while
+`embedded.bots.moveFromRest` is on, else the game's value; 3·dt is above 0.05 for every frame of at least 1/60 s, so there the
+result is bit for bit the game's. Raising the first step, rather than scaling it by AiModulo (which would make the whole ramp
+four times faster on both platforms) or setting `acceleration` (3.3 would only cover up to 66 frames/s), keeps the wall-time
+ramp as it is.
+
+Android: optional (`--patch default,botmove`), not in the default set, so the default APK's Game.dll stays as it was. The phone
+runs with no frame limiter (limit -1, vsync only) and its bots are lively today, which under this cause means its in-match
+frames last at least 1/60 s (a client and two server Worlds on a phone). A phone that holds 90-120 frames/s in a match would
+have the same short frames and the same frozen bots: the patch is there for that, and it changes nothing on frames of 1/60 s
+or longer. PC: in the default set (the kit installs it); an explicit `--patch` list that does not name it leaves it out.
+
+The `bots:` lines (§3.8) tell the causes apart in the owner's next logs: blocked starts counted with the switch on and off,
+the AI-tick dt (min, p50 over the last 4096 ticks, max, share under 1/60 s), the server Worlds' frame rate and think rate,
+the PC input-device resets (`PcHooks.WatchInputDevices` subscribes once at boot to
+`Gameloft.Engine.InputManager.OnDeviceDisconnect`, whose `CharacterComponent.ResetInputsWin` zeroes every character's input,
+the match servers' bots included) and the headless-World exceptions of the match.
+
+Tests: `RealBotMovePatchTests` (both builds' fingerprint; the exact inserted IL on the Android and the Steam Game.dll; the
+real `adaptSpeed` executed on net8 on an uninitialised `BT_Action_MoveTo`: 0.049698 at 16.566 ms in the shipped code, 0.051
+patched, bit for bit the same at 1/60 s and longer; the helper with and without the server, the latch; a second application
+and a server without the hook refused; ILVerify), `BotHooksTests` (the hook's answers, the lines, the input resets on an
+`InputManager` look-alike), `RealPcPatchTests` (the site table, the full PC plan, the other build refused, second application),
+`PatchPlanTests`, `PatchTests`, `RealGameTests` (the default APK has no `botmove` note; `all` has it), `WindowsEmbeddedHostTests`,
+`SettingsSchemaPlatformTests`.
 
 ---------------------------------------------------------------------------------------------------
 

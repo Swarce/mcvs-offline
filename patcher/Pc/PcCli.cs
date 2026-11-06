@@ -205,6 +205,8 @@ namespace McvsOffline.Patcher.Pc
             "                        patch and recorded in install.json (without it settings.json is left alone and its port,\n" +
             "                        else 51780, is used)\n" +
             "  --patch <list>        default (the default set), none (mandatory only), all, or ids, e.g. default,forum\n" +
+            "                        (since build 27 the default set has botmove: a resting bot always takes its first step at\n" +
+            "                        the 60 FPS limit; settings.json embedded.bots.moveFromRest false turns that off for an A/B run)\n" +
             "  --dry-run             verify every patch site and print the SHA-256 of every file, write nothing\n" +
             "  --force               install on a build that is not the verified 6372049 (sites are still verified)\n" +
             "  --remove-data --yes   uninstall also deletes McvsOffline\\ (saves, settings, logs)\n\n" +

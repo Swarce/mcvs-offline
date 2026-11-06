@@ -18,7 +18,7 @@ namespace McvsOffline.Tests.Admin
         /// <summary>§3.1, in page order.</summary>
         private static readonly string[] EditableKeys =
         {
-            "instantBots", "admin.settingsMenu.trim", "admin.settingsMenu.sameFrame", "admin.settingsMenu.aboutCentre", "admin.settingsMenu.performance", "devMenu",
+            "instantBots", "embedded.bots.moveFromRest", "admin.settingsMenu.trim", "admin.settingsMenu.sameFrame", "admin.settingsMenu.aboutCentre", "admin.settingsMenu.performance", "devMenu",
             "leaderboards.virtualPlayers", "geo.country",
             "graphics.profile", "graphics.fullProfile", "graphics.msaa", "graphics.renderScale", "graphics.lowResMaps", "hd.enabled",
             "economy.versusCoinsMultiplier", "economy.creditsMultiplier", "economy.xpMultiplier", "economy.priceMultiplier", "crm.dailyCapMultiplier",

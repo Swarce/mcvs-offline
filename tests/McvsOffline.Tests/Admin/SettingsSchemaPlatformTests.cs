@@ -87,6 +87,24 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal(SettingsSchema.Groups.Select(g => g.Id), views.Select(v => v.Group.Id));
         }
 
+        [Theory]
+        [InlineData("windows")]
+        [InlineData("android")]
+        public void TheBotSwitchIsAGameplayKeyOnBothPlatforms(string platform)
+        {
+            SettingDefinition key = SettingsSchema.GroupsFor(platform).Single(v => v.Group.Id == "gameplay").Keys.Single(k => k.Key == "embedded.bots.moveFromRest");
+            Assert.Same(SettingsSchema.Find(SettingsSchema.BotsMoveFromRestKey), key);
+            Assert.Equal("Bots start moving at any frame rate", key.Label);
+            Assert.Equal(SettingsSchema.TypeBool, key.Type);
+            Assert.Equal(true, key.Default);
+            Assert.Equal(SettingsSchema.Restart, key.Apply);
+            Assert.True(key.Editable);
+            Assert.Contains("1/60 s", key.Help);
+            Assert.Contains("60 FPS limit", key.Help);
+            Assert.Contains("'botmove' patch", key.Help);
+            Assert.DoesNotContain(SettingsSchema.GroupsFor(platform).Single(v => v.Group.Id == "advanced").Advanced, kv => kv.Key == key.Key);
+        }
+
         [Fact]
         public void WindowsHasThePcWordingOfTheGraphicsProfile()
         {

@@ -156,6 +156,8 @@ namespace McvsOffline.Server.Services.Admin
         /// <summary>Read by the embedded host's AdminHooks.AccountMenuButtons each time Settings › Account opens.</summary>
         public const string AccountMenuHideDeadButtonsKey = "admin.accountMenu.hideDeadButtons";
 
+        public const string BotsMoveFromRestKey = "embedded.bots.moveFromRest";
+
         /// <summary>
         /// Read by the embedded host (AdminHost.SettingsMenuTrim) each time the game's Settings menu opens: SOCIAL MEDIA, FORUM,
         /// CUSTOMER CARE (and MORE GAMES) hidden and the tiles left centred (docs/design/settings-menu.md §3.2). Both platforms.
@@ -731,6 +733,12 @@ namespace McvsOffline.Server.Services.Admin
                 // Gameplay
                 Bool("gameplay", "instantBots", "Instant bot matches", true, Menu,
                      "Matches start at once and bots fill the empty slots. Off: the game waits for other players first."),
+                // Read by the embedded host at start (GameHooks.ConfigureBots; patch 'botmove', build 27).
+                Bool("gameplay", BotsMoveFromRestKey, "Bots start moving at any frame rate", true, Restart,
+                     "On: a bot standing still always takes its first step. The game's start-up step is too small when a frame lasts "
+                     + "less than 1/60 s, which the PC's 60 FPS limit produces (bots then wait at spawn until they see someone) and a "
+                     + "phone running above 60 frames/s would too. Off: the game's own code, for an A/B run; the log still counts the "
+                     + "blocked starts. Needs a build with the 'botmove' patch (on PC in the default set; an APK only with --patch botmove)."),
                 // Read by the embedded host each time Settings opens (SettingsMenu/UiNatives; docs/design/settings-menu.md §3).
                 Bool("gameplay", SettingsMenuTrimKey, "Shorter Settings menu", true, Live,
                      "Hides SOCIAL MEDIA, FORUM and CUSTOMER CARE (and MORE GAMES on phones) in the game's Settings menu, which "

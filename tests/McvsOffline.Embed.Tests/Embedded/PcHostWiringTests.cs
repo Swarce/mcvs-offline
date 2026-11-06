@@ -46,7 +46,7 @@ namespace McvsOffline.Embed.Tests.Embedded
 
         private static WindowsPlatform Platform(string root)
         {
-            return new WindowsPlatform { GameRoot = root, Steam = new SteamOverlayTests.FakeSteam(), CheckInstall = false };
+            return new WindowsPlatform { GameRoot = root, Steam = new SteamOverlayTests.FakeSteam(), CheckInstall = false, WatchInputDevices = false };
         }
 
         private static EmbeddedHost Boot(WindowsPlatform platform)
@@ -78,6 +78,11 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.Equal(new[] { "watchdog" }, diagnostics.Keys.ToArray());
                 var physics = (Dictionary<string, object>)((Dictionary<string, object>)settings["embedded"])["physics"];
                 Assert.Equal(true, physics["keepPhysicsLayer"]);
+                // Build 27: patch 'botmove' is in the PC default set; its switch is written on.
+                var bots = (Dictionary<string, object>)((Dictionary<string, object>)settings["embedded"])["bots"];
+                Assert.Equal(new[] { "moveFromRest" }, bots.Keys.ToArray());
+                Assert.Equal(true, bots["moveFromRest"]);
+                Assert.Contains("\nbots: no MoveTo ramp call yet (no bot match, or no 'botmove' patch); settings embedded.bots.moveFromRest true", host.DescribeState());
                 Assert.Equal("auto", ((Dictionary<string, object>)settings["graphics"])["profile"]);
                 Assert.True(host.FlushLogs(10000));
                 string log = File.ReadAllText(host.Paths.BootstrapLog);
@@ -165,6 +170,38 @@ namespace McvsOffline.Embed.Tests.Embedded
             finally
             {
                 directory.Server?.Dispose();
+            }
+        }
+
+        [Fact]
+        public void TheBotSwitchIsReadAtStartAndTheInputResetsAreWatched()
+        {
+            string root = DepotRoot("pchost-bots");
+            Directory.CreateDirectory(Path.Combine(root, "McvsOffline"));
+            File.WriteAllText(Path.Combine(root, "McvsOffline", "settings.json"), "{\"embedded\": {\"bots\": {\"moveFromRest\": false}}}");
+            WindowsPlatform platform = Platform(root);
+            platform.WatchInputDevices = true;
+            Assert.True(new WindowsPlatform().WatchInputDevices);   // on by default
+            Func<IEnumerable<System.Reflection.Assembly>> loaded = LoadedTypes.Source;   // LoadedTypesIsolation's
+            LoadedTypes.Source = () => new System.Reflection.Assembly[0];   // the engine is not loaded in the tests
+            EmbeddedHost host = Boot(platform);
+            try
+            {
+                // The A/B value reaches GameHooks: a blocked start stays blocked.
+                Assert.Equal(0.0497f, GameHooks.BotMoveRamp(0.0497f, 0f, 0.016566f));
+                Assert.Contains("settings embedded.bots.moveFromRest false", host.DescribeState());
+                Assert.True(host.FlushLogs(10000));
+                string log = File.ReadAllText(host.Paths.BootstrapLog);
+                Assert.Contains("settings embedded.bots differs from the defaults: moveFromRest False", log);
+                Assert.Contains("bots: Gameloft.Engine.InputManager is not loaded: input device resets are not counted", log);
+            }
+            finally
+            {
+                host.Server?.Dispose();
+                LoadedTypes.Source = loaded;
+                GameHooks.ResetBots();
+                GraphicsHooks.ResetForTests();
+                PcHooks.ResetForTests();
             }
         }
 
@@ -275,6 +312,8 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.Equal(true, diagnostics["publicLogCopy"]);
                 Assert.Equal(true, diagnostics["threadDump"]);
                 Assert.False(((Dictionary<string, object>)((Dictionary<string, object>)settings["embedded"])["physics"]).ContainsKey("keepPhysicsLayer"));
+                // Written on Android too (inert without --patch botmove, which the default APK does not have).
+                Assert.Equal(true, ((Dictionary<string, object>)((Dictionary<string, object>)settings["embedded"])["bots"])["moveFromRest"]);
                 Assert.False(GraphicsHooks.IsWindows);
             }
             finally
