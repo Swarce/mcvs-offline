@@ -757,7 +757,8 @@ for the PC frame periods (the WCP pacer's disassembly, not a measurement).
   decel branch is). Once moving, each AI tick adds 3·dt and there are 1/(AiModulo·dt) ticks per second: frame-rate
   independent. **[V]**
 * Every World, the in-process GS included, is updated with the client frame's dt. The PC frame cap is the WCP limiter
-  (`GamePreferencesComponent.FpsValues` {30, 60} → `GameApplication.WCPFramerateLimit`; WCPToolkit.dll 0x10011430 spins until
+  (the in-game FPS LIMIT, preference `FPS` 30/60/90/120 → `GameApplication.WCPFramerateLimit`; `FpsValues` {30, 60} feeds only
+  the hidden `MaxFramerate` row, pc-port.md §8.11; WCPToolkit.dll 0x10011430 spins until
   `target_us <= elapsed_us + 100`), so a 60 FPS frame lasts about 16.57 ms: every start is blocked. At 30 FPS (33.2 ms) it
   passes. The phone has no limiter (limit -1, vsync only). Gameloft's servers ran at `HeadlessFramerateLimit` 40 (25 ms),
   where the threshold never mattered. **[L]**

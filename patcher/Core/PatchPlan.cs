@@ -42,12 +42,12 @@ namespace McvsOffline.Patcher.Core
             "hook-pc",
             "headless", "store", "signatures", "inbox", "adminpage", "forum",
             "headless-engine", "physics", "quicklaunch", "headless-diag", "nativeonline", "waits", "adminlink", "graphics", "gameload",
-            "geo", "botmove",
+            "geo", "botmove", "fpslimit",
         };
 
         private static readonly PatchIds PcIds = new PatchIds(
             new[] { "hook-pc", "headless", "headless-engine", "physics", "quicklaunch", "headless-diag", "graphics", "gameload" },
-            new[] { "nativeonline", "waits", "adminlink", "geo", "store", "signatures", "inbox", "adminpage", "botmove" },
+            new[] { "nativeonline", "waits", "adminlink", "geo", "store", "signatures", "inbox", "adminpage", "botmove", "fpslimit" },
             new[] { "forum" },
             new[] { "hook", "finder", "finderport", "lan", "debloat", "targetsdk", "game" });
 
@@ -55,7 +55,7 @@ namespace McvsOffline.Patcher.Core
             PatcherOptions.MandatoryPatches,
             PatcherOptions.DefaultPatches,
             PatcherOptions.OptionalPatches.Where(id => !PatcherOptions.DefaultPatches.Contains(id)),
-            new[] { "hook-pc", "quicklaunch", "headless-diag", "gameload" });
+            new[] { "hook-pc", "quicklaunch", "headless-diag", "gameload", "fpslimit" });
 
         /// <summary>
         /// Patch ids earlier builds had, on either platform, and when they went: <c>--patch</c> (APK, <c>pc install</c>, the kit)
@@ -121,6 +121,7 @@ namespace McvsOffline.Patcher.Core
                 case "gameload": return new GameAssemblyLoadPatch();
                 case "geo": return new GeoPatch();
                 case "botmove": return new BotMovePatch();
+                case "fpslimit": return new FpsLimitPatch();
                 default: throw new ArgumentException("unknown PC patch '" + id + "'");
             }
         }

@@ -84,8 +84,14 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.Equal(true, bots["moveFromRest"]);
                 Assert.Contains("\nbots: no MoveTo ramp call yet (no bot match, or no 'botmove' patch); settings embedded.bots.moveFromRest true", host.DescribeState());
                 Assert.Equal("auto", ((Dictionary<string, object>)settings["graphics"])["profile"]);
+                // Build 27 (patch 'fpslimit'): the frame rate limit is written as "game" (the in-game FPS LIMIT, as shipped).
+                Assert.Equal("game", ((Dictionary<string, object>)settings["graphics"])["pcFpsLimit"]);
+                Assert.Equal(60f, GraphicsHooks.FrameRateLimit(60f));
+                Assert.Contains("frame rate limit 60, the in-game FPS LIMIT (settings graphics.pcFpsLimit game)", host.DescribeState());
                 Assert.True(host.FlushLogs(10000));
                 string log = File.ReadAllText(host.Paths.BootstrapLog);
+                Assert.DoesNotContain("replaces the in-game FPS LIMIT", log);   // the default: no settings line, only the hook's
+                Assert.Contains("graphics: frame rate limit 60, the in-game FPS LIMIT (settings graphics.pcFpsLimit game)", log);
                 Assert.Contains("MCVS Offline host started by the game (EngineBridge.Class1.Start)", log);
                 Assert.Contains("args.txt updated: the native engine reads it at MainLoop_Start", log);
                 Assert.Contains("runtime: CLR ", log);
@@ -200,6 +206,44 @@ namespace McvsOffline.Embed.Tests.Embedded
                 host.Server?.Dispose();
                 LoadedTypes.Source = loaded;
                 GameHooks.ResetBots();
+                GraphicsHooks.ResetForTests();
+                PcHooks.ResetForTests();
+            }
+        }
+
+        /// <summary>
+        /// Build 27 (patch 'fpslimit'): graphics.pcFpsLimit is read from the host's copy at start and from the server's copy (the one
+        /// the settings page saves) once the server runs; a save of it reaches GraphicsHooks.FrameRateSettingChanged, which here
+        /// finds no game thread (no engine in the tests) and says so.
+        /// </summary>
+        [Fact]
+        public void TheFrameRateLimitIsReadAtStartAndFollowsTheSettingsPage()
+        {
+            string root = DepotRoot("pchost-fps");
+            Directory.CreateDirectory(Path.Combine(root, "McvsOffline"));
+            File.WriteAllText(Path.Combine(root, "McvsOffline", "settings.json"), "{\"graphics\": {\"pcFpsLimit\": \"144\"}}");
+            Func<IEnumerable<System.Reflection.Assembly>> loaded = LoadedTypes.Source;   // LoadedTypesIsolation's
+            LoadedTypes.Source = () => new System.Reflection.Assembly[0];   // the engine is not loaded in the tests
+            EmbeddedHost host = Boot(Platform(root));
+            try
+            {
+                Assert.Equal(144f, GraphicsHooks.FrameRateLimit(60f));
+                Assert.Contains("frame rate limit 144 from settings graphics.pcFpsLimit (in-game FPS LIMIT 60 not used); VSYNC unknown", host.DescribeState());
+                host.Server.Context.Settings.SetAndSave(new Dictionary<string, object> { ["graphics.pcFpsLimit"] = "unlimited" });
+                Assert.Equal(1000f, GraphicsHooks.FrameRateLimit(60f));
+                host.Server.Context.Settings.SetAndSave(new Dictionary<string, object> { ["graphics.pcFpsLimit"] = "game" });
+                Assert.Equal(90f, GraphicsHooks.FrameRateLimit(90f));
+                Assert.True(host.FlushLogs(10000));
+                string log = File.ReadAllText(host.Paths.BootstrapLog);
+                Assert.Contains("settings graphics.pcFpsLimit 144 (replaces the in-game FPS LIMIT when the game sets it; needs patch 'fpslimit')", log);
+                Assert.Contains("graphics: frame rate limit 144 from settings graphics.pcFpsLimit (in-game FPS LIMIT 60 not used); VSYNC unknown", log);
+                Assert.Contains("graphics: settings graphics.pcFpsLimit 'unlimited' saved, but the game thread could not be reached; it applies at the next start or FPS LIMIT change", log);
+                Assert.Contains("graphics: frame rate limit 90, the in-game FPS LIMIT (settings graphics.pcFpsLimit game); VSYNC unknown", log);
+            }
+            finally
+            {
+                host.Server?.Dispose();
+                LoadedTypes.Source = loaded;
                 GraphicsHooks.ResetForTests();
                 PcHooks.ResetForTests();
             }

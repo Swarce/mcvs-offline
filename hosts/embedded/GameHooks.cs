@@ -601,7 +601,8 @@ namespace McvsOffline
 
         /// <summary>
         /// "bots: server Worlds w2 at 60.1 frames/s (TotalFrames/TotalTime), BT_Root.AiModulo 4 -> 15.0 thinks/s; client FPS cap
-        /// 60, Vsync true (in-game)", read by reflection from the loaded engine and Game (never a load) on the game thread.
+        /// 60, Vsync true (in-game)", plus "; pacer limit 144 (settings graphics.pcFpsLimit)" while that setting replaces the in-game
+        /// cap, read by reflection from the loaded engine and Game (never a load) on the game thread.
         /// </summary>
         private static string DescribeBotWorlds()
         {
@@ -616,7 +617,7 @@ namespace McvsOffline
                 IDictionary<string, string> prefs = GraphicsHooks.ReadInGamePreferences(
                     Embedded.LoadedTypes.Find(Embedded.LoadedTypes.GameAssembly, "Game.GamePreferencesComponent"));
                 return FormatBotWorlds(worlds == null ? null : worlds.GetValue(application) as System.Collections.IEnumerable,
-                                       modulo == null ? null : modulo.GetValue(null) as int?, prefs);
+                                       modulo == null ? null : modulo.GetValue(null) as int?, prefs) + GraphicsHooks.FrameRateOverrideNote();
             }
             catch (Exception ex)
             {

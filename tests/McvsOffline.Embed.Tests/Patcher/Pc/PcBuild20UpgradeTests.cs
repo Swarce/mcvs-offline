@@ -114,8 +114,8 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                     return o;
                 };
                 Assert.DoesNotContain("bottile", PatchPlan.Ids(BuildProfile.PcSteam6372049).Default);
-                // Build 20's default set: today's without 'botmove' (build 27), which an explicit build-20 list cannot name.
-                List<string> build20Ids = PatchPlan.Ids(BuildProfile.PcSteam6372049).Default.Where(id => id != "botmove").ToList();
+                // Build 20's default set: today's without 'botmove' and 'fpslimit' (build 27), which an explicit build-20 list cannot name.
+                List<string> build20Ids = PatchPlan.Ids(BuildProfile.PcSteam6372049).Default.Where(id => id != "botmove" && id != "fpslimit").ToList();
                 Assert.Equal(build20Ids.OrderBy(id => id, StringComparer.Ordinal),
                              PcReportText.ParsePatchList(Build20Defaults.Replace("bottile,", "")).OrderBy(id => id, StringComparer.Ordinal));
 
@@ -165,6 +165,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 Assert.Contains("warning: " + BotTileWarning, installText);
                 Assert.DoesNotContain("bottile", r21.Applied);
                 Assert.DoesNotContain("botmove", r21.Applied);   // an explicit list is applied as typed
+                Assert.DoesNotContain("fpslimit", r21.Applied);
                 Assert.Equal(fresh.Applied, r21.Applied);
 
                 // The Game.dll a fresh build-21 install writes, from the game folder's own Game.dll; install.json without 'bottile'.

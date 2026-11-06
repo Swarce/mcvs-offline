@@ -719,6 +719,7 @@ namespace McvsOffline.Embedded
                 GraphicsHooks.ConfigureWindows(keep);
                 file = GameOptionsWindows.FileName;
                 if (!keep) Log.Warn("settings embedded.physics.keepPhysicsLayer is false: a MEM profile that excludes the levels' Physics layer applies to the server Worlds too");
+                ConfigureFrameRate();
             }
             string normalized = GameOptionsProfile.Normalize(profile);
             if (normalized == null)
@@ -726,6 +727,56 @@ namespace McvsOffline.Embedded
             else if (normalized != GameOptionsProfile.Auto || full)
                 Log.Info("settings graphics.profile " + normalized + (full ? ", graphics.fullProfile true" : "") +
                          " (applied when the game reads " + file + "; needs patch 'graphics')");
+        }
+
+        /// <summary>
+        /// PC, settings.json <c>graphics.pcFpsLimit</c> (patch 'fpslimit', build 27; PcFrameRate): read from this copy until the server
+        /// runs (<see cref="WatchFrameRateSetting"/> then switches to the copy the settings page saves). "game" (the default) keeps the
+        /// in-game FPS LIMIT; anything else is logged here once, and the "graphics: frame rate limit" line follows when the game sets
+        /// its limit.
+        /// </summary>
+        private void ConfigureFrameRate()
+        {
+            Settings hostSettings = Settings;
+            GraphicsHooks.ConfigureFrameRate(() => hostSettings.Get(PcFrameRate.SettingsKey), null);
+            object raw = Settings.Get(PcFrameRate.SettingsKey);
+            string choice = PcFrameRate.Normalize(raw);
+            if (choice == null)
+                Log.Warn("settings " + PcFrameRate.SettingsKey + " '" + Convert.ToString(raw, CultureInfo.InvariantCulture) + "' is not one of " +
+                         string.Join(", ", PcFrameRate.Options) + ": the in-game FPS LIMIT applies");
+            else if (PcFrameRate.Overrides(choice))
+                Log.Info("settings " + PcFrameRate.SettingsKey + " " + choice + " (replaces the in-game FPS LIMIT when the game sets it; needs patch 'fpslimit')");
+        }
+
+        /// <summary>
+        /// PC: from now on <c>graphics.pcFpsLimit</c> is read from the server's copy of settings.json, and a save of it on the settings
+        /// page reaches the pacer at once (GraphicsHooks.FrameRateSettingChanged, posted to the game thread). Never throws.
+        /// </summary>
+        private void WatchFrameRateSetting(McvsServer created, AdminHost admin)
+        {
+            if (!isWindows) return;
+            try
+            {
+                Settings serverSettings = created.Context.Settings;
+                GameReflection game = admin != null ? admin.Game : GameReflection.Load();
+                Log gameLog = Logger.For("game");
+                GraphicsHooks.ConfigureFrameRate(() => serverSettings.Get(PcFrameRate.SettingsKey), action => game.Post(action, gameLog));
+                serverSettings.Changed += keys =>
+                {
+                    foreach (string key in keys)
+                    {
+                        if (key == PcFrameRate.SettingsKey || key == "graphics")
+                        {
+                            GraphicsHooks.FrameRateSettingChanged();
+                            return;
+                        }
+                    }
+                };
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("graphics: changes of " + PcFrameRate.SettingsKey + " on the settings page apply at the next start only", ex);
+            }
         }
 
         /// <summary>The platform's own pieces (PC: PcHooks, the runtime line, the install check). Never throws.</summary>
@@ -969,6 +1020,8 @@ namespace McvsOffline.Embedded
                 changed |= AddDefault(NotificationPermission.RequestedAtKey, "");
             }
             if (isWindows) changed |= AddDefault("embedded.physics.keepPhysicsLayer", true);
+            // Build 27 (patch 'fpslimit', PC only): "game" keeps the in-game FPS LIMIT; the settings page offers 30 to 240 and unlimited.
+            if (isWindows) changed |= AddDefault(PcFrameRate.SettingsKey, PcFrameRate.Game);
             if (!changed) return;
             if (Settings.IsFallback)
             {
@@ -1067,6 +1120,7 @@ namespace McvsOffline.Embedded
                 if (reservation != null) reservation.Adopted();   // the server closes it from here on, even if Start never runs
                 StartLogCleanup(created);
                 AdminHost admin = CreateAdminHost(created);
+                WatchFrameRateSetting(created, admin);
                 // A reserved socket cannot be busy: one Start. Otherwise (pinned port, or nothing could be bound) the build-25 retries.
                 int attempts = listener != null || options.StartAttempts < 1 ? 1 : options.StartAttempts;
                 for (int attempt = 1; ; attempt++)

@@ -203,6 +203,13 @@ namespace McvsOffline.Server.Services.Admin
         /// </summary>
         public const string GraphicsFpsListVersionKey = "graphics.fpsListVersion";
 
+        /// <summary>
+        /// PC only (patch 'fpslimit', build 27): the frame rate limit the Steam game gives its pacer instead of its FPS LIMIT row.
+        /// Applied at once by the embedded host (Settings.Changed, GraphicsHooks.FrameRateSettingChanged) and whenever the game sets
+        /// its limit; docs/design/pc-port.md §8.11.
+        /// </summary>
+        public const string GraphicsPcFpsLimitKey = "graphics.pcFpsLimit";
+
         /// <summary>liveops.arenaRotation: rotate, off and every mode of the shipped liveops.json <c>arena.modes</c> (a test
         /// keeps the list equal to the catalogue).</summary>
         internal static readonly string[] ArenaRotationChoices =
@@ -282,6 +289,21 @@ namespace McvsOffline.Server.Services.Admin
             AccountMenuHideDeadButtonsKey, SettingsMenuAboutCentreKey, SettingsMenuPerformanceKey, GraphicsMsaaKey, GraphicsRenderScaleKey,
             GraphicsLowResMapsKey, GraphicsFpsListVersionKey,
         };
+
+        /// <summary>
+        /// Editable keys only the PC host uses: <see cref="GroupsFor"/> leaves them out on every other platform. They stay in
+        /// <see cref="Keys"/> (so <see cref="Find"/> validates a save) and inert elsewhere: nothing but the PC host reads them.
+        /// </summary>
+        private static readonly string[] WindowsOnly =
+        {
+            GraphicsPcFpsLimitKey,
+        };
+
+        /// <summary>True for the editable keys only the PC page shows (<see cref="WindowsOnly"/>).</summary>
+        public static bool IsWindowsOnly(string key)
+        {
+            return Array.IndexOf(WindowsOnly, key) >= 0;
+        }
 
         /// <summary>Read-only keys only the PC host has, as key, label, description, inserted after <see cref="WindowsAdvancedAfter"/>.</summary>
         private static readonly string[] WindowsAdvanced =
@@ -375,7 +397,7 @@ namespace McvsOffline.Server.Services.Admin
                         if (def.Group != group.Id) continue;
                         if (!windows)
                         {
-                            view.Keys.Add(def);
+                            if (!IsWindowsOnly(def.Key)) view.Keys.Add(def);
                             continue;
                         }
                         if (HiddenOnWindows(def.Key)) continue;
@@ -778,6 +800,17 @@ namespace McvsOffline.Server.Services.Admin
                                + "profile as it is."),
                           "This also changes the match servers inside the game: they load the levels' Physics layer and run bot AI "
                           + "twice as often. If matches stall or stutter, turn it off again.", "enable", null),
+                // PC only (WindowsOnly; patch 'fpslimit'): applied at once by the PC host (Settings.Changed) and whenever the game
+                // sets its limit (start, FPS LIMIT row). The values are text so the page shows them as one list.
+                Choice("graphics", GraphicsPcFpsLimitKey, "Frame rate limit", "game", Live,
+                       "The frame rate limit of the game. Game: the in-game FPS LIMIT (Settings › Performance: 30, 60, 90 or 120), as "
+                       + "shipped. 144, 165, 240: limits that row does not offer. Unlimited: the game no longer holds frames back (its "
+                       + "pacer allows up to 1000 FPS), so VSYNC and your graphics card decide. With VSYNC on, your screen's refresh rate "
+                       + "is the limit: above 60 needs a faster screen or VSYNC off. More frames cost more CPU and heat (the match servers "
+                       + "inside the game run at the same rate and bots think more often), and above 60 bots need the 'botmove' patch "
+                       + "or they wait at spawn. The in-game row keeps showing its own value while another one is chosen here. Applies "
+                       + "at once. Needs a build with the 'fpslimit' patch (both patches are in the PC default set).",
+                       "game", "30", "60", "90", "120", "144", "165", "240", "unlimited"),
                 // The values of the game's PERFORMANCE page on Android (SettingsMenu/PerformancePage, Graphics/PerformancePrefs;
                 // settings-menu.md §2, §3.4). The page shows "auto" as what the engine has now. All restart from here: the embedded
                 // host reads them from its own copy at start, and nothing applies a save of this page's copy to the running engine;

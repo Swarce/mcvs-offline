@@ -153,6 +153,18 @@ namespace McvsOffline
         {
             HookLog.Record(""GraphicsHooks.GameOptionsApplied"", options);
         }
+
+        /// <summary>NaN: answer the game's own value.</summary>
+        public static float FrameRateLimitAnswer = float.NaN;
+
+        public static bool FrameRateLimitThrows;
+
+        public static float FrameRateLimit(float gameValue)
+        {
+            HookLog.Record(""GraphicsHooks.FrameRateLimit"", gameValue);
+            if (FrameRateLimitThrows) throw new InvalidOperationException(""FrameRateLimit failed"");
+            return float.IsNaN(FrameRateLimitAnswer) ? gameValue : FrameRateLimitAnswer;
+        }
     }
 
     public static class PcHooks
@@ -193,28 +205,34 @@ namespace McvsOffline
             lock (Gate)
             {
                 if (compiled != null) return compiled;
-                string refs = TestEnvironment.Net452Refs;
-                if (refs == null) throw new InvalidOperationException("the .NET Framework 4.5.2 reference assemblies are missing (MCVS_NET452_REFS)");
-                var references = new[] { "mscorlib.dll", "System.dll", "System.Core.dll" }
-                    .Select(f => (MetadataReference)MetadataReference.CreateFromFile(Path.Combine(refs, f)))
-                    .ToList();
-                var parse = new CSharpParseOptions(LanguageVersion.CSharp7_3);
-                var tree = CSharpSyntaxTree.ParseText(Source, parse);
-                // The port hooks ('geo'; build 26) are the real file: System only, C# 7.3.
-                var ports = CSharpSyntaxTree.ParseText(FixtureCompiler.RepoSource("hosts", "embedded", "PortHooks.cs"), parse);
-                var compilation = CSharpCompilation.Create("McvsOffline.Server", new[] { tree, ports }, references,
-                    new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Release, deterministic: true));
-                using (var stream = new MemoryStream())
+                compiled = Compile(Source);
+                return compiled;
+            }
+        }
+
+        /// <summary>A variant of <see cref="Source"/> (e.g. a server without one hook) built the same way (not cached).</summary>
+        public static byte[] Compile(string source)
+        {
+            string refs = TestEnvironment.Net452Refs;
+            if (refs == null) throw new InvalidOperationException("the .NET Framework 4.5.2 reference assemblies are missing (MCVS_NET452_REFS)");
+            var references = new[] { "mscorlib.dll", "System.dll", "System.Core.dll" }
+                .Select(f => (MetadataReference)MetadataReference.CreateFromFile(Path.Combine(refs, f)))
+                .ToList();
+            var parse = new CSharpParseOptions(LanguageVersion.CSharp7_3);
+            var tree = CSharpSyntaxTree.ParseText(source, parse);
+            // The port hooks ('geo'; build 26) are the real file: System only, C# 7.3.
+            var ports = CSharpSyntaxTree.ParseText(FixtureCompiler.RepoSource("hosts", "embedded", "PortHooks.cs"), parse);
+            var compilation = CSharpCompilation.Create("McvsOffline.Server", new[] { tree, ports }, references,
+                new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Release, deterministic: true));
+            using (var stream = new MemoryStream())
+            {
+                var result = compilation.Emit(stream);
+                if (!result.Success)
                 {
-                    var result = compilation.Emit(stream);
-                    if (!result.Success)
-                    {
-                        throw new InvalidOperationException("PcHookServer does not compile:\n" +
-                                                            string.Join("\n", result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)));
-                    }
-                    compiled = stream.ToArray();
-                    return compiled;
+                    throw new InvalidOperationException("PcHookServer does not compile:\n" +
+                                                        string.Join("\n", result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)));
                 }
+                return stream.ToArray();
             }
         }
 

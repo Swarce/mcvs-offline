@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Json;
 using Xunit;
@@ -103,6 +104,39 @@ namespace McvsOffline.Tests.Core
             Assert.Equal(2.0, settings.GetDouble("economy.xpMultiplier", 0));
             Assert.Null(settings.Get("liveops.seasonDays"));
             Assert.Null(settings.Get("liveops"));
+        }
+
+        /// <summary>
+        /// Build 27: Changed follows a successful SetAndSave with the keys it wrote (the PC host applies graphics.pcFpsLimit at once);
+        /// a failed save raises nothing, and a handler that throws neither breaks the save nor the other handlers.
+        /// </summary>
+        [Fact]
+        public void ChangedFollowsASuccessfulSaveWithTheKeys()
+        {
+            using var dir = new TempDir();
+            string path = dir.Combine("settings.json");
+            Settings settings = Settings.Load(path, null);
+            var seen = new List<string[]>();
+            string valueSeen = null;
+            settings.Changed += keys => throw new InvalidOperationException("a broken handler");
+            settings.Changed += keys =>
+            {
+                seen.Add(new List<string>(keys).ToArray());
+                valueSeen = settings.GetString("graphics.pcFpsLimit", null);   // already saved and readable
+            };
+            settings.SetAndSave(new Dictionary<string, object> { ["graphics.pcFpsLimit"] = "144", ["economy.xpMultiplier"] = 2.0 });
+            Assert.Single(seen);
+            Assert.Equal(new[] { "economy.xpMultiplier", "graphics.pcFpsLimit" }, seen[0].OrderBy(k => k, StringComparer.Ordinal));
+            Assert.Equal("144", valueSeen);
+            Assert.Equal("144", JsonPath.Get(MiniJson.ParseObject(File.ReadAllText(path)), "graphics.pcFpsLimit"));
+
+            // Set (no save) raises nothing; a failed save raises nothing.
+            settings.Set("graphics.pcFpsLimit", "60");
+            Assert.Single(seen);
+            File.Delete(path);
+            Directory.CreateDirectory(path);
+            Assert.ThrowsAny<Exception>(() => settings.SetAndSave(new Dictionary<string, object> { ["graphics.pcFpsLimit"] = "unlimited" }));
+            Assert.Single(seen);
         }
     }
 }

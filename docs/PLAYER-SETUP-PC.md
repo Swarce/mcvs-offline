@@ -139,6 +139,24 @@ full screen, Vsync, resolution, field of view, low resolution maps). The graphic
 it crashes soon after you chose High, go back to Mid. The `[boot] graphics:` lines and the `graphics:` part of the
 `[status]` lines in `McvsOffline\logs\bootstrap.log` say which profile ran and what the game's menu was set to.
 
+**Frame rate** (build 27). The game's FPS LIMIT row (Settings › PERFORMANCE) offers 30, 60, 90 and 120. With **VSYNC on**
+your screen's refresh rate is most likely the real limit, so on a 60 Hz screen 90 and 120 still show 60: for more, turn
+VSYNC off or use a faster screen (please tell us what you see). For a value the row does not offer, use the settings page: Settings › Graphics › **Frame rate limit**
+(`graphics.pcFpsLimit` in `McvsOffline\settings.json`):
+* **game** (the default): the in-game FPS LIMIT decides, exactly as before.
+* **144**, **165**, **240** (also 30 to 120): that limit, whatever the in-game row says.
+* **unlimited**: the game no longer holds frames back (internally it allows up to 1000 frames per second, which no screen
+  reaches), so VSYNC and your graphics card decide. Android's "no limit" value (-1) cannot be used on Steam: the Steam
+  game's frame pacer would turn it into 1 frame per second.
+
+The change applies at once, also during a match. The in-game row keeps showing its own value while another one is chosen
+on the settings page; set the page back to **game** to use the row again. More frames cost more CPU and heat (the match
+servers inside the game run at the same rate, and bots think more often). Above 60 the bots need the `botmove` patch,
+which is in the default set since build 27 (without it they wait at spawn). The line
+`graphics: frame rate limit … ; VSYNC on|off` in `McvsOffline\logs\bootstrap.log`, and the `graphics:` part of every
+`[status]` line, say which limit the game got and whether VSYNC was on. Needs the `fpslimit` patch (also in the default set
+since build 27; `[boot] patches: … fpslimit yes`).
+
 **Firewall.** Windows may ask about network access for the game: the game's own physics debug listeners
 (`0.0.0.0:25001` and up) and the match's UDP socket. Allow or decline, both work for single-player.
 
@@ -263,7 +281,7 @@ the bot match: in WR2 they caused the long freezes, which would hide everything 
 | 1 | `status --listing` (before install) | any leftovers it lists (an old config, `McvsOffline\spike\`, an `args.txt` block) | the listing file is written to `McvsOffline\kit\` (or `%TEMP%\McvsOffline\kit\`) |
 | 2 | `probe` from a normal terminal | the http.sys line for `http://localhost:51750/`, the urlacl lines, port 51780, excluded port ranges, folder writable, the .NET Release value; the `GPU adapter:`, `display:`, `physical memory:` and `firewall rules naming ModernCombatVersus.exe:` lines | http.sys starts and stops without "access denied"; every GPU of the PC is listed with its memory |
 | 3 | `install`, then `verify`, then `status` | the notes; the `written … sha256` lines of `verify` | `installed, current`; the six values in the table below, **exactly** |
-| 4 | `watch` in a second window, then start the game from Steam; afterwards `status` | in `McvsOffline\logs\bootstrap.log`: the `[boot] runtime:`, `[boot] assemblies:` and `[boot] patches:` lines; the `state:` and `activation:` lines of `status` | `process x86, LAA no`, `Release` 528040 or higher (4.5.2 at least: 379893); every assembly from `McvsOffline\bin`, **`Game` included** (`assemblies: Game …\McvsOffline\bin\Game.dll`); every patch `yes` (`gameload yes`, `store yes`, `inbox yes`, `botmove yes` from build 27); no `NOT ACTIVE` anywhere; `status`: `installed, current`, `activation: active at the last start`. If `Game` still comes from the game folder (`assemblies: Game …\Game.dll (GAME FOLDER)`), the WARN right under it, `load stack: Game (GAME FOLDER) was loaded by (innermost first):`, lists in its indented `at …` lines the code that loaded it: copy that line and all its `at` lines into your notes and send `bootstrap.log`. If instead it says `assemblies: Game (no file) (elsewhere)`, the game's own loader read its stock `Game.dll` because loading ours failed: send `collect` too |
+| 4 | `watch` in a second window, then start the game from Steam; afterwards `status` | in `McvsOffline\logs\bootstrap.log`: the `[boot] runtime:`, `[boot] assemblies:` and `[boot] patches:` lines; the `state:` and `activation:` lines of `status` | `process x86, LAA no`, `Release` 528040 or higher (4.5.2 at least: 379893); every assembly from `McvsOffline\bin`, **`Game` included** (`assemblies: Game …\McvsOffline\bin\Game.dll`); every patch `yes` (`gameload yes`, `store yes`, `inbox yes`, `botmove yes` and `fpslimit yes` from build 27); no `NOT ACTIVE` anywhere; `status`: `installed, current`, `activation: active at the last start`. If `Game` still comes from the game folder (`assemblies: Game …\Game.dll (GAME FOLDER)`), the WARN right under it, `load stack: Game (GAME FOLDER) was loaded by (innermost first):`, lists in its indented `at …` lines the code that loaded it: copy that line and all its `at` lines into your notes and send `bootstrap.log`. If instead it says `assemblies: Game (no file) (elsewhere)`, the game's own loader read its stock `Game.dll` because loading ours failed: send `collect` too |
 | 5 | reach the main menu | `[pc] quicklaunch:` lines; any `headless world:`, `server world:` or `component … not created` line; the `[boot] graphics:` line | LocalAnubis started and a room; the thread id equals the game thread; no headless/server-world lines; `MEM rule on, removed 1`; `excludedLoadingLayers` without `Physics` |
 | 6 | open the settings page: Settings › Account › MCVS Offline (WR2 could not show it); then the inbox message; then the page's "Open in the system browser"; then `admin.openVia` = `system`, then `game` (restart the game each time); back to `auto`: once fullscreen, once windowed, once with Steam › Settings › In Game › "Enable the Steam Overlay while in-game" off | for each: where the page appeared and whether Status loads; the `admin: page opened … via …` line in `server.log` | the overlay shows the page in both window modes; with the overlay off: `via system` and the browser opens; `game` works after login; if `via overlay` ever shows nothing, the next click logs `via system … overlay showed no page last time` |
 | 7 | on the page: Saves › Save the game now; Saves › Export (Explorer opens `McvsOffline\exports`); Logs › share; copy a text. Then with `admin.openVia` = `system` and the game **minimised** behind the browser: Save the game now | whether each works; whether "Save now" finishes while the game is minimised | all work |

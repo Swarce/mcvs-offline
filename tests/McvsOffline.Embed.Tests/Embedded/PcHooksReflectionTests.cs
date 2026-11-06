@@ -168,10 +168,20 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Type worldType = Prop(p, preferences, "World", PublicInstance)?.PropertyType;
                 Type storageType = Prop(p, worldType, "LocalStorage", PublicInstance)?.PropertyType;
                 Method(p, storageType, "HasMember", PublicInstance, new[] { typeof(string) }, typeof(bool));
+                // GraphicsHooks.ReadVsync (patch 'fpslimit', build 27): the JObject mData (protected), Property(string), .Value.
+                FieldInfo data = storageType?.GetField("mData", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly);
+                p.Check(data != null && data.FieldType.FullName == "Newtonsoft.Json.Linq.JObject", "LocalStorageComponent.mData (JObject)");
+                MethodInfo property = data?.FieldType.GetMethod("Property", PublicInstance, null, new[] { typeof(string) }, null);
+                p.Check(property != null && property.ReturnType.FullName == "Newtonsoft.Json.Linq.JProperty", "JObject.Property(string) -> JProperty");
+                p.Check(property?.ReturnType.GetProperty("Value", PublicInstance) != null, "JProperty.Value");
 
                 // WindowsExit (§6.6) and the watchdog.
                 Method(p, type(engine, "Gameloft.Engine.MenuManager"), McvsOffline.Embedded.Windows.WindowsExit.ExitMethod, PublicStatic, Type.EmptyTypes, typeof(void));
                 Type application = type(engine, "Gameloft.Engine.GameApplication");
+                // GraphicsHooks.SetWcpLimit (patch 'fpslimit', build 27): a save of graphics.pcFpsLimit on the settings page.
+                Prop(p, application, "Instance", PublicStatic, application);
+                PropertyInfo wcp = application?.GetProperty("WCPFramerateLimit", PublicInstance);
+                p.Check(wcp != null && wcp.PropertyType == typeof(float) && wcp.GetSetMethod() != null, "GameApplication.WCPFramerateLimit (float, public setter)");
                 var watchdog = new McvsOffline.Embedded.Diagnostics.GameThreadWatchdog(null, null, null);
                 p.Check(watchdog.Bind(application), "GameThreadWatchdog binds GameApplication");
                 p.Check(application?.GetField("totalTime", BindingFlags.NonPublic | BindingFlags.Instance)?.FieldType == typeof(double), "GameApplication.totalTime");

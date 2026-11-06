@@ -46,6 +46,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             "System.Boolean McvsOffline.AdminHooks::OpenIfPageMarker(System.String,System.Object)",
             "System.String McvsOffline.GraphicsHooks::GameOptionsJson(System.String)",
             "System.Void McvsOffline.GraphicsHooks::GameOptionsApplied(System.Object)",
+            "System.Single McvsOffline.GraphicsHooks::FrameRateLimit(System.Single)",
             "System.Threading.Tasks.Task McvsOffline.PcHooks::QuickLaunch(System.Object,System.Object,System.Threading.CancellationToken)",
             "System.Void McvsOffline.PcHooks::DefaultAutomatchHost(System.Object)",
             "System.Void McvsOffline.PcHooks::ServerWorldFailed(System.Exception)",
@@ -119,6 +120,8 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             Assert.Equal("Game." + InboxPatch.HelperType, McvsOffline.Embedded.GamePatchProbe.InboxType);
             Assert.Equal("McvsBotMove", BotMovePatch.HelperType);
             Assert.Equal(BotMovePatch.HelperNamespace + "." + BotMovePatch.HelperType, McvsOffline.Embedded.GamePatchProbe.BotMoveType);
+            Assert.Equal("McvsFrameRate", FpsLimitPatch.HelperType);
+            Assert.Equal(FpsLimitPatch.HelperNamespace + "." + FpsLimitPatch.HelperType, McvsOffline.Embedded.GamePatchProbe.FrameRateType);
 
             // The copies: GamePatchProbe's constants (WP2) and PcInstaller.Witnesses (WP3), compared by value.
             Assert.Equal(EngineBridgeHookPatch.TypeName, McvsOffline.Embedded.GamePatchProbe.HookPcType);
@@ -139,6 +142,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 ["store"] = (new StorePatch().AssemblyFile, "Game." + StorePatch.SafetyType, null),
                 ["inbox"] = (new InboxPatch().AssemblyFile, "Game." + InboxPatch.HelperType, null),
                 ["botmove"] = (new BotMovePatch().AssemblyFile, BotMovePatch.HelperNamespace + "." + BotMovePatch.HelperType, null),
+                ["fpslimit"] = (new FpsLimitPatch().AssemblyFile, FpsLimitPatch.HelperNamespace + "." + FpsLimitPatch.HelperType, null),
             };
             var actual = McvsOffline.Patcher.Pc.PcInstaller.Witnesses.ToDictionary(
                 kv => kv.Key, kv => (kv.Value.AssemblyFile, kv.Value.TypeName, kv.Value.MemberName), StringComparer.Ordinal);
