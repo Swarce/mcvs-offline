@@ -548,8 +548,14 @@ class GeneratorTests(unittest.TestCase):
     def test_names_document(self):
         names = self.outputs()["names.json"]
         tuning = self.names_tuning()
-        self.assertEqual(list(names), ["format", "version", "limits", "years", "defaultShare", "parts", "styles", "leet",
-                                       "blocklist", "emblems", "summary"])
+        self.assertEqual(list(names), ["format", "version", "limits", "years", "defaultShare", "curated", "parts", "styles",
+                                       "leet", "blocklist", "emblems", "summary"])
+        # The curated names (build 29), as the curated file lists them, comments and blank lines left out.
+        curated = cg.load_curated(os.path.join(HERE, tuning["curatedFile"]))
+        self.assertEqual(names["curated"], curated)
+        self.assertGreaterEqual(len(curated), tuning["minCurated"])
+        self.assertEqual(names["summary"]["curated"], len(curated))
+        self.assertTrue(all(not n.startswith("#") and n == n.strip() for n in curated))
         self.assertEqual(names["parts"], tuning["parts"])
         self.assertEqual(names["limits"], {"min": 3, "max": 16})
         # Plain profile avatars (folder and file name) with Unlockable=true whose image is in the pack: 1, 5, 6; never the
@@ -557,8 +563,21 @@ class GeneratorTests(unittest.TestCase):
         self.assertEqual(names["emblems"], {"avatars": "1,5-6", "backgrounds": "1-5"})
         self.assertGreaterEqual(names["summary"]["wordNames"], tuning["minCombinations"])
         self.assertTrue(all(s["case"] in cg.NAME_CASES and isinstance(s["leet"], bool) for s in names["styles"]))
-        self.assertIn({"name": "names.json", "entries": sum(len(v) for v in tuning["parts"].values())},
+        self.assertIn({"name": "names.json", "entries": len(curated) + sum(len(v) for v in tuning["parts"].values())},
                       self.outputs()["manifest.json"]["files"])
+        # The generic templates the owner disliked are gone (Adjective+Noun+digits, xXNameXx, ...Plays, Word_NN).
+        ids = set(s["id"] for s in names["styles"])
+        self.assertFalse(ids & {"adjNoun_d2", "xXnounXx", "x_noun_x", "short_d2", "noun-d2", "leetNoun_d2"})
+        self.assertFalse(set(names["parts"]["suffix"]) & {"Plays", "Gaming", "Wins"})
+        # One curated name per line in names.json, so a change to the list is a reviewable diff.
+        text = self.generate()["names.json"]
+        self.assertIn('\n    "Flank Sinatra",\n', text)
+        # Build-29 review: a Thai obscenity, blocked words inside a word, innuendo, politics, misconduct scandals and
+        # the same joke twice are out of the list.
+        for gone in ("Kuy", "Kusoge", "Sextou", "Shiitake Happens", "Gherkin Jerkin", "Nagibator228", "Down Bad 0-7",
+                     "Krispy Kremlin", "Elon Musgo", "Ich Bin Ein Bot", "Neuland", "DrDisrespect", "Dr Disrespawn",
+                     "The Two Time", "Snipe Tyson", "Conor McGrenade", "Sheesh", "xQc", "F in Chat", "HighNoon"):
+            self.assertNotIn(gone, curated)
 
     def test_names_refuse_bad_tuning(self):
         cat, collector = self.collector_inputs()
@@ -584,20 +603,93 @@ class GeneratorTests(unittest.TestCase):
         # A word in both adj and noun (ShadowShadow); a person, weapon or disaster next to a country code (Bandit_MX).
         refused(lambda t: t["parts"]["adj"].append("Shadow"), "parts.adj and parts.noun share shadow")
         refused(lambda t: t["parts"]["mascot"].append("Bandit"), "'Bandit' is in roughNouns")
+        refused(lambda t: t.update({"minCurated": 10 ** 6}), "fewer than minCurated")
         refused(lambda t: t["styles"].append({"id": "x", "pattern": "{noun}_{country}"}), "puts {country} next to {noun}")
         refused(lambda t: t["styles"].append({"id": "x", "pattern": "{adj}{mascot}_{country}"}), "puts {country} next to {adj}")
+        refused(lambda t: t.update({"curatedFile": "../x.txt"}), "curatedFile")
+
+    def test_names_refuse_bad_curated_names(self):
+        cat, collector = self.collector_inputs()
+        tuning = self.names_tuning()
+        tuning["minCurated"] = 2
+        tuning["curatedNear"] = []      # the shipped pairs are not in this list (a stale pair is refused, below)
+
+        def refused(curated, text):
+            with self.assertRaises(cg.ContentError) as e:
+                cg.build_names(cat, tuning, collector, curated)
+            self.assertIn(text, str(e.exception))
+
+        good = ["Flank Sinatra", "Pão de Queijo", "[LAG] Pingu", "It'sa Me, Ammo", "o7", "Q*bert", "...Whatever", "Miracle-"]
+        self.assertEqual(cg.build_names(cat, tuning, collector, good)["curated"], good)
+        refused(good + ["dev:Fox"], "the character ':'")          # the bot's credential dev:<name>
+        refused(good + ["{0} Fox"], "the character '{'")          # the localization formatter's placeholders
+        refused(good + ["A<b>c"], "the character '<'")            # markup
+        refused(good + ["Fox/Co"], "the character '/'")
+        refused(good + ["Fox\u0100"], "the character")             # outside Latin-1
+        refused(good + ["-Fox"], "CRM cell operator")
+        refused(good + ["NaN"], "reads as a number")
+        refused(good + ["1e5"], "reads as a number")
+        refused(good + ["1337"], "no letter")
+        refused(good + [" Fox"], "a space at an end")
+        refused(good + ["Fox  Co"], "two in a row")
+        refused(good + ["ThisNameIsWayTooLong"], "length")
+        refused(good + ["x"], "length")
+        refused(good + ["Nazi Pingu"], "refused by the blocklist")
+        refused(good + ["White Power"], "refused by the blocklist")
+        refused(good + ["Fox 88"], "refused by the blocklist")
+        refused(good + ["flank sinatra"], "read alike")
+        refused(good + ["FlankSinatra"], "read alike")
+        refused(good + ["Pao de Queijo"], "read alike")             # accents ignored
+        refused(["Solo"], "fewer than minCurated")
+        # Two skeletons of 5 letters or more one letter apart: one joke written twice, unless curatedNear lists the pair.
+        refused(good + ["Sheesh", "Sheeesh"], "one letter apart")
+        refused(good + ["Scooby Snacks", "Scooby Snack"], "one letter apart")
+        refused(good + ["Hummus Among Us", "humus among us"], "one letter apart")
+        refused(good + ["Flank Sinatro"], "one letter apart")              # one letter changed
+        tuning["curatedNear"] = [["Master Chief", "Master Chef"]]
+        both = good + ["Master Chief", "Master Chef"]
+        self.assertEqual(cg.build_names(cat, tuning, collector, both)["curated"], both)
+        refused(good + ["Master Chief"], "curatedNear lists Master Chef / Master Chief")   # a pair no longer in the list
+        tuning["curatedNear"] = [["Master Chief"]]
+        refused(both, "curatedNear must be a list")
+        tuning["curatedNear"] = []
+        self.assertEqual(cg.build_names(cat, tuning, collector, good + ["Bonk", "Bork"])["curated"], good + ["Bonk", "Bork"])
+
+    def test_curated_helpers(self):
+        self.assertEqual(cg.name_skeleton("Pika Pew"), cg.name_skeleton("PikaPew"))
+        self.assertEqual(cg.name_skeleton("Crème Brûlée"), "cremebrulee")
+        self.assertEqual(cg.name_skeleton("Frost27"), "frost")
+        self.assertEqual(cg.name_skeleton("7ac7icalLeop4rd"), "tacticalleopard")
+        self.assertEqual(cg.name_skeleton("agent-123456789"), "agent123456789")
+        self.assertEqual(cg.curated_words("PepeHands"), ["Pepe", "Hands"])
+        self.assertEqual(cg.curated_words("SSSniperWolf"), ["SS", "Sniper", "Wolf"])
+        self.assertEqual(cg.curated_words("[LAG] Pingu"), ["LAG", "Pingu"])
+        self.assertEqual(cg.curated_words("Pay2Lose"), ["Pay2", "Lose"])
+        block = cg.NameBlocklist(self.names_tuning()["blocklist"])
+        for bad in ("Ur A Retard", "f4gg0t lol", "Sh1t Happens", "xX_Nazi_Xx", "Kill Your Self", "WhitePower", "Nazì", "Fuçk",
+                    "Opium Den", "ISIS Fan", "Trump 2024", "Ranger1488", "Kuy", "KUY Gang", "Khuy"):
+            self.assertIsNotNone(block.curated_problem(bad), bad)
+        for good in ("Spooky Scary", "Obi Wan Kenoodle", "WaitItsAllOhio", "Copium", "Knife Crisis", "Shroud's Mouse", "Ninja",
+                     "Master Chief", "Prophet Margin", "Agent 47"):
+            self.assertIsNone(block.curated_problem(good), good)
+        self.assertEqual(cg.near_skeleton_pairs(["Sheesh", "Bonk", "Sheeesh", "Sheeeesh", "Bork", "skrt", "Skrrt"]),
+                         [("Sheesh", "Sheeesh"), ("Sheeesh", "Sheeeesh")])
+        self.assertEqual(cg.near_skeleton_pairs(["Master Chief", "Master Chef", "Pika Pew", "Pika Pow", "Rip and Tear"]),
+                         [("Master Chief", "Master Chef"), ("Pika Pew", "Pika Pow")])
+        path = os.path.join(self.tmp, "curated.txt")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("# a comment\n\nZoë\nPika Pew\n#another\n")
+        self.assertEqual(cg.load_curated(path), ["Zoë", "Pika Pew"])
 
     def test_names_blocklist_and_shape(self):
         block = cg.NameBlocklist(self.names_tuning()["blocklist"])
         for pieces in (["Sh1tStorm"], ["N_A_Z_I"], ["Wolf", "455"], ["Atlas", "Sniper"], ["Fox", "88"], ["Ranger", "14"],
-                       ["Ninja", "07"],
-                       # brands, streamers, other games' characters and slang made of two harmless words
-                       ["Sniper", "Wolf"], ["Iron", "Wolf"], ["1r0n", "W0lf"], ["Blue", "Falcon"], ["Echo", "Fox"],
-                       ["Spartan", "117"], ["Blue", "Yeti"], ["blu3", "_", "y3t1"], ["Red", "Rocket"], ["Iron", "Golem"],
-                       ["Ghost", "Gaming"], ["Nova", "Gaming"], ["Steel", "Panther"], ["Night", "Ranger"],
-                       ["The", "Red", "Guardian"], ["Hollow", "Knight"], ["Soldier", "76"], ["Cpt", "Falcon"]):
+                       # a hate symbol and slang made of two harmless words
+                       ["Iron", "Cross"], ["Red", "Rocket"]):
             self.assertIsNotNone(block.problem(pieces), pieces)
-        for pieces in (["Silent", "Fox"], ["Ranger", "1448"], ["Glass", "Cannon"]):
+        # Build 29, the owner's rule: brands, streamers and other games' characters are allowed.
+        for pieces in (["Silent", "Fox"], ["Ranger", "1448"], ["Glass", "Cannon"], ["Ninja", "07"], ["Sniper", "Wolf"],
+                       ["Blue", "Yeti"], ["Hollow", "Knight"], ["Soldier", "76"], ["Batman"]):
             self.assertIsNone(block.problem(pieces), pieces)
         limits = {"min": 3, "max": 16}
         for bad in ("1337", "1e5", "NaN", "_Fox", "Fo__x", "A<b", "Fox Co", "ThisNameIsWayTooLong", "ab"):
@@ -615,7 +707,8 @@ class GeneratorTests(unittest.TestCase):
                 self.assertFalse(re.findall(r"\{(noun|adj|handle|short|prefix|suffix)\}", style["pattern"]), style)
         pairs = cg.name_pairs(tuning)
         self.assertNotIn("wolfwolf", pairs)
-        self.assertNotIn("sniperwolf", pairs)
+        self.assertNotIn("ironcross", pairs)
+        self.assertIn("sniperwolf", pairs)   # a streamer's handle: allowed since build 29
         self.assertIn("silentfox", pairs)
 
     def test_check_mode_reports_stale_files(self):

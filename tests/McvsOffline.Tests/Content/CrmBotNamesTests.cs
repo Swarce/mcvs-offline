@@ -97,7 +97,9 @@ namespace McvsOffline.Tests.Content
                 Assert.DoesNotContain(name, Stock, StringComparer.OrdinalIgnoreCase);
                 Assert.DoesNotContain(GamerTags.Skeleton(name), Stock.Select(GamerTags.Skeleton));
                 Assert.Null(GamerTags.ShapeProblem(name));
-                Assert.Matches("^[A-Za-z0-9_.-]{3,16}$", name);
+                // Build 29: from the curated list (a window renames at most a few hundred of its ~2,000 names).
+                Assert.True(tags.IsCurated(name), name + " is not a curated name");
+                Assert.DoesNotContain(':', name);   // the bot's credential is dev:<name> (Credential splits on ':')
                 // CRMTableCell reads a value double.TryParse accepts as a number: the bot list would read null.
                 Assert.False(double.TryParse(name.TrimStart('+', '-', '*'), System.Globalization.NumberStyles.Float,
                                              System.Globalization.CultureInfo.InvariantCulture, out _), name);
@@ -115,6 +117,7 @@ namespace McvsOffline.Tests.Content
             GamerTags tags = GamerTags.BuiltIn;
             var ours = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var keptEver = new HashSet<string>(StringComparer.Ordinal);
+            int slots = 0;
             int windows = 12;   // two hours of play
             for (int w = 0; w < windows; w++)
             {
@@ -123,10 +126,22 @@ namespace McvsOffline.Tests.Content
                 Assert.InRange(kept, ManyStock.Length * CrmBotNames.KeepStockPercent / 100 - 25, ManyStock.Length * CrmBotNames.KeepStockPercent / 100 + 25);
                 var renamed = new HashSet<string>(renames.Select(r => r.Key));
                 foreach (string stock in ManyStock) if (!renamed.Contains(stock)) keptEver.Add(stock);
-                foreach (var r in renames) ours.Add(r.Value);
+                foreach (var r in renames)
+                {
+                    Assert.True(tags.IsCurated(r.Value), r.Value);
+                    ours.Add(r.Value);
+                }
+                slots += renames.Count;
             }
-            Assert.True(ours.Count >= windows * ManyStock.Length * 6 / 10, ours.Count + " of our names in " + windows + " windows");
+            // Each window draws its own ~150 of the ~2,000 curated names: two hours meet more than a thousand different ones
+            // (a window's draws are independent of the last one's, so some come back).
+            Assert.True(ours.Count >= 1000 && ours.Count >= slots * 55 / 100, ours.Count + " of our names in " + slots + " renames over " + windows + " windows");
+            var day = new HashSet<string>(ours, StringComparer.OrdinalIgnoreCase);
+            for (int w = windows; w < 144; w++)
+                foreach (var r in CrmBotNames.Renames(ManyStock, null, tags, Day1 + TimeSpan.FromTicks(Window.Ticks * w))) day.Add(r.Value);
+            Assert.True(day.Count >= tags.Curated.Length * 95 / 100, day.Count + " of " + tags.Curated.Length + " curated names in a day");
             Assert.True(keptEver.Count >= ManyStock.Length * 9 / 10, keptEver.Count + " stock names came up");
+            output.WriteLine(string.Join(" | ", CrmBotNames.Renames(ManyStock, null, tags, Day1).Take(40).Select(r => r.Value)));
         }
 
         [Fact]
@@ -256,6 +271,45 @@ namespace McvsOffline.Tests.Content
             Assert.Equal(renamed.Count, renamed.Cast<string>().Distinct(StringComparer.OrdinalIgnoreCase).Count());
             output.WriteLine(stockNames.Count + " rows, " + ourRows + " renamed, " + (stockNames.Count - ourRows) + " stock rows kept ("
                              + duplicates + " second copies); e.g. " + string.Join(", ", renamed.Take(12)));
+            output.WriteLine("our names in this window: " + string.Join(" | ", cells.Values.Cast<string>().Take(40)));
+        }
+
+        /// <summary>
+        /// Every curated name, in the player's real client: a CRM cell keeps it as text with the SET operator
+        /// (Gameloft.Engine CRMTableCell: a leading '+', '-' or '*' would make it ADD or MUL, a number a double that the bot
+        /// list reads as null), and "dev:&lt;name&gt;" is a valid bot credential whose user name is the name
+        /// (MultiplayerComponent.CredentialFromBotName; Gameloft.OnlinePlatform Credential throws on a second ':').
+        /// </summary>
+        [Fact]
+        public void EveryCuratedNameStaysTextInARealCrmCellAndIsAValidBotCredential()
+        {
+            RealTables real = RealTables.TryGet(output);
+            if (real == null) return;
+            Type jvalue = real.Type("Newtonsoft.Json", "Newtonsoft.Json.Linq.JValue");
+            Type jtoken = real.Type("Newtonsoft.Json", "Newtonsoft.Json.Linq.JToken");
+            Type cellType = real.Type("Gameloft.Engine", "Gameloft.Engine.CRMTableCell");
+            Type credentialType = real.Type("Gameloft.OnlinePlatform", "Gameloft.OnlinePlatform.Credential");
+            ConstructorInfo newValue = jvalue.GetConstructor(new[] { typeof(string) });
+            ConstructorInfo newCell = cellType.GetConstructor(new[] { typeof(string), jtoken });
+            ConstructorInfo newCredential = credentialType.GetConstructor(new[] { typeof(string) });
+            string[] curated = GamerTags.BuiltIn.Curated;
+            Assert.True(curated.Length >= 1500);
+            foreach (string name in curated)
+            {
+                object cell = newCell.Invoke(new[] { "Stock", newValue.Invoke(new object[] { name }) });
+                Assert.Equal("SET", GameClient.Get(cell, "Operator").ToString());
+                Assert.Equal(name, Assert.IsType<string>(GameClient.Get(cell, "CellNewValue")));
+                object credential = newCredential.Invoke(new object[] { "dev:" + name });
+                Assert.Equal(name, (string)GameClient.Get(credential, "Username"));
+                Assert.True((bool)GameClient.Get(credential, "IsValid"), name);
+            }
+            // The rules have teeth: what the shape rule refuses is what the client breaks on.
+            object bad = newCell.Invoke(new[] { "Stock", newValue.Invoke(new object[] { "-Fox" }) });
+            Assert.NotEqual("SET", GameClient.Get(bad, "Operator").ToString());
+            Assert.IsType<double>(GameClient.Get(newCell.Invoke(new[] { "Stock", newValue.Invoke(new object[] { "1e5" }) }), "CellNewValue"));
+            var thrown = Assert.Throws<TargetInvocationException>(() => newCredential.Invoke(new object[] { "dev:Fox:Co" }));
+            Assert.IsType<ArgumentException>(thrown.InnerException);
+            output.WriteLine(curated.Length + " curated names: text cells and valid credentials in the real client");
         }
 
         private static List<object> Column(object table)

@@ -40,6 +40,6 @@ regenerate. Testers can drop a modified copy into `<data>/content/` instead (the
 | `coupons.json` | Assets | built-in coupon codes |
 | `liveops.json` | Social (LiveOps), Crm, Leaderboards | live-ops catalogue: objectives, rewards, modifiers, rival targets (docs/LIVEOPS.md); the `collector` block: Cosmetic crates handed out from `since` on |
 | `collector.json` | Crm (collector) | the Cosmetic crate: content rows, item pools, season tier crates and emblems, ids only (docs/design/economy-collector.md §3.4) |
-| `names.json` | Core (`GamerTags`): Leaderboards (rivals), Crm (bot names) | gamer-tag word lists, styles, limits and blocklist (our own), the rivals' emblem and background pools (ids only) (docs/LIVEOPS.md §5.1, docs/protocol/content.md) |
+| `names.json` | Core (`GamerTags`): Leaderboards (rivals), Crm (bot names) | the curated gamer tags (our own, used first since build 29), the fallback generator's word lists, styles, limits and blocklist (our own), the rivals' emblem and background pools (ids only) (docs/LIVEOPS.md §5.1, docs/protocol/content.md) |
 | `manifest.json` | – | generator, source version and file list |
 | `admin/index.html` | Admin (`GET /_mcvs/ui/`) | the settings and diagnostics page; **hand-written, not by content-gen**; served from the built-in copy only (no `<data>/content/` override); rules in docs/design/settings-page.md §2.3, checked by `tests/McvsOffline.Tests/Admin/PageSmokeTests.cs` |

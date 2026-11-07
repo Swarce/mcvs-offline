@@ -144,7 +144,8 @@ namespace McvsOffline.Tests.Misc
             {
                 if ((string)entry.FedId == fedId) continue;
                 Assert.True(rivalNames.Add((string)entry.Name), "two rivals are named " + (string)entry.Name);
-                Assert.Matches("^[A-Za-z0-9_.-]{3,16}$", (string)entry.Name);
+                // Build 29: a curated name, as the client parsed it (spaces, apostrophes and Latin-1 letters arrive intact).
+                Assert.True(McvsOffline.Server.Core.Names.GamerTags.BuiltIn.IsCurated((string)entry.Name), "not curated: " + (string)entry.Name);
                 string emblem = entry.Data["_killSignatureEmblem"]?.ToString();
                 string background = entry.Data["_killSignatureBg"]?.ToString();
                 Assert.True(int.TryParse(emblem, out int emblemId) && emblemId > 0, "emblem '" + emblem + "'");
