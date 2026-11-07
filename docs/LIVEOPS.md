@@ -160,43 +160,78 @@ matches at 50 %); staying put takes about a sixth of that. The numbers are ours 
 `tools/content-gen/liveops_tuning.json`); `liveops.difficulty` scales them all at run time. Other boards (not
 `mcvs_division_*`) keep the static rivals of `leaderboards.virtualTopScore`.
 
-### 5.1 Rival names and emblems (build 28)
+### 5.1 Rival names and emblems (build 28, curated names build 29)
 
 Every rival (season boards and the static boards alike) carries a gamer tag, an emblem and an emblem background of its
-own (`server/Services/Leaderboards/RivalIdentity.cs`, generator `server/Core/Names/GamerTags.cs`, content
-`server/Content/names.json` from `tools/content-gen/names_tuning.json`):
+own (`server/Services/Leaderboards/RivalIdentity.cs`, names `server/Core/Names/GamerTags.cs`, content
+`server/Content/names.json` from `tools/content-gen/names_curated.txt` and `names_tuning.json`). The in-match bots take
+their names from the same place (docs/protocol/content.md "Bot names").
 
-- **Name.** One of 34 styles (word combinations such as `SilentFox` or `silent_fox`, word + 2-4 digits or a year,
-  leetspeak `S1lentF0x`, single handles `Nightshift`, clan-like `xXRavenXx`, `The…`, `Mr…`/`iAm…`, `…GG`/`…Prime`,
-  country tags `Raven_FR` (only animal, sky and landscape words stand next to a country code, never a person, a weapon
-  or a disaster: no `Bandit_MX`), romanised words of more than a dozen languages such as `Kaze`, `Sturm`, `Halcon`,
-  `Kartal`, and a few uncustomised `agent-<9 digits>` like the game's default name) filled from our own word lists: about 171,000
-  distinct names without digits, hundreds of millions with them. No first names, surnames, real people, celebrities,
-  streamers, brands or other games' and films' characters. Every name is 3..16 characters of `[A-Za-z0-9_.-]` (the
-  game's rename popup takes 16, `popups/PopupChangeName.as` maxChars; the default `agent-<alias>` has 15), a letter or
-  digit at both ends, no two separators in a row, never a number (`GamerTags.ShapeProblem`). Plain ASCII: the client's
-  `FormatName` reads `<`, `>` as markup and picks a font per character (`LocalizationFormatterComponent.cs:122-163`).
-- **Blocklist** (`names_tuning.json` `blocklist`): every name is read lower case, without `_ . -`, with digits as
-  letters (`0`→o, `1`→i and l, `3`→e, `4`→a, `5`→s, `7`→t, `8`→b), and refused when it contains a `substrings` entry
-  (profanity, slurs, political and hate terms and symbols, celebrities, streamers, brands, franchises), when a part, the
-  whole name or the join of two parts spells a `words` entry (short words that harmless words contain, so `Glass`
-  stays but `Atlas`+`Sniper` does not), or when a run of digits holds 88, 666, 420, 69, 187, 1312, 911, 007, 1488 or
-  is 14 or 311. Two harmless words can make a brand, a streamer, a character or slang (`BlueYeti`, `IronWolf`,
-  `SniperWolf`, `HollowKnight`, `RedRocket`, `Spartan117`): those pairs are `substrings` entries too, found by reading
-  the list `content_gen.py --name-pairs FILE` writes (every two-word name, about 100,000). content-gen checks every part
-  and every two-part combination of every style (2,016 combinations are refused today); the server checks every name it
-  makes again and draws the next attempt. No name has one word twice (`PhantomPhantom`): `adj` and `noun` share no word
-  (content-gen refuses one in both) and a draw that repeats a word is drawn again.
-- **Deterministic per player id.** Name, emblem and background are a pure function of the rival's id (FNV-1a 64 over
-  `"mcvs-offline/rival-name/v1|v<version>|<id>|<attempt>"` and `".../rival-emblem/v1|<id>"`, xorshift64*, integers
-  only). The id is the one the board already gave the slot (`Sha1Hex("mcvs-offline/leaderboard-rival/v1|<board>|<k>")`,
+- **Curated names first (build 29).** The owner found many build-28 names generic ("like an automatically picked
+  username for a PSN account"). Every name now comes from a curated list of about 2,000 names written by us after
+  reading what players pick for themselves (the inspiration sources are listed in the header of `names_curated.txt`;
+  read, never copied as lists): puns (`Flank Sinatra`, `Nacho Average`, `Lord of da Fries`), memes and Twitch emotes
+  (`Big Chungus`, `PogChamp`, `This Is Fine`), other games', films' and series' characters and quotes (`Lara
+  Croissant`, `Would You Kindly`, `Get Over Here`), brand jokes (`Krispy Kremlin`, `Costco Hotdog`), streamer and pro
+  handles (`Shroud's Mouse`, `TimTheTaterMan`, `s1mple Simon`), fake clan tags (`[LAG] Pingu`, `[BRB]Snacks`),
+  lowercase and keyboard-smash (`smol bean`, `asdfjkl`), words and jokes of many languages (`Pão de Queijo`,
+  `Ehrenmann`, `Sana All`), animals and food with a twist, very short handles (`Bonk`, `o7`). Each id walks its own
+  order through the list: 16 draws from FNV-1a 64 over `"<scope>|v<version>|<id>|curated"` and xorshift64*, then the
+  names after the last draw in file order, round the list; the first name the board (or the bot window) does not hold
+  yet, by name or by skeleton, is the rival's. So a board of 100 shows 99 different curated names, 300 boards use
+  more than nine in ten of the list, and only a board of more than about 2,000 players uses the generator below, once
+  every curated name is taken.
+- **The generator (fallback).** 28 styles filled from our own word lists (`SilentFox`, `silent_fox`, `TheLunarFox`,
+  `Raven_FR`, `Kaze`, `Sturm`, `Halcon`, `agent-<9 digits>` like the game's default name). Build 29 removed the most
+  generic templates (Adjective+Noun+digits `SilentFox27`, `xXRavenXx`, `x_raven_x`, `…Plays`/`…Gaming`/`…Wins`,
+  `Word_NN`, `word-NN`, leet word+digits) and made word+number and leetspeak rare (about one generated name in six has
+  a number). Generated names keep the build-28 shape: 3..16 characters of `[A-Za-z0-9_.-]`, a letter or digit at both
+  ends, no two separators in a row, at least two letters (`GamerTags.GeneratedShapeProblem`).
+- **What the client takes and shows** (`GamerTags.ShapeProblem`, every curated name, checked by content-gen and again
+  when the server loads names.json). The rename popup takes 16 characters (`popups/PopupChangeName.as` maxChars) with
+  no character restriction (no `restrict` on its text field), `SetPlayerName` only trims and needs 2
+  (`MinimalPlayerNameLength`), and the game's own bot names already hold spaces, `.` and `Ø`. A name is drawn by
+  `LocalizationFormatterComponent.FormatName` → `ApplyFontAsLengthEncode` (`:122-163`), which picks a font per
+  character (`FindStringIdealLanguage`, `HasGlyph`); the Latin font `Menus/fonts/TCFNoli-Black.ttf` (`LatinBold`, en,
+  fr, de, es, it, pt, tr) has a glyph for every character of U+0020-U+007E and U+00C0-U+00FF (checked in its cmap). So
+  a name is 2..16 characters, no space at an end or two in a row, of ASCII letters and digits, the space, the signs
+  ``! % ' ( ) * + , - . ? @ [ ] ^ _ | ~`` and the Latin-1 letters (not `×` `÷`). Never `<` `>` `&` (FormatName skips
+  from `<` to `>`, gameswf reads entities), `:` (a bot's credential is `dev:<name>`,
+  `MultiplayerComponent.CredentialFromBotName`, and `Credential` throws on a second `:`), `{` `}` (the localization
+  formatter reads them as placeholders and `int.Parse`s the text before a `_` inside them), `/` `\` `"` `` ` ``. Not
+  `+`, `-` or `*` first (`CRMTableCell` makes such a cell an ADD or MUL), at least one letter, never text that
+  `double.TryParse` (Float, invariant) reads as a number (`1e5`, `NaN`, `Infinity`: the bot list would read null).
+  `CrmBotNamesTests.EveryCuratedNameStaysTextInARealCrmCellAndIsAValidBotCredential` runs every curated name through
+  the real client's `CRMTableCell` and `Credential`. Adapted from the first draft of the list: `{FaZe} Dad` →
+  `[FaZe] Dad`, `Yasuo 0/10` → `Yasuo 0-10`, `NaN` → `NaNNaNNaNBatman`, `127.0.0.1` → `localhost`, `88mph` → `Great
+  Scott`; 82 names that read like another one (`Wombo Combo`/`WomboCombo`, `Crème Brûlée`/`CrèmeBrûlée`) were left out.
+- **Blocklist** (`names_tuning.json` `blocklist`). Since build 29, the owner's rule: brands, other games' and films'
+  characters, streamer and pro handles and celebrities are allowed (they left the lists, with the two-word brand and
+  character pairs such as `blueyeti` or `sniperwolf`, and the number 007); slurs, profanity, sexual words, hate terms,
+  numbers and symbols (`ironcross`, `blacksun`, 88, 1488), extremist groups, politicians and politics, religion, drugs
+  and real tragedies stay. A generated name is read lower case, without `_ . -`, with digits as letters (`0`→o, `1`→i
+  and l, `3`→e, `4`→a, `5`→s, `7`→t, `8`→b), and refused when it contains a `substrings` entry, when a part, the whole
+  name or the join of two parts spells a `words` entry (short words that harmless words contain, so `Glass` stays but
+  `Atlas`+`Sniper` does not), or when a run of digits holds 88, 666, 420, 69, 187, 1312, 911, 1488 or 2488 or is 14 or
+  311. A curated name is split into words (at spaces and signs and where lower case or a digit meets upper case:
+  `PepeHands` is Pepe, Hands), each read lower case, accents dropped, digits as letters: refused for a `substrings`
+  entry inside a word, a `words` entry as a word, either spelled exactly by a run of whole words (`White Power`,
+  `KillYourSelf`), and the same digit rules; a match that starts or ends inside a word across a word break does not
+  count (`Spooky Scary` holds no 'kys', `Obi Wan Kenoodle` no 'wank', `WaitItsAllOhio` no 'tits'). content-gen checks
+  every curated name, every part and every two-part combination of every style; the server checks every curated name
+  when it loads names.json (a file with a refused one is refused) and every generated name it makes (and draws the next
+  attempt). No generated name has one word twice (`PhantomPhantom`).
+- **Deterministic per player id.** Name, emblem and background are a pure function of the rival's id and the names
+  taken before it on the board (FNV-1a 64 over `"mcvs-offline/rival-name/v1|v<version>|<id>|curated"`, then
+  `"...|<id>|<attempt>"` for a generated name, and `".../rival-emblem/v1|<id>"`, xorshift64*, integers only). The id is the one the board already gave the slot (`Sha1Hex("mcvs-offline/leaderboard-rival/v1|<board>|<k>")`,
   `season-rival/v1|<board>|<i>`), so the same rival keeps its name and emblem across sessions and on Android and PC,
   also when the number of real players on the board changes (up to build 27 the static rivals' names moved with it).
-- **Unique on a board, as a player reads it.** Rivals are named in slot order; each takes the first draw for its id
+- **Unique on a board, as a player reads it.** Rivals are named in slot order; each takes the first name for its id
   that no real player on the board and no earlier rival has, compared ignoring case and by skeleton
-  (`GamerTags.Skeleton`: lower case, without `_ . -`, a digit inside a word read as its letter, the number at either
-  end left out), so a board never shows `Frost27` beside `frost-27`, `MagneticNova` beside `magnetic_nova` or
-  `blindside_563` beside `blindside_386`. `agent-<9 digits>` names keep their digits (uncustomised players differ only
+  (`GamerTags.Skeleton`: lower case, accents dropped, only letters and digits, a digit inside a word read as its letter,
+  the number at either end left out), so a board never shows `Frost27` beside `frost-27`, `Pika Pew` beside `PikaPew`,
+  `Mr. Saturn` beside `mr_saturn` or `blindside_563` beside `blindside_386`; the curated list holds no two names that
+  read alike. `agent-<9 digits>` names keep their digits (uncustomised players differ only
   there). Only a real player who takes a rival's name, or one that reads the same, moves that rival (and a later one
   that then collides) to another name.
 - **Emblem** (`_killSignatureEmblem`) and **background** (`_killSignatureBg`), ids as strings like the game's own posts
@@ -207,7 +242,8 @@ own (`server/Services/Leaderboards/RivalIdentity.cs`, generator `server/Core/Nam
   the viewer's own emblem (the client's fallback, `GetEntriesObject`). `_avatar`, `_leagueId` and the clan fields stay
   out (default profile picture, no league, no clan).
 - **What changes for existing saves.** Rivals are made when a board is read and never stored, so every board shows
-  the new names and emblems from build 28 on, the same ones from then on. Scores, paces and levels are unchanged: the
+  the new names and emblems from build 28 on, the same ones from then on; build 29 (names.json `version` 2) gives every
+  rival a curated name once, then keeps it. Scores, paces and levels are unchanged: the
   two draws the old callsign took from the board's state are still drawn (`VirtualPlayers.SkipNameDraws`), so a season
   that is running keeps its curve.
 - **Season boards** are per season (the board name holds the season id), so each new week brings a new group of
@@ -216,7 +252,9 @@ own (`server/Services/Leaderboards/RivalIdentity.cs`, generator `server/Core/Nam
   emblem. "Visit profile" on a rival still opens an empty profile: the game loads a stored profile there, which
   rivals do not have.
 - A `<data>/content/names.json` overrides the built-in file; a file that does not parse, breaks a limit, has a part
-  the blocklist refuses or an emblem id outside the client's tables is logged and the built-in file is used.
+  or a curated name the blocklist or the client's rules refuse, two curated names that read alike or an emblem id
+  outside the client's tables is logged and the built-in file is used. A file without `curated` names everyone with
+  the generator. To add names, edit `tools/content-gen/names_curated.txt` (one per line) and run content-gen.
 
 ## 6. Daily missions
 

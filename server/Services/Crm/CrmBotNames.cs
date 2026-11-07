@@ -27,10 +27,13 @@ namespace McvsOffline.Server.Services.Crm
     /// never shipped. Every <see cref="WindowMinutes"/> minutes (about one match) a new window keeps
     /// <see cref="KeepStockPercent"/> per cent of the stock names (so the game's own names still come up) and renames the
     /// rest with names from <see cref="GamerTags"/> (scope <see cref="Scope"/>, id "&lt;window&gt;|&lt;slot&gt;"), the same
-    /// on both platforms: a day of play meets the 291 stock names and thousands of ours. None of ours equals a stock name
-    /// ignoring case or by skeleton (a renamed row would be renamed again by a later cell of the same changer), none
-    /// repeats (the client adds "(n)" to duplicate names), none reads as a number (CRMTableCell turns such text into a
-    /// double, which the bot list reads as null). A stock name that appears twice is always renamed (its second row keeps
+    /// on both platforms: since build 29 the curated names (each window draws its own couple of hundred of them), so a day
+    /// of play meets the 291 stock names and nearly every curated one. None of ours equals a stock name ignoring case or by
+    /// skeleton (a renamed row would be renamed again by a later cell of the same changer), none repeats (the client adds
+    /// "(n)" to duplicate names), none reads as a number or starts with '+', '-' or '*' (CRMTableCell turns such text into
+    /// a double, which the bot list reads as null, or into an ADD/MUL cell), none holds ':' (the bot's credential is
+    /// "dev:&lt;name&gt;", MultiplayerComponent.CredentialFromBotName, and Credential throws on a second ':'):
+    /// <see cref="GamerTags.ShapeProblem"/>. A stock name that appears twice is always renamed (its second row keeps
     /// the stock name: one cell renames the first only), so no window has a name twice. Without a data pack nothing is sent
     /// and the bots keep their stock names.
     /// </para>

@@ -17,13 +17,26 @@ namespace McvsOffline.Tests.Misc
 {
     /// <summary>
     /// The names and emblems of the generated leaderboard rivals (docs/LIVEOPS.md "Rival names and emblems"): gamer tags
-    /// from names.json, a pure function of the rival's id, unique on a board, within the client's limits and the blocklist,
-    /// and the emblem fields the client's rows read (GM/LeaderboardsComponent.cs GetEntriesObject).
+    /// from names.json (the curated list first since build 29, the generator once it is used up), a pure function of the
+    /// rival's id, unique on a board, within the client's limits and the blocklist, and the emblem fields the client's rows
+    /// read (GM/LeaderboardsComponent.cs GetEntriesObject).
     /// </summary>
     public class RivalNamesTests
     {
         private const string Board = "/leaderboards/desc/Leaderboard_Season42_Div3";
+        /// <summary>The build-28 shape every generated name keeps.</summary>
         private static readonly Regex Shape = new Regex("^[A-Za-z0-9_.-]{3,16}$");
+
+        /// <summary>The built-in names.json without its curated list: the generator alone, as a board past the list uses it.</summary>
+        private static GamerTags GeneratorOnly()
+        {
+            var doc = MiniJson.ParseObject(File.ReadAllText(Path.Combine(ContentTestSupport.RepoRoot, "server", "Content", "names.json")));
+            Assert.True(doc.Remove("curated"));
+            GamerTags tags = GamerTags.Parse(MiniJson.Serialize(doc), out string problem);
+            Assert.True(tags != null, problem);
+            Assert.Empty(tags.Curated);
+            return tags;
+        }
 
         private readonly ITestOutputHelper output;
 
@@ -45,7 +58,7 @@ namespace McvsOffline.Tests.Misc
         }
 
         /// <summary>Words a gamer tag must never contain, read the way a player would (case, separators, digits as letters).</summary>
-        private static readonly string[] Forbidden = { "fuck", "shit", "nazi", "hitler", "ninja", "batman", "trump", "isis", "porn", "jesus" };
+        private static readonly string[] Forbidden = { "fuck", "shit", "nazi", "hitler", "trump", "porn", "jesus" };
 
         private static string Readable(string name)
         {
@@ -70,7 +83,8 @@ namespace McvsOffline.Tests.Misc
                 Assert.True(names.Add(name), "two rows are named " + name);
                 if ((string)row["credential"] == p.FedId) continue;
                 Assert.Equal(true, row["_mcvs_bot"]);
-                Assert.Matches(Shape, name);
+                // A board of 100 is far from using up the curated list: every rival has a curated name (build 29).
+                Assert.True(tags.IsCurated(name), name + " is not a curated name");
                 Assert.Null(GamerTags.ShapeProblem(name));
                 // The client reads both ids as strings and falls back to the viewer's own emblem without them.
                 string avatar = Assert.IsType<string>(row["_killSignatureEmblem"]);
@@ -147,7 +161,7 @@ namespace McvsOffline.Tests.Misc
             Assert.Equal(99, rivals.Select(r => (string)r["display_name"]).Distinct(StringComparer.OrdinalIgnoreCase).Count());
             foreach (var r in rivals)
             {
-                Assert.Matches(Shape, (string)r["display_name"]);
+                Assert.True(GamerTags.BuiltIn.IsCurated((string)r["display_name"]), (string)r["display_name"]);
                 Assert.Contains(int.Parse((string)r["_killSignatureEmblem"], CultureInfo.InvariantCulture), GamerTags.BuiltIn.Avatars);
                 Assert.IsType<string>(r["_killSignatureBg"]);
             }
@@ -167,10 +181,10 @@ namespace McvsOffline.Tests.Misc
         }
 
         [Fact]
-        public void NamesAreDeterministicVariedAndWithinTheLimitsAndTheBlocklist()
+        public void GeneratedNamesAreDeterministicVariedAndWithinTheLimitsAndTheBlocklist()
         {
-            GamerTags tags = GamerTags.BuiltIn;
-            Assert.Equal("built-in names.json", tags.Source);
+            Assert.Equal("built-in names.json", GamerTags.BuiltIn.Source);
+            GamerTags tags = GeneratorOnly();
             Assert.InRange(tags.MaxLength, 3, GamerTags.ClientMaxLength);
             var distinct = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var styles = new HashSet<string>();
@@ -184,7 +198,7 @@ namespace McvsOffline.Tests.Misc
                 if (first == null) refused++;
                 string name = tags.UniqueName(RivalIdentity.NameScope, id, null);
                 Assert.Matches(Shape, name);
-                Assert.Null(GamerTags.ShapeProblem(name));
+                Assert.Null(GamerTags.GeneratedShapeProblem(name));
                 Assert.DoesNotContain('<', name);
                 string readable = Readable(name);
                 foreach (string word in Forbidden) Assert.DoesNotContain(word, readable);
@@ -195,12 +209,131 @@ namespace McvsOffline.Tests.Misc
                 if (name.StartsWith("agent-", StringComparison.Ordinal)) styles.Add("default");
                 if (name == name.ToLowerInvariant()) styles.Add("lower");
             }
-            // Across 200 boards' worth of names a few single-word tags repeat (a handle alone, "The" + a noun); on one board
-            // UniqueName never repeats one.
-            Assert.True(distinct.Count >= n * 92 / 100, distinct.Count + " distinct names of " + n);
+            // Across 200 boards' worth of names a few single-word tags repeat (a handle alone, "The" + a noun; fewer numbers
+            // since build 29); on one board UniqueName never repeats one.
+            Assert.True(distinct.Count >= n * 85 / 100, distinct.Count + " distinct names of " + n);
             Assert.Equal(new[] { "_", "default", "digits", "lower" }, styles.OrderBy(x => x));
             Assert.True(refused < n / 10, refused + " first draws refused");
             output.WriteLine(string.Join(", ", Enumerable.Range(0, 60).Select(i => tags.UniqueName(RivalIdentity.NameScope, "sample-" + i, null))));
+        }
+
+        /// <summary>
+        /// The owner's verdict on build 28: many names read like an automatically picked console name. The templates that
+        /// made them are gone from the generator (Adjective+Noun+digits, xXNameXx, x_name_x, ...Plays/...Gaming/...Wins,
+        /// Word_NN, word-NN) and names with digits are rare; and the generator only names a board past the curated list.
+        /// </summary>
+        [Fact]
+        public void TheGeneratorHasNoGenericTemplatesLeft()
+        {
+            GamerTags tags = GeneratorOnly();
+            Assert.DoesNotContain("adjNoun_d2", tags.StyleIds);
+            Assert.DoesNotContain("xXnounXx", tags.StyleIds);
+            Assert.DoesNotContain("x_noun_x", tags.StyleIds);
+            Assert.DoesNotContain("short_d2", tags.StyleIds);
+            Assert.DoesNotContain("noun-d2", tags.StyleIds);
+            Assert.Empty(tags.Part("suffix").Intersect(new[] { "Plays", "Gaming", "Wins" }));
+            var adjNounDigits = new Regex("^(" + string.Join("|", tags.Part("adj")) + ")(" + string.Join("|", tags.Part("noun")) + ")[0-9]{2}$");
+            int digits = 0;
+            const int n = 5000;
+            for (int i = 0; i < n; i++)
+            {
+                string name = tags.UniqueName(RivalIdentity.NameScope, "generic-" + i.ToString(CultureInfo.InvariantCulture), null);
+                // Only leetspeak ends like that (LunarBullet as LunarBull37): its digits read back as letters.
+                if (adjNounDigits.IsMatch(name)) Assert.True(Readable(name).All(char.IsLetter), name);
+                Assert.DoesNotMatch("^xX.*Xx$", name);
+                Assert.DoesNotMatch("^x_.*_x$", name);
+                Assert.DoesNotMatch("(Plays|Gaming|Wins)$", name);
+                Assert.DoesNotMatch("^[A-Za-z]+[_-][0-9]{2}$", name);
+                if (Regex.IsMatch(name, "[0-9]{2,}") && !Readable(name).All(char.IsLetter)) digits++;   // a number, not leetspeak
+            }
+            Assert.True(digits < n / 5, digits + " of " + n + " generated names have a number");
+        }
+
+        [Fact]
+        public void ANormalBoardTakesEveryNameFromTheCuratedList()
+        {
+            GamerTags tags = GamerTags.BuiltIn;
+            Assert.True(tags.Curated.Length >= 1500, tags.Curated.Length + " curated names");
+            // A sample of 50 rivals of one board: all curated, all different.
+            var sample = VirtualPlayers.Generate("desc/sample-board", 50, 400);
+            var names = sample.Select(r => (string)r["display_name"]).ToList();
+            Assert.All(names, name => Assert.True(tags.IsCurated(name), name + " is not curated"));
+            Assert.Equal(50, names.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+            output.WriteLine(string.Join(" | ", names));
+            // 300 boards of 99: never a generated name, and the boards differ (each rival's own order through the list).
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            for (int b = 0; b < 300; b++)
+                foreach (var r in VirtualPlayers.Generate("desc/board-" + b.ToString(CultureInfo.InvariantCulture), 99, 400))
+                {
+                    Assert.True(tags.IsCurated((string)r["display_name"]), (string)r["display_name"]);
+                    seen.Add((string)r["display_name"]);
+                }
+            Assert.True(seen.Count > tags.Curated.Length * 9 / 10, seen.Count + " different curated names on 300 boards");
+        }
+
+        [Fact]
+        public void ACuratedNameIsAPureFunctionOfTheIdAndWhatIsTaken()
+        {
+            GamerTags tags = GamerTags.BuiltIn;
+            for (int i = 0; i < 2000; i++)
+            {
+                string id = "pure-" + i.ToString(CultureInfo.InvariantCulture);
+                string first = tags.UniqueName(RivalIdentity.NameScope, id, null);
+                Assert.True(tags.IsCurated(first));
+                Assert.Equal(first, tags.UniqueName(RivalIdentity.NameScope, id, null));
+                Assert.Equal(first, tags.CuratedName(RivalIdentity.NameScope, id, RivalIdentity.Taken(null)));
+                // Taken by a real player (in another case): the rival moves to another curated name, always the same one.
+                var taken = RivalIdentity.Taken(new[] { first.ToUpperInvariant() });
+                string moved = tags.UniqueName(RivalIdentity.NameScope, id, taken);
+                Assert.NotEqual(first, moved, StringComparer.OrdinalIgnoreCase);
+                Assert.True(tags.IsCurated(moved));
+                Assert.Equal(moved, tags.UniqueName(RivalIdentity.NameScope, id, RivalIdentity.Taken(new[] { first.ToUpperInvariant() })));
+            }
+            // The same board on another server (the other platform, a new session) shows the same names.
+            Assert.Equal(MiniJson.Serialize(VirtualPlayers.Generate("desc/pure", 99, 400)), MiniJson.Serialize(VirtualPlayers.Generate("desc/pure", 99, 400)));
+        }
+
+        [Fact]
+        public void TheGeneratorOnlyNamesTheRivalsPastTheCuratedList()
+        {
+            GamerTags tags = GamerTags.BuiltIn;
+            int curated = tags.Curated.Length;
+            var real = new[] { tags.Curated[0], "Some Real Player" };
+            var rivals = VirtualPlayers.Generate("desc/huge", curated + 40, 400, tags, real);
+            var names = rivals.Select(r => (string)r["display_name"]).ToList();
+            Assert.Equal(names.Count, names.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+            Assert.Equal(names.Count, names.Select(GamerTags.Skeleton).Distinct().Count());
+            // Every curated name but the real player's is used before the first generated one.
+            int firstGenerated = names.FindIndex(n => !tags.IsCurated(n));
+            Assert.Equal(curated - 1, firstGenerated);
+            Assert.Equal(curated - 1, names.Count(tags.IsCurated));
+            Assert.DoesNotContain(tags.Curated[0], names, StringComparer.OrdinalIgnoreCase);
+            Assert.All(names.Skip(firstGenerated), n => Assert.Null(GamerTags.GeneratedShapeProblem(n)));
+        }
+
+        [Fact]
+        public void EveryCuratedNameFitsTheClientTheBlocklistAndNoTwoReadAlike()
+        {
+            GamerTags tags = GamerTags.BuiltIn;
+            var skeletons = new Dictionary<string, string>();
+            foreach (string name in tags.Curated)
+            {
+                Assert.Null(GamerTags.ShapeProblem(name));
+                Assert.Null(tags.CuratedBlockedReason(name));
+                Assert.InRange(name.Length, GamerTags.ClientMinLength, GamerTags.ClientMaxLength);
+                Assert.DoesNotContain(name, ch => "<>&:{}/\\\"`".IndexOf(ch) >= 0);
+                Assert.All(name, ch => Assert.True(ch < 0x100, name + " has a character outside Latin-1"));
+                Assert.False(double.TryParse(name, NumberStyles.Float, CultureInfo.InvariantCulture, out _), name);
+                string skeleton = GamerTags.Skeleton(name);
+                if (skeleton.Length == 0) continue;
+                Assert.False(skeletons.TryGetValue(skeleton, out string other), name + " reads like " + other);
+                skeletons[skeleton] = name;
+            }
+            // Spaces, signs and Latin-1 letters are used: names a player would really type.
+            Assert.Contains(tags.Curated, n => n.Contains(' '));
+            Assert.Contains(tags.Curated, n => n.Contains('\''));
+            Assert.Contains(tags.Curated, n => n.Any(ch => ch >= '\u00C0'));
+            Assert.Contains(tags.Curated, n => n.StartsWith("[", StringComparison.Ordinal));
         }
 
         [Fact]
@@ -233,6 +366,16 @@ namespace McvsOffline.Tests.Misc
             Assert.Equal("tacticalleopard", GamerTags.Skeleton("7ac7icalLeop4rd"));
             Assert.Equal("bravokr", GamerTags.Skeleton("Brav0_KR"));
             Assert.Equal("lionca", GamerTags.Skeleton("L10n_CA"));
+            // Build 29: spaces, signs and accents are left out too.
+            Assert.Equal(GamerTags.Skeleton("Pika Pew"), GamerTags.Skeleton("PikaPew"));
+            Assert.Equal(GamerTags.Skeleton("Mr. Saturn"), GamerTags.Skeleton("mr_saturn"));
+            Assert.Equal("cremebrulee", GamerTags.Skeleton("Crème Brûlée"));
+            Assert.Equal(GamerTags.Skeleton("[TACO] Tuesday"), GamerTags.Skeleton("Taco Tuesday"));
+            Assert.Equal(GamerTags.Skeleton("Ñoño"), GamerTags.Skeleton("nono"));
+            Assert.NotEqual(GamerTags.Skeleton("Pika Pew"), GamerTags.Skeleton("Pika Pow"));
+            // A real player's name in another script keeps its letters: two such players are still told apart.
+            Assert.Equal("дима", GamerTags.Skeleton("Дима_99"));
+            Assert.NotEqual(GamerTags.Skeleton("Дима"), GamerTags.Skeleton("Саша"));
             Assert.NotEqual(GamerTags.Skeleton("agent-123456789"), GamerTags.Skeleton("agent-987654321"));
             Assert.NotEqual(GamerTags.Skeleton("FrostGG"), GamerTags.Skeleton("Frost27"));
             var taken = RivalIdentity.Taken(new[] { "Frost27" });
@@ -271,11 +414,23 @@ namespace McvsOffline.Tests.Misc
         [Fact]
         public void TheShapeRuleRefusesWhatTheClientCannotShowOrReadsAsANumber()
         {
-            foreach (string bad in new[] { "1337", "-42", "+7", "*3", "1e5", "NaN", "Infinity", "_Fox", "Fox_", "Fo__x", "Fo.-x", "A<b>c", "Fox&Co",
-                                           "Fox Co", "x", "ThisNameIsWayTooLong", "Zoë", "12" })
+            // What the client cannot take or show: markup (FormatName), ':' (the bot's credential dev:<name>), braces (the
+            // localization formatter), a CRM cell operator first, a number, no letter, a space at an end, the length.
+            foreach (string bad in new[] { "1337", "-42", "+7", "*3", "1e5", "NaN", "nan", "Infinity", " 12.5 ", "A<b>c", "Fox&Co", "dev:Fox",
+                                           "Fox:Co", "{0}", "{x_1}Fox", "Fox/Co", "Fox\\Co", "Say \"hi\"", "-Fox", "+Fox", "*Fox", " Fox", "Fox ",
+                                           "Fox  Co", "x", "ThisNameIsWayTooLong", "Fox\tCo", "Fox\u00A0Co", "Fox\u00D7", "Fox\u0100", "Fox\u4E00", "12" })
                 Assert.NotNull(GamerTags.ShapeProblem(bad));
-            foreach (string good in new[] { "SilentFox", "silent_fox", "Raven1998", "xXRavenXx", "agent-123456789", "Kn1ght_FR", "fox.ace", "ab" })
+            // What players type: spaces, apostrophes, brackets and the other signs, Latin-1 letters, 2 characters.
+            foreach (string good in new[] { "SilentFox", "silent_fox", "Raven1998", "xXRavenXx", "agent-123456789", "Kn1ght_FR", "fox.ace", "ab",
+                                            "Fox Co", "Zoë", "_Fox", "Fox_", "Fo__x", "It'sa Me, Ammo", "[LAG] Pingu", "Snake? Snaaake!", "Q*bert",
+                                            "Top% Rattata", "dont @ me", "Black^", "~SPICY~", "(DAD)PaidForIt", "|404|Aim", "o7", "Ñu",
+                                            "...Whatever", "Miracle-", "Alt+F4" })
                 Assert.Null(GamerTags.ShapeProblem(good));
+            // Generated names keep the build-28 shape on top.
+            foreach (string bad in new[] { "Fox Co", "Zoë", "_Fox", "Fox_", "Fo__x", "Fo.-x", "o7", "Q*bert" })
+                Assert.NotNull(GamerTags.GeneratedShapeProblem(bad));
+            foreach (string good in new[] { "SilentFox", "silent_fox", "xXRavenXx", "agent-123456789", "fox.ace" })
+                Assert.Null(GamerTags.GeneratedShapeProblem(good));
         }
 
         [Fact]
@@ -288,20 +443,38 @@ namespace McvsOffline.Tests.Misc
             Assert.NotNull(tags.BlockedReason(new[] { "Atlas", "Sniper" })); // 'ass' across the join
             Assert.NotNull(tags.BlockedReason(new[] { "Fox", "88" }));
             Assert.NotNull(tags.BlockedReason(new[] { "Ranger", "14" }));
-            Assert.NotNull(tags.BlockedReason(new[] { "Ninja", "07" }));     // a streamer's name
-            // Brands, streamers, other games' characters and slang that two harmless words make.
+            Assert.NotNull(tags.BlockedReason(new[] { "Iron", "Cross" }));   // a hate symbol two harmless words make
+            Assert.NotNull(tags.BlockedReason(new[] { "Red", "Rocket" }));   // slang
+            // Build 29, the owner's rule: brands, streamers and other games' characters are allowed.
             foreach (string[] pieces in new[]
                      {
-                         new[] { "Sniper", "Wolf" }, new[] { "Iron", "Wolf" }, new[] { "1r0n", "W0lf" }, new[] { "Blue", "Falcon" },
-                         new[] { "Echo", "Fox" }, new[] { "Spartan", "117" }, new[] { "Blue", "Yeti" }, new[] { "blu3_", "y3t1" },
-                         new[] { "Red", "Rocket" }, new[] { "Iron", "Golem" }, new[] { "Ghost", "Gaming" }, new[] { "Nova", "Gaming" },
-                         new[] { "Steel", "Panther" }, new[] { "Night", "Ranger" }, new[] { "The", "Red", "Guardian" },
-                         new[] { "Hollow", "Knight" }, new[] { "Soldier", "76" }, new[] { "Cpt", "Falcon" }, new[] { "Stellar", "Blade" },
+                         new[] { "Ninja", "07" }, new[] { "Sniper", "Wolf" }, new[] { "Iron", "Wolf" }, new[] { "Blue", "Falcon" },
+                         new[] { "Echo", "Fox" }, new[] { "Spartan", "117" }, new[] { "Blue", "Yeti" }, new[] { "Hollow", "Knight" },
+                         new[] { "Soldier", "76" }, new[] { "Cpt", "Falcon" }, new[] { "Batman" }, new[] { "Shroud" },
                      })
-                Assert.NotNull(tags.BlockedReason(pieces));
+                Assert.Null(tags.BlockedReason(pieces));
             Assert.Null(tags.BlockedReason(new[] { "Silent", "Fox" }));
             Assert.Null(tags.BlockedReason(new[] { "Ranger", "1448" }));
             Assert.Null(tags.BlockedReason(new[] { "Glass", "Cannon" }));    // 'ass' inside one harmless part
+        }
+
+        [Fact]
+        public void TheCuratedBlocklistStillRefusesSlursHateSexAndTragediesButNotBrandsOrStreamers()
+        {
+            GamerTags tags = GamerTags.BuiltIn;
+            // Slurs, profanity, sex, hate, politics, drugs and tragedies, also in leet, with accents, in a clan tag or a
+            // camel-case word.
+            foreach (string bad in new[] { "Ur A Retard", "f4gg0t lol", "N1GG4 PLS", "Sh1t Happens", "xX_Nazi_Xx", "[KKK] Clan", "Big D1ck Energy",
+                                           "Porn Star", "Sexy Sniper", "Heil Me", "HitlerDidNothin", "Trump 2024", "Opium Den", "Weed Lord",
+                                           "Suicide Squad", "KYS noob", "Jesus Saves", "Fox 88", "Ranger1488", "ISIS Fan", "Ass Hat",
+                                           "WhitePower", "Kill Your Self", "Iron Cross", "Nazì", "Gay Frog", "Sex", "Fuçk" })
+                Assert.True(tags.CuratedBlockedReason(bad) != null, bad + " passed the blocklist");
+            // The owner's rule: brands, other games' characters, streamers; and words that only hold a blocked word across
+            // a space or a case change.
+            foreach (string good in new[] { "Shroud's Mouse", "Ninja", "Pokimane", "xQcOW", "Master Chief", "Doritos Dew", "PewDiePie",
+                                            "Sodapoppin", "Pika Pew", "Spooky Scary", "Obi Wan Kenoodle", "WaitItsAllOhio", "Copium",
+                                            "Knife Crisis", "Glass Cannon", "Prophet Margin", "Cobra 11", "Agent 47" })
+                Assert.True(tags.CuratedBlockedReason(good) == null, good + ": " + tags.CuratedBlockedReason(good));
         }
 
         [Fact]
@@ -341,9 +514,10 @@ namespace McvsOffline.Tests.Misc
 
             Assert.Same(GamerTags.BuiltIn, GamerTags.For(provider, logger.For("test")));
 
-            // A valid override with one style and a few words: every name comes from it (5 x 6 word pairs: names on a board
-            // also differ without their numbers).
+            // A valid override without a curated list, with one style and a few words: every name comes from it (5 x 6 word
+            // pairs: names on a board also differ without their numbers).
             var doc = MiniJson.ParseObject(File.ReadAllText(Path.Combine(ContentTestSupport.RepoRoot, "server", "Content", "names.json")));
+            Assert.True(doc.Remove("curated"));
             var parts = (Dictionary<string, object>)doc["parts"];
             parts["adj"] = new List<object> { "Plaid", "Suede", "Velvet", "Denim", "Linen" };
             parts["noun"] = new List<object> { "Walrus", "Narwhal", "Puffin", "Lemur", "Gecko", "Heron" };
@@ -353,6 +527,24 @@ namespace McvsOffline.Tests.Misc
             Assert.Equal(GamerTags.FileName, custom.Source);
             var rivals = VirtualPlayers.Generate("desc/custom", 20, 400, custom, null);
             Assert.All(rivals, r => Assert.Matches("^(Plaid|Suede|Velvet|Denim|Linen)(Walrus|Narwhal|Puffin|Lemur|Gecko|Heron)[0-9]{2}$", (string)r["display_name"]));
+
+            // With three curated names: they go first, the generator names the rest.
+            doc["curated"] = new List<object> { "Señor Walrus", "Lil' Puffin", "[GG] Heron" };
+            File.WriteAllText(Path.Combine(contentDir, GamerTags.FileName), MiniJson.Serialize(doc));
+            GamerTags three = GamerTags.For(provider, logger.For("test"));
+            Assert.Equal(3, three.Curated.Length);
+            var named = VirtualPlayers.Generate("desc/custom", 20, 400, three, null).Select(r => (string)r["display_name"]).ToList();
+            Assert.Equal(new[] { "Señor Walrus", "Lil' Puffin", "[GG] Heron" }.OrderBy(x => x), named.Take(3).OrderBy(x => x));
+            Assert.All(named.Skip(3), n => Assert.Matches("^(Plaid|Suede|Velvet|Denim|Linen)(Walrus|Narwhal|Puffin|Lemur|Gecko|Heron)[0-9]{2}$", n));
+
+            // A curated name the client cannot take, one the blocklist refuses, or two that read alike: refused.
+            foreach (string[] bad in new[] { new[] { "dev:Walrus" }, new[] { "{0} Walrus" }, new[] { "Nazi Walrus" }, new[] { "Pika Pew", "pikapew" } })
+            {
+                doc["curated"] = bad.Cast<object>().ToList();
+                File.WriteAllText(Path.Combine(contentDir, GamerTags.FileName), MiniJson.Serialize(doc));
+                Assert.Same(GamerTags.BuiltIn, GamerTags.For(provider, logger.For("test")));
+            }
+            doc.Remove("curated");
 
             // Emblem ids outside the client's tables: refused, logged, the built-in file used.
             doc["emblems"] = MiniJson.ParseObject("{\"avatars\":\"0-3\",\"backgrounds\":\"1-35\"}");

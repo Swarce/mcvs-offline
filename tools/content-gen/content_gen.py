@@ -3,7 +3,7 @@
 
 Reads the player's own decoded data pack (``datapack-decoded/_catalog.json`` and ``_tables.json``, ``Design/MCVS_Meta.xlsx``
 for index columns and the collector's rules) plus our tuning in ``pricing.json``, ``liveops_tuning.json``,
-``collector_tuning.json`` and ``names_tuning.json`` and writes the generated content that the server compiles into
+``collector_tuning.json``, ``names_tuning.json`` and ``names_curated.txt`` and writes the generated content that the server compiles into
 ``McvsOffline.Server.dll`` (``server/Content/``):
 
   offline_store.json  CRM ``offline_store`` priced in VersusCoins (merc/skin/kill-signature screens and the
@@ -18,8 +18,9 @@ for index columns and the collector's rules) plus our tuning in ``pricing.json``
                       validated against the catalogue (docs/LIVEOPS.md)
   collector.json      the Cosmetic crate (economy collector): crate rows, item pools and season tables from
                       ``collector_tuning.json`` (ids only), see docs/design/economy-collector.md §3.4
-  names.json          the gamer tags of the leaderboard rivals and the in-match bots (our parts, styles and blocklist
-                      from ``names_tuning.json``) and the rivals' emblem/background pools (ids only), see docs/LIVEOPS.md
+  names.json          the gamer tags of the leaderboard rivals and the in-match bots (our curated names from
+                      ``names_curated.txt``, used first; our parts, styles and blocklist from ``names_tuning.json``) and
+                      the rivals' emblem/background pools (ids only), see docs/LIVEOPS.md
   manifest.json       what was generated from what
 
 Only generated item ids, prices and our own tuning are written: no Gameloft text, no table values.
@@ -1681,6 +1682,7 @@ class NameBlocklist(object):
         self.digits = list(block["digits"])
         self.digit_runs = set(block["digitRuns"])
         self._sub = re.compile("|".join(re.escape(s) for s in sorted(self.substrings, key=len, reverse=True)))
+        self._exact = set(self.substrings) | self.words
         self._lengths = sorted(set(len(w) for w in self.words))
         self._spans = {}
         self._problems = {}
@@ -1713,6 +1715,35 @@ class NameBlocklist(object):
                     w = self.spanning(fa, fb)
                     if w:
                         return "spells '%s' across a join" % w
+        return self._digit_problem(name)
+
+    def curated_problem(self, name):
+        """Why the curated ``name`` is refused, or None (GamerTags.CuratedBlockedReason). Its words (curated_words) are
+        read lower case, accents dropped, digits as letters: a substrings entry inside one word, a words entry as one
+        word, or either entry spelled exactly by a run of whole words (White Power, KillYourSelf), and the digit rules.
+        Never a match that starts or ends inside a word across a word break: the list is written by us, and Spooky Scary,
+        Obi Wan Kenoodle or WaitItsAllOhio hold no 'kys', 'wank' or 'tits'."""
+        plains = [_curated_plain(w) for w in curated_words(name)]
+        for p in plains:
+            for form in (p, p.translate(_NAME_READ_I), p.translate(_NAME_READ_L)):
+                m = self._sub.search(form)
+                if m:
+                    return "contains '%s'" % m.group(0)
+                if form in self.words:
+                    return "has the word '%s'" % form
+        exact = self._exact
+        for i in range(len(plains)):
+            joined = plains[i]
+            for j in range(i + 1, len(plains)):
+                joined += plains[j]
+                if len(joined) > NAME_MAX_LENGTH:
+                    break
+                for form in (joined, joined.translate(_NAME_READ_I), joined.translate(_NAME_READ_L)):
+                    if form in exact:
+                        return "spells '%s' across its words" % form
+        return self._digit_problem(name)
+
+    def _digit_problem(self, name):
         for run in re.findall(r"[0-9]+", name):
             if run in self.digit_runs:
                 return "has the number %s" % run
@@ -1756,6 +1787,115 @@ def name_shape_problem(name, limits):
     if all(ch in "0123456789.,eE+-" for ch in rest) or rest.lower() in ("nan", "inf", "infinity"):
         return "reads as a number (the bot name table needs text)"
     return None
+
+
+# The curated names (names_tuning.json curatedFile, build 29) may hold more than the generated ones: what a player can type
+# into the rename popup (no `restrict` on its text field, popups/PopupChangeName.as) and every client screen shows. The
+# signs below, the space and the Latin-1 letters (the Latin font TCFNoli-Black.ttf has every glyph of U+0020-U+007E and of
+# U+00C0-U+00FF). Never '<', '>', '&' (FormatName/ApplyFontAsLengthEncode and gameswf read them as markup), ':' (a bot's
+# credential is "dev:<name>", MultiplayerComponent.CredentialFromBotName, and Credential splits on ':' and throws on a
+# second one), '{', '}' (LocalizationFormatterComponent.FormatString reads braces in a parameter as placeholders, and
+# int.Parse's the text before a '_' inside them), '/', '\\', '"' and '`' (not needed, and paths and quoting).
+NAME_CURATED_SIGNS = " !%'()*+,-.?@[]^_|~"
+# A leading '+', '-' or '*' makes the CRM cell an ADD or MUL (Gameloft.Engine CRMTableCell): never at the start of a bot name.
+NAME_CRM_OPERATORS = "+-*"
+# double.TryParse(NumberStyles.Float, InvariantCulture) as CRMTableCell reads a cell (a name it parses becomes a number).
+NAME_NUMBER = re.compile(r"^\s*[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?\s*$")
+# Latin-1 letters as a player reads them (Skeleton, blocklist): U+00C0..U+00DF; U+00E0..U+00FF are the same in lower case.
+_LATIN1_FOLD = "a|a|a|a|a|a|ae|c|e|e|e|e|i|i|i|i|d|n|o|o|o|o|o||o|u|u|u|u|y|th|ss".split("|")
+
+
+def name_is_curated_char(ch):
+    """True when the client shows and takes ``ch`` in a curated name (GamerTags.IsShownChar)."""
+    o = ord(ch)
+    return (ch.isascii() and ch.isalnum()) or ch in NAME_CURATED_SIGNS or (0xC0 <= o <= 0xFF and o not in (0xD7, 0xF7))
+
+
+def name_is_letter(ch):
+    o = ord(ch)
+    return ("a" <= ch <= "z") or ("A" <= ch <= "Z") or (0xC0 <= o <= 0xFF and o not in (0xD7, 0xF7))
+
+
+def name_fold(ch):
+    """``ch`` lower case, a Latin-1 letter without its accent (é e, Æ ae, ß ss); other characters as they are."""
+    o = ord(ch)
+    if 0xC0 <= o <= 0xFF and o not in (0xD7, 0xF7):
+        return "y" if o == 0xFF else _LATIN1_FOLD[(o - 0xC0) % 32]
+    return ch.lower() if ch.isascii() else ch
+
+
+def curated_shape_problem(name):
+    """None when the client shows and takes ``name`` (GamerTags.ShapeProblem), else why not."""
+    if not isinstance(name, str) or not NAME_MIN_LENGTH <= len(name) <= NAME_MAX_LENGTH:
+        return "length outside %d..%d" % (NAME_MIN_LENGTH, NAME_MAX_LENGTH)
+    if name[0] == " " or name[-1] == " " or "  " in name:
+        return "a space at an end or two in a row"
+    bad = [ch for ch in name if not name_is_curated_char(ch)]
+    if bad:
+        return "the character '%s' (the client cannot show or take it)" % bad[0]
+    if name[0] in NAME_CRM_OPERATORS:
+        return "starts with a CRM cell operator (+ - *)"
+    if not any(name_is_letter(ch) for ch in name):
+        return "no letter"
+    if NAME_NUMBER.match(name) or name.lower() in ("nan", "inf", "infinity"):
+        return "reads as a number (the bot name table needs text)"
+    return None
+
+
+def name_skeleton(name):
+    """GamerTags.Skeleton: the name as a player tells two names apart (lower case, accents dropped, only letters and
+    digits, a digit inside a word or a single digit at an end read as its letter, the number at either end left out;
+    agent-<digits> keeps its digits)."""
+    plain = _curated_plain(name)
+    if name.lower().startswith("agent-"):
+        return plain
+    out = []
+    for m in re.finditer(r"[0-9]+|[^0-9]+", plain):
+        run = m.group(0)
+        if not run.isdigit():
+            out.append(run)
+            continue
+        inside = m.start() > 0 and m.end() < len(plain)
+        single = len(run) == 1 and (m.start() > 0 or m.end() < len(plain))
+        if inside or single:
+            out.append(run.translate(_NAME_READ_I))
+    return "".join(out)
+
+
+def _curated_plain(text):
+    """``text`` lower case, accents dropped, only its letters and digits."""
+    return "".join(name_fold(ch) for ch in text if name_is_letter(ch) or (ch.isascii() and ch.isdigit()))
+
+
+def curated_words(name):
+    """The words of a curated name: split at everything but letters and digits and where lower case (or a digit) meets
+    upper case, or an upper-case run meets a capitalised word (GamerTags.Words)."""
+    words = []
+    cur = []
+    for i, ch in enumerate(name):
+        if not (name_is_letter(ch) or (ch.isascii() and ch.isdigit())):
+            if cur:
+                words.append("".join(cur))
+            cur = []
+            continue
+        if cur:
+            prev = name[i - 1]
+            nxt = name[i + 1] if i + 1 < len(name) else ""
+            upper = ch.isupper()
+            if upper and (prev.islower() or prev.isdigit()) or (upper and prev.isupper() and nxt.islower()):
+                words.append("".join(cur))
+                cur = []
+        cur.append(ch)
+    if cur:
+        words.append("".join(cur))
+    return words
+
+
+def load_curated(path):
+    """The names of a curated file: one per line (UTF-8), blank lines and lines starting with # left out."""
+    with open(path, "r", encoding="utf-8") as f:
+        lines = f.read().split("\n")
+    return [line for line in lines if line and not line.startswith("#")]
 
 
 def parse_name_style(style, where, lists):
@@ -1802,14 +1942,46 @@ def apply_name_case(text, case):
     return text
 
 
-def build_names(cat, tuning, collector):
-    """names.json: our gamer-tag parts, styles and blocklist (checked: every part, every two-part combination, the number
-    of distinct names) and the rivals' emblem and background pools (ids only, from MCVS_Meta)."""
+def build_names(cat, tuning, collector, curated=None):
+    """names.json: our curated names (checked: the client's characters and limits, the blocklist, no two that read alike,
+    at least minCurated), our gamer-tag parts, styles and blocklist for the names a board needs beyond them (checked: every
+    part, every two-part combination, the number of distinct names) and the rivals' emblem and background pools (ids
+    only, from MCVS_Meta). ``curated`` defaults to the tuning's curatedFile next to this script."""
     doc = copy.deepcopy(_checked_names(json.dumps(tuning, sort_keys=True)))
+    if curated is None:
+        curated = load_curated(os.path.join(os.path.dirname(os.path.abspath(__file__)), tuning["curatedFile"]))
+    doc["curated"] = _checked_curated(tuple(curated), json.dumps(tuning["blocklist"], sort_keys=True), tuning["minCurated"])
+    doc["summary"]["curated"] = len(doc["curated"])
     avatars, backgrounds = rival_emblems(cat, collector)
     doc["emblems"] = {"avatars": compress_ranges(avatars), "backgrounds": compress_ranges(backgrounds)}
     doc["summary"].update({"avatars": len(avatars), "backgrounds": len(backgrounds)})
-    return doc
+    order = ["format", "version", "limits", "years", "defaultShare", "curated"]
+    return dict([(k, doc[k]) for k in order] + [(k, v) for k, v in doc.items() if k not in order])
+
+
+@functools.lru_cache(maxsize=4)
+def _checked_curated(names, block_text, minimum):
+    """The curated names, each checked as the server checks it (GamerTags.Load): the characters and limits of the client
+    (curated_shape_problem), the blocklist (NameBlocklist.curated_problem), never two that read alike (name_skeleton,
+    ignoring case: the second would never be shown beside the first)."""
+    blocklist = NameBlocklist(json.loads(block_text))
+    seen = {}
+    for name in names:
+        problem = curated_shape_problem(name)
+        if problem:
+            raise ContentError("names: curated name '%s': %s" % (name, problem))
+        problem = blocklist.curated_problem(name)
+        if problem:
+            raise ContentError("names: curated name '%s' is refused by the blocklist (%s)" % (name, problem))
+        for key in (name.lower(), "\x01" + name_skeleton(name)):
+            if key == "\x01":
+                continue
+            if key in seen:
+                raise ContentError("names: curated names '%s' and '%s' read alike (keep one)" % (seen[key], name))
+            seen[key] = name
+    if len(names) < minimum:
+        raise ContentError("names: %d curated names, fewer than minCurated %d" % (len(names), minimum))
+    return list(names)
 
 
 @functools.lru_cache(maxsize=4)
@@ -1832,6 +2004,12 @@ def _checked_names(tuning_text):
     minimum = tuning.get("minCombinations")
     if not isinstance(minimum, int) or minimum < 1:
         raise ContentError("names: minCombinations must be a positive integer")
+    curated_file = tuning.get("curatedFile")
+    if not isinstance(curated_file, str) or not re.match(r"^[A-Za-z0-9_.-]+$", curated_file):
+        raise ContentError("names: curatedFile must be a file name next to the tuning")
+    min_curated = tuning.get("minCurated")
+    if not isinstance(min_curated, int) or isinstance(min_curated, bool) or min_curated < 1:
+        raise ContentError("names: minCurated must be a positive integer")
 
     block = tuning.get("blocklist") or {}
     for key, pattern in (("substrings", r"^[a-z0-9]{3,}$"), ("words", r"^[a-z0-9]{2,}$"), ("digits", r"^[0-9]{2,}$"),
@@ -2057,8 +2235,19 @@ def _write(value, out, depth):
             out.append(pad + "  " + json.dumps(v, separators=(",", ":"), ensure_ascii=True))
             out.append(",\n" if i < len(value) - 1 else "\n")
         out.append(pad + "]")
+    elif isinstance(value, list) and len(value) > LONG_STRING_LIST and all(isinstance(v, str) for v in value):
+        # names.json curated: one name per line, so a change to the list is a reviewable diff.
+        out.append("[\n")
+        for i, v in enumerate(value):
+            out.append(pad + "  " + json.dumps(v, ensure_ascii=True))
+            out.append(",\n" if i < len(value) - 1 else "\n")
+        out.append(pad + "]")
     else:
         out.append(json.dumps(value, separators=(",", ":"), ensure_ascii=True))
+
+
+# A list of more strings than this is written one string per line (dumps).
+LONG_STRING_LIST = 500
 
 
 def _big(items):
@@ -2117,7 +2306,8 @@ def generate(decoded_dir, pricing_path, liveops_path=None, collector_path=None, 
     liveops = build_liveops(cat, liveops_tuning, loc_tables, now, maps_list)
     collector = build_collector(cat, collector_tuning, unlocks, loc_tables)
     check_collector_rewards(liveops, collector)
-    names = build_names(cat, names_tuning, collector)
+    curated = load_curated(os.path.join(os.path.dirname(os.path.abspath(names_path)), names_tuning.get("curatedFile", "")))
+    names = build_names(cat, names_tuning, collector, curated)
 
     files = {
         "offline_store.json": store,
@@ -2136,7 +2326,8 @@ def generate(decoded_dir, pricing_path, liveops_path=None, collector_path=None, 
                    "inputs": inputs + (["Design/MCVS_Meta.xlsx (index columns; ids and flags for the collector)"] if design else [])
                    + (["Design/MCVS_Gameplay.xlsx (MapsList: map ids, level paths, game modes)"] if maps_list else []),
                    "pricing": "tools/content-gen/pricing.json", "liveops": "tools/content-gen/liveops_tuning.json",
-                   "collector": "tools/content-gen/collector_tuning.json", "names": "tools/content-gen/names_tuning.json"},
+                   "collector": "tools/content-gen/collector_tuning.json", "names": "tools/content-gen/names_tuning.json",
+                   "curatedNames": "tools/content-gen/" + names_tuning.get("curatedFile", "")},
         "files": [{"name": name, "entries": _entries(name, data)} for name, data in sorted(files.items())],
     }
     files["manifest.json"] = manifest
@@ -2155,7 +2346,7 @@ def _entries(name, data):
     if name == "collector.json":
         return len(data["rows"])
     if name == "names.json":
-        return sum(len(v) for v in data["parts"].values())
+        return len(data["curated"]) + sum(len(v) for v in data["parts"].values())
     return None
 
 

@@ -8,7 +8,8 @@
     "pricing": "tools/content-gen/pricing.json",
     "liveops": "tools/content-gen/liveops_tuning.json",
     "collector": "tools/content-gen/collector_tuning.json",
-    "names": "tools/content-gen/names_tuning.json"
+    "names": "tools/content-gen/names_tuning.json",
+    "curatedNames": "tools/content-gen/names_curated.txt"
   },
   "files": [
     {"name":"collector.json","entries":39},
@@ -16,7 +17,7 @@
     {"name":"crm_overlay.json","entries":null},
     {"name":"economy.json","entries":null},
     {"name":"liveops.json","entries":7},
-    {"name":"names.json","entries":713},
+    {"name":"names.json","entries":2788},
     {"name":"offline_store.json","entries":1858},
     {"name":"unlocks.json","entries":17018}
   ]
