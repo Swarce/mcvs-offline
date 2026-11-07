@@ -1,7 +1,7 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-Last updated for build 28 (November 2026, on `wip/pc-port`; APK and PC kit): build 28 gives the leaderboard rivals gamer-tag names and their own emblems, and the in-match bots thousands of names; see "Build 28". The owner confirmed build 27's bot fix on Steam. Build 27 fixes the Steam bots (a resting bot could not start on frames shorter than 1/60 s) and adds a Steam frame rate setting up to unlimited; see "Build 27". Build 26 starts normally when another program holds the server's port (it moves to a free one and everything follows); see "Build 26". Build 25 brings the project's own launcher icon (the owner's art), a dark red launch screen and a new background for the game's data installer (kept outside the repository); see "Build 25". Build 24 keeps ABOUT centred on the return from a tab (the owner's build-23 log: the tile just tapped was still in its pressed animation and our width check refused it); see "Build 24". Build 23 fixes what the owner saw on the phone in build 22 (the PERFORMANCE title drawn over its icon, ABOUT right of centre, a small stutter on the gear tap) and adds timings to the `settings menu:` log lines; Steam is unchanged apart from log text; not yet tested on a phone or on Windows; see "Build 23". The Steam bots' report (they idle at spawn and sometimes stop moving) is open: its investigation was stopped before any result, see "Build 23". Build 22: on the owner's phone build 21 still flashed
+Last updated for build 29 (November 2026, on `wip/pc-port`; APK and PC kit): build 29 replaces the generic gamer tags with about 2,000 hand-written names; see "Build 29". Build 28 gives the leaderboard rivals gamer-tag names and their own emblems, and the in-match bots thousands of names; see "Build 28". The owner confirmed build 27's bot fix on Steam. Build 27 fixes the Steam bots (a resting bot could not start on frames shorter than 1/60 s) and adds a Steam frame rate setting up to unlimited; see "Build 27". Build 26 starts normally when another program holds the server's port (it moves to a free one and everything follows); see "Build 26". Build 25 brings the project's own launcher icon (the owner's art), a dark red launch screen and a new background for the game's data installer (kept outside the repository); see "Build 25". Build 24 keeps ABOUT centred on the return from a tab (the owner's build-23 log: the tile just tapped was still in its pressed animation and our width check refused it); see "Build 24". Build 23 fixes what the owner saw on the phone in build 22 (the PERFORMANCE title drawn over its icon, ABOUT right of centre, a small stutter on the gear tap) and adds timings to the `settings menu:` log lines; Steam is unchanged apart from log text; not yet tested on a phone or on Windows; see "Build 23". The Steam bots' report (they idle at spawn and sometimes stop moving) is open: its investigation was stopped before any result, see "Build 23". Build 22: on the owner's phone build 21 still flashed
 MORE GAMES and the FORUM tile on a return to Settings; build 22 no longer races the game's own `setup()`: on the phone
 its stock writes are made to draw nothing (the engine's text remap turns FORUM into PERFORMANCE, the icon is out of its
 reach, the removed tiles are off the panel, ABOUT stays at the game's own place on the bottom row), prepared before
@@ -65,6 +65,31 @@ HD texture probe and a Windows test kit for the Steam version. Build 11 installs
 version into the game's own data. Build 12 accepts a full ASTC data pack with 2,215 PC textures in it: **device test 9:
 the HD textures and the graphics profiles work, at the same frame rate as before**, and builds 10 to 12 (target Android
 15) installed and played fine.
+
+## Build 29 (November 2026): hand-written names for rivals and bots
+
+`e66ca2e` on `wip/pc-port` (`McvsVersion.Build` is `29`; the merge of `wip/b29-names`). APK `mcvs-offline-e66ca2e.apk`
+(SHA-256 `8111a70f68077d1bd479cc8bd2f3d5a6473da4984bfc20356e416145d132f3a2`): against build 28 only the server DLL, the MVID
+spans and the signatures differ. PC kit SHA-256 `348a88a4963a09b8a089c2fc49a0ccdf71c05741c2b329b93ac106e6a760c076`
+(build 28's kept as `McvsOffline.PcKit-cce0971.exe`); PC end to end as before. Tests: 1615 (one timing-dependent exit
+sequence test failed once under load and passed three times alone), Embed 1365, PcKit 63, PcSpike 62.
+
+**The owner's verdict on build 28:** too many names were generic, like auto-picked account names; they wanted creative,
+rare names, and allowed brands, other games' characters and streamers.
+
+**The change:** six themed writers (puns, memes and pop culture, other games and streamers, absurd and wholesome,
+clan-style and short handles, a dozen languages) wrote about 2,500 names using online lists only as inspiration, editors
+cut the generic and offensive ones, and a reviewer read the whole list (it removed, among others, a Thai obscenity, profanity
+puns, political names and handles tied to real misconduct cases). About 2,000 remain in
+`tools/content-gen/names_curated.txt` (the inspiration URLs are in its header). Rivals and bots use this list first
+(deterministic per rival id and per 10-minute bot window, no duplicates or read-alikes); the build-28 generator, without
+its most generic templates, only fills a board once the list is used up. Names may now hold spaces, some signs and
+Latin-1 letters, which the game's font and parsers accept (checked in the client code). The blocklist now allows brands,
+streamers and other games' characters, and still blocks slurs, sexual words, hate, politics, religion, drugs and real
+tragedies. Everyone gets a new name once with this build.
+
+**Checklist:** rival boards and bot matches show the new names; names with spaces, brackets or accents render normally
+in the leaderboard rows, the kill feed and the scoreboard.
 
 ## Build 28 (November 2026): gamer-tag names and emblems for the rivals, more names for the bots
 
