@@ -45,6 +45,8 @@ namespace McvsOffline.Patcher.Patches
 
         public override void Apply(ModuleDefinition module, PatchContext context)
         {
+            ForBuild(context, Id, null);   // Android only: excluded on PC (docs/design/pc-port.md §8.8)
+            PatchSites.RequireBuildAssembly(module, context, Id);
             // ---- locate and verify everything first
             TypeDefinition manager = RequireType(module, ManagerType);
             TypeDefinition application = RequireType(module, ApplicationType);

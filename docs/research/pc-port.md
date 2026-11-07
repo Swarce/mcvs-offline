@@ -78,7 +78,7 @@ virtual addresses in `NativeEngine.dll` (image base `0x10000000`); `0x40…` add
 5. **Patch status on PC.** `pctool apply pc` runs each patch alone on the real PC assemblies (`pc-apply.txt`). The
    Android control run (`apply android`) passes all 16. **[V]**
    * **8 apply unchanged on PC:** `headless-engine`, `physics`, `geo`, `bottile`, `finder`, `store`, `signatures`,
-     `forum`.
+     `forum`. (`bottile` was removed in build 21 on both builds, with the `crm.practiceTile` setting.)
    * **`hook` cannot be reused.** It patches the wrong place: nothing on PC calls `NicePlaySDKDLL.OnInitialize`.
    * **7 fail their fingerprint or shape check:** `headless`, `nativeonline`, `waits`, `lan`, `adminpage`, `debloat`,
      `adminlink`. For 4 of them the semantic change is small (§2.3).
@@ -282,7 +282,7 @@ server DLL was the context. The Android control run (same patches, Android assem
 | `nativeonline` | Gameloft.Engine | **FAIL**: `Init_private` shape | PC marshals the 3 strings as UTF-8 `byte[]` before `OnlinePlatformComponent_Init_private(byte[],byte[],byte[])` | New shape check; same change |
 | `waits` | Gameloft.Engine | **FAIL**: fingerprint | Codegen only: `IL_0065 dup` on Android, `IL_0065 ldloc.0` on PC (`d-*-wait.txt`) | New fingerprints; same edit |
 | `geo` | Gameloft.Util | OK, unchanged | | Recommended |
-| `bottile` | Game | OK, unchanged | | Recommended |
+| `bottile` | Game | OK, unchanged | | Default; dormant (its PRACTICE tile is hidden in the shipped data, see match-modes notes in 07-offline-bots.md §0); removed in build 21 |
 | `finder` | Gameloft.Engine | OK, unchanged | | **Not on Windows by default.** It turns the Finder's `HttpListener` prefix into `http://*:51750/`; on Windows `HttpListener` is http.sys, and a wildcard prefix needs administrator rights or a `netsh http add urlacl` (**[I]**, standard http.sys behaviour) |
 | `lan` | Gameloft.Engine | **FAIL**: P3 site (`ClientSettings::.ctor` has no `call get_PublicHost; stfld <LocalAnubisFinderHost>`) | The initialiser is compiled differently | LAN is not a PC goal; defer |
 | `store` | Game | OK (both fingerprints identical) | | Default |

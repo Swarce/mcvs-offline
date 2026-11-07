@@ -114,6 +114,80 @@ namespace McvsOffline.Tests.Conformance
             }
         }
 
+        /// <summary>
+        /// Test 1, the client half on each client (Android and the Steam build, docs/design/pc-port.md §4.7): the served trees
+        /// of test 1 parse through that client's <c>StandardCrm.Data</c> and <c>CRMComponent.GetChanger</c>, and every
+        /// collector cell is a SET of the intended value in its table's changer. Applying to the tables stays with test 1 on
+        /// Android: RealTables patches the Android Game.dll and reads the Android data pack (the PC data pack is a WP4/WP5a
+        /// follow-up).
+        /// </summary>
+        [Theory]
+        [MemberData(nameof(TestFolders.RealClientFolders), MemberType = typeof(TestFolders))]
+        public void EveryServedTreeParsesIntoItsChangers(string platform, string folder)
+        {
+            GameClient game = GameClient.TryGetFrom(output, platform, folder, "Gameloft.Engine", "Gameloft.Util");
+            if (game == null) return;
+            Type crmData = game.Op("StandardCrm+Data");
+            MethodInfo getChanger = game.Type("Gameloft.Engine", "Gameloft.Engine.CRMComponent").GetMethod("GetChanger", BindingFlags.Public | BindingFlags.Static);
+            MethodInfo loadObject = game.Type("Gameloft.Util", "Gameloft.Util.Json").GetMethod("LoadObject", new[] { typeof(string) });
+            object GameParams(string text) =>
+                GameClient.Get(Activator.CreateInstance(crmData, text), "RawGameParameters") ?? throw new InvalidOperationException("the document has no game parameters");
+
+            var trees = new List<Tree>();
+            void Add(string name, object gameParams, IList<CollectorCell> gameCells, IList<CollectorCell> mirrorCells)
+            {
+                trees.Add(new Tree { Name = name, Params = gameParams, Cells = gameCells });
+                trees.Add(new Tree { Name = name + " mirror", Params = MirrorOf(gameParams), Cells = mirrorCells });
+            }
+            using (var run = new GoldenRun(ActiveDay))
+            {
+                string freshDump = GoldenScenarios.DumpText(GoldenScenarios.Fresh);
+                string unlockAllDump = GoldenScenarios.UnlockAllDump();
+                string fresh = Player(run, "fresh", freshDump);
+                string unlockAll = Player(run, "unlockAll", unlockAllDump);
+                CrmDocument doc = run.Context.Features.Get<CrmDocumentCache>().Get(0);
+                Assert.Equal(CollectorPhase.Active, doc.CollectorPhase);
+                Add("static", GameParams(Ok(run.Get("/configs/users/me", null))), doc.Collector.GameCells, doc.Collector.MirrorCells);
+                Add("game selector", loadObject.Invoke(null, new object[] { Ok(run.Get("/configs/users/me/game", null)) }),
+                    doc.Collector.GameCells, doc.Collector.MirrorCells);
+                Add("per-player fresh", GameParams(Ok(run.Get("/configs/users/me", fresh))), PlayerGameCells(doc, freshDump), CollectorGuard.Cells);
+                Add("per-player unlock-all", GameParams(Ok(run.Get("/configs/users/me", unlockAll))), PlayerGameCells(doc, unlockAllDump), CollectorGuard.Cells);
+            }
+            using (var run = new GoldenRun(ActiveDay))
+            {
+                run.Set("economy.collector.enabled", false);
+                Assert.Equal(CollectorPhase.Guard, run.Context.Features.Get<CrmDocumentCache>().Get(0).CollectorPhase);
+                Add("guard", GameParams(Ok(run.Get("/configs/users/me", null))), CollectorGuard.Cells, CollectorGuard.Cells);
+            }
+            Add("minimal", GameParams(MiniJson.Serialize(CrmService.MinimalDocument(false, true))), CollectorGuard.Cells, CollectorGuard.Cells);
+
+            Assert.Equal(12, trees.Count);
+            foreach (Tree tree in trees)
+            {
+                object changer = getChanger.Invoke(null, new[] { tree.Params, RealTables.MetaPath });
+                getChanger.Invoke(null, new[] { tree.Params, "Design/MCVS_Gameplay.xlsx" });   // the other database's changer parses too
+                var changers = new Dictionary<string, object>(StringComparer.Ordinal);
+                foreach (object tableChanger in (IEnumerable)GameClient.Get(changer, "TableChangers"))
+                    changers[(string)GameClient.Get(tableChanger, "TableName")] = tableChanger;
+                foreach (IGrouping<string, CollectorCell> group in tree.Cells.GroupBy(c => c.Table))
+                {
+                    Assert.True(changers.TryGetValue(group.Key, out object tableChanger), platform + " " + tree.Name + ": no changer for " + group.Key);
+                    Dictionary<string, Dictionary<string, (object Value, string Operator)>> served = ChangerCells(tableChanger);
+                    foreach (IGrouping<string, CollectorCell> field in group.GroupBy(c => c.Changer))
+                    {
+                        Assert.True(served.TryGetValue(field.Key, out var cells), platform + " " + tree.Name + ": no field changer " + group.Key + "." + field.Key);
+                        Assert.Equal(field.Select(c => c.Key).OrderBy(k => k, StringComparer.Ordinal), cells.Keys.OrderBy(k => k, StringComparer.Ordinal));
+                        foreach (CollectorCell cell in field)
+                        {
+                            Assert.Equal("SET", cells[cell.Key].Operator);
+                            Assert.Equal(ClientValue(cell.Value), cells[cell.Key].Value);
+                        }
+                    }
+                }
+                output.WriteLine(platform + " " + tree.Name + ": " + tree.Cells.Count + " collector cells in " + changers.Count + " MCVS_Meta table changers");
+            }
+        }
+
         // ------------------------------------------------------------------------------------------ 2. CratesSpecsCollection
 
         /// <summary>
@@ -628,15 +702,16 @@ namespace McvsOffline.Tests.Conformance
         /// last one, and the currencies before a crate are credited unseen; live ops never serve two crates in one milestone
         /// (LiveOpsTests.NoGeneratedMilestoneHoldsTwoCrates, LiveOpsConformanceTests).
         /// </summary>
-        [Fact]
-        public void AMilestoneRevealsOnlyItsLastCrate()
+        [Theory]
+        [MemberData(nameof(TestFolders.RealClientFolders), MemberType = typeof(TestFolders))]
+        public void AMilestoneRevealsOnlyItsLastCrate(string platform, string folder)
         {
-            string refs = GameClient.RefsDirectory;
+            string refs = folder;
             string path = System.IO.Path.Combine(refs, "Game.dll");
             if (!System.IO.File.Exists(path))
             {
-                if (GameClient.Required) throw new InvalidOperationException("MCVS_REQUIRE_REAL_CLIENT=1 but " + path + " is missing");
-                output.WriteLine("Game.dll not found in MCVS_REFS: skipped");
+                if (TestFolders.Required(platform)) throw new InvalidOperationException("the " + platform + " client is required but " + path + " is missing");
+                output.WriteLine("Game.dll not found in " + TestFolders.VariableOf(platform) + ": skipped");
                 return;
             }
             using (var resolver = new Mono.Cecil.DefaultAssemblyResolver())

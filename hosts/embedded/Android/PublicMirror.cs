@@ -28,8 +28,10 @@ namespace McvsOffline.Embedded.Android
     /// <c>exception-*</c> and <c>exit-*-anr</c> files (crash and exception files are redacted when written). Every file is copied
     /// again while its size or time changes: a thread dump is written for up to 10 s after it is created and an ANR trace (up to
     /// 8 MB) is streamed in by the exit-reasons thread while the first cycles run, so a copy taken early would stay truncated.
-    /// It keeps 5 sessions and at most 20 crash/thread-dump/exception/exit copies, and deletes leftover <c>*.tmp</c> files of a
-    /// killed copy.
+    /// It keeps the sessions of the kept starts (<see cref="KeepSessions"/>: settings logging.keepStarts + 1, LogRetention), the
+    /// crash/thread-dump/exception/exit copies made since the oldest kept start (<see cref="DiagnosticsBeforeUtc"/>) and at most 20
+    /// of them, and deletes leftover <c>*.tmp</c> files of a killed copy. Copies left by an earlier install are not ours any more:
+    /// they stay (counted, never a prompt).
     /// </para>
     /// </summary>
     internal sealed class PublicMirror
@@ -38,7 +40,6 @@ namespace McvsOffline.Embedded.Android
         private const long TailBytes = 2L * 1024 * 1024;
         private const long DiagnosticBytes = 1024 * 1024;
         private const long CrashBytes = 256 * 1024;
-        private const int KeepSessions = 5;
         public const int KeepDiagnostics = 20;
         private const int IntervalMs = 30000;
 
@@ -72,7 +73,23 @@ namespace McvsOffline.Embedded.Android
             sessionPrefix = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + "-";
             SdkInt = () => 0;
             DownloadsDir = () => null;
+            KeepSessions = McvsOffline.Embedded.Diagnostics.LogRetention.DefaultKeepStarts + 1;
         }
+
+        /// <summary>Sessions kept, this one included (logging.keepStarts + 1; at least 1). Set before <see cref="Start"/>.</summary>
+        public int KeepSessions { get; set; }
+
+        /// <summary>
+        /// The clock went back (LogRetention): no session is deleted at this start, since neither their names nor their write
+        /// times say which ones are the kept starts. Set before <see cref="Start"/>.
+        /// </summary>
+        public bool KeepAllSessions { get; set; }
+
+        /// <summary>
+        /// Crash/thread-dump/exception/exit copies last written before this go first (the start of the oldest kept start); null:
+        /// only the count cap <see cref="KeepDiagnostics"/>. Set before <see cref="Start"/>.
+        /// </summary>
+        public DateTime? DiagnosticsBeforeUtc { get; set; }
 
         /// <summary>Build.VERSION.SDK_INT (the mirror runs on 30 and later).</summary>
         public Func<int> SdkInt { get; set; }
@@ -194,7 +211,8 @@ namespace McvsOffline.Embedded.Android
             foreach (string source in sources)
             {
                 CopyIfChanged(source, sessionPrefix + Path.GetFileName(source) + ".txt", TailBytes);
-                // The rotated file: once per rotation (its size and time change only then); usually the end of the previous session.
+                // The rotated file: once per rotation (its size and time change only then); the end of the previous start (the logs
+                // begin a new file at every start).
                 CopyIfChanged(source + ".1", sessionPrefix + Path.GetFileName(source) + ".1.txt", TailBytes);
             }
             if (!string.IsNullOrEmpty(logsDir) && System.IO.Directory.Exists(logsDir))
@@ -213,7 +231,9 @@ namespace McvsOffline.Embedded.Android
             }
             if (changed.Count > 0)
             {
-                PruneDiagnostics();
+                var pruned = new PruneCount();
+                PruneDiagnostics(pruned);
+                if (pruned.Deleted > 0) LogPruned(pruned);
                 FlushScan();
             }
         }
@@ -318,30 +338,119 @@ namespace McvsOffline.Embedded.Android
             }
         }
 
-        /// <summary>Keeps the newest sessions; files from an earlier install are not ours any more and stay.</summary>
-        private void Prune()
+        /// <summary>What one pruning deleted, and how many files it could not delete (left by an earlier install: not ours).</summary>
+        private sealed class PruneCount
         {
-            var files = new List<string>(System.IO.Directory.GetFiles(directory));
-            files.Sort(StringComparer.Ordinal);
-            var sessions = new List<string>();
-            foreach (string f in files)
-            {
-                string name = Path.GetFileName(f);
-                if (name.Length > 16 && name[8] == '-' && name[15] == '-' && !sessions.Contains(name.Substring(0, 16))) sessions.Add(name.Substring(0, 16));
-            }
-            for (int i = 0; i < sessions.Count - KeepSessions; i++)
-            {
-                foreach (string f in files)
-                {
-                    if (!Path.GetFileName(f).StartsWith(sessions[i], StringComparison.Ordinal)) continue;
-                    try { File.Delete(f); } catch (Exception) { }
-                }
-            }
-            PruneDiagnostics();
+            public int Deleted;
+            public long Bytes;
+            public int NotOurs;
         }
 
-        /// <summary>At most <see cref="KeepDiagnostics"/> crash/thread-dump/exception/exit copies, the oldest (by time, then name) go.</summary>
-        private void PruneDiagnostics()
+        /// <summary>
+        /// Keeps this session and the <see cref="KeepSessions"/> - 1 newest others, then the diagnostics; files from an earlier
+        /// install are not ours any more and stay. The others are ranked by their newest copy's write time (UTC), not by their
+        /// names (local time: a time-zone change or the DST fall-back hour reorders them), and are all kept after the clock went
+        /// back (<see cref="KeepAllSessions"/>). One log line when something was deleted or could not be.
+        /// </summary>
+        private void Prune()
+        {
+            var pruned = new PruneCount();
+            var files = new List<string>(System.IO.Directory.GetFiles(directory));
+            files.Sort(StringComparer.Ordinal);
+            if (!KeepAllSessions)
+            {
+                var times = new Dictionary<string, DateTime>(StringComparer.Ordinal);
+                foreach (string f in files)
+                {
+                    string prefix = SessionPrefixOf(Path.GetFileName(f));
+                    if (prefix == null) continue;
+                    DateTime written = DateTime.MinValue;
+                    try { written = File.GetLastWriteTimeUtc(f); } catch (Exception) { }
+                    DateTime known;
+                    if (!times.TryGetValue(prefix, out known) || written > known) times[prefix] = written;
+                }
+                foreach (string prefix in SessionsToDelete(times, sessionPrefix, KeepSessions))
+                {
+                    foreach (string f in files)
+                    {
+                        if (string.Equals(SessionPrefixOf(Path.GetFileName(f)), prefix, StringComparison.Ordinal)) Delete(f, pruned);
+                    }
+                }
+            }
+            PruneDiagnostics(pruned);
+            if (pruned.Deleted > 0 || pruned.NotOurs > 0) LogPruned(pruned);
+        }
+
+        /// <summary>
+        /// The sessions to delete: all but <paramref name="current"/> and the <paramref name="keep"/> - 1 others with the newest
+        /// write time (ties: the higher name).
+        /// </summary>
+        internal static List<string> SessionsToDelete(Dictionary<string, DateTime> newestWriteUtc, string current, int keep)
+        {
+            var others = new List<KeyValuePair<string, DateTime>>();
+            foreach (KeyValuePair<string, DateTime> pair in newestWriteUtc)
+            {
+                if (!string.Equals(pair.Key, current, StringComparison.Ordinal)) others.Add(pair);
+            }
+            others.Sort((a, b) =>
+            {
+                int c = b.Value.CompareTo(a.Value);
+                return c != 0 ? c : string.CompareOrdinal(b.Key, a.Key);
+            });
+            int keepOthers = (keep < 1 ? 1 : keep) - 1;
+            var delete = new List<string>();
+            for (int i = keepOthers; i < others.Count; i++) delete.Add(others[i].Key);
+            return delete;
+        }
+
+        /// <summary>"yyyyMMdd-HHmmss-" when the name starts with one (8 digits, '-', 6 digits, '-'), else null.</summary>
+        internal static string SessionPrefixOf(string name)
+        {
+            if (name == null || name.Length <= 16 || name[8] != '-' || name[15] != '-') return null;
+            for (int i = 0; i < 15; i++)
+            {
+                if (i == 8) continue;
+                if (name[i] < '0' || name[i] > '9') return null;
+            }
+            return name.Substring(0, 16);
+        }
+
+        private static void Delete(string path, PruneCount count)
+        {
+            long size = 0;
+            try { size = new FileInfo(path).Length; } catch (Exception) { }
+            try
+            {
+                File.Delete(path);
+                if (File.Exists(path))
+                {
+                    count.NotOurs++;
+                    return;
+                }
+                count.Deleted++;
+                count.Bytes += size;
+            }
+            catch (Exception)
+            {
+                count.NotOurs++;   // MediaProvider refuses the row of an earlier install
+            }
+        }
+
+        private void LogPruned(PruneCount pruned)
+        {
+            string line = "[mirror] keeping " + (KeepSessions < 1 ? 1 : KeepSessions).ToString(CultureInfo.InvariantCulture) + " starts: deleted " +
+                          pruned.Deleted.ToString(CultureInfo.InvariantCulture) + (pruned.Deleted == 1 ? " copy (" : " copies (") +
+                          (pruned.Bytes / (1024.0 * 1024.0)).ToString("0.0", CultureInfo.InvariantCulture) + " MB)";
+            if (pruned.NotOurs > 0)
+                line += "; " + pruned.NotOurs.ToString(CultureInfo.InvariantCulture) + " from an earlier install " + (pruned.NotOurs == 1 ? "is" : "are") + " not ours";
+            log(line);
+        }
+
+        /// <summary>
+        /// Crash/thread-dump/exception/exit copies made before <see cref="DiagnosticsBeforeUtc"/> go; then at most
+        /// <see cref="KeepDiagnostics"/>, the oldest (by time, then name) go.
+        /// </summary>
+        private void PruneDiagnostics(PruneCount pruned)
         {
             var diagnostics = new List<FileInfo>();
             foreach (string f in System.IO.Directory.GetFiles(directory))
@@ -357,6 +466,17 @@ namespace McvsOffline.Embedded.Android
                     }
                 }
             }
+            DateTime? before = DiagnosticsBeforeUtc;
+            if (before != null)
+            {
+                var kept = new List<FileInfo>();
+                foreach (FileInfo info in diagnostics)
+                {
+                    if (info.LastWriteTimeUtc < before.Value) Delete(info.FullName, pruned);
+                    if (File.Exists(info.FullName)) kept.Add(info);
+                }
+                diagnostics = kept;
+            }
             if (diagnostics.Count <= KeepDiagnostics) return;
             diagnostics.Sort((a, b) =>
             {
@@ -365,7 +485,7 @@ namespace McvsOffline.Embedded.Android
             });
             for (int i = 0; i < diagnostics.Count - KeepDiagnostics; i++)
             {
-                try { File.Delete(diagnostics[i].FullName); } catch (Exception) { }
+                Delete(diagnostics[i].FullName, pruned);
             }
         }
     }

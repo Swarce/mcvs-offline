@@ -37,6 +37,15 @@ namespace McvsOffline.Embed.Tests.Embedded
             "read", "write", "pread64", "pwrite64", "readlink", "recv", "send", "recvfrom", "sendto",
         };
 
+        /// <summary>
+        /// The Windows imports the net8 test assembly compiles in (hosts/embedded/Windows/, docs/design/pc-port.md §12.2): not Android
+        /// libraries, so the Android ABI rules do not apply to them (PcPInvokeTests checks them against the x86 exports).
+        /// </summary>
+        private static readonly HashSet<string> WindowsModules = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "kernel32", "user32", "steam_api",
+        };
+
         private readonly ITestOutputHelper output;
 
         public PInvokeAbiTests(ITestOutputHelper output)
@@ -66,6 +75,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                             string entry = m.PInvokeInfo.EntryPoint ?? m.Name;
                             string where = Path.GetFileName(path) + " " + type.FullName + "." + m.Name + " -> " + m.PInvokeInfo.Module.Name + "!" + entry;
                             seen.Add(Path.GetFileName(path) + ": " + m.PInvokeInfo.Module.Name + "!" + entry);
+                            if (WindowsModules.Contains(m.PInvokeInfo.Module.Name)) continue;
                             if (OffT.Contains(entry)) problems.Add(where + ": takes a 32-bit off_t on armeabi-v7a, bind " + entry + "64");
                             if (Is64(m.ReturnType) && !Off64.Contains(entry + ":-1")) problems.Add(where + ": 64-bit return");
                             for (int i = 0; i < m.Parameters.Count; i++)
@@ -83,6 +93,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.True(problems.Count == 0, string.Join("\n", problems));
             Assert.Contains(seen, s => s.EndsWith("libc!lseek64", StringComparison.Ordinal));   // the scan saw ThreadDump's bindings
             Assert.Contains(seen, s => s.EndsWith("libc!pread64", StringComparison.Ordinal));
+            Assert.Contains(seen, s => s.EndsWith("kernel32!GetCurrentThreadId", StringComparison.Ordinal));   // the filter had something to skip
             if (embedded != null) Assert.Contains(seen, s => s.StartsWith("McvsOffline.Server.dll: liblog.so!", StringComparison.Ordinal));
         }
 

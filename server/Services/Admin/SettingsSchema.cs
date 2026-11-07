@@ -63,6 +63,48 @@ namespace McvsOffline.Server.Services.Admin
         internal Func<string, bool> Check { get; set; }
 
         internal string CheckMessage { get; set; }
+
+        /// <summary>A copy with another help text (a platform's wording of the same key).</summary>
+        internal SettingDefinition WithHelp(string help)
+        {
+            var copy = (SettingDefinition)MemberwiseClone();
+            copy.Help = help ?? "";
+            return copy;
+        }
+
+        /// <summary>A copy with another help text and confirmation text (a platform's wording of the same key).</summary>
+        internal SettingDefinition WithHelp(string help, string confirm)
+        {
+            SettingDefinition copy = WithHelp(help);
+            copy.Confirm = confirm;
+            return copy;
+        }
+
+        /// <summary>A copy with another label, help text and confirmation text (a platform's wording of the same key).</summary>
+        internal SettingDefinition WithWording(string label, string help, string confirm)
+        {
+            SettingDefinition copy = WithHelp(help, confirm);
+            copy.Label = label ?? "";
+            return copy;
+        }
+    }
+
+    /// <summary>
+    /// One group of the page as a platform shows it (<see cref="SettingsSchema.GroupsFor"/>): the editable keys, or for
+    /// the "advanced" group the read-only keys with their labels and, where there is one, a description.
+    /// </summary>
+    public sealed class SettingGroupView
+    {
+        public SettingGroup Group { get; internal set; }
+
+        /// <summary>The group's editable keys in page order (empty for "advanced").</summary>
+        public List<SettingDefinition> Keys { get; internal set; }
+
+        /// <summary>The read-only keys (key, label) of "advanced", in page order; empty for the other groups.</summary>
+        public List<KeyValuePair<string, string>> Advanced { get; internal set; }
+
+        /// <summary>Descriptions of some read-only keys (key → text); keys without one are absent.</summary>
+        public Dictionary<string, string> AdvancedHelp { get; internal set; }
     }
 
     /// <summary>The value a module uses for a key, and a note for the page when it is not what settings.json holds.</summary>
@@ -111,6 +153,73 @@ namespace McvsOffline.Server.Services.Admin
         /// <summary>The Cosmetic crate's kill switch (O7).</summary>
         public const string CollectorEnabledKey = CollectorOptions.SettingsPath + ".enabled";
 
+        /// <summary>Read by the embedded host's AdminHooks.AccountMenuButtons each time Settings › Account opens.</summary>
+        public const string AccountMenuHideDeadButtonsKey = "admin.accountMenu.hideDeadButtons";
+
+        public const string BotsMoveFromRestKey = "embedded.bots.moveFromRest";
+
+        /// <summary>
+        /// Read by the embedded host (AdminHost.SettingsMenuTrim) each time the game's Settings menu opens: SOCIAL MEDIA, FORUM,
+        /// CUSTOMER CARE (and MORE GAMES) hidden and the tiles left centred (docs/design/settings-menu.md §3.2). Both platforms.
+        /// </summary>
+        public const string SettingsMenuTrimKey = "admin.settingsMenu.trim";
+
+        /// <summary>
+        /// Read by the embedded host (AdminHost.SettingsMenuSameFrame) each time the game's Settings menu opens: our Flash work from
+        /// inside the game's natives, Android's dress of the menu before the game sets it up (build 22) and, with the trim on, the
+        /// layout in the frame that opens it (build 21's same-frame step); off, the layout comes one frame later (build 20). The host
+        /// sets it false by itself when the previous start ended during that work (docs/design/settings-menu.md §3.2, §5 risk 2).
+        /// Both platforms.
+        /// </summary>
+        public const string SettingsMenuSameFrameKey = "admin.settingsMenu.sameFrame";
+
+        /// <summary>
+        /// Read by the embedded host (AdminHost.SettingsMenuAboutCentre) each time the game's Settings menu opens, with the trim on:
+        /// Android's ABOUT drawn on MORE GAMES' button at setup()'s own centred x (MenuSettings.as:212), the real ABOUT off the panel and
+        /// MORE GAMES' tap opening ABOUT (docs/design/settings-menu.md §3.2, "Build 23"); off, ABOUT stays at setup()'s 208 (build 22).
+        /// Android only.
+        /// </summary>
+        public const string SettingsMenuAboutCentreKey = "admin.settingsMenu.aboutCentre";
+
+        /// <summary>
+        /// Read by the embedded host (AdminHost.SettingsMenuPerformance) on every call of its Settings menu natives: the Android
+        /// PERFORMANCE tile and page, and GRAPHICS SETTINGS and FRAME RATE LIMIT out of Gameplay Settings (§3.3, §3.5); read once
+        /// at start for the 90 and 120 FPS limits (§3.4). Android only.
+        /// </summary>
+        public const string SettingsMenuPerformanceKey = "admin.settingsMenu.performance";
+
+        /// <summary>ANTIALIASING of the Android PERFORMANCE page: GameOptions <c>renderTargetMSAA</c> at the next start (§3.4).</summary>
+        public const string GraphicsMsaaKey = "graphics.msaa";
+
+        /// <summary>SCREEN SCALE of the Android PERFORMANCE page: <c>PostProcessManager.RenderTargetSizeScale</c>, live and at start (§3.4).</summary>
+        public const string GraphicsRenderScaleKey = "graphics.renderScale";
+
+        /// <summary>LOW RESOLUTION MAPS of the Android PERFORMANCE page: the levels' low-end layers from the next level load (§3.4).</summary>
+        public const string GraphicsLowResMapsKey = "graphics.lowResMaps";
+
+        /// <summary>
+        /// Written by the embedded host only (read-only on the page): the FRAME RATE LIMIT value list the stored <c>MaxFramerate</c>
+        /// index belongs to; 0 or absent is the game's own list (§3.4, skeptic E7).
+        /// </summary>
+        public const string GraphicsFpsListVersionKey = "graphics.fpsListVersion";
+
+        /// <summary>
+        /// PC only (patch 'fpslimit', build 27): the frame rate limit the Steam game gives its pacer instead of its FPS LIMIT row.
+        /// Applied at once by the embedded host (Settings.Changed, GraphicsHooks.FrameRateSettingChanged) and whenever the game sets
+        /// its limit; docs/design/pc-port.md §8.11.
+        /// </summary>
+        public const string GraphicsPcFpsLimitKey = "graphics.pcFpsLimit";
+
+        /// <summary>liveops.arenaRotation: rotate, off and every mode of the shipped liveops.json <c>arena.modes</c> (a test
+        /// keeps the list equal to the catalogue).</summary>
+        internal static readonly string[] ArenaRotationChoices =
+        {
+            "rotate", "off", "havoc", "override", "ambush", "grandBounty", "bountiful", "blitzTDM", "blitzZoneControl", "blitzWarzone",
+            "blitzBounty", "scorechargeTDM", "scorechargeZoneControl", "scorechargeWarzone", "scorechargeBounty", "competitiveTDM",
+            "competitiveZoneControl", "competitiveWarzone", "competitiveBounty", "competitiveRegular", "tdm", "zoneControl", "warzone",
+            "bounty", "tripleElixir",
+        };
+
         private static readonly SettingGroup[] GroupList =
         {
             new SettingGroup("gameplay", "Gameplay"),
@@ -135,6 +244,7 @@ namespace McvsOffline.Server.Services.Admin
             "logging.consoleLevel", "Console log detail", "logging.bodyLimit", "Logged body limit",
             "logging.fileMaxBytes", "server.log size", "logging.fileCount", "server.log files",
             "embedded.manageArgs", "Manage args.txt", "embedded.lanAdvertiseHost", "LAN address to advertise",
+            "embedded.portFallback", "Use another port when the port is busy",
             "embedded.nativeOnlineSdk", "Native online SDK",
             "embedded.physics.serverMultithreaded", "Server physics threads",
             "embedded.physics.clientMultithreaded", "Client physics threads",
@@ -152,19 +262,165 @@ namespace McvsOffline.Server.Services.Admin
             "security.hostCheck", "Host check",
             "notifications.request", "Ask for the notification permission (Android 13+)",
             "notifications.requestedAt", "Notification permission asked",
+            GraphicsFpsListVersionKey, "Frame rate limit list",
         };
 
         /// <summary>Never editable, whatever the schema says (design §3.2); prefixes end with '.'.</summary>
         private static readonly string[] Denylist =
         {
             "port", "bind", "publicUrl", "lanMode", "superCredential", "superPassword", "dataCenter", "pandora.",
-            "embedded.manageArgs", "embedded.lanAdvertiseHost", "crm.overlay", "crm.pointcutActions", "crm.developerIpRange",
+            "embedded.manageArgs", "embedded.lanAdvertiseHost", "embedded.portFallback", "crm.overlay", "crm.pointcutActions", "crm.developerIpRange",
             "assets.coupons", "admin.enabled", "admin.openVia", "admin.restartVia", "security.", "install.",
         };
+
+        /// <summary><c>AdminHostInfo.Platform</c> of the PC (Steam) host.</summary>
+        public const string PlatformWindows = "windows";
+
+        /// <summary>
+        /// Keys the PC host neither writes nor uses (docs/design/pc-port.md §3.6): the Android installer and HD textures,
+        /// notifications, the public log copy and the Mono thread dump; admin.accountMenu.hideDeadButtons, which
+        /// changes nothing on PC (the Steam build's Account list is Redeem code and GameCenter: no Facebook, Google or
+        /// Restore entry to hide, and a GameCenter entry is never centred); and the Android PERFORMANCE page with its values
+        /// (Steam keeps its own PERFORMANCE page: docs/design/settings-menu.md §1.1). Prefixes end with '.'.
+        /// </summary>
+        private static readonly string[] WindowsHidden =
+        {
+            "hd.", "install.", "notifications.", "diagnostics.publicLogCopy", "diagnostics.threadDump",
+            AccountMenuHideDeadButtonsKey, SettingsMenuAboutCentreKey, SettingsMenuPerformanceKey, GraphicsMsaaKey, GraphicsRenderScaleKey,
+            GraphicsLowResMapsKey, GraphicsFpsListVersionKey,
+        };
+
+        /// <summary>
+        /// Editable keys only the PC host uses: <see cref="GroupsFor"/> leaves them out on every other platform. They stay in
+        /// <see cref="Keys"/> (so <see cref="Find"/> validates a save) and inert elsewhere: nothing but the PC host reads them.
+        /// </summary>
+        private static readonly string[] WindowsOnly =
+        {
+            GraphicsPcFpsLimitKey,
+        };
+
+        /// <summary>True for the editable keys only the PC page shows (<see cref="WindowsOnly"/>).</summary>
+        public static bool IsWindowsOnly(string key)
+        {
+            return Array.IndexOf(WindowsOnly, key) >= 0;
+        }
+
+        /// <summary>Read-only keys only the PC host has, as key, label, description, inserted after <see cref="WindowsAdvancedAfter"/>.</summary>
+        private static readonly string[] WindowsAdvanced =
+        {
+            "embedded.physics.keepPhysicsLayer", "Keep the levels' Physics layer",
+            "On: the 'graphics' patch removes Physics from every excludedLoadingLayers list of GameOptions_windows.json, so "
+            + "the match servers inside the game always load the levels' collision layer (the PC's low-memory fallback would "
+            + "drop it). Read at the next start.",
+        };
+
+        private const string WindowsAdvancedAfter = "embedded.physics.stepGateTimeoutMs";
+
+        // GameOptions_windows.json, profiles.GPU.selection: HighGPU for the listed cards or GPUMEM>=700, CORES>=4 and feature level
+        // above 9.3; MidGPU for the listed cards or GPUMEM>=550, MEM_T>=4000, CORES>=4 and above 9.3; LowGPU930 at 9.3; else LowGPU.
+        // The native GameOptions init then applies MyLocalStorage › Performance (the in-game Graphics quality) on top.
+        private const string WindowsGraphicsProfileHelp =
+            "Which of Gameloft's own GPU profiles the game uses. Auto: the game's choice for this PC; on graphics cards not in "
+            + "Gameloft's list it picks HighGPU only with at least 700 MB of GPU memory and 4 cores, MidGPU with at least 550 MB "
+            + "of GPU memory, 4 GB of RAM and 4 cores, otherwise LowGPU (most integrated graphics). The in-game Graphics quality "
+            + "(Settings › Graphics) overrides it. Mid: MidGPU. High: HighGPU (normal maps, full lightmaps, shadows, bloom); it "
+            + "costs memory, and the game is a 32-bit process with 2 GB at most. Ultra: HighGPU on PC, which has no High_Ultra. "
+            + "Needs a build with the 'graphics' patch.";
+
+        // No GPU block of GameOptions_windows.json sets excludedLoadingLayers (only MEM LowEnd does, and the MEM rule keeps Physics):
+        // the one world option a High profile moves on PC is reducedAiUpdateFrequency.
+        private const string WindowsFullProfileLabel = "High profiles change the bots' AI rate too";
+
+        private const string WindowsFullProfileHelp =
+            "Off: High and Ultra keep the bots' AI update rate at the Mid value, because the match servers in the game share it. "
+            + "On: Gameloft's profile as it is, so bots think twice as often. On PC this is the only difference: the levels' "
+            + "Physics layer follows 'Keep the levels' Physics layer' (Advanced), not this switch.";
+
+        private const string WindowsFullProfileConfirm =
+            "This also changes the match servers inside the game: they run bot AI twice as often. If matches stall or stutter, "
+            + "turn it off again.";
+
+        private const string WindowsKeepStartsHelp =
+            "At every start the game deletes the logs of older starts: in McvsOffline\\logs and %TEMP%\\McvsOffline\\logs (server, "
+            + "bootstrap and game logs with their numbered files, crash and exception files). 1 keeps the previous start next to the "
+            + "current one; 0 keeps only the current start. The numbered log files also stay within their own file count. Saves, "
+            + "settings and the zips you saved are never deleted.";
+
+        private const string WindowsGameLogLevelsHelp =
+            "The PC game logs every level itself; logs\\game.log keeps Fatal plus the levels chosen here.";
 
         public static List<SettingGroup> Groups
         {
             get { return new List<SettingGroup>(GroupList); }
+        }
+
+        /// <summary>
+        /// The page's groups as <paramref name="platform"/> (<c>AdminHostInfo.Platform</c>) shows them (§4.6 of
+        /// docs/design/pc-port.md). On <see cref="PlatformWindows"/>: no <c>hd.*</c>, <c>install.*</c>,
+        /// <c>notifications.*</c>, <c>diagnostics.publicLogCopy</c>, <c>diagnostics.threadDump</c> or
+        /// <c>admin.accountMenu.hideDeadButtons</c> entry (labels and settings), the PC wording of <c>graphics.profile</c>, <c>graphics.fullProfile</c>,
+        /// <c>logging.keepStarts</c> and <c>gameLog.levels</c>, and <c>embedded.physics.keepPhysicsLayer</c> among the
+        /// read-only keys. Any other platform (android, directory, none) gets exactly <see cref="Groups"/>,
+        /// <see cref="Keys"/> and <see cref="AdvancedKeys"/>.
+        /// </summary>
+        public static List<SettingGroupView> GroupsFor(string platform)
+        {
+            bool windows = string.Equals(platform, PlatformWindows, StringComparison.Ordinal);
+            var views = new List<SettingGroupView>();
+            foreach (SettingGroup group in GroupList)
+            {
+                var view = new SettingGroupView
+                {
+                    Group = group,
+                    Keys = new List<SettingDefinition>(),
+                    Advanced = new List<KeyValuePair<string, string>>(),
+                    AdvancedHelp = new Dictionary<string, string>(StringComparer.Ordinal),
+                };
+                if (group.Id == "advanced")
+                {
+                    foreach (KeyValuePair<string, string> kv in AdvancedKeys)
+                    {
+                        if (windows && HiddenOnWindows(kv.Key)) continue;
+                        view.Advanced.Add(kv);
+                        if (!windows || kv.Key != WindowsAdvancedAfter) continue;
+                        for (int i = 0; i + 2 < WindowsAdvanced.Length; i += 3)
+                        {
+                            view.Advanced.Add(new KeyValuePair<string, string>(WindowsAdvanced[i], WindowsAdvanced[i + 1]));
+                            view.AdvancedHelp[WindowsAdvanced[i]] = WindowsAdvanced[i + 2];
+                        }
+                    }
+                }
+                else
+                {
+                    foreach (SettingDefinition def in KeyList)
+                    {
+                        if (def.Group != group.Id) continue;
+                        if (!windows)
+                        {
+                            if (!IsWindowsOnly(def.Key)) view.Keys.Add(def);
+                            continue;
+                        }
+                        if (HiddenOnWindows(def.Key)) continue;
+                        if (def.Key == "graphics.profile") view.Keys.Add(def.WithHelp(WindowsGraphicsProfileHelp));
+                        else if (def.Key == "graphics.fullProfile") view.Keys.Add(def.WithWording(WindowsFullProfileLabel, WindowsFullProfileHelp, WindowsFullProfileConfirm));
+                        else if (def.Key == "logging.keepStarts") view.Keys.Add(def.WithHelp(WindowsKeepStartsHelp));
+                        else if (def.Key == "gameLog.levels") view.Keys.Add(def.WithHelp(WindowsGameLogLevelsHelp));
+                        else view.Keys.Add(def);
+                    }
+                }
+                views.Add(view);
+            }
+            return views;
+        }
+
+        private static bool HiddenOnWindows(string key)
+        {
+            foreach (string hidden in WindowsHidden)
+            {
+                if (hidden.EndsWith(".", StringComparison.Ordinal) ? key.StartsWith(hidden, StringComparison.Ordinal) : key == hidden)
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>Every editable key of §3.1, in page order.</summary>
@@ -499,11 +755,42 @@ namespace McvsOffline.Server.Services.Admin
                 // Gameplay
                 Bool("gameplay", "instantBots", "Instant bot matches", true, Menu,
                      "Matches start at once and bots fill the empty slots. Off: the game waits for other players first."),
+                // Read by the embedded host at start (GameHooks.ConfigureBots; patch 'botmove', build 27).
+                Bool("gameplay", BotsMoveFromRestKey, "Bots start moving at any frame rate", true, Restart,
+                     "On: a bot standing still always takes its first step. The game's start-up step is too small when a frame lasts "
+                     + "less than 1/60 s, which the PC's 60 FPS limit produces (bots then wait at spawn until they see someone) and a "
+                     + "phone running above 60 frames/s would too. Off: the game's own code, for an A/B run; the log still counts the "
+                     + "blocked starts. Needs a build with the 'botmove' patch (on PC in the default set; an APK only with --patch botmove)."),
+                // Read by the embedded host each time Settings opens (SettingsMenu/UiNatives; docs/design/settings-menu.md §3).
+                Bool("gameplay", SettingsMenuTrimKey, "Shorter Settings menu", true, Live,
+                     "Hides SOCIAL MEDIA, FORUM and CUSTOMER CARE (and MORE GAMES on phones) in the game's Settings menu, which "
+                     + "cannot work offline, and centres the tiles that are left, with ABOUT alone below them. Applies the next time "
+                     + "Settings opens."),
+                Bool("gameplay", SettingsMenuSameFrameKey, "Lay out Settings before it is drawn", true, Live,
+                     "Prepares the game's Settings menu before the game draws it (the shorter menu and the PERFORMANCE tile), so the "
+                     + "stock menu never shows. Off: the layout comes one frame later (build 20 behaviour) and the stock menu can flash "
+                     + "briefly. Turns itself off when the game closed during this step at the last start; switch it back on to try "
+                     + "again. Applies the next time Settings opens."),
+                Bool("gameplay", SettingsMenuAboutCentreKey, "ABOUT centred in the Settings menu", true, Live,
+                     "With the shorter Settings menu, ABOUT is drawn centred below the tiles (on the button the game centres itself, "
+                     + "which MORE GAMES used), and a tap on it opens ABOUT. Off: ABOUT sits right of centre (build 22). Applies the "
+                     + "next time Settings opens."),
+                Bool("gameplay", SettingsMenuPerformanceKey, "PERFORMANCE in the Settings menu", true, Live,
+                     "Adds a PERFORMANCE tile to the game's Settings menu, as on Steam: GRAPHICS, ANTIALIASING, SCREEN SCALE, FRAME "
+                     + "RATE LIMIT and LOW RESOLUTION MAPS. GRAPHICS SETTINGS and FRAME RATE LIMIT then leave Gameplay Settings, also "
+                     + "during a match. FRAME RATE LIMIT offers 90 and 120 from the next start. Off: the game's own menus. Applies the "
+                     + "next time Settings opens."),
                 Confirmed(Bool("gameplay", "devMenu", "Developer cheat menu", false, Restart,
                                "Gameloft's developer menu (IsDevelopment in the menu server handshake)."),
                           "Cheats can damage your profile. A backup of your save is made now.", "enable", "enable"),
                 Bool("gameplay", "leaderboards.virtualPlayers", "Leaderboard opponents", true, Live,
                      "Division leaderboards are filled with generated players."),
+                // Read by the CRM game object (CrmBotNames, build 28); the GS installs the renames before each match.
+                Bool("gameplay", "crm.botNames", "Generated bot names", true, Restart,
+                     "On: the bots in a match carry gamer tags made by the server, a new set about every match mixed with some "
+                     + "of the game's own names (needs the game's data "
+                     + "files, which the server reads the game's bot list from). Off: the game's own bot names; the game keeps the "
+                     + "last names it got until it restarts."),
                 Text("gameplay", "geo.country", "Country", "US", Restart, "Two-letter country code reported to the game.",
                      "^[A-Z]{2}$", 2, IsCountry, "Two capital letters, for example US."),
 
@@ -519,6 +806,36 @@ namespace McvsOffline.Server.Services.Admin
                                + "profile as it is."),
                           "This also changes the match servers inside the game: they load the levels' Physics layer and run bot AI "
                           + "twice as often. If matches stall or stutter, turn it off again.", "enable", null),
+                // PC only (WindowsOnly; patch 'fpslimit'): applied at once by the PC host (Settings.Changed) and whenever the game
+                // sets its limit (start, FPS LIMIT row). The values are text so the page shows them as one list.
+                Choice("graphics", GraphicsPcFpsLimitKey, "Frame rate limit", "game", Live,
+                       "The frame rate limit of the game. Game: the in-game FPS LIMIT (Settings › Performance: 30, 60, 90 or 120), as "
+                       + "shipped. 144, 165, 240: limits that row does not offer. Unlimited: the game no longer holds frames back (its "
+                       + "pacer allows up to 1000 FPS), so VSYNC and your graphics card decide. With VSYNC on, your screen's refresh rate "
+                       + "is the limit: above 60 needs a faster screen or VSYNC off. More frames cost more CPU and heat (the match servers "
+                       + "inside the game run at the same rate and bots think more often), and above 60 bots need the 'botmove' patch "
+                       + "or they wait at spawn. The in-game row keeps showing its own value while another one is chosen here. Applies "
+                       + "at once. Needs a build with the 'fpslimit' patch (both patches are in the PC default set).",
+                       "game", "30", "60", "90", "120", "144", "165", "240", "unlimited"),
+                // The values of the game's PERFORMANCE page on Android (SettingsMenu/PerformancePage, Graphics/PerformancePrefs;
+                // settings-menu.md §2, §3.4). The page shows "auto" as what the engine has now. All restart from here: the embedded
+                // host reads them from its own copy at start, and nothing applies a save of this page's copy to the running engine;
+                // only the game's page applies its own changes live (SCREEN SCALE at once, LOW RESOLUTION MAPS from the next match).
+                Choice("graphics", GraphicsMsaaKey, "Antialiasing", "auto", Restart,
+                       "ANTIALIASING on the game's PERFORMANCE page. Auto: what the graphics profile sets. Off, 2x, 4x, 8x: the "
+                       + "multisampling of the 3D scene; more is smoother and slower, and 8x may not work on every phone. Needs a build "
+                       + "with the 'graphics' patch.",
+                       "auto", "off", "2x", "4x", "8x"),
+                Text("graphics", GraphicsRenderScaleKey, "Screen scale", "auto", Restart,
+                     "SCREEN SCALE on the game's PERFORMANCE page: the resolution the 3D scene is drawn at, from 0 (40 %) to 100 "
+                     + "(full), as on Steam. Auto: what the graphics profile sets. A change here applies at the next start; the "
+                     + "game's PERFORMANCE page applies it at once.",
+                     "^(auto|[0-9]{1,3})$", 4, IsRenderScale, "auto, or a whole number from 0 to 100."),
+                Choice("graphics", GraphicsLowResMapsKey, "Low resolution maps", "auto", Restart,
+                       "LOW RESOLUTION MAPS on the game's PERFORMANCE page: the levels' low-end versions instead of the high-end "
+                       + "ones, as on Steam. Auto: what the graphics profile sets. A change here applies at the next start; the "
+                       + "game's PERFORMANCE page applies it from the next match.",
+                       "auto", "on", "off"),
                 Bool("graphics", "hd.enabled", "HD textures", true, Restart,
                      "On: an HD texture pack you put in McvsOffline/hd/ (mcvs-hd-*.zip, made on your PC from your own Steam "
                      + "copy) is installed into the game's data at the next start. Off: an installed pack is removed at the "
@@ -556,6 +873,9 @@ namespace McvsOffline.Server.Services.Admin
                      "Settings > Account > Redeem code accepts the codes listed below."),
                 Bool("unlocks", "crm.redeemCoupons", "Redeem-code button", true, Menu,
                      "Shows the Redeem code button in Settings > Account."),
+                Bool("unlocks", AccountMenuHideDeadButtonsKey, "Only Redeem code and MCVS Offline in Settings > Account", true, Live,
+                     "Hides the Facebook, Google Play Games and Restore buttons, which cannot work offline, and centres the "
+                     + "buttons that are left. Applies the next time Settings > Account opens."),
                 Integer("unlocks", "unlocks.batchSize", "Rewards per batch", 400, 50, 400, 50, Live,
                         "Unlock-all rewards per batch; keep at most 400 (reward popups)."),
                 Text("unlocks", "admin.redeemCode", "Code that opens this page", "MCVSOFFLINE", Live,
@@ -578,6 +898,21 @@ namespace McvsOffline.Server.Services.Admin
                        "rotate", "off", "standard", "coinRush", "trophyFever", "creditRush", "mvpBounty", "rivalSurge"),
                 Number("liveops", "liveops.difficulty", "Event difficulty", 0.1, 10, 0.1, Menu, ""),
                 Number("liveops", "liveops.seasonRewardMultiplier", "Season rewards", 0.1, 20, 0.1, Menu, ""),
+                // Special Events (docs/LIVEOPS.md §8a). Once the game has shown one, switching them off (here or with Live
+                // events) only applies after a restart: the game keeps the Special Event it has seen.
+                Bool("liveops", "liveops.arenaEvents", "Special Events", true, Menu,
+                     "Battle > Special Event: a new Arena mode every few hours, filled with bots like Classic, with a Credits "
+                     + "and VersusCoins bonus on wins. Turning it off applies after the game restarts once a Special Event was shown."),
+                Choice("liveops", "liveops.arenaRotation", "Special Event mode", "rotate", Menu,
+                       "Rotate: a new mode every window, each mode once before any repeats. A mode: always that one (tdm, "
+                       + "zoneControl, warzone, bounty are the plain modes; tripleElixir only runs when chosen here). Off: no "
+                       + "Special Event (after a restart once one was shown).",
+                       ArenaRotationChoices),
+                Integer("liveops", "liveops.arenaHours", "Special Event length (hours)", 24, 1, 168, 1, Menu,
+                        "Windows run back to back from the daily reset hour: 24 gives one mode a day, and a divisor of 24 keeps them aligned to the reset."),
+                Choice("liveops", "liveops.arenaMap", "Special Event map", "Random", Menu,
+                       "Random: a random map each match. A map: every Special Event match there.",
+                       "Random", "Snow", "Desert", "Favelas", "Rooftop", "DogDays", "Port", "Stadium", "Stadium2"),
                 Bool("liveops", "crm.newsfeedLink", "Inbox message for this page", true, Menu,
                      "The \"MCVS Offline\" inbox message. Off removes it at the next CRM fetch."),
 
@@ -592,6 +927,11 @@ namespace McvsOffline.Server.Services.Admin
                      "An unreadable save file is replaced by its newest readable backup (the broken file is kept)."),
                 Choice("diagnostics", "logging.fileLevel", "server.log detail", "debug", Restart, "",
                        "trace", "debug", "info", "warn", "error"),
+                Integer("diagnostics", "logging.keepStarts", "Starts whose logs are kept", 1, 0, 10, 1, Restart,
+                        "At every start the game deletes the logs of older starts: in logs/ (server, bootstrap and game logs with their "
+                        + "numbered files, crash, exception, thread dump and exit files) and their copies in Downloads/MCVS-Offline. "
+                        + "1 keeps the previous start next to the current one; 0 keeps only the current start. The numbered log files "
+                        + "also stay within their own file count. Saves, settings and the zips you saved are never deleted."),
                 TokenList("diagnostics", "gameLog.levels", "Game log levels", "error warning", Restart,
                           "A build patched with --game-log all logs every level anyway.", "error", "warning", "info", "debug"),
                 Text("diagnostics", "gameLog.mute", "Muted game log categories", "profile:debug", Restart,
@@ -701,6 +1041,20 @@ namespace McvsOffline.Server.Services.Admin
                 if (!IsUpper(c) && !IsDigit(c)) return false;
             }
             return true;
+        }
+
+        /// <summary>^(auto|[0-9]{1,3})$ and at most 100.</summary>
+        internal static bool IsRenderScale(string s)
+        {
+            if (s == "auto") return true;
+            if (s.Length < 1 || s.Length > 3) return false;
+            int value = 0;
+            foreach (char c in s)
+            {
+                if (!IsDigit(c)) return false;
+                value = value * 10 + (c - '0');
+            }
+            return value <= 100;
         }
 
         /// <summary>^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$ and a real date and time.</summary>

@@ -57,3 +57,6 @@ __pycache__/
 
 # Art previews of tools/art/export-icons.py (never committed: they may show work in progress)
 art/previews/
+
+# Art that must not be in the repository (someone else's artwork): given to the patcher with --art-extra
+art/local/

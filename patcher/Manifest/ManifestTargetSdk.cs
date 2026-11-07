@@ -27,8 +27,9 @@ namespace McvsOffline.Patcher.Manifest
     /// zzaoa.zzyk(), a PendingIntent.getBroadcast with flags 0 (report P9): IllegalArgumentException on Android 12+, which
     /// kills the process, a running game included. Without the declarations the system drops such a job or broadcast.</item>
     /// <item>at 36 only: android:enableOnBackInvokedCallback="false" (predictive back would stop delivering KEYCODE_BACK to
-    /// MainActivity and onBackPressed to InGameBrowser) and android:appCategory="game" (keeps the fixed orientation on
-    /// large screens).</item>
+    /// MainActivity and onBackPressed to InGameBrowser). android:appCategory="game", which keeps the fixed orientation on
+    /// large screens at 36, comes from the separate patch "game" (<see cref="ManifestGame"/>, any target), which runs after
+    /// this one; ApkPatcher refuses 36 without it.</item>
     /// </list>
     /// compileSdkVersion and platformBuildVersion* stay as shipped (informational). The settings page's layouts get their
     /// edge-to-edge fix from <see cref="BrowserLayoutInsets"/>; the dex side (PendingIntent flags, receivers, Google Analytics)
@@ -155,6 +156,7 @@ namespace McvsOffline.Patcher.Manifest
             }
             if (application != null)
             {
+                // appCategory too: the input must be stock, and "game", which adds it, runs later.
                 foreach (uint id in new[] { AllowNativeHeapPointerTaggingId, EnableOnBackInvokedCallbackId, AppCategoryId })
                     if (application.Attributes.Any(a => a.ResourceId == id)) problems.Add("<application> already sets attribute 0x" + id.ToString("x8"));
             }
@@ -202,17 +204,16 @@ namespace McvsOffline.Patcher.Manifest
                 ("allowNativeHeapPointerTagging", AllowNativeHeapPointerTaggingId, BinaryXml.Value.Boolean(false),
                  "from target 30 arm64 malloc pointers carry a tag in the top byte; Havok, the engine and Mono never ran with it"),
             };
+            // appCategory="game" (at 36 games keep their fixed orientation on large screens) is patch "game"'s: it runs later.
             if (target >= 36)
             {
                 added.Add(("enableOnBackInvokedCallback", EnableOnBackInvokedCallbackId, BinaryXml.Value.Boolean(false),
                            "at target 36 predictive back stops sending KEYCODE_BACK to the game and onBackPressed to the settings page"));
-                added.Add(("appCategory", AppCategoryId, BinaryXml.Value.Integer(0),
-                           "\"game\": at target 36 games keep their fixed landscape orientation on large screens"));
             }
             foreach (var a in added)
             {
                 xml.InsertAttribute(application, BinaryXml.NewAttribute.Android(a.Name, a.Id, a.Value));
-                notes?.Add("manifest: android:" + a.Name + "=" + (a.Id == AppCategoryId ? "\"game\"" : "\"" + a.Value + "\"") + " on <application> (" + a.Why + ")");
+                notes?.Add("manifest: android:" + a.Name + "=\"" + a.Value + "\" on <application> (" + a.Why + ")");
             }
 
             // 4. POST_NOTIFICATIONS, after the last <uses-permission> of <manifest>.
@@ -270,7 +271,7 @@ namespace McvsOffline.Patcher.Manifest
             if (Unexported(after).Count > 0) problems.Add("a component with an intent filter has no exported");
             BinaryXml.Element application = after.Single(e => e.Path == ApplicationPath);
             if (application.Attributes.Count(a => a.ResourceId == AllowNativeHeapPointerTaggingId && a.Data == 0) != 1) problems.Add("allowNativeHeapPointerTagging");
-            if (target >= 36 && application.Attributes.Count(a => (a.ResourceId == EnableOnBackInvokedCallbackId || a.ResourceId == AppCategoryId) && a.Data == 0) != 2)
+            if (target >= 36 && application.Attributes.Count(a => a.ResourceId == EnableOnBackInvokedCallbackId && a.Data == 0) != 1)
                 problems.Add("the target-36 application attributes");
             var ids = application.Attributes.Select(a => a.ResourceId).Where(id => id != 0).ToList();
             if (!ids.SequenceEqual(ids.OrderBy(id => id))) problems.Add("the <application> attributes are not in resource-id order");

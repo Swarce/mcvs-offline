@@ -5,7 +5,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Threading;
-using McvsOffline.Embedded.Android;
+using McvsOffline.Embedded.Admin.SettingsMenu;
 using McvsOffline.Embedded.Diagnostics;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Storage;
@@ -25,12 +25,14 @@ namespace McvsOffline.Embedded.Admin
     /// <item><see cref="Exit"/> writes <c>logs/restart-requested.txt</c>, flushes the logs and leaves through
     /// <c>admin.restartVia</c>: the game's own restart (closing a browser still shown first), with the host's restart as the
     /// fallback when the process is still alive 3 s later; <c>none</c> does nothing.</item>
-    /// <item>Capabilities follow the platform's JNI table (<see cref="AndroidJni.Available"/>); without a platform (a PC, the
-    /// tests' DirectoryPlatform) every capability is false and the share methods answer <c>none</c>.</item>
+    /// <item>Capabilities come from the platform (<see cref="IAdminPlatform.Capabilities"/>: Android's JNI table, Windows' own
+    /// routes) combined with the game-side state; without a platform (the tests' DirectoryPlatform) every capability is false
+    /// and the share methods answer <c>none</c>.</item>
     /// </list>
+    /// It is also the <see cref="ISettingsMenuHost"/> of the game's Settings menu natives (docs/design/settings-menu.md §3).
     /// Every member is thread-safe and never throws. The page's one-time ticket URL is never logged.
     /// </summary>
-    internal sealed class AdminHost : IAdminHost
+    internal sealed class AdminHost : IAdminHost, ISettingsMenuHost
     {
         /// <summary>Watchdog lease per page open and per request of the page (it pings every 10 s).</summary>
         public const int PageLeaseMs = 45000;
@@ -58,6 +60,8 @@ namespace McvsOffline.Embedded.Admin
         private int exiting;
         private long freeBytes = -1;
         private int freeBytesTick;
+        private volatile string warnedOpenVia;
+        private readonly PerformanceSettingsStore performanceSettings;
 
         public AdminHost(ServerContext context, IAdminPlatform platform, GameReflection game, Log log)
         {
@@ -67,6 +71,7 @@ namespace McvsOffline.Embedded.Admin
             this.game = game ?? new GameReflection();
             this.log = log ?? context.Logger.For("admin");
             opener = new PageOpener(this);
+            performanceSettings = new PerformanceSettingsStore(context.Settings, this.log);
             PlatformName = platform == null ? "directory" : "android";
             ExitFallbackMs = 3000;
             QuitBrowserWaitMs = 500;
@@ -85,6 +90,9 @@ namespace McvsOffline.Embedded.Admin
         public string LogsDir { get; set; }
 
         public string FallbackLogsDir { get; set; }
+
+        /// <summary>When this process started (LogRetention.StartedUtc: every log file of this start is written after it), or null.</summary>
+        public DateTime? StartedUtc { get; set; }
 
         /// <summary>The game-thread watchdog, read at call time (it starts after the server thread); may return null.</summary>
         public Func<GameThreadWatchdog> Watchdog { get; set; }
@@ -150,10 +158,237 @@ namespace McvsOffline.Embedded.Admin
             }
         }
 
-        /// <summary>settings admin.openVia (server copy, read per open): auto, game, jni or post.</summary>
+        /// <summary>settings admin.accountMenu.hideDeadButtons (server copy, read each time Settings › Account opens; default true).</summary>
+        public bool HideDeadAccountButtons
+        {
+            get
+            {
+                try
+                {
+                    return context.Settings.GetBool(SettingsSchema.AccountMenuHideDeadButtonsKey, true);
+                }
+                catch (Exception)
+                {
+                    return true;
+                }
+            }
+        }
+
+        /// <summary>settings admin.settingsMenu.trim (server copy, read each time the game's Settings menu opens; default true).</summary>
+        public bool SettingsMenuTrim
+        {
+            get
+            {
+                try
+                {
+                    return context.Settings.GetBool(SettingsSchema.SettingsMenuTrimKey, true);
+                }
+                catch (Exception)
+                {
+                    return true;
+                }
+            }
+        }
+
+        /// <summary>
+        /// settings admin.settingsMenu.sameFrame (server copy, read each time the game's Settings menu opens; default true): our Flash
+        /// work inside the game's natives (docs/design/settings-menu.md §3.2).
+        /// </summary>
+        public bool SettingsMenuSameFrame
+        {
+            get
+            {
+                try
+                {
+                    return context.Settings.GetBool(SettingsSchema.SettingsMenuSameFrameKey, true);
+                }
+                catch (Exception)
+                {
+                    return true;
+                }
+            }
+        }
+
+        /// <summary>
+        /// The same-frame breadcrumb's places: logs/settings-menu-same-frame.txt in <see cref="LogsDir"/>, then in
+        /// <see cref="FallbackLogsDir"/> (where the log files go when the first cannot be written: Android internal storage,
+        /// %TEMP%\McvsOffline\logs on PC, never a Steam folder that cannot be written).
+        /// </summary>
+        public string[] SameFrameMarkerPaths
+        {
+            get
+            {
+                var paths = new List<string>();
+                foreach (string dir in new[] { LogsDir, FallbackLogsDir })
+                {
+                    try
+                    {
+                        if (string.IsNullOrEmpty(dir)) continue;
+                        string path = Path.Combine(dir, SettingsMenuNames.SameFrameMarkerFile);
+                        if (!paths.Contains(path)) paths.Add(path);
+                    }
+                    catch (Exception)
+                    {
+                    }
+                }
+                return paths.ToArray();
+            }
+        }
+
+        /// <summary>admin.settingsMenu.sameFrame = false, saved now (the breadcrumb's fallback). False, with a WARN, when it cannot be saved.</summary>
+        public bool SwitchSameFrameOff()
+        {
+            try
+            {
+                context.Settings.SetAndSave(new Dictionary<string, object>(StringComparer.Ordinal) { { SettingsSchema.SettingsMenuSameFrameKey, false } });
+                return true;
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    log.Warn("admin: settings menu: " + SettingsSchema.SettingsMenuSameFrameKey + " could not be saved", ex);
+                }
+                catch (Exception)
+                {
+                }
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// settings admin.settingsMenu.performance (server copy, read on every call of the Settings menu natives; default true) on
+        /// Android; false on PC, whose Steam PERFORMANCE tile and page stay as they are.
+        /// </summary>
+        public bool SettingsMenuPerformance
+        {
+            get
+            {
+                if (IsWindows) return false;
+                try
+                {
+                    return context.Settings.GetBool(SettingsSchema.SettingsMenuPerformanceKey, true);
+                }
+                catch (Exception)
+                {
+                    return true;
+                }
+            }
+        }
+
+        /// <summary>
+        /// settings admin.settingsMenu.aboutCentre (server copy, read each time the game's Settings menu opens; default true) on
+        /// Android; false on PC, whose setup() hides MORE GAMES and whose ABOUT the trim centres already (build 23).
+        /// </summary>
+        public bool SettingsMenuAboutCentre
+        {
+            get
+            {
+                if (IsWindows) return false;
+                try
+                {
+                    return context.Settings.GetBool(SettingsSchema.SettingsMenuAboutCentreKey, true);
+                }
+                catch (Exception)
+                {
+                    return true;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Game thread: <c>GameApplication.Instance.ApplicationDeltaTime.Milliseconds</c> (GameApplication.cs:569; Time.cs:19), or null
+        /// when it cannot be read. Only for the timings in the Settings menu's log lines.
+        /// </summary>
+        double? ISettingsMenuHost.FrameDeltaMs()
+        {
+            try
+            {
+                object app = game.Application();
+                object delta = app == null ? null : GameReflection.Property(app, "ApplicationDeltaTime");
+                object ms = delta == null ? null : GameReflection.Property(delta, "Milliseconds");
+                if (ms is float) return (float)ms;
+                if (ms is double) return (double)ms;
+                return null;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>The PC (Steam) host.</summary>
+        public bool IsWindows
+        {
+            get { return string.Equals(PlatformName, SettingsSchema.PlatformWindows, StringComparison.Ordinal); }
+        }
+
+        /// <summary>The Android PERFORMANCE page's values in the server copy of settings.json (read and saved per call).</summary>
+        public IPerformanceSettings PerformanceSettings { get { return performanceSettings; } }
+
+        /// <summary>The store behind <see cref="PerformanceSettings"/> (tests run its saves inline).</summary>
+        internal PerformanceSettingsStore PerformanceSettingsStore { get { return performanceSettings; } }
+
+        object ISettingsMenuHost.ClientUi()
+        {
+            try
+            {
+                return game.ClientUi();
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        bool ISettingsMenuHost.Post(Action action)
+        {
+            try
+            {
+                return action != null && game.Post(action, log);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        bool ISettingsMenuHost.PostNextFrame(Action action)
+        {
+            try
+            {
+                return action != null && game.PostNextFrame(action, log);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// settings admin.openVia (server copy, read per open): auto, game, and the platform's own modes: an
+        /// <see cref="IPagePlatform"/>'s <c>OpenModes</c> (Windows: overlay, system), else jni and post (Android). Anything else is
+        /// auto, with one WARN per value (docs/design/pc-port.md §3.6, §6.5).
+        /// </summary>
         public string OpenVia
         {
-            get { return Choice("admin.openVia", "auto", "auto", "game", "jni", "post"); }
+            get
+            {
+                var page = platform as IPagePlatform;
+                string[] modes = page != null ? (page.OpenModes ?? new string[0]) : new[] { "jni", "post" };
+                var allowed = new string[modes.Length + 2];
+                allowed[0] = "auto";
+                allowed[1] = "game";
+                Array.Copy(modes, 0, allowed, 2, modes.Length);
+                string raw = Raw("admin.openVia");
+                string value = Choice("admin.openVia", "auto", allowed);
+                if (raw != null && raw != value && warnedOpenVia != raw)
+                {
+                    warnedOpenVia = raw;
+                    log.Warn("admin: settings admin.openVia '" + raw + "' is not one of " + string.Join(", ", allowed) + " on this platform; using auto");
+                }
+                return value;
+            }
         }
 
         /// <summary>settings admin.restartVia (server copy, read per exit): game, host or none.</summary>
@@ -211,6 +446,7 @@ namespace McvsOffline.Embedded.Admin
                 GameRoot = GameRoot,
                 LogsDir = LogsDir,
                 FallbackLogsDir = FallbackLogsDir,
+                StartedUtc = StartedUtc,
                 BrowserStatus = browserStatus,
                 FreeBytes = -1,
                 RestartVia = RestartVia,
@@ -221,8 +457,10 @@ namespace McvsOffline.Embedded.Admin
             try
             {
                 info.Graphics = McvsOffline.GraphicsHooks.Describe();
+#if !MCVS_WINDOWS
                 info.HdTextures = McvsOffline.Embedded.Hd.HdInstaller.Status;
                 info.HdInstalled = McvsOffline.Embedded.Hd.HdInstaller.Installed;
+#endif
                 Func<string> notifications = NotificationStatus;
                 if (notifications != null) info.Notifications = notifications();
             }
@@ -252,25 +490,21 @@ namespace McvsOffline.Embedded.Admin
                 List<string> missing = platform.MissingJniMembers() ?? new List<string>();
                 info.SdkInt = sdk;
                 info.MissingJni = missing;
-                // From Android 13 AlarmManager is expected to start no activity for an alarm, whatever the target
-                // (target-sdk.md §4.6), but no device has shown it yet (STATUS device-test item 9; device test 8 passed
-                // checks 1-13 only as a whole). The page says the game may close without coming back, not that it will.
-                info.RelaunchUnconfirmed = sdk >= 33;
                 info.PublicLogsDir = platform.PublicDownloadsDir();
                 info.BrowserOpen = platform.IsInGameBrowserOpen();
                 info.FreeBytes = FreeBytes();
-                bool jniBrowser = AndroidJni.Available(sdk, missing, AndroidJni.Common, AndroidJni.Browser);
-                info.CanOpenPage = game.IsBound || jniBrowser;
-                info.CanShareFile = sdk >= 21 && AndroidJni.Available(sdk, missing, AndroidJni.ShareFileUses(sdk));
-                info.CanSaveToDownloads = sdk >= 29 && AndroidJni.Available(sdk, missing, AndroidJni.Common, AndroidJni.Downloads);
-                info.CanShareText = AndroidJni.Available(sdk, missing, AndroidJni.Common, AndroidJni.ShareTextUse);
-                info.CanCopy = AndroidJni.Available(sdk, missing, AndroidJni.Common, AndroidJni.Clipboard);
-                info.CanToast = AndroidJni.Available(sdk, missing, AndroidJni.Toast);
+                AdminPlatformCapabilities caps = platform.Capabilities() ?? new AdminPlatformCapabilities();
+                info.CanOpenPage = game.IsBound || caps.OpenPage;
+                info.CanShareFile = caps.ShareFile;
+                info.CanSaveToDownloads = caps.SaveToDownloads;
+                info.CanShareText = caps.ShareText;
+                info.CanCopy = caps.Copy;
+                info.CanToast = caps.Toast;
                 info.CanSave = game.CanSave;
                 string via = info.RestartVia;
-                bool host = AndroidJni.Available(sdk, missing, AndroidJni.Common, AndroidJni.ExitHost);
-                bool own = AndroidJni.Available(sdk, missing, AndroidJni.Browser, AndroidJni.ExitGame);
-                info.CanExit = via == "game" ? own || host : via == "host" && host;
+                info.CanExit = via == "game" ? caps.ExitViaGame || caps.ExitViaHost : via == "host" && caps.ExitViaHost;
+                info.RelaunchUnconfirmed = caps.RelaunchUnconfirmed;
+                info.CanOpenInBrowser = caps.OpenInBrowser;
             }
             catch (Exception ex)
             {
@@ -440,6 +674,7 @@ namespace McvsOffline.Embedded.Admin
         public void PageAlive()
         {
             Lease(PageLeaseMs, PageLeaseReason);
+            opener.PageAlive();
         }
 
         public List<string> RecentProblems(int max)
@@ -597,6 +832,20 @@ namespace McvsOffline.Embedded.Admin
                 if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-')) return false;
             }
             return true;
+        }
+
+        /// <summary>The setting's text, trimmed and in lower case, or null when it is not set.</summary>
+        private string Raw(string key)
+        {
+            try
+            {
+                string value = context.Settings.GetString(key, null);
+                return value == null ? null : value.Trim().ToLowerInvariant();
+            }
+            catch (Exception)
+            {
+                return null;
+            }
         }
 
         private string Choice(string key, string fallback, params string[] allowed)

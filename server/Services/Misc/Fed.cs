@@ -53,6 +53,19 @@ namespace McvsOffline.Server.Services.Misc
             return string.IsNullOrEmpty(token) ? null : token;
         }
 
+        /// <summary>
+        /// The game build a request comes from, for the <c>game</c> value of clans, members and wall posts: the client id
+        /// of the caller's token, else a <c>{clientId}</c> path value, when it is a game client id (Android or Steam,
+        /// <see cref="McvsConstants.IsGameClientId"/>); else <see cref="McvsConstants.ClientId"/>.
+        /// </summary>
+        public static string GameClientId(ServerContext context, HttpRequest request)
+        {
+            Caller caller = request == null ? null : TryGetCaller(context, request);
+            if (caller != null && McvsConstants.IsGameClientId(caller.Token.ClientId)) return caller.Token.ClientId;
+            string path = request == null ? null : request.RouteValue("clientId");
+            return McvsConstants.IsGameClientId(path) ? path : McvsConstants.ClientId;
+        }
+
         /// <summary>The caller, or null when the request has no token or this server does not know it.</summary>
         public static Caller TryGetCaller(ServerContext context, HttpRequest request)
         {

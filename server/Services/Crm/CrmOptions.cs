@@ -38,7 +38,7 @@ namespace McvsOffline.Server.Services.Crm
     ///   "offlineStore": "generated|merge|preconfig", "iap": "empty|preconfig", "iapLanguage": "en",
     ///   "keepAdPointcuts": false, "pointcutActions": [], "eventIds": [], "matchmaking": {},
     ///   "dailyCapMultiplier": 1.0, "usePreconfiguration": true, "dataPackDir": "", "overlay": {},
-    ///   "newsfeedLink": true, "omitOwnedSignatures": true
+    ///   "newsfeedLink": true, "omitOwnedSignatures": true, "botNames": true
     /// }
     /// </code>
     /// <see cref="Fingerprint"/> changes whenever any of them does, so the cached document is rebuilt.
@@ -105,6 +105,13 @@ namespace McvsOffline.Server.Services.Crm
         /// </summary>
         public bool OmitOwnedSignatures { get; set; }
 
+        /// <summary>
+        /// Rename the in-match bots with our gamer tags (<c>crm.botNames</c>, <see cref="CrmBotNames"/>): the game object
+        /// the GS fetches (<c>configs/users/me/game</c>) carries a rename cell per renamed stock bot name. Off: no cell, the game's names (from the next start: the game keeps the last
+        /// renames it installed until it restarts).
+        /// </summary>
+        public bool BotNames { get; set; }
+
         public CrmOptions()
         {
             DeveloperIpRange = "";
@@ -125,6 +132,7 @@ namespace McvsOffline.Server.Services.Crm
             DataPackDir = "";
             NewsfeedLink = true;
             OmitOwnedSignatures = true;
+            BotNames = true;
         }
 
         public static CrmOptions FromSettings(Settings settings, Log log)
@@ -158,6 +166,7 @@ namespace McvsOffline.Server.Services.Crm
             o.Overlay = settings.GetObject("crm.overlay");
             o.NewsfeedLink = settings.GetBool("crm.newsfeedLink", true);
             o.OmitOwnedSignatures = settings.GetBool("crm.omitOwnedSignatures", true);
+            o.BotNames = settings.GetBool("crm.botNames", true);
             return o;
         }
 
@@ -191,6 +200,7 @@ namespace McvsOffline.Server.Services.Crm
                 d["overlay"] = Overlay;
                 d["news"] = NewsfeedLink;
                 d["omitOwned"] = OmitOwnedSignatures;
+                d["botNames"] = BotNames;
                 return MiniJson.Serialize(d);
             }
         }

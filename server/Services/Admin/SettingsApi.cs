@@ -82,18 +82,26 @@ namespace McvsOffline.Server.Services.Admin
             body["restartPending"] = ToObjects(RestartPending());
 
             var groups = new List<object>();
-            foreach (SettingGroup group in SettingsSchema.Groups)
+            // The platform's view (docs/design/pc-port.md §4.6): the PC host leaves out the Android-only keys.
+            AdminHostInfo host = api.DescribeHost();
+            foreach (SettingGroupView view in SettingsSchema.GroupsFor(host == null ? null : host.Platform))
             {
+                SettingGroup group = view.Group;
                 var keys = new List<object>();
                 if (group.Id == "advanced")
                 {
-                    foreach (var kv in SettingsSchema.AdvancedKeys) keys.Add(DescribeAdvanced(kv.Key, kv.Value));
+                    foreach (var kv in view.Advanced)
+                    {
+                        Dictionary<string, object> entry = DescribeAdvanced(kv.Key, kv.Value);
+                        string help;
+                        if (view.AdvancedHelp.TryGetValue(kv.Key, out help)) entry["help"] = help;
+                        keys.Add(entry);
+                    }
                 }
                 else
                 {
-                    foreach (SettingDefinition def in SettingsSchema.Keys)
+                    foreach (SettingDefinition def in view.Keys)
                     {
-                        if (def.Group != group.Id) continue;
                         Dictionary<string, object> entry = SettingsSchema.Describe(def);
                         string invalidNote;
                         entry["value"] = SettingsSchema.Read(def, Settings, out invalidNote);
@@ -494,6 +502,15 @@ namespace McvsOffline.Server.Services.Admin
                 o["code"] = coupon.Code;
                 o["description"] = coupon.Description;
                 o["numericSuffix"] = coupon.NumericSuffix;
+                o["delivery"] = coupon.Delivery;   // "ledger": items arrive in batches; "inbox": one inbox message
+                o["rewards"] = (long)coupon.Rewards;
+                if (coupon.TooLargeForTheInbox)
+                    o["warning"] = coupon.Rewards + " rewards are too many for one inbox message (at most "
+                                   + CouponCatalog.MaxInboxRewards + "): redeeming it is refused. Split it, or, if it holds only unlocks (each quantity 1), give it \"delivery\": \"ledger\".";
+                else if (coupon.SkippedOnTheLedger > 0)
+                    o["warning"] = coupon.SkippedOnTheLedger + " of its rewards have a quantity other than 1: a ledger code grants only unlocks, "
+                                   + "so they are skipped while the game says the code was redeemed. Give it \"delivery\": \"inbox\" "
+                                   + "(at most " + CouponCatalog.MaxInboxRewards + " rewards) or move them to an inbox code.";
                 list.Add(o);
             }
             var body = new Dictionary<string, object>(StringComparer.Ordinal);

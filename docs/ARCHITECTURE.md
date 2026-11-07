@@ -65,6 +65,8 @@ Federation base URL: `http://127.0.0.1:51780/` (any non-80/443 port; `FormatUri`
 on default ports). One host at the root serves every service; `pandora/locate/{svc}` returns
 `http://127.0.0.1:51780/<svc>/` (explicit `http://`, trailing slash: relative storage paths replace
 the last segment of the located URL). The server must also answer `GET /` and tolerate `//config/...`.
+51780 is the configured port (`settings.json` `port`); when it is busy at start, the embedded host binds another one
+before it writes args.txt and every URL above follows it for that start (port fallback, `docs/design/port-fallback.md`).
 
 Client boot arguments (`<GlfRootPath>/args.txt` = the folder that contains `Data/`; see verify-C1 for
 the exact format — space/CR/LF delimited, no tabs, no BOM, case-sensitive enum values):
@@ -116,8 +118,8 @@ as on Gameloft's servers (`PhysicsComponent` constructor -> `McvsPhysics.UseMult
 inside a process-wide, time-bounded gate (`UpdateSimulationSteps`); settings `embedded.physics.*` revert each part for A/B
 runs.
 
-Recommended extra patches (all optional, `--patch`; the default set is `nativeonline`, `waits`, `geo`, `bottile`,
-`finder`, `store`, `signatures`, `debloat`, `adminpage`, `adminlink`, `graphics`, `targetsdk`; `lan` and `forum` only on
+Recommended extra patches (all optional, `--patch`; the default set is `nativeonline`, `waits`, `geo`,
+`finder`, `store`, `signatures`, `inbox`, `debloat`, `adminpage`, `adminlink`, `graphics`, `targetsdk`; `lan` and `forum` only on
 request; `--art` is a separate option):
 - `waits` (default, hardening with no observed trigger): the pumping `TaskExtension.WaitAndWork` helpers wait in 100 ms
   slices (`WaitAny(handles, 100)`). This bounds the two wake-up gaps in the shipped code: a context re-enabled by
@@ -128,8 +130,10 @@ request; `--art` is a separate option):
   `settings.json` `embedded.nativeOnlineSdk` is true; with the internet on, the native online SDK froze the boot.
 - `geo`: point the hard-coded `http://ip.ecomapis.gameloft.org/location/` (TS handshake, 100 s timeout vs
   60 s handshake) at our server.
-- `bottile`: route the BOTMATCH tile to the full-progression GS flow (verify-C4: `NativeStartMatchWithBots`
-  lambda `IL_0007 ldc.i4.2 -> ldc.i4.1`).
+- No patch for the hidden SOLO/"PRACTICE" tile (MCVS_Meta `MainMenuElements` row 13, `Displayed=false`): build 21
+  removed the dormant `bottile` (verify-C4 §6) and the CRM setting `crm.practiceTile`, which never made the tile visible.
+  A stale `--patch bottile` is left out with a warning (`PatchPlan.Removed`). The full-reward bot match is Battle ›
+  Classic multiplayer (GS quick match, 7 bots with `instantBots`).
 - `store` (default, device test 3): `KillSignatureRewardItem.GetAvailableId` no longer dereferences its null list for
   sounds (unowned sound -> its id, random/other -> null), and the `GameUnifiedStoreComponent.SelectItems` availability
   filter runs in try/catch (an item that throws is skipped and reported through `GameHooks.StoreItemException`).
@@ -137,6 +141,16 @@ request; `--art` is a separate option):
   `HashSet<string>` (lists of more than 16 ids) instead of `List.Contains` per table row, and
   `GameOfflineStore.GetKillSignItems` builds the avatar/background list once per call instead of once per owned item
   (the kill-signature screen froze for minutes after unlock-all).
+- `inbox` (default, build 17, Android and PC): up to build 16 a redeem code was one inbox message with all its rewards
+  (UNLOCKALL 11,368); since build 17 the unlock codes go through the ledger, and the patch covers messages already in a
+  profile and any other big message. Opening the inbox built every reward of every message on the game thread
+  (`InboxComponent.GetObject` → `GenerateRewardsObjects` → `RewardItem.GetObject`), again on every constant frame of every 10th second. Now
+  `GenerateRewardsObjects` (through the added `Game.McvsInbox`) builds at most 30 rewards plus every Gear reward (Flash's
+  gear-inventory-full check), each in try/catch (a throwing reward is skipped and reported through
+  `GameHooks.InboxRewardException`); `GetObject` adds `RewardsTotal`; the claim popup's `Concat(...).ToList()` in
+  `ClaimRewardsForMessage` takes the first 30 (`ClaimRewardsForMessageRequest`, which claims every reward, is untouched);
+  `RefreshUI` also needs 9 s since `lastRefreshUIDone` (one refresh per 10 s window); PC's
+  `KillSignatureRewardItem.IsRandom` gets Android's null check. Witness `Game.McvsInbox` (`patches: … inbox yes`).
 - `debloat` (default, build 8): third-party SDK pieces that are dead offline, without touching any game feature.
   Manifest (`patcher/Manifest/ManifestDebloat.cs`, binary-XML element removal in `BinaryXml`): 44 exact elements go
   (the 20 ad activities, dead Facebook/Google Sign-In/AppInvite/AppLinks/GMP activities, GCM receiver/service/permissions,
@@ -245,8 +259,8 @@ over loopback — send `false` unless the player enabled it), `_OverrideTables` 
 **Economy / unlocks.** Everything purchasable for **VersusCoins** (the repeatable currency; HC is
 finite) via `offline_store` and the generic `#VersusCoins` hub category (which can sell any reward
 string, incl. weapons, camos, sounds, crates). Unlock-all, all opt-in through settings: dev cheat
-menu, a coupon code (`assets coupons/{cid}/{code}` → `[{type:"UnlockMerc_2",quantity:1}, ...]`),
-and the inventory ledger.
+menu, a coupon code (`assets coupons/{cid}/{code}`: the code's keys go into the inventory ledger and the
+game gets `[]`, [protocol/content.md](protocol/content.md) "Coupons"), and the inventory ledger.
 
 **Everything else** (social events, Hermes messaging/inbox, Kairos alerts, Olympus leaderboards,
 game_stats, profanity, chat, clans, wall, bantool, Iris assets, geolocation): well-formed minimal

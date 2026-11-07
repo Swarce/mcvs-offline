@@ -3,6 +3,7 @@
 // player's files; never downloads or ships Gameloft binaries.
 using System;
 using System.IO;
+using System.Linq;
 using McvsOffline.Patcher.Patches;
 
 namespace McvsOffline.Patcher
@@ -11,6 +12,9 @@ namespace McvsOffline.Patcher
     {
         public static int Main(string[] args)
         {
+            // The PC (Steam) mode: McvsOffline.Patcher pc install|uninstall|status|verify ... (docs/design/pc-port.md §7.7).
+            if (args.Length > 0 && args[0] == Pc.PcCli.Verb) return Pc.PcCli.Run(args.Skip(1).ToArray(), Console.Out, Console.Error);
+
             PatcherOptions options;
             try
             {
@@ -27,6 +31,7 @@ namespace McvsOffline.Patcher
                 PrintUsage();
                 return 0;
             }
+            foreach (string w in options.Warnings) Console.Error.WriteLine("warning: " + w);
 
             try
             {
@@ -62,7 +67,7 @@ namespace McvsOffline.Patcher
                     case "--apk": o.InputApk = Value(args, ref i); break;
                     case "--server": o.ServerDll = Value(args, ref i); break;
                     case "--out": o.OutputApk = Value(args, ref i); break;
-                    case "--patch": o.Patches = PatcherOptions.ParsePatchList(Value(args, ref i)); break;
+                    case "--patch": o.Patches = PatcherOptions.ParsePatchList(Value(args, ref i), o.Warnings); break;
                     case "--port": o.Port = PatcherOptions.ParsePort(Value(args, ref i)); break;
                     case "--target-sdk": o.TargetSdk = PatcherOptions.ParseTargetSdk(Value(args, ref i)); break;
                     case "--keystore": o.Keystore = Value(args, ref i); break;
@@ -92,6 +97,10 @@ namespace McvsOffline.Patcher
                     case "--art":
                         o.Art = Value(args, ref i);
                         if (o.Art.Length == 0) throw new ArgumentException("--art needs auto, stock or a folder");
+                        break;
+                    case "--art-extra":
+                        o.ArtExtra = Value(args, ref i);
+                        if (o.ArtExtra.Length == 0) throw new ArgumentException("--art-extra needs a folder");
                         break;
                     case "--force": o.Force = true; break;
                     case "--dry-run": o.DryRun = true; break;
@@ -155,7 +164,6 @@ namespace McvsOffline.Patcher
                 "                                   is true (its network threads stalled boot with the internet on)\n" +
                 "                          waits    the engine's pumping waits (TaskExtension.WaitAndWork) re-check every 100 ms (hardening)\n" +
                 "                          geo      IP geolocation URL -> the embedded server (no DNS wait in the handshake)\n" +
-                "                          bottile  BOTMATCH tile -> bot-filled PvP with full progression\n" +
                 "                          finder   LocalAnubis Finder on all interfaces (survives Wi-Fi changes)\n" +
                 "                          lan      LAN hosting helpers, implies finder (experimental)\n" +
                 "                          store    kill-signature store items: no null list for sounds, a failing item is skipped\n" +
@@ -170,11 +178,17 @@ namespace McvsOffline.Patcher
                 "                                   version of Android' warning) with what that target needs in the manifest and\n" +
                 "                                   the settings page's layouts, and from 31 on the game's classes.dex\n" +
                 "                                   (PendingIntent and receiver flags, Google Analytics off); needs debloat\n" +
+                "                          game     android:isGame and android:appCategory=\"game\" in the manifest (Android's Game\n" +
+                "                                   Mode and OEM game tools see a game), at any target; --target-sdk 36 needs it\n" +
                 "                          forum    Settings > Forum opens the settings page (not in the default set)\n" +
                 "                          graphics settings.json graphics.profile (auto, mid, high, ultra) picks Gameloft's own GPU\n" +
                 "                                   profile in GameOptions_android.json; the effective options are logged\n" +
+                "                          botmove  a bot standing still always takes its first step, also on frames shorter than\n" +
+                "                                   1/60 s (an uncapped 90/120 Hz phone); unchanged at 60 frames/s or less\n" +
+                "                                   (settings.json embedded.bots.moveFromRest; not in the default set)\n" +
                 "                        'none' = only the mandatory patches (server hook, headless TS/GS fixes, server physics),\n" +
-                "                        'all' = everything (the default set plus lan and forum), 'default' = the default set,\n" +
+                "                        'all' = everything (the default set plus lan, forum and botmove), 'default' = the\n" +
+                "                        default set,\n" +
                 "                        e.g. default,forum\n" +
                 "  --game-log <m>        all (default): the game logs every level to logcat (mono-stdout); fatal: Fatal only,\n" +
                 "                        as shipped (res/raw/args.txt unchanged)\n" +
@@ -192,10 +206,12 @@ namespace McvsOffline.Patcher
                 "  --art <a>             launcher icon and launch screen: auto (default: the project's art built into this\n" +
                 "                        patcher from art/android/, if any; otherwise Gameloft's icon is kept), stock (never\n" +
                 "                        change them), or a folder laid out like art/android/ (see art/android/README.md)\n" +
+                "  --art-extra <dir>     a folder laid over that art, for files kept out of the repository (its files win),\n" +
+                "                        e.g. installer/*.png, the game's data installer background (art/android/README.md)\n" +
                 "  --dry-run             verify every patch site and report, write nothing\n" +
                 "  --force               patch an APK that is not the verified " + KnownBuild.Version + " build (sites are still verified)\n" +
                 "  -v, --verbose         more output\n\n" +
-                "See docs/PLAYER-SETUP.md.");
+                "See docs/PLAYER-SETUP.md. The Steam (PC) build: McvsOffline.Patcher pc --help.");
         }
     }
 }

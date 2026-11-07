@@ -532,8 +532,12 @@ namespace McvsOffline.Server.Services.Crm
 
         /// <summary>
         /// Our inbox items after every other layer (design §9.1): a <c>newsfeeds</c> array from the preconfiguration or
-        /// an overlay is kept and ours are appended, each replacing an entry with the same <c>news_id</c>. The key is
-        /// written even for an empty list, so a message that is turned off leaves the inbox at the next CRM fetch.
+        /// an overlay is kept and ours are added, each replacing an entry with the same <c>news_id</c>. Each of ours goes
+        /// before the first kept entry with the same asset key (<see cref="CrmDocumentValidator.AssetKey"/>; a missing
+        /// asset is "" like ours), else at the end: the PC client keys its static <c>NewsFeedData.Newsfeeds</c> by asset
+        /// (first item wins) and gives our inbox message that item's <c>EndDate</c>, so an overlay item without
+        /// <c>end_date</c> ahead of ours would expire our message at the next refresh (docs/design/pc-port.md §4.3). The
+        /// key is written even for an empty list, so a message that is turned off leaves the inbox at the next CRM fetch.
         /// </summary>
         private static void ApplyNewsfeeds(Dictionary<string, object> doc, List<object> newsfeeds, Log log)
         {
@@ -546,6 +550,7 @@ namespace McvsOffline.Server.Services.Crm
                 list = new List<object>();
                 doc["newsfeeds"] = list;
             }
+            var ours = new List<object>(); // reference equality: entries are compared as objects, never by content
             foreach (object item in newsfeeds)
             {
                 string id = JsonValue.GetString(JsonValue.AsObject(item), "news_id");
@@ -555,7 +560,18 @@ namespace McvsOffline.Server.Services.Crm
                                                                      StringComparison.Ordinal));
                     if (replaced > 0) log.Debug("CRM: newsfeed '" + id + "' from the overlay replaced by ours");
                 }
-                list.Add(JsonValue.DeepClone(item));
+                string asset = CrmDocumentValidator.AssetKey(JsonValue.AsObject(item));
+                int at = list.Count;
+                for (int i = 0; i < list.Count; i++)
+                {
+                    var entry = list[i] as Dictionary<string, object>;
+                    if (entry == null || ours.Contains(entry) || CrmDocumentValidator.AssetKey(entry) != asset) continue;
+                    at = i;
+                    break;
+                }
+                object copy = JsonValue.DeepClone(item);
+                list.Insert(at, copy);
+                ours.Add(copy);
             }
         }
 

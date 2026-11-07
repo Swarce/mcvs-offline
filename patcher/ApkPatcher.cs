@@ -7,6 +7,7 @@ using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Text;
 using McvsOffline.Patcher.Art;
+using McvsOffline.Patcher.Core;
 using McvsOffline.Patcher.Dex;
 using McvsOffline.Patcher.Manifest;
 using McvsOffline.Patcher.Patches;
@@ -52,6 +53,8 @@ namespace McvsOffline.Patcher
     /// (<see cref="ManifestTargetSdk"/>), the settings page's two browser layouts (<see cref="BrowserLayoutInsets"/>) and,
     /// from 31 on, the game's classes.dex (<see cref="DexTargetSdkEdits"/>); the default is 35, and 29 leaves all of them
     /// as shipped;</item>
+    /// <item>with "game" (default, any target, after "targetsdk"): android:isGame and android:appCategory="game" on
+    /// &lt;application&gt; (<see cref="ManifestGame"/>), so Game Mode and OEM game tools see a game; --target-sdk 36 needs it;</item>
     /// <item>with project art (--art, <see cref="ArtPatch"/>): replace the launcher icon PNGs in place and add the launch
     /// screen's theme configurations to resources.arsc; with none (the default today), nothing changes;</item>
     /// <item>keep every other entry byte-identical (same compression method and bytes; lib/ stays DEFLATED, which
@@ -65,9 +68,10 @@ namespace McvsOffline.Patcher
     {
         public static readonly IlPatch[] AllPatches =
         {
-            new BootstrapHookPatch(), new HeadlessGamePatch(), new HeadlessEnginePatch(), new PhysicsPatch(), new NativeOnlinePatch(),
-            new WaitsPatch(), new GeoPatch(), new BotTilePatch(), new FinderPatch(), new LanPatch(), new StorePatch(), new SignaturesPatch(),
-            new AdminPagePatch(), new DebloatEnginePatch(), new AdminLinkPatch(), new ForumPatch(), new GraphicsPatch(),
+            new BootstrapHookPatch(), new HeadlessGamePatch(), new HeadlessEnginePatch(), new PhysicsPatch(), new FinderPortPatch(), new NativeOnlinePatch(),
+            new WaitsPatch(), new GeoPatch(), new FinderPatch(), new LanPatch(), new StorePatch(), new SignaturesPatch(),
+            new InboxPatch(), new AdminPagePatch(), new DebloatEnginePatch(), new AdminLinkPatch(), new ForumPatch(), new GraphicsPatch(),
+            new BotMovePatch(),
         };
 
         public static PatchReport Run(PatcherOptions options, Action<string> log)
@@ -90,7 +94,7 @@ namespace McvsOffline.Patcher
             CheckBuildIdentity(input, options, report, log);
 
             byte[] serverBytes = File.ReadAllBytes(options.ServerDll);
-            if (!options.SkipServerReferenceCheck) CheckServerAssembly(serverBytes, options.ServerDll);
+            if (!options.SkipServerReferenceCheck) ServerAssemblyCheck.Check(serverBytes, options.ServerDll, BuildProfile.Android1_17_32);
 
             List<IlPatch> patches = SelectPatches(options.Patches, !options.TestOnlyHookIsMandatory);
             if (options.TestOnlyDebloatWithoutIl) patches.RemoveAll(p => p is DebloatEnginePatch);
@@ -117,7 +121,7 @@ namespace McvsOffline.Patcher
                             if (KnownBuild.TypemapPinned.ContainsKey(file))
                                 throw new InvalidOperationException("refusing to modify " + file + ": its MVID is pinned in libxamarin-app.so (verify-C7 §4)");
                             ZipEntry entry = input.Find(KnownBuild.AssembliesDir + file) ?? throw new InvalidDataException("assemblies/" + file + " missing");
-                            modifiedAssemblies[file] = PatchAssembly(entry.GetData(), group.ToList(), context, reader, server.Mvid, log);
+                            modifiedAssemblies[file] = AssemblyPatcher.Patch(entry.GetData(), group.ToList(), context, reader, server.Mvid, log);
                         }
                         report.Notes.AddRange(context.Notes);
                     }
@@ -163,6 +167,13 @@ namespace McvsOffline.Patcher
                         replaced[dex.Key] = dex.Value;
                 }
             }
+            // "game" after "targetsdk" (whose input check wants no appCategory yet), at any target: android:isGame and
+            // android:appCategory="game" on <application> (Manifest.ManifestGame; --target-sdk 36 needs it, CheckTargetSdk).
+            if (options.Patches != null && options.Patches.Contains(ManifestGame.PatchId))
+            {
+                log("patch " + ManifestGame.PatchId + ": android:isGame=\"true\" and android:appCategory=\"game\" on <application> (Game Mode / OEM game detection)");
+                manifest = ManifestGame.Edit(manifest ?? manifestEntry.GetData(), report.Notes);
+            }
             CheckDexEdits(options, replaced.Keys);
 
             byte[] rawArgs = RawArgsFor(input, options, report);
@@ -192,44 +203,17 @@ namespace McvsOffline.Patcher
             return report;
         }
 
-        /// <summary>Applies the group's patches to one assembly and gives it a new (deterministic) MVID.</summary>
+        /// <summary>Applies the group's patches to one assembly and gives it a new (deterministic) MVID (<see cref="AssemblyPatcher.Patch"/>).</summary>
         internal static byte[] PatchAssembly(byte[] original, List<IlPatch> patches, PatchContext context, ReaderParameters reader,
                                              Guid serverMvid, Action<string> log)
         {
-            using (ModuleDefinition module = ModuleDefinition.ReadModule(new MemoryStream(original), reader))
-            {
-                foreach (IlPatch patch in patches)
-                {
-                    log("patch " + patch.Id + ": " + patch.Description);
-                    patch.Apply(module, context);
-                }
-                // A new MVID is essential: other assemblies' AOT images record this one's MVID, and a match would make
-                // Mono run AOT code compiled against the unpatched metadata (verify-C7 §3).
-                module.Mvid = DerivedMvid(module.Mvid, patches.Select(p => p.Id), serverMvid);
-                var stream = new MemoryStream();
-                module.Write(stream);
-                byte[] patched = stream.ToArray();
-                using (ModuleDefinition check = ModuleDefinition.ReadModule(new MemoryStream(patched), reader))
-                {
-                    if (check.Mvid != module.Mvid) throw new InvalidOperationException("re-reading " + module.Name + " failed");
-                }
-                return patched;
-            }
+            return AssemblyPatcher.Patch(original, patches, context, reader, serverMvid, log);
         }
 
+        /// <summary><see cref="AssemblyPatcher.DerivedMvid"/>.</summary>
         public static Guid DerivedMvid(Guid original, IEnumerable<string> patchIds, Guid serverMvid)
         {
-            using (SHA256 sha = SHA256.Create())
-            {
-                byte[] seed = original.ToByteArray().Concat(serverMvid.ToByteArray())
-                    .Concat(Encoding.UTF8.GetBytes("mcvs-offline:" + string.Join(",", patchIds))).ToArray();
-                byte[] hash = sha.ComputeHash(seed);
-                var bytes = new byte[16];
-                Array.Copy(hash, bytes, 16);
-                bytes[7] = (byte)((bytes[7] & 0x0F) | 0x40);   // RFC 4122 version 4 (in .NET's byte order)
-                bytes[8] = (byte)((bytes[8] & 0x3F) | 0x80);   // variant
-                return new Guid(bytes);
-            }
+            return AssemblyPatcher.DerivedMvid(original, patchIds, serverMvid);
         }
 
         public static List<IlPatch> SelectPatches(ICollection<string> optional, bool headless = true)
@@ -267,7 +251,8 @@ namespace McvsOffline.Patcher
         /// <summary>
         /// --target-sdk other than 29 needs "targetsdk"; a target of 31 or more also needs "debloat", whose removals are what
         /// leaves only the three components ManifestTargetSdk exports (the GCM, ad and boot components it removes would need
-        /// exported values and PendingIntent fixes of their own). Checked before any work.
+        /// exported values and PendingIntent fixes of their own); 36 also needs "game", which writes the appCategory="game"
+        /// that keeps the fixed orientation on large screens there. Checked before any work.
         /// </summary>
         internal static void CheckTargetSdk(PatcherOptions options)
         {
@@ -281,6 +266,8 @@ namespace McvsOffline.Patcher
                                             "declared and are not ready for target " + ManifestTargetSdk.ExportedRequiredFrom + "+): add debloat to --patch, or use --target-sdk " +
                                             ManifestTargetSdk.ShippedTarget);
             }
+            if (target >= 36 && !options.Patches.Contains(ManifestGame.PatchId))
+                throw new ArgumentException("target SDK " + target + " needs the '" + ManifestGame.PatchId + "' patch (appCategory=\"game\" keeps the fixed orientation on large screens)");
         }
 
         /// <summary>
@@ -561,29 +548,6 @@ namespace McvsOffline.Patcher
                              string.Join("; ", problems);
             if (!options.Force) throw new InvalidDataException(message + " (use --force to try anyway)");
             report.Warnings.Add(message);
-        }
-
-        private static void CheckServerAssembly(byte[] bytes, string path)
-        {
-            using (var pe = new PEReader(new MemoryStream(bytes)))
-            {
-                if (!pe.HasMetadata) throw new InvalidDataException(path + " is not a .NET assembly");
-                MetadataReader md = pe.GetMetadataReader();
-                string name = md.GetString(md.GetAssemblyDefinition().Name);
-                if (name != "McvsOffline.Server") throw new InvalidDataException(path + " is " + name + ", expected McvsOffline.Server");
-                foreach (AssemblyReferenceHandle h in md.AssemblyReferences)
-                {
-                    AssemblyReference r = md.GetAssemblyReference(h);
-                    string refName = md.GetString(r.Name);
-                    if (!KnownBuild.ServerAllowedReferences.Contains(refName))
-                    {
-                        throw new InvalidDataException(path + " references " + refName + ": that is not the embedded build. Build " +
-                                                       "server/McvsOffline.Server.Embedded.csproj against your APK's assemblies (scripts/build.sh).");
-                    }
-                    if (refName == "mscorlib" && r.Version != KnownBuild.MonoProfileVersion)
-                        throw new InvalidDataException(path + " references mscorlib " + r.Version + ", expected the game's " + KnownBuild.MonoProfileVersion);
-                }
-            }
         }
 
         private static void Sign(PatcherOptions options, List<ZipEntry> entries, byte[] unsigned, PatchReport report, Action<string> log)

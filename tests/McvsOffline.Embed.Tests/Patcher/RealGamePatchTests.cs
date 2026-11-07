@@ -67,6 +67,26 @@ namespace McvsOffline
         public static System.Exception LastStoreException;
 
         public static void StoreItemException(object item, System.Exception exception) { StoreCalls++; LastStoreItem = item; LastStoreException = exception; }
+
+        public static int InboxCalls;
+        public static object LastInboxReward;
+        public static System.Exception LastInboxException;
+
+        public static void InboxRewardException(object reward, System.Exception exception) { InboxCalls++; LastInboxReward = reward; LastInboxException = exception; }
+
+        // patch 'botmove': records its calls; BotEcho = answer the game's own value, else BotAnswer; BotThrows = throw
+        public static int BotCalls;
+        public static float LastRamped, LastPrevSq, LastDt;
+        public static bool BotEcho = true;
+        public static float BotAnswer;
+        public static bool BotThrows;
+
+        public static float BotMoveRamp(float ramped, float prevSq, float dt)
+        {
+            BotCalls++; LastRamped = ramped; LastPrevSq = prevSq; LastDt = dt;
+            if (BotThrows) throw new System.InvalidOperationException(""hook failed"");
+            return BotEcho ? ramped : BotAnswer;
+        }
     }
 
     // patch 'graphics': records its calls; JsonAnswer null = return null, JsonThrows = throw
@@ -146,8 +166,8 @@ namespace McvsOffline
         /// <summary>Every patch of Game.dll and Gameloft.Engine.dll this build applies by default, in the patcher's order.</summary>
         internal static readonly IlPatch[] DefaultGamePatches =
         {
-            new HeadlessGamePatch(), new HeadlessEnginePatch(), new PhysicsPatch(), new NativeOnlinePatch(), new WaitsPatch(), new BotTilePatch(), new FinderPatch(),
-            new StorePatch(), new SignaturesPatch(), new AdminPagePatch(), new DebloatEnginePatch(), new AdminLinkPatch(), new GraphicsPatch(),
+            new HeadlessGamePatch(), new HeadlessEnginePatch(), new PhysicsPatch(), new NativeOnlinePatch(), new WaitsPatch(), new FinderPatch(),
+            new StorePatch(), new SignaturesPatch(), new InboxPatch(), new AdminPagePatch(), new DebloatEnginePatch(), new AdminLinkPatch(), new GraphicsPatch(),
         };
 
         [Fact]
@@ -487,8 +507,12 @@ namespace McvsOffline
                 return LoadFromAssemblyName(new AssemblyName(name));
             }
 
+            /// <summary>Every name this context was asked to load (what the code inside asked for: a bare or a full name).</summary>
+            public List<AssemblyName> Requests { get; } = new List<AssemblyName>();
+
             protected override Assembly Load(AssemblyName name)
             {
+                lock (Requests) Requests.Add(name);
                 string simple = name.Name;
                 byte[] image;
                 if (images.TryGetValue(simple, out image)) return LoadFromStream(new MemoryStream(image));

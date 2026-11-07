@@ -8,7 +8,8 @@ using McvsOffline.Server.Services.Unlocks;
 namespace McvsOffline.Server.Services.Admin
 {
     /// <summary>
-    /// <c>actions/save-now</c>, <c>actions/restart</c>, <c>actions/crm-reload</c>, <c>actions/unlock-now</c> and
+    /// <c>actions/save-now</c>, <c>actions/restart</c>, <c>actions/crm-reload</c>, <c>actions/unlock-now</c>,
+    /// <c>actions/open-in-browser</c> (PC) and
     /// <c>clipboard</c> (design §4.5, §7.4).
     /// </summary>
     internal sealed class ActionsApi
@@ -34,6 +35,41 @@ namespace McvsOffline.Server.Services.Admin
             api.Post("actions/crm-reload", "admin.actions.crmReload", CrmReload, 1024);
             api.Post("actions/unlock-now", "admin.actions.unlockNow", UnlockNow, 1024);
             api.Post("clipboard", "admin.clipboard", Clipboard, 512 * 1024);
+            api.Post("actions/open-in-browser", "admin.actions.openInBrowser", OpenInBrowser, 1024);
+        }
+
+        /// <summary>
+        /// POST actions/open-in-browser (PC, docs/design/pc-port.md §6.5): the player asked to take the page to the system
+        /// browser. A fresh page URL (a new one-time ticket, trigger "browser", the page's current screen) goes to
+        /// <see cref="IAdminHost.OpenPage"/>; the host's opener sends the "browser" trigger to the system browser.
+        /// Answers <c>{"ok": bool}</c>; 501 where the host cannot do it.
+        /// </summary>
+        private HttpResponse OpenInBrowser(AdminCall call)
+        {
+            AdminHostInfo info = api.DescribeHost();
+            IAdminHost host = api.Host;
+            if (info == null || host == null || !info.CanOpenInBrowser)
+                return NotSupported("This build cannot open the page in the system browser.");
+            var portal = api.Context.Features.Get<IAdminPortal>();
+            if (portal == null) return NotSupported("The page cannot be opened from here.");
+            string screen = JsonValue.GetString(call.Body, "screen");
+            bool ok = false;
+            string url = portal.MintPageUrl(AdminTriggers.Browser, AdminPortal.IsScreen(screen) ? screen : null);
+            if (url != null)
+            {
+                try
+                {
+                    ok = host.OpenPage(url, AdminTriggers.Browser);
+                }
+                catch (Exception ex)
+                {
+                    api.Log.Warn("admin: opening the page in the system browser failed", ex);
+                }
+            }
+            api.Log.Info("admin: page " + (ok ? "opening" : "could not be opened") + " in the system browser (trigger browser)");
+            var body = new Dictionary<string, object>(StringComparer.Ordinal);
+            body["ok"] = ok;
+            return AdminJson.Ok(body);
         }
 
         private HttpResponse SaveNow(AdminCall call)

@@ -1065,6 +1065,50 @@ async function repairRun(fx) {
   return p;
 }
 
+// The Windows host's wording: "this PC", the McvsOffline\exports folder, no adb (fixtures).
+async function windowsRun(fx) {
+  fx.state.platform = 'windows';
+  const p = await new Page('run 4b (windows)', fx.origin, new CookieJar()).load(fx.origin + '/_mcvs/ui/#t=' + fx.mintTicket());
+  log('run 4b: the Windows wording');
+  check(p.text('export-downloads') === 'Save to McvsOffline\\exports', 'run 4b: export button says ' + p.text('export-downloads'));
+  check(p.text('logs-downloads') === 'Save to McvsOffline\\exports', 'run 4b: logs button says ' + p.text('logs-downloads'));
+  check(p.text('saves-accounts-title') === 'Other accounts on this PC', 'run 4b: accounts title says ' + p.text('saves-accounts-title'));
+  check(/on this PC\. Nothing leaves the PC/.test(p.text('about-local')), 'run 4b: About says ' + p.text('about-local'));
+  check(!/adb/.test(p.text('action-files-help')), 'run 4b: the files help mentions adb');
+  await p.tap('nav-saves');
+  check(/Play this account on this PC/.test(p.text('saves-accounts')) && !/phone/.test(p.text('saves-accounts')),
+        'run 4b: the accounts list says ' + p.text('saves-accounts').slice(0, 200));
+  await p.tap('nav-actions');
+  await p.tap('action-files');
+  check(p.isShown('action-files-body') && !/adb /.test(p.text('action-files-body')), 'run 4b: "Where are my files" shows adb commands');
+  check(p.pageErrorsShown() === null, 'run 4b: page errors: ' + p.pageErrorsShown());
+  p.close();
+  fx.state.platform = 'android';
+}
+
+// Status "client": Android's missing 'inbox' patch (banner + "Game patches" row), PC's NOT ACTIVE (banner, no row) (fixtures).
+async function clientRuns(fx) {
+  fx.state.client = { storePatch: true, inboxPatch: false, notActive: null };
+  const p = await new Page('run 4c (no inbox patch)', fx.origin, new CookieJar()).load(fx.origin + '/_mcvs/ui/#t=' + fx.mintTicket() + '&s=status');
+  check(p.isShown('banner-inactive') && /without MCVS Offline's 'inbox' patch: opening the inbox freezes the game/.test(p.text('banner-inactive-text')),
+        'run 4c: the missing inbox patch banner reads "' + p.text('banner-inactive-text') + '"');
+  check(/Game patches\s*missing: inbox \(big unlock codes freeze the inbox\)/.test(p.text('status-body')), 'run 4c: no "Game patches" row');
+  check(p.pageErrorsShown() === null, 'run 4c: page errors: ' + p.pageErrorsShown());
+  p.close();
+  fx.state.platform = 'windows';
+  fx.state.client = { storePatch: true, inboxPatch: false, notActive: "the 'inbox' patch is missing" };
+  const pc = await new Page('run 4d (PC not active)', fx.origin, new CookieJar()).load(fx.origin + '/_mcvs/ui/#t=' + fx.mintTicket() + '&s=status');
+  check(pc.isShown('banner-inactive') && /^MCVS Offline is installed, NOT ACTIVE \(the 'inbox' patch is missing\)/.test(pc.text('banner-inactive-text')),
+        'run 4d: the NOT ACTIVE banner reads "' + pc.text('banner-inactive-text') + '"');
+  check(/Install\s*installed, NOT ACTIVE/.test(pc.text('status-body')) && !/Game patches/.test(pc.text('status-body')),
+        'run 4d: the status rows are wrong: ' + pc.text('status-body').slice(0, 300));
+  check(pc.pageErrorsShown() === null, 'run 4d: page errors: ' + pc.pageErrorsShown());
+  pc.close();
+  fx.state.platform = 'android';
+  fx.state.client = null;
+  log('runs 4c-4d: missing patch and NOT ACTIVE banners ok');
+}
+
 // A used ticket without a cookie: "open from the game", and "the game did not save" after save-now (fixtures).
 async function edgeRuns(fx) {
   const ticket = fx.mintTicket();
@@ -1075,6 +1119,8 @@ async function edgeRuns(fx) {
   p.close();
   const p2 = await new Page('run 6 (used ticket)', fx.origin, new CookieJar()).load(fx.origin + '/_mcvs/ui/#t=' + ticket);
   check(p2.isShown('banner-nosession'), 'run 6: a used ticket without a cookie did not show #banner-nosession');
+  check(/^This tab is from an earlier start of the game: close it and open the page from the game again/.test(p2.text('banner-nosession-text')),
+        'run 6: a refused fragment ticket did not say the tab is from an earlier start: "' + p2.text('banner-nosession-text') + '"');
   check(p2.disabled(p2.el('nav-saves')), 'run 6: navigation not locked without a session');
   p2.close();
   fx.state.down = true;
@@ -1089,6 +1135,7 @@ async function edgeRuns(fx) {
   const p8 = await new Page('run 8 (post mode, no session)', fx.origin, new CookieJar()).load(fx.origin + '/_mcvs/ui/#s=status');
   check(p8.isShown('banner-nosession'), 'run 8: the failed post-mode exchange did not show #banner-nosession');
   check(!p8.isShown('banner-viewmode'), 'run 8: the failed post-mode exchange showed #banner-viewmode');
+  check(/^Open this page from the game/.test(p8.text('banner-nosession-text')), 'run 8: without a ticket the banner lost its "Open this page from the game" text');
   p8.close();
 
   // The probation banner shows the server's sentences as written (§6.5): no repeated prefix, no "..".
@@ -1139,6 +1186,8 @@ async function main() {
       const [p] = await fullRun(fx.origin + '/_mcvs/ui/#t=' + fx.mintTicket(), jar, 'fixtures', fx);
       acornCheck(p.html);
       await repairRun(fx);
+      await windowsRun(fx);
+      await clientRuns(fx);
       await edgeRuns(fx);
       for (const v of fx.state.violations) fail('contract: ' + v);
     } finally {
@@ -1224,7 +1273,7 @@ function startFixtures(html) {
   const keys = {};
   for (const g of groups) for (const k of g.keys) keys[k.key] = k;
   const state = {
-    values: {}, boot: {}, fallback: false, down: false, tickets: new Set(), sessions: new Set(), violations: [],
+    values: {}, boot: {}, fallback: false, down: false, platform: 'android', tickets: new Set(), sessions: new Set(), violations: [],
     clipboard: [], restarts: [], staged: null, last: { id: '20261020T080000000Z-import', kind: 'import', result: 'applied', at: ISO(Date.now() - 86400000 * 6), message: 'Imported Player4711.', undoable: true },
     backups: {
       [ACCOUNT]: [
@@ -1238,6 +1287,8 @@ function startFixtures(html) {
     // Failure switches of the extras: export 413 ('parts' for 1,900-character parts, or 'bytes'), the text report's share
     // result, POST clipboard answering 501.
     exportTooLarge: null, exports: [], shareTextResult: null, clipboardFails: false,
+    // status "client" (absent while null): notActive (PC) or a Game.dll known to lack the 'store'/'inbox' patch.
+    client: null,
   };
   for (const k in keys) if (keys[k].editable) state.values[k] = keys[k].default;
   state.boot = Object.assign({}, state.values);
@@ -1264,7 +1315,7 @@ function startFixtures(html) {
   const statusBody = (storage) => ({
     version: '0.1.0-dev', build: '9',
     server: { started: ISO(started), uptimeSeconds: Math.round((Date.now() - started) / 1000) + 3600, instance: 'mcvs1a2b3c4d', port, bind: '127.0.0.1', lanMode: false, hostCheck: true, dataDir: '/storage/emulated/0/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline', dataPack: '/storage/emulated/0/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/Data' },
-    host: { platform: 'android', sdkInt: 36, deviceId: 'dev', logsDir: '/storage/emulated/0/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/logs', fallbackLogsDir: null, publicLogsDir: '/storage/emulated/0/Download/MCVS-Offline', mirror: 'active, 3 files, last copy 12 s ago', watchdog: 'game thread tid 1234, paused for the page', browser: 'initialized', browserOpen: true, freeBytes: 12345678901, gameCredential: 'anonymous:a1b2…f9e8', restartVia: 'game', missingJni: [], capabilities: caps,
+    host: { platform: state.platform, sdkInt: state.platform === 'android' ? 36 : null, deviceId: 'dev', logsDir: '/storage/emulated/0/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/logs', fallbackLogsDir: null, publicLogsDir: '/storage/emulated/0/Download/MCVS-Offline', mirror: 'active, 3 files, last copy 12 s ago', watchdog: 'game thread tid 1234, paused for the page', browser: 'initialized', browserOpen: true, freeBytes: 12345678901, gameCredential: 'anonymous:a1b2…f9e8', restartVia: 'game', missingJni: [], capabilities: caps,
             relaunchUnconfirmed: true, notifications: 'not allowed yet; the game asks once at the main menu',
             graphics: 'graphics: graphics.profile high, forced HighGPU; GPU profile HighGPU (device optimum MidGPU)',
             hdTextures: 'hd textures: PC textures (tiers 1-2), 1750 files installed (612.0 MiB)', hdInstalled: true },
@@ -1274,6 +1325,7 @@ function startFixtures(html) {
     exit: { state: 'idle', last: { kind: 'restart', result: 'cancelled', at: ISO(Date.now() - 7200000), message: 'The game did not save, so it was not restarted.' } },
     problems: [{ time: ISO(Date.now() - 60000), level: 'WARN', category: 'crm', message: 'CRM document: 2 store items dropped\n  first: X\n  second: Y', source: 'server' }],
     crm: { built: ISO(Date.now() - 300000), chars: 89282, problems: 0, collectorPhase: 'Guard', collectorReason: 'live ops are off' },
+    ...(state.client ? { client: state.client } : {}),
     storage: storage ? { profiles: { files: 2, bytes: 1251000 }, backups: { files: 4, bytes: 2450000 }, blobs: { files: 0, bytes: 0 }, messages: { files: 2, bytes: 3000 }, logs: { files: 6, bytes: 30000000 }, admin: { files: 1, bytes: 107000 }, other: { files: 9, bytes: 40000 }, total: 33801000, scanCapped: false } : undefined,
   });
   const account = (id) => (id === ACCOUNT

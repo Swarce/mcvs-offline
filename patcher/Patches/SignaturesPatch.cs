@@ -44,6 +44,7 @@ namespace McvsOffline.Patcher.Patches
 
         public override void Apply(ModuleDefinition module, PatchContext context)
         {
+            PatchSites.RequireBuildAssembly(module, context, Id);
             // ---- locate and verify
             TypeDefinition profile = RequireType(module, ProfileType);
             TypeDefinition store = RequireType(module, StoreType);

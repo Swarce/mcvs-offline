@@ -131,6 +131,12 @@ namespace McvsOffline.Server.Services.Social.LiveOps
         /// <summary>Why <see cref="Collector"/> is null ("no collector block", or the refusal); null when it is set.</summary>
         public string CollectorProblem = "no collector block";
 
+        /// <summary>The Special Event modes (docs/LIVEOPS.md §8a); null without a usable <c>arena</c> block.</summary>
+        public LiveOpsArena Arena;
+
+        /// <summary>Why <see cref="Arena"/> is null, or which modes were left out; null when every mode was read.</summary>
+        public string ArenaProblem = "no arena block";
+
         /// <summary>The source text's hash: part of every event revision and of the CRM cache key.</summary>
         public string Hash = "";
 
@@ -307,6 +313,23 @@ namespace McvsOffline.Server.Services.Social.LiveOps
             c.CollectorProblem = c.Collector == null ? problem : null;
             if (c.Collector == null && JsonValue.Get(root, "collector") != null && log != null)
                 log.Error(ContentName + ": collector block refused (" + problem + "); live ops run without the Cosmetic crate");
+
+            // Another step of its own: a broken arena block costs the Special Event, never the rest of live ops.
+            try
+            {
+                c.Arena = LiveOpsArena.Parse(root, out problem);
+            }
+            catch (Exception ex)
+            {
+                c.Arena = null;
+                problem = ex.GetType().Name + ": " + ex.Message;
+            }
+            c.ArenaProblem = problem;
+            if (problem != null && JsonValue.Get(root, "arena") != null && log != null)
+            {
+                if (c.Arena == null) log.Error(ContentName + ": arena block refused (" + problem + "); no Special Event");
+                else log.Warn(ContentName + ": arena " + problem);
+            }
             return c;
         }
 

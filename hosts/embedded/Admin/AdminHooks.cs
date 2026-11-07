@@ -13,7 +13,8 @@ namespace McvsOffline
     /// (Gameloft.Engine.dll: <c>BrowserComponent.OpenUrl</c>) and <c>forum</c> (Game.dll: <c>UIComponent.GoToForum</c>). Their
     /// names and signatures are the patch contract (the patcher imports them by name and parameter types). They run on the game
     /// thread inside Flash native calls with no exception handler around them: they catch everything, never block, and leave
-    /// the game's behaviour unchanged when the page is off or the offline server is not running.
+    /// the game's behaviour unchanged when the offline server is not running (and, but for the Account menu's dead buttons
+    /// that <c>admin.accountMenu.hideDeadButtons</c> removes, when the page is off).
     /// </summary>
     public static class AdminHooks
     {
@@ -30,22 +31,23 @@ namespace McvsOffline
             set { host = value; }
         }
 
-        /// <summary>Game thread (Flash native call). Returns a List&lt;object&gt; (ASValue.SetObject turns an IList into an
-        /// AS array; any other IEnumerable would become an opaque managed object). Never throws.</summary>
+        /// <summary>
+        /// Game thread (Flash native call, inside <c>MenuAccountSettings.onPush</c>). With the server up and
+        /// <c>admin.accountMenu.hideDeadButtons</c> on (default), drops Facebook, Google Play Games and the purchase restore
+        /// (<see cref="AccountMenuLayout.IsDeadEntry"/>; never down to an empty menu) and posts the step that centres what is
+        /// left; with the page on, appends the MCVS Offline entry. Returns a List&lt;object&gt; (ASValue.SetObject turns an IList
+        /// into an AS array; any other IEnumerable would become an opaque managed object), the game's own list when it is one.
+        /// Unchanged when the server is not running. Never throws.
+        /// </summary>
         public static IEnumerable<object> AccountMenuButtons(IEnumerable<object> buttons)
         {
             try
             {
                 AdminHost h = host;
-                if (h == null || !h.PortalEnabled) return buttons;
-                // An IDictionary becomes a real AS object (the game's own entries are anonymous types with the same names).
-                var entry = new Dictionary<string, object>(StringComparer.Ordinal)
-                {
-                    { "customAction", ButtonAction },
-                    { "isClickable", true },
-                    { "label", ButtonLabel },
-                    { "icon", ButtonIcon },
-                };
+                if (h == null) return buttons;
+                bool hide = h.HideDeadAccountButtons;
+                bool portal = h.PortalEnabled;
+                if (!hide && !portal) return buttons;
                 var list = buttons as List<object>;
                 if (list == null)
                 {
@@ -55,8 +57,36 @@ namespace McvsOffline
                         foreach (object button in buttons) list.Add(button);
                     }
                 }
-                list.Add(entry);   // last: after "Recover progress"
-                return list;
+                bool changed = false;
+                if (hide)
+                {
+                    var kept = new List<object>(list.Count);
+                    foreach (object button in list)
+                    {
+                        if (!AccountMenuLayout.IsDeadEntry(button)) kept.Add(button);
+                    }
+                    // Never an empty menu: without Redeem code and without our entry the game's list stays as it is.
+                    if (kept.Count < list.Count && (kept.Count > 0 || portal))
+                    {
+                        list.Clear();
+                        list.AddRange(kept);
+                        changed = true;
+                    }
+                }
+                if (portal)
+                {
+                    // An IDictionary becomes a real AS object (the game's own entries are anonymous types with the same names).
+                    list.Add(new Dictionary<string, object>(StringComparer.Ordinal)
+                    {
+                        { "customAction", ButtonAction },
+                        { "isClickable", true },
+                        { "label", ButtonLabel },
+                        { "icon", ButtonIcon },
+                    });   // last
+                    changed = true;
+                }
+                if (hide && AccountMenuLayout.CanCentre(list)) AccountMenuLayout.Schedule(h.Game, h.Log, list.Count);
+                return changed ? list : buttons;
             }
             catch (Exception)
             {

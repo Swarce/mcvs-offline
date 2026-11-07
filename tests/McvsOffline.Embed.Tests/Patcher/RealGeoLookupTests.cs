@@ -18,7 +18,8 @@ namespace McvsOffline.Embed.Tests.Patcher
     /// The 'geo' patch applied to the player's REAL Gameloft.Util.dll (MCVS_REFS) in memory, then the game's own
     /// <c>Geolocalization.GetRegion</c> (called during the TS handshake) run against the complete server: the patched
     /// URL reaches MISC's location route and the game parses <c>["country_info"]["iso2"]</c>. Skipped without the
-    /// assembly unless MCVS_REQUIRE_REAL_CLIENT=1.
+    /// assembly unless MCVS_REQUIRE_REAL_CLIENT=1. Build 26: the URL baked at patch time names a port nothing answers on (as
+    /// after a port fallback, when a frozen copy holds 51780); the McvsOffline.PortHooks hook gives the server's real port.
     /// </summary>
     public class RealGeoLookupTests
     {
@@ -49,12 +50,16 @@ namespace McvsOffline.Embed.Tests.Patcher
                 using var server = McvsServer.Create(new ServerOptions { DataDir = data, Port = 0, ConsoleLog = false, FileLog = false });
                 server.Start();
 
+                // A port that was free a moment ago: nothing listens there (the build-25 patch would ask it and fail).
+                int baked = TestEnvironment.FreePort();
+                byte[] hooks = Fixtures.Server();
                 byte[] patched;
                 var resolver = new DefaultAssemblyResolver();
                 resolver.AddSearchDirectory(refs);
+                using (ModuleDefinition hooksModule = ModuleDefinition.ReadModule(new MemoryStream(hooks)))
                 using (ModuleDefinition module = ModuleDefinition.ReadModule(util, new ReaderParameters { AssemblyResolver = resolver }))
                 {
-                    var context = new PatchContext(null, server.Port);
+                    var context = new PatchContext(hooksModule, baked);
                     new GeoPatch().Apply(module, context);
                     output.WriteLine(string.Join("\n", context.Notes));
                     using var stream = new MemoryStream();
@@ -62,9 +67,12 @@ namespace McvsOffline.Embed.Tests.Patcher
                     patched = stream.ToArray();
                 }
 
-                var loader = new PatchedContext(refs, patched);
+                var loader = new PatchedContext(refs, patched, hooks);
                 Type geo = loader.LoadFromAssemblyName(new AssemblyName("Gameloft.Util")).GetType("Gameloft.Util.Geolocalization", true);
                 object instance = Activator.CreateInstance(geo);
+                Assert.Equal("http://127.0.0.1:" + baked + "/location/?ip=", geo.GetProperty("GeolocalizationUrl").GetValue(instance));
+                loader.LoadFromAssemblyName(new AssemblyName("McvsOffline.Server")).GetType("McvsOffline.PortHooks", true)
+                      .GetMethod("Configure").Invoke(null, new object[] { server.Port, 0 });
                 Assert.Equal("http://127.0.0.1:" + server.Port + "/location/?ip=", geo.GetProperty("GeolocalizationUrl").GetValue(instance));
 
                 var lookup = (Task<string>)geo.GetMethod("GetRegion").Invoke(instance, new object[] { IPAddress.Parse("192.168.1.30"), CancellationToken.None });
@@ -83,17 +91,20 @@ namespace McvsOffline.Embed.Tests.Patcher
         {
             private readonly string directory;
             private readonly byte[] patchedUtil;
+            private readonly byte[] hooks;
 
-            public PatchedContext(string directory, byte[] patchedUtil) : base("mcvs-geo-conformance", isCollectible: true)
+            public PatchedContext(string directory, byte[] patchedUtil, byte[] hooks) : base("mcvs-geo-conformance", isCollectible: true)
             {
                 this.directory = directory;
                 this.patchedUtil = patchedUtil;
+                this.hooks = hooks;
             }
 
             protected override Assembly Load(AssemblyName name)
             {
                 string simple = name.Name;
                 if (simple == "Gameloft.Util") return LoadFromStream(new MemoryStream(patchedUtil));
+                if (simple == "McvsOffline.Server") return LoadFromStream(new MemoryStream(hooks));
                 if (simple == "mscorlib" || simple == "netstandard" || simple == "System" || simple.StartsWith("System.", StringComparison.Ordinal)
                     || simple.StartsWith("Microsoft.", StringComparison.Ordinal))
                     return null;

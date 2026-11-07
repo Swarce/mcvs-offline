@@ -52,6 +52,9 @@ namespace McvsOffline.Server.Services.Admin
             server["uptimeSeconds"] = (long)Math.Max(0, (now - context.StartedUtc).TotalSeconds);
             server["instance"] = context.InstanceId;
             server["port"] = (long)context.Port;
+            // The port the host prefers (settings.json "port") and, after a port fallback, why this run listens elsewhere.
+            server["configuredPort"] = (long)context.Settings.Port;
+            server["portNote"] = context.PortNote;
             server["bind"] = context.Settings.Bind;
             server["lanMode"] = context.Settings.LanMode;
             server["hostCheck"] = context.Settings.GetBool("security.hostCheck", true);
@@ -61,6 +64,19 @@ namespace McvsOffline.Server.Services.Admin
 
             AdminHostInfo info = api.DescribeHost();
             body["host"] = info == null ? null : Host(info);
+
+            // WR2 F2: "client" only while the PC host says the patched client is not the one running ("notActive", the error
+            // "installed, NOT ACTIVE (...)"), or while the client's Game.dll is known to lack the 'store' or 'inbox' patch (Android
+            // has no notActive: an APK patched without them shows only there). Unknown/present: no section, the payload is unchanged.
+            ClientCapabilities client = context.Features.Get<ClientCapabilities>();
+            if (client != null && (!string.IsNullOrEmpty(client.NotActive) || client.StorePatch == false || client.InboxPatch == false))
+            {
+                var clientInfo = new Dictionary<string, object>(StringComparer.Ordinal);
+                clientInfo["storePatch"] = client.StorePatch;
+                clientInfo["inboxPatch"] = client.InboxPatch;
+                clientInfo["notActive"] = client.NotActive;
+                body["client"] = clientInfo;
+            }
 
             var file = new Dictionary<string, object>(StringComparer.Ordinal);
             file["file"] = context.Settings.FilePath;
@@ -130,6 +146,8 @@ namespace McvsOffline.Server.Services.Admin
             caps["toast"] = info.CanToast;
             caps["save"] = info.CanSave;
             caps["exit"] = info.CanExit;
+            // Windows only: sent only when on, so the status card of other hosts does not list "openInBrowser (off)".
+            if (info.CanOpenInBrowser) caps["openInBrowser"] = true;
             host["capabilities"] = caps;
             return host;
         }

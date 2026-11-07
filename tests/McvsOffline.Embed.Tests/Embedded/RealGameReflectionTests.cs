@@ -15,7 +15,9 @@ namespace McvsOffline.Embed.Tests.Embedded
     /// GameApplication.Instance/World/Context, World.Browser/Authentication/IsServer/EnumerateActiveComponents(Type,
     /// ComponentGroupOptions), BrowserComponent.World/IsInGameBrowserInitialized/OpenUrl(string, bool),
     /// AuthenticationComponent.AnonymousCredential/FedId and the Credential's string conversion, PlayerProfileComponent.FedId and
-    /// ForceSaveProfile(CancellationToken) returning Task. Skipped without the assemblies unless MCVS_REQUIRE_REAL_CLIENT=1.
+    /// ForceSaveProfile(CancellationToken) returning Task, and the Flash interop of the Account menu's centring
+    /// (UISceneExtentions.GetUI, MenuComponent.FindClass, ASClass/ASCharacter/ASValue). Android (MCVS_REFS; skipped without the
+    /// assemblies unless MCVS_REQUIRE_REAL_CLIENT=1) and the Steam build (MCVS_PC_REFS; when present, or MCVS_REQUIRE_PC=1).
     /// </summary>
     public class RealGameReflectionTests
     {
@@ -26,10 +28,27 @@ namespace McvsOffline.Embed.Tests.Embedded
             this.output = output;
         }
 
-        [Fact]
-        public void EveryMemberResolvesInTheRealAssemblies()
+        public static TheoryData<string> Platforms()
         {
-            string dir = Refs();
+            var data = new TheoryData<string> { "android" };
+            if (File.Exists(Path.Combine(PcRefs, "Game.dll")) || Environment.GetEnvironmentVariable("MCVS_REQUIRE_PC") == "1") data.Add("pc");
+            return data;
+        }
+
+        private static string PcRefs
+        {
+            get
+            {
+                string dir = Environment.GetEnvironmentVariable("MCVS_PC_REFS");
+                return string.IsNullOrEmpty(dir) ? "/home/user/mcvs-work/pc/install" : dir;
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(Platforms))]
+        public void EveryMemberResolvesInTheRealAssemblies(string platform)
+        {
+            string dir = platform == "pc" ? PcDir() : Refs();
             if (dir == null) return;
             var context = new GameContext(dir);
             try
@@ -58,6 +77,17 @@ namespace McvsOffline.Embed.Tests.Embedded
                 object value = Activator.CreateInstance(credential, "anonymous:a1b2c3d4e5f60718");
                 Assert.Equal("anonymous:a1b2c3d4e5f60718", GameReflection.CredentialText(value));
                 Assert.Null(GameReflection.CredentialText(Activator.CreateInstance(credential)));   // default(Credential): no text
+
+                // The Account menu's centring: the non-generic overloads next to the game's generic ones, and GetUI's binding.
+                Type character = resolve("Gameloft.Engine.ASCharacter");
+                MethodInfo invoke = GameReflection.FindPlainMethod(character, "InvokeMethod", typeof(string), typeof(object[]));
+                Assert.NotNull(invoke);
+                Assert.False(invoke.IsGenericMethodDefinition);
+                Assert.Equal(2, character.GetMethods().Count(m => m.Name == "InvokeMethod" && m.GetParameters().Length == 2));
+                Assert.NotNull(GameReflection.FindPlainMethod(resolve("Gameloft.Engine.ASValue"), "GetObject", typeof(Type)));
+                var ui = new GameReflection();
+                Assert.True(ui.Bind(resolve("Gameloft.Engine.GameApplication"), resolve("Game.PlayerProfileComponent"), resolve("Game.UISceneExtentions")));
+                Assert.Null(ui.ClientUi());   // no running game
                 GC.KeepAlive(context);
             }
             finally
@@ -73,6 +103,15 @@ namespace McvsOffline.Embed.Tests.Embedded
             if (File.Exists(Path.Combine(dir, "Game.dll")) && File.Exists(Path.Combine(dir, "Gameloft.Engine.dll"))) return dir;
             Assert.False(Environment.GetEnvironmentVariable("MCVS_REQUIRE_REAL_CLIENT") == "1", "MCVS_REQUIRE_REAL_CLIENT=1 but Game.dll/Gameloft.Engine.dll are missing in " + dir);
             output.WriteLine("Game.dll/Gameloft.Engine.dll not found (" + dir + "): skipped");
+            return null;
+        }
+
+        private string PcDir()
+        {
+            string dir = PcRefs;
+            if (File.Exists(Path.Combine(dir, "Game.dll")) && File.Exists(Path.Combine(dir, "Gameloft.Engine.dll"))) return dir;
+            Assert.False(Environment.GetEnvironmentVariable("MCVS_REQUIRE_PC") == "1", "MCVS_REQUIRE_PC=1 but Game.dll/Gameloft.Engine.dll are missing in " + dir);
+            output.WriteLine("PC Game.dll/Gameloft.Engine.dll not found (" + dir + "): skipped");
             return null;
         }
 

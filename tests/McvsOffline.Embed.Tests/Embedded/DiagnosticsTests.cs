@@ -194,7 +194,9 @@ namespace McvsOffline.Embed.Tests.Embedded
                 SdkInt = () => 34,
                 DownloadsDir = () => downloads,
                 Scan = paths => scans.Add(paths),
+                KeepSessions = 5,   // logging.keepStarts 4
             };
+            Assert.Equal(2, new McvsOffline.Embedded.Android.PublicMirror(null, null, null).KeepSessions);   // the default: keepStarts 1
             Assert.Equal("starting", mirror.Describe());
             Assert.True(mirror.Open());
             string p = mirror.SessionPrefix;
@@ -202,6 +204,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.Empty(Directory.GetFiles(target, "*.tmp"));
             Assert.Equal(new[] { Path.Combine(target, p + "session.txt") }, Assert.Single(scans));
             // 5 sessions kept (ours and the four newest old ones), 20 diagnostics, the foreign file untouched.
+            Assert.Contains("[mirror] keeping 5 starts: deleted 8 copies (0.0 MB)", lines);
             Assert.Equal(4, Directory.GetFiles(target, "2020010?-000000-bootstrap.log.txt").Length);
             Assert.False(File.Exists(Path.Combine(target, "20200103-000000-bootstrap.log.txt")));
             Assert.Equal(20, Directory.GetFiles(target, "crash-*.txt").Length);
@@ -316,6 +319,162 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.False(mirror.Open());
             Assert.Equal("off: Android API 29 (< 30)", mirror.Describe());
             Assert.Contains("[mirror] Android API 29 (< 30): no copy of the logs in Download/", lines);
+        }
+
+        /// <summary>The Downloads copies follow logging.keepStarts: the sessions of the kept starts, nothing else of the folder.</summary>
+        [Fact]
+        public void TheLogMirrorKeepsTheSessionsOfTheKeptStarts()
+        {
+            string downloads = TestEnvironment.NewTempDir("logret-mirror-sessions");
+            string target = Path.Combine(downloads, "MCVS-Offline");
+            Directory.CreateDirectory(target);
+            foreach (string prefix in new[] { "20200101-080000-", "20200102-190211-", "20200103-200000-" })
+            {
+                File.WriteAllText(Path.Combine(target, prefix + "session.txt"), "s");
+                File.WriteAllText(Path.Combine(target, prefix + "server.log.txt"), "server");
+                File.WriteAllText(Path.Combine(target, prefix + "game.log.1.txt"), "game");
+            }
+            string[] foreign = { "mcvs-save-x.json", "mcvs-logs-20261029-101010.zip", "notes.txt", "20261029-1010-x.txt", "2026102a-101010-x.txt" };
+            foreach (string name in foreign) File.WriteAllText(Path.Combine(target, name), "keep");
+            var lines = new List<string>();
+            var mirror = new McvsOffline.Embedded.Android.PublicMirror(new string[0], null, s => lines.Add(s))
+            {
+                SdkInt = () => 34,
+                DownloadsDir = () => downloads,
+                KeepSessions = 2,
+            };
+            Assert.True(mirror.Open());
+            var names = Directory.GetFiles(target).Select(Path.GetFileName).OrderBy(n => n, StringComparer.Ordinal).ToList();
+            var expected = foreign.Concat(new[] { "20200103-200000-session.txt", "20200103-200000-server.log.txt", "20200103-200000-game.log.1.txt",
+                                                  mirror.SessionPrefix + "session.txt" }).OrderBy(n => n, StringComparer.Ordinal).ToList();
+            Assert.Equal(expected, names);   // this start and the newest earlier one
+            Assert.Contains("[mirror] keeping 2 starts: deleted 6 copies (0.0 MB)", lines);
+            Assert.Equal("20261028-200000-", McvsOffline.Embedded.Android.PublicMirror.SessionPrefixOf("20261028-200000-x"));
+            Assert.Null(McvsOffline.Embedded.Android.PublicMirror.SessionPrefixOf("2026102a-200000-x"));
+            Assert.Null(McvsOffline.Embedded.Android.PublicMirror.SessionPrefixOf("20261028-200000-"));
+        }
+
+        /// <summary>
+        /// Session names are local times: after a trip west (or the DST fall-back hour) the previous start sorts below an older
+        /// one. The sessions are ranked by their copies' write times (UTC), and this session is never deleted.
+        /// </summary>
+        [Fact]
+        public void TheLogMirrorRanksSessionsByWriteTimeNotByTheirLocalTimeNames()
+        {
+            string downloads = TestEnvironment.NewTempDir("logret-mirror-tz");
+            string target = Path.Combine(downloads, "MCVS-Offline");
+            Directory.CreateDirectory(target);
+            DateTime now = DateTime.UtcNow;
+            // "older": two days ago, at 18:00 local (UTC+2); "previous": yesterday, at 11:30 local after flying to UTC-5.
+            var sessions = new[] { ("29991231-180000-", now.AddDays(-2)), ("29991231-113000-", now.AddDays(-1)) };
+            foreach (var (prefix, written) in sessions)
+            {
+                foreach (string name in new[] { "session.txt", "server.log.txt" })
+                {
+                    string path = Path.Combine(target, prefix + name);
+                    File.WriteAllText(path, "s");
+                    File.SetLastWriteTimeUtc(path, written);
+                }
+            }
+            var lines = new List<string>();
+            var mirror = new McvsOffline.Embedded.Android.PublicMirror(new string[0], null, s => lines.Add(s))
+            {
+                SdkInt = () => 34,
+                DownloadsDir = () => downloads,
+                KeepSessions = 2,
+            };
+            Assert.True(mirror.Open());
+            var names = Directory.GetFiles(target).Select(Path.GetFileName).OrderBy(n => n, StringComparer.Ordinal).ToList();
+            Assert.Equal(new[] { "29991231-113000-server.log.txt", "29991231-113000-session.txt", mirror.SessionPrefix + "session.txt" }
+                             .OrderBy(n => n, StringComparer.Ordinal), names);   // the previous start stays, the older one goes
+
+            // The ranking itself: this session is never deleted, even with the oldest time and the lowest name.
+            var times = new Dictionary<string, DateTime>(StringComparer.Ordinal)
+            {
+                ["20261029-080000-"] = now.AddDays(-9),   // this one (clock wrong right now)
+                ["20261029-180000-"] = now.AddDays(-2),
+                ["20261029-113000-"] = now.AddDays(-1),
+                ["20261028-120000-"] = now.AddDays(-1),   // tie: the higher name stays
+            };
+            Assert.Equal(new[] { "20261028-120000-", "20261029-180000-" },
+                         McvsOffline.Embedded.Android.PublicMirror.SessionsToDelete(times, "20261029-080000-", 2));
+            Assert.Equal(new[] { "20261029-113000-", "20261028-120000-", "20261029-180000-" },
+                         McvsOffline.Embedded.Android.PublicMirror.SessionsToDelete(times, "20261029-080000-", 1));
+            Assert.Empty(McvsOffline.Embedded.Android.PublicMirror.SessionsToDelete(times, "20261029-080000-", 4));
+        }
+
+        /// <summary>After the clock went back (LogRetention) neither names nor times rank the sessions: none is deleted.</summary>
+        [Fact]
+        public void TheLogMirrorKeepsEverySessionAfterTheClockWentBack()
+        {
+            string downloads = TestEnvironment.NewTempDir("logret-mirror-clock");
+            string target = Path.Combine(downloads, "MCVS-Offline");
+            Directory.CreateDirectory(target);
+            foreach (string prefix in new[] { "20200101-080000-", "20200102-190211-", "20200103-200000-" })
+                File.WriteAllText(Path.Combine(target, prefix + "session.txt"), "s");
+            var mirror = new McvsOffline.Embedded.Android.PublicMirror(new string[0], null, null)
+            {
+                SdkInt = () => 34,
+                DownloadsDir = () => downloads,
+                KeepSessions = 1,
+                KeepAllSessions = true,
+            };
+            Assert.True(mirror.Open());
+            Assert.Equal(4, Directory.GetFiles(target, "*-session.txt").Length);
+        }
+
+        [Fact]
+        public void TheLogMirrorDropsDiagnosticCopiesOfOlderStartsThenCapsThem()
+        {
+            DateTime cutoff = new DateTime(2026, 10, 28, 19, 2, 11, DateTimeKind.Utc);
+            string Folder(string name, int older, int newer)
+            {
+                string downloads = TestEnvironment.NewTempDir(name);
+                string target = Path.Combine(downloads, "MCVS-Offline");
+                Directory.CreateDirectory(target);
+                for (int i = 0; i < older; i++)
+                {
+                    string path = Path.Combine(target, "threaddump-20261027-0800" + i.ToString("00") + ".txt");
+                    File.WriteAllText(path, "old");
+                    File.SetLastWriteTimeUtc(path, cutoff.AddHours(-1).AddSeconds(i));
+                }
+                for (int i = 0; i < newer; i++)
+                {
+                    string path = Path.Combine(target, "crash-20261028-2000" + i.ToString("00") + "-000-1.txt");
+                    File.WriteAllText(path, "new");
+                    File.SetLastWriteTimeUtc(path, cutoff.AddMinutes(10).AddSeconds(i));
+                }
+                return downloads;
+            }
+            int Count(string downloads, string pattern) => Directory.GetFiles(Path.Combine(downloads, "MCVS-Offline"), pattern).Length;
+
+            // Older than the oldest kept start: gone; the newer ones stay.
+            string a = Folder("logret-mirror-diag", 4, 3);
+            var lines = new List<string>();
+            Assert.True(new McvsOffline.Embedded.Android.PublicMirror(new string[0], null, s => lines.Add(s))
+            {
+                SdkInt = () => 34, DownloadsDir = () => a, DiagnosticsBeforeUtc = cutoff,
+            }.Open());
+            Assert.Equal(0, Count(a, "threaddump-*"));
+            Assert.Equal(3, Count(a, "crash-*"));
+            Assert.Contains("[mirror] keeping 2 starts: deleted 4 copies (0.0 MB)", lines);
+
+            // Then the count cap still applies to what is left.
+            string b = Folder("logret-mirror-cap", 2, 23);
+            Assert.True(new McvsOffline.Embedded.Android.PublicMirror(new string[0], null, null)
+            {
+                SdkInt = () => 34, DownloadsDir = () => b, DiagnosticsBeforeUtc = cutoff,
+            }.Open());
+            Assert.Equal(0, Count(b, "threaddump-*"));
+            Assert.Equal(McvsOffline.Embedded.Android.PublicMirror.KeepDiagnostics, Count(b, "crash-*"));
+            Assert.False(File.Exists(Path.Combine(b, "MCVS-Offline", "crash-20261028-200002-000-1.txt")));
+            Assert.True(File.Exists(Path.Combine(b, "MCVS-Offline", "crash-20261028-200003-000-1.txt")));
+
+            // No cutoff (not enough starts recorded): only the count cap, as before.
+            string c = Folder("logret-mirror-nocut", 4, 3);
+            Assert.True(new McvsOffline.Embedded.Android.PublicMirror(new string[0], null, null) { SdkInt = () => 34, DownloadsDir = () => c }.Open());
+            Assert.Equal(4, Count(c, "threaddump-*"));
+            Assert.Equal(3, Count(c, "crash-*"));
         }
 
         [Fact]

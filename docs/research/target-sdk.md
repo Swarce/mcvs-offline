@@ -318,7 +318,9 @@ Implicit intents to own non-exported components (34): the game's own intents are
   and the settings page's Back guard through `InGameBrowser.onBackPressed` (`:413-420`): both break without
   `<application android:enableOnBackInvokedCallback="false">` (`0x0101066c`). Orientation/resizability ignored on
   sw >= 600dp displays unless `android:appCategory="game"` (`0x01010545`) — not the S22 (sw < 600dp), but tablets and
-  open foldables. No edge-to-edge opt-out (the layout fix above is required). `elegantTextHeight` ignored (TextViews in
+  open foldables. (Since the PC-port release `appCategory` comes from the separate default patch `game`
+  (`patcher/Manifest/ManifestGame.cs`, docs/design/pc-port.md §10), at every target and together with `isGame`;
+  "targetsdk" no longer writes it, and the patcher refuses 36 without `game`.) No edge-to-edge opt-out (the layout fix above is required). `elegantTextHeight` ignored (TextViews in
   the installer only).
 
 ### 4.12 16 KB page size (Android 15+ devices; not a targetSdk rule)

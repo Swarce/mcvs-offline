@@ -64,9 +64,10 @@ namespace McvsOffline.Embed.Tests.Patcher
         /// <summary>
         /// Asserts I1' on a manifest: the SDK levels, exported on every intent-filter component (the
         /// <paramref name="exported"/> ones newly true), POST_NOTIFICATIONS once, the browser &lt;queries&gt;, heap tagging
-        /// off, and for 36 the back-key and app-category attributes.
+        /// off, for 36 the back-key attribute, and the "game" flags exactly when <paramref name="game"/> (patch "game" runs
+        /// after "targetsdk"; "targetsdk" alone no longer writes appCategory, not even at 36).
         /// </summary>
-        internal static void AssertInvariant(byte[] manifest, int target, IEnumerable<string> exported)
+        internal static void AssertInvariant(byte[] manifest, int target, IEnumerable<string> exported, bool game = false)
         {
             Assert.Equal((MinSdk, (uint)target), UsesSdk(manifest));
             IReadOnlyList<BinaryXml.Element> elements = BinaryXml.Parse(manifest).Elements();
@@ -98,7 +99,9 @@ namespace McvsOffline.Embed.Tests.Patcher
             BinaryXml.Element application = Assert.Single(elements, e => e.Path == "manifest/application");
             Assert.Equal(0u, Assert.Single(application.Attributes, a => a.ResourceId == ManifestTargetSdk.AllowNativeHeapPointerTaggingId).Data);
             Assert.Equal(target >= 36, application.Attributes.Any(a => a.ResourceId == ManifestTargetSdk.EnableOnBackInvokedCallbackId && a.DataType == 0x12 && a.Data == 0));
-            Assert.Equal(target >= 36, application.Attributes.Any(a => a.ResourceId == ManifestTargetSdk.AppCategoryId && a.DataType == 0x10 && a.Data == 0));
+            Assert.Equal(game ? 1 : 0, application.Attributes.Count(a => a.ResourceId == ManifestTargetSdk.AppCategoryId));
+            Assert.Equal(game ? 1 : 0, application.Attributes.Count(a => a.ResourceId == ManifestGame.IsGameId));
+            if (game) ManifestGameTests.AssertGameFlags(manifest);
             foreach (BinaryXml.Element e in elements)
             {
                 var ids = e.Attributes.Select(a => a.ResourceId).Where(id => id != 0).ToList();
@@ -121,7 +124,7 @@ namespace McvsOffline.Embed.Tests.Patcher
 
             AssertInvariant(result, target, new[] { "com.gameloft.android.XamarinMainActivity", "com.gameloft.pushnotification.LocalPushReceiver" });
             foreach (string n in notes) output.WriteLine(n);
-            Assert.Equal(1 + 2 + 4 + 1 + 1 + 1 + (target >= 36 ? 2 : 0), notes.Count);
+            Assert.Equal(1 + 2 + 4 + 1 + 1 + 1 + (target >= 36 ? 1 : 0), notes.Count);   // appCategory is patch "game"'s
             Assert.Equal(ManifestTargetSdk.GoogleAnalyticsComponents.Select(g => "manifest: - <" + g.Tag + " android:name=\"" + g.Name + "\"> in <application> (Google Analytics"),
                          notes.Where(n => n.StartsWith("manifest: - <", StringComparison.Ordinal)).Select(n => n.Substring(0, n.IndexOf(" (Google Analytics", StringComparison.Ordinal) + 18)));
             Assert.StartsWith("manifest: <uses-sdk android:targetSdkVersion> 29 -> " + target + " (", notes[0]);
@@ -203,6 +206,15 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Contains("needs the 'debloat' patch", Assert.Throws<ArgumentException>(() => ApkPatcher.CheckTargetSdk(new PatcherOptions { Patches = withoutDebloat })).Message);
             ApkPatcher.CheckTargetSdk(new PatcherOptions { Patches = withoutDebloat, TargetSdk = 29 });
             Assert.Throws<ArgumentException>(() => ApkPatcher.CheckTargetSdk(new PatcherOptions { Patches = withoutDebloat, TargetSdk = 36 }));
+            // 36 also needs "game" (appCategory="game" keeps the fixed orientation on large screens); 29 and 35 do not.
+            Assert.Equal("target SDK 36 needs the 'game' patch (appCategory=\"game\" keeps the fixed orientation on large screens)",
+                         Assert.Throws<ArgumentException>(() => ApkPatcher.CheckTargetSdk(Options("targetsdk,debloat", 36))).Message);
+            var withoutGame = new SortedSet<string>(PatcherOptions.DefaultPatches.Where(p => p != ManifestGame.PatchId), StringComparer.Ordinal);
+            Assert.Contains("needs the 'game' patch", Assert.Throws<ArgumentException>(() => ApkPatcher.CheckTargetSdk(new PatcherOptions { Patches = withoutGame, TargetSdk = 36 })).Message);
+            ApkPatcher.CheckTargetSdk(Options("targetsdk,debloat,game", 36));
+            ApkPatcher.CheckTargetSdk(Options("targetsdk,debloat", 35));
+            ApkPatcher.CheckTargetSdk(new PatcherOptions { Patches = withoutGame });
+            ApkPatcher.CheckTargetSdk(Options("game", null));   // the flags alone, at the shipped 29
 
             // The command line: --target-sdk is parsed and checked by ApkPatcher.Run.
             string[] common = { "--apk", "a", "--server", "s", "--out", "o" };
@@ -265,7 +277,7 @@ namespace McvsOffline.Embed.Tests.Patcher
             byte[] result = ManifestTargetSdk.Apply(shipped, debloated, target, notes);
             foreach (string n in notes) output.WriteLine(n);
             AssertInvariant(result, target, ExportedAfterDebloat);
-            Assert.Equal(1 + ExportedAfterDebloat.Length + ManifestTargetSdk.GoogleAnalyticsComponents.Count + 1 + 1 + 1 + (target >= 36 ? 2 : 0), notes.Count);
+            Assert.Equal(1 + ExportedAfterDebloat.Length + ManifestTargetSdk.GoogleAnalyticsComponents.Count + 1 + 1 + 1 + (target >= 36 ? 1 : 0), notes.Count);
             Assert.Equal(4, BinaryXml.Parse(debloated).Elements().Count(IsGoogleAnalyticsComponent));
             foreach (string name in ExportedAfterDebloat) Assert.Contains(notes, n => n.StartsWith("manifest: android:exported=\"true\" on <", StringComparison.Ordinal) && n.Contains(name));
 
@@ -343,7 +355,8 @@ namespace McvsOffline.Embed.Tests.Patcher
             return false;
         }
 
-        private PatchReport Run(string apk, string server, int? target, out string outApk, out List<string> log)
+        /// <summary>A full run with the default patch set, or <paramref name="patches"/>.</summary>
+        private PatchReport Run(string apk, string server, int? target, out string outApk, out List<string> log, SortedSet<string> patches = null)
         {
             string dir = TestEnvironment.NewTempDir("target-sdk");
             outApk = Path.Combine(dir, "offline.apk");
@@ -357,6 +370,7 @@ namespace McvsOffline.Embed.Tests.Patcher
                 BuildToolsDir = TestEnvironment.BuildToolsDir,
             };
             Assert.Equal(new SortedSet<string>(PatcherOptions.DefaultPatches, StringComparer.Ordinal), options.Patches);
+            if (patches != null) options.Patches = patches;
             var lines = new List<string>();
             PatchReport report = ApkPatcher.Run(options, lines.Add);
             log = lines;
@@ -388,12 +402,15 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Equal(RealGameTests.DexNotes, report.Notes.Count(n => n.StartsWith("classes.dex: ", StringComparison.Ordinal)));
             Assert.Equal(7 + 2, report.Notes.Count(n => n.StartsWith("manifest: <uses-sdk", StringComparison.Ordinal) || n.StartsWith("manifest: android:", StringComparison.Ordinal) ||
                                                         n.StartsWith("manifest: + <", StringComparison.Ordinal) || n.Contains("activity_in_game_browser.xml: ")));
+            Assert.Contains("patch game: android:isGame=\"true\" and android:appCategory=\"game\" on <application> (Game Mode / OEM game detection)", log);
+            Assert.Equal(2, report.Notes.Count(n => n.StartsWith(ManifestGame.NotePrefix, StringComparison.Ordinal)));
 
+            // The manifest: rename, debloat, targetsdk 35, then "game".
             ZipArchiveReader.Archive input = ZipArchiveReader.Read(apk), result = ZipArchiveReader.Read(outApk);
             byte[] shipped = input.Find(ManifestPatch.EntryName).GetData();
             byte[] manifest = result.Find(ManifestPatch.EntryName).GetData();
-            Assert.Equal(ManifestTargetSdk.Edit(ManifestDebloat.Apply(ManifestPatch.Apply(shipped, null), null), 35, null), manifest);
-            AssertInvariant(manifest, 35, ExportedAfterDebloat);
+            Assert.Equal(ManifestGame.Edit(ManifestTargetSdk.Edit(ManifestDebloat.Apply(ManifestPatch.Apply(shipped, null), null), 35, null), null), manifest);
+            AssertInvariant(manifest, 35, ExportedAfterDebloat, game: true);
             foreach (var layout in BrowserLayoutInsets.Layouts)
             {
                 Assert.Equal(input.Find(layout.Key).Method, result.Find(layout.Key).Method);
@@ -419,11 +436,14 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Contains("sdkVersion:'" + MinSdk + "'", lines);
             Assert.Contains("targetSdkVersion:'35'", lines);
             Assert.Contains("launchable-activity: name='com.gameloft.android.XamarinMainActivity'  label='MCVS' icon=''", lines);
+            Assert.Contains("application-isGame", lines);
             Assert.Equal(ManifestDebloatTests.KeptPermissions.Concat(new[] { ManifestTargetSdk.PostNotifications }), Aapt2Dump.UsesPermissions(string.Join("\n", lines)));
             string tree = Aapt2Dump.XmlTree(outApk);
             Assert.DoesNotContain("com.google.android.gms.analytics.Analytics", tree);
             Assert.DoesNotContain("com.google.android.gms.analytics.CampaignTrackingService", tree);
             Assert.Contains("com.google.android.gms.analytics.globalConfigResource", tree);   // inert meta-data, stays
+            Assert.Contains("android:isGame(0x010103f4)=true", tree);
+            Assert.Contains("android:appCategory(0x01010545)=0", tree);
             Assert.Equal(3 + 1, tree.Split('\n').Count(l => l.Contains("android:exported(0x01010010)=true")));   // the three, and KeyProvider's own
             string land = Aapt2Dump.Run("dump", "xmltree", "--file", "res/layout-land/activity_in_game_browser.xml", outApk);
             Assert.Contains("android:fitsSystemWindows(0x010100dd)=true", land);
@@ -439,8 +459,10 @@ namespace McvsOffline.Embed.Tests.Patcher
 
             ZipArchiveReader.Archive input = ZipArchiveReader.Read(apk), result = ZipArchiveReader.Read(outApk);
             byte[] shipped = input.Find(ManifestPatch.EntryName).GetData();
-            Assert.Equal(ManifestDebloat.Apply(ManifestPatch.Apply(shipped, null), null), result.Find(ManifestPatch.EntryName).GetData());
+            // "game" is not tied to the target: its two flags come on top of the rename and the debloat.
+            Assert.Equal(ManifestGame.Edit(ManifestDebloat.Apply(ManifestPatch.Apply(shipped, null), null), null), result.Find(ManifestPatch.EntryName).GetData());
             Assert.Equal((MinSdk, 29u), UsesSdk(result.Find(ManifestPatch.EntryName).GetData()));
+            Assert.Equal(2, report.Notes.Count(n => n.StartsWith(ManifestGame.NotePrefix, StringComparison.Ordinal)));
             foreach (string layout in BrowserLayoutInsets.Layouts.Keys)
             {
                 Assert.DoesNotContain(layout, report.Modified);
@@ -449,8 +471,16 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.DoesNotContain(ManifestTargetSdk.DexEntry, report.Modified);
             Assert.Equal(input.Find(ManifestTargetSdk.DexEntry).RawData, result.Find(ManifestTargetSdk.DexEntry).RawData);
             AssertResourcesStoredAndAligned(outApk, apk);
-            if (TestEnvironment.Aapt2 == null) return;
-            Assert.Contains("targetSdkVersion:'29'", Aapt2Dump.Badging(outApk).Split('\n'));
+            if (TestEnvironment.Aapt2 != null) Assert.Contains("targetSdkVersion:'29'", Aapt2Dump.Badging(outApk).Split('\n'));
+            try { Directory.Delete(Path.GetDirectoryName(outApk), true); } catch (IOException) { }
+
+            // Without "game" as well, the manifest is exactly that of the builds before either patch existed.
+            var withoutGame = new SortedSet<string>(PatcherOptions.DefaultPatches.Where(p => p != ManifestGame.PatchId), StringComparer.Ordinal);
+            PatchReport old = Run(apk, server, 29, out string oldApk, out List<string> oldLog, withoutGame);
+            Assert.DoesNotContain(oldLog, l => l.StartsWith("patch game:", StringComparison.Ordinal));
+            Assert.DoesNotContain(old.Notes, n => n.StartsWith(ManifestGame.NotePrefix, StringComparison.Ordinal));
+            Assert.Equal(ManifestDebloat.Apply(ManifestPatch.Apply(shipped, null), null), ZipArchiveReader.Read(oldApk).Find(ManifestPatch.EntryName).GetData());
+            try { Directory.Delete(Path.GetDirectoryName(oldApk), true); } catch (IOException) { }
         }
     }
 }

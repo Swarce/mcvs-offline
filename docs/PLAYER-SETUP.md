@@ -78,8 +78,8 @@ The patcher prints every change it makes and finishes with a signature check. Us
 
 | Option | Meaning |
 |---|---|
-| `--patch nativeonline,waits,geo,bottile,finder,store,signatures,debloat,adminpage,adminlink,graphics,targetsdk` | The optional patches (this is the default set; `debloat` removes dead ad/analytics/social/push pieces, see ARCHITECTURE.md §2; `adminpage` and `adminlink` open the MCVS Offline page, section 7; `graphics` is needed for the graphics profile, section 7; `targetsdk` raises the app's target Android version, see `--target-sdk`). `none` keeps only the mandatory patches (the server hook, the headless-server fixes and the server physics), `all` adds `lan` and `forum`, `default,forum` adds only `forum`. |
-| `--target-sdk 29` | The Android version the app declares it was built for (`targetsdk` patch). The default, 35, avoids Play Protect's "built for an older version of Android" warning up to Android 17; 36 also covers Android 18. For both the patcher also fixes the game's own Java code (`classes.dex`) where a newer target would make Android refuse it. `--target-sdk 29` keeps the game's own value and files, exactly as builds 9 and earlier: the fallback if something misbehaves on 35. By Android's rules a 29 build installs over a 35 build signed with the same key, but this has not been tried on a phone yet. 35 and 36 need `debloat` (so `--patch` without `debloat` also needs `--target-sdk 29`). |
+| `--patch nativeonline,waits,geo,finder,store,signatures,inbox,debloat,adminpage,adminlink,graphics,targetsdk,game` | The optional patches (this is the default set; `debloat` removes dead ad/analytics/social/push pieces, see ARCHITECTURE.md §2; `adminpage` and `adminlink` open the MCVS Offline page, section 7; `graphics` is needed for the graphics profile, section 7; `targetsdk` raises the app's target Android version, see `--target-sdk`; `game` marks the app as a game for Android's Game Mode, section 6). `none` keeps only the mandatory patches (the server hook, the headless-server fixes, the server physics and, from build 26, `finderport`: the game follows its LocalAnubis port when the host moves it), `all` adds `lan`, `forum` and `botmove`, `default,forum` adds only `forum`. An older list that still names `bottile` (removed in build 21) works: the patcher prints a warning and leaves it out. |
+| `--target-sdk 29` | The Android version the app declares it was built for (`targetsdk` patch). The default, 35, avoids Play Protect's "built for an older version of Android" warning up to Android 17; 36 also covers Android 18. For both the patcher also fixes the game's own Java code (`classes.dex`) where a newer target would make Android refuse it. `--target-sdk 29` keeps the game's own value and files, exactly as builds 9 and earlier: the fallback if something misbehaves on 35. By Android's rules a 29 build installs over a 35 build signed with the same key, but this has not been tried on a phone yet. 35 and 36 need `debloat` (so `--patch` without `debloat` also needs `--target-sdk 29`), and 36 also needs `game`. |
 | `--game-log all` | The game's own log at every level in logcat (`mono-stdout`), for bug reports; this is the default while the offline build is being tested. `--game-log fatal` keeps the game's original setting (fatal errors only). |
 | `--keystore <file.p12>` | Your signing key. Without it a key is created once in `~/.config/McvsOffline/` (Windows: `%APPDATA%\McvsOffline\`) and reused. |
 | `--build-tools <dir>` | Folder with `apksigner` and `zipalign`; otherwise they are looked up on `PATH` and in `$ANDROID_HOME/build-tools`. |
@@ -110,8 +110,6 @@ What the patches do:
   limits the delay to 100 ms in both. It changes nothing else.
 - **geo**: the game looks up your country at a hard-coded Gameloft address while it connects to its own server. Offline
   that lookup can hang longer than the connection timeout; the patch sends it to the embedded server.
-- **bottile**: the BOTMATCH tile in the menu normally starts a "free" bot match that pays almost nothing. With the
-  patch it starts the same bot-filled match as "Battle", with full rewards and progression (after the tutorial).
 - **finder**: the game's matchmaking service listens on all network interfaces instead of the one that was active at
   start-up, so switching Wi-Fi or airplane mode on and off does not break matchmaking until a restart.
 - **store**: opening the shop crashed the game because of the kill-signature sounds it sells (the game's availability
@@ -119,11 +117,18 @@ What the patches do:
   shop (and logged as `[McvsOffline] store item <id> threw ...`) instead of closing the game.
 - **signatures**: the kill-signature screen looks your owned items up in a set instead of a list, so it does not freeze
   when you own many of them (for example after `UNLOCKALL`).
+- **inbox**: the inbox froze after the big unlock codes (`UNLOCKALL`, `UNLOCKPAID`, `UNLOCKCAMOS`, `UNLOCKACCESSORIES`
+  and their parts): up to build 16 each code was one message with thousands of rewards, and the game built every one of
+  them on opening the inbox and again every 10 seconds while it was open. Since build 17 the codes come through the
+  inventory ledger instead (section 6, Unlock codes); the patch covers the messages that are already in a profile and
+  any other big message. With the patch a message shows its first 30 rewards (plus any gear), the inbox refreshes once
+  per 10 seconds, and **Claim** still gives you every reward of the message (the rewards popup lists the first 30). A
+  profile that already holds such a message works again.
 - **debloat**: removes the parts of Gameloft's SDKs that are dead offline (ad screens, push, install-referrer and boot
   receivers, Crashlytics and Facebook start-up, location and legacy permissions) from the manifest and drops the
   Crashlytics/Fabric files; see ARCHITECTURE.md §2.
-- **adminpage**: Settings › Account gets an **MCVS Offline** button (after "Recover progress") that opens the MCVS
-  Offline page (section 7).
+- **adminpage**: Settings › Account gets an **MCVS Offline** button that opens the MCVS Offline page (section 7), and
+  shows only the buttons that work offline (section 7, "Settings › Account").
 - **adminlink**: the button of the "MCVS Offline" inbox message opens the page with full access. Without this patch
   the message opens a view-only page.
 - **graphics**: the game reads its GPU profiles (`GameOptions_android.json`) through MCVS Offline, so the page's
@@ -141,9 +146,25 @@ What the patches do:
   usual (same key, no uninstall). Since Android 12 tapping a reminder only dismisses it (open the game from the
   launcher), and a reminder the previous build scheduled can arrive once more after the update. `--target-sdk 29` turns
   all of this off.
-- **forum** (not in the default set): the Forum button in Settings opens the page too.
+- **game**: the manifest says the app is a game (`android:appCategory="game"` and the older `android:isGame="true"`),
+  at every `--target-sdk`. Android's Game Mode then treats it as a game (Android 12 and later), and so can the phone
+  maker's game tools (Samsung's Gaming Hub and Game Booster also go by their own list; section 6 shows how to check and
+  how to add the game by hand). Side effects, all from Android itself: while the game is in front, Android may tell
+  the chip it runs a game (more performance, device dependent), and a phone may cap the screen at 60 Hz for it, which
+  the game's 30 fps does not notice. Nothing in the game reads these flags. Without it the manifest is exactly as in
+  build 12 and earlier; `--target-sdk 36` needs it.
+- **forum** (not in the default set): the Forum button in Settings opens the page too. Since build 19 that button is
+  hidden, or is the PERFORMANCE tile (section 7), unless both "Shorter Settings menu" and "PERFORMANCE in the Settings
+  menu" are off.
 - **lan** (experimental): groundwork for LAN play (see the end of this guide). It changes nothing for single-device
   play.
+- **botmove** (build 27, not in the default set): a bot standing still always takes its first step. The game starts a
+  resting bot with a step of 3 × the frame time and stops it again unless that step is above 0.05, so a bot can only
+  start on frames of at least 1/60 s. The Steam version at its 60 FPS limit never gets there, and its bots waited at
+  spawn (the PC kit applies this patch by default). A phone whose bots are lively does not need it: nothing changes on
+  frames of 1/60 s or longer. Add it (`--patch default,botmove`) if your phone runs the game above 60 frames per second
+  and the bots stand at spawn until they see you. The settings page's "Bots start moving at any frame rate" (Gameplay)
+  turns its effect off without a new APK.
 - **Icon and launch screen** (`--art`, not a `--patch` id): once the project's own art exists in `art/android/` and the
   patcher is rebuilt, the offline build gets the project's launcher icon (and, if drawn, a themed icon for Android 13+)
   and a launch-screen colour on Android 12+. Until then nothing changes. After installing a build with a new icon, the
@@ -203,27 +224,69 @@ If you see that error anyway, the APK was patched by an older version of the pat
 
 ### Unlock codes (optional)
 
-Settings › Account › Redeem code. Each code works once per profile; add a number to redeem again (`UNLOCKALL2`). The
-rewards arrive as one inbox message and are claimed in order.
+Settings › Account › Redeem code. Each code works once per profile; add a number to redeem again (`UNLOCKALL2`).
+
+The items do **not** come through the inbox any more (one inbox message with thousands of rewards froze the game every
+time the inbox opened). The game says the code was redeemed and the server puts the items straight into your profile,
+the same way as `"unlockAll": true`: the agents first, then the rest in batches of 400 about 10 seconds apart, each with
+a rewards popup. `UNLOCKALL` takes a few minutes (about 30 popups). Stay in the menus and let it finish; if you close
+the game half-way, the rest arrives after the next start. An empty "Coupon" message is left in the inbox: it has nothing
+to claim and disappears after 7 days. An old, full coupon message from build 16 or earlier that is still unclaimed no
+longer freezes the inbox (the `inbox` patch, section 4): it shows its first 30 rewards, and **Claim** gives you all of
+them.
 
 | Code | What you get |
 |---|---|
-| `UNLOCKALL` | everything that was released: every agent and all their mods, weapons, gear slots, kill signatures, camos, jerseys, skins (about 11,400 rewards). Unlocking every mod raises your level to about 46 at once; the game then saves once per level and lags for a while. Let it finish. |
+| `UNLOCKALL` | everything that was released: every agent and all their mods, weapons, gear slots, kill signatures, camos, jerseys, skins (about 11,400 items). Unlocking every mod raises your level to about 46 at once; the game then saves once per level and lags for a while. Let it finish. |
 | `UNLOCKMERCS`, `UNLOCKWEAPONS`, `UNLOCKGEARSLOTS`, `UNLOCKSIGNATURES`, `UNLOCKCAMOS`, `UNLOCKACCESSORIES`, `UNLOCKSKINS` | the same in smaller parts (all but signatures unlock the agents first) |
-| `UNLOCKPAID` | only what the original game sold for real money and nothing else gave out: the VIP-only camos and jerseys (about 5,600 rewards, agents first). `UNLOCKPAIDCAMOS` / `UNLOCKPAIDACCESSORIES` split it. |
+| `UNLOCKPAID` | only what the original game sold for real money and nothing else gave out: the VIP-only camos and jerseys (about 5,600 items, agents first). `UNLOCKPAIDCAMOS` / `UNLOCKPAIDACCESSORIES` split it. |
 | `UNLOCKUNRELEASED` | content that is in the game's data but was never released: 6 kill-signature emblems. Strictly optional; never part of UNLOCKALL, `unlockAll` or the shop. |
 
-Redeeming an agent code again when you already own the agents gives the game's usual duplicate compensation (random
-gear) for each one. `settings.json` `"unlockAll": true` grants the same as `UNLOCKALL` without a code. Details and the
-exact item lists: [ECONOMY.md](ECONOMY.md).
+A code skips only what an earlier code or `"unlockAll": true` already gave you. Agents, camos and jerseys you got by
+playing, from crates or the store, or by claiming an old coupon message (build 16 and earlier) count as new the first
+time: the code gives them again and the game pays its usual duplicate gear for an agent you already had. Only a repeat
+of a code (`UNLOCKALL2`, `UNLOCKMERCS2`, or a split code after `UNLOCKALL`) gives nothing new; in earlier builds such a
+repeat paid the duplicate compensation for each agent again, and that repeat compensation is gone. Codes need the game's own request from this device: in LAN
+mode, and when the server cannot tell which profile is yours (several profiles on one install and the game not logged
+in yet), the game says the code does not exist and nothing changes; the server log says why. `settings.json`
+`"unlockAll": true` grants the same as `UNLOCKALL` without a code. Details and the exact item lists:
+[ECONOMY.md](ECONOMY.md).
+
+### Match modes
+
+- **Bot matches with full rewards: Battle › Classic multiplayer.** The match starts at once and 7 bots fill the other
+  slots (`instantBots`); you get trophies, division progress, Credits, VersusCoins, the MVP bonus and agent XP, as in
+  an online match. During the tutorial Battle starts the game's scripted onboarding matches instead.
+- **Special Event** (the second box after Battle) is the game's Arena mode: a time-limited event with a twist (Havoc,
+  Blitz, Competitive best-of-3, Grand Bounty and others) that sets the mode, the map, the allowed agents and reward
+  multipliers. Live ops generates them: a new mode every day at the daily reset (settings page, Live ops:
+  `Special Events`, `Special Event mode` to pin one mode, `Special Event length (hours)`, `Special Event map`). The
+  match fills with bots like Classic and pays the full rewards, wins with a Credits and VersusCoins bonus; the box
+  shows the countdown to the next mode ([LIVEOPS.md](LIVEOPS.md) §8a). With Special Events off the box stays locked.
+- **Tournaments** are the game's private matches. The game never fills a private match with bots (no setting changes
+  that), and a tournament gives no trophies, division progress, Credits, VersusCoins, MVP bonus, agent XP or stats, by
+  the game's design: only the prize crate when you win (its gem cost is paid when you press Start, refunded on a
+  draw), the crate-track win count, tournament achievements and probably daily and weekly mission progress. Play them
+  with other players over LAN (experimental, not working end to end yet: section 9); for bot matches use Classic.
+- **No Practice tile.** The game has its own bot-match tile, "PRACTICE", but Gameloft's data hides it, and it stays
+  hidden: for bot matches use Classic. (Builds 15-20 had a setting that tried to show it; it never appeared, and build 21
+  removed the setting. A `settings.json` that still has `crm.practiceTile` keeps working: the key is ignored.)
 
 ### Logs, if something goes wrong
 
 **On the phone, without a PC** (Android 11 and later): open the **Files** app (or Samsung **My Files**) > **Downloads** >
 **MCVS-Offline**. Every game start writes its own copies there, named after the start time:
 `<date>-<time>-bootstrap.log.txt`, `-server.log.txt`, `-game.log.txt`, plus `crash-*.txt` when the game crashed. The
-copies are refreshed every 30 seconds while the game runs, and the last five starts are kept. Send the files of the
-newest start with your bug report. (If the folder is missing, the start-up log says why: look for `[mirror]`.)
+copies are refreshed every 30 seconds while the game runs, and this start and the previous one are kept (setting
+`logging.keepStarts`, see §8); older copies are deleted at the next start. Send the files of the newest start with your
+bug report; if the game broke and you restarted it, the previous start's files (and usually the `.1` copies) hold the
+broken start. (If the folder is missing, the start-up log says why: look for `[mirror]`.)
+
+**The logs are cleaned at every start.** `McvsOffline/logs/` keeps the same starts as the copies in Downloads: each
+start begins new `bootstrap.log`, `server.log`, `game.log` and `unknown-endpoints.jsonl` files (the previous start's are
+usually the `.1` files; a log that grew past 5 MB during a start has more numbered files for it), and the log files, crash, exception, thread-dump and exit files of older starts are deleted (one
+`[logs]` line in `bootstrap.log` says what went). So send the logs of a problem before you start the game twice more,
+or raise `logging.keepStarts` first. Saves, settings and the logs zips you saved or shared are never deleted.
 
 **The full system log with LogFox** (no PC; LogFox needs the `READ_LOGS` permission, granted once with adb or Shizuku,
 see its own instructions):
@@ -254,6 +317,34 @@ file cannot be written, logcat says so (`[logfile] cannot write ... at stage ...
 internal storage. Copying the folder over USB with a file manager on the PC can show stale sizes while the game runs;
 the copies in Downloads do not have that problem.
 
+### Game Mode and Samsung Gaming Hub (patch `game`)
+
+With the `game` patch (in the default set) the app tells Android it is a game, so Android's Game Mode and the phone
+maker's game tools can treat it as one. Samsung decides mostly by the package name, from its own list, so check on the
+phone:
+
+1. **Gaming Hub** (Game Launcher) › **My games**: if MCVS is listed, Game Booster works for it. If it is missing, add
+   it once with **My games › Add game › MCVS**; this works whatever the APK says, and stays after updates. Then start
+   the game and look for the Game Booster icon in the navigation bar or its swipe panel.
+2. **With a PC** (adb), Android's own view:
+
+   ```sh
+   adb shell cmd game list-modes com.gameloft.android.ANMP.GloftMVHM
+   adb shell dumpsys game
+   ```
+
+   With the patch the first command prints `current mode: standard, available game modes: [standard,custom]`. Without
+   it, Android 16 prints `Package com.gameloft.android.ANMP.GloftMVHM is not of game type, to use the game mode
+   commands, it must specify game category in the manifest as android:appCategory="game"` (Android 12 to 15 print
+   `current mode: unsupported, available game modes: []` instead). `dumpsys game` lists every installed game; with the
+   patch MCVS is among them.
+3. On phones whose Settings follow Android's own (not every One UI version), Settings › Storage counts the app under
+   **Games** instead of **Apps**.
+
+Before installing, you can check the APK on the PC with the Android build-tools: `aapt2 dump badging mcvs-offline.apk |
+grep application-isGame` prints `application-isGame`, and `aapt2 dump xmltree --file AndroidManifest.xml
+mcvs-offline.apk | grep -E 'isGame|appCategory'` shows `isGame(0x010103f4)=true` and `appCategory(0x01010545)=0`.
+
 ## 7. The MCVS Offline page
 
 The offline build has its own page for settings, saves and logs. It runs inside the game, in the game's own browser,
@@ -266,7 +357,53 @@ and nothing on it leaves the phone unless you share it.
 - Settings › Account › Redeem code: type `MCVSOFFLINE`. The page opens and the game then says the code does not exist;
   that is expected, nothing is claimed. `admin.redeemCode` in `settings.json` changes the code (empty turns it off).
   The code does nothing while `lanMode` is on.
-- The Forum button, if you patched with `--patch default,forum`.
+- The Forum button, if you patched with `--patch default,forum` and turned off the two Settings menu settings below.
+
+**Settings › Account** shows only **Redeem code** and **MCVS Offline**, side by side in the middle of the screen.
+Facebook, Google Play Games and Restore are hidden: their login can never succeed offline, and Restore is the restore of
+in-app purchases, which do not exist offline (your progress moves through Saves › Export and Import instead). The page's
+setting **Only Redeem code and MCVS Offline in Settings › Account** (`admin.accountMenu.hideDeadButtons`, Settings ›
+Unlocks & codes, on by default) brings the game's own buttons back when turned off; it applies the next time you open
+Settings › Account. Without Redeem code (setting `crm.redeemCoupons` off) MCVS Offline is alone in the middle; with the
+page turned off (`admin.enabled`) Redeem code is. If the menu cannot be rearranged, the buttons stay where the game puts
+them (stacked on the left) and `server.log` says why in an `[admin] account menu:` line. On a PC the game's GameCenter
+button stays (the Steam build has no Facebook, Google or Restore button, so nothing changes there), and the setting is
+not on the PC's settings page.
+
+**The game's Settings menu** (build 19) shows the tiles that work offline: GAMEPLAY SETTINGS, AUDIO, CUSTOMIZE
+CONTROLS, ACCOUNTS in the first row, HELP, LANGUAGES, **PERFORMANCE** centred below them, and ABOUT alone at the bottom.
+FORUM, SOCIAL MEDIA, CUSTOMER CARE and MORE GAMES are hidden. **PERFORMANCE** is the Steam version's graphics page,
+for the phone:
+
+| Row | Choices | Applies |
+|---|---|---|
+| GRAPHICS SETTINGS | AUTO, MID, HIGH, ULTRA: the same as the page's Graphics profile (`graphics.profile`) | after a restart: back on the Settings menu the game offers to restart now |
+| ANTIALIASING | OFF, 2x, 4x, 8x (`graphics.msaa`; 8x may not work on every phone) | after a restart, as above |
+| SCREEN SCALE | 0-100 % (`graphics.renderScale`): the resolution the 3D scene is drawn at, 0 is 40 %, as on Steam | at once |
+| FRAME RATE LIMIT | 30, 60, 90, 120, UNLIMITED (the game's own setting; 90 and 120 are new, and whether a phone really shows more than 60 is not known yet) | at once |
+| LOW RESOLUTION MAPS | OFF, ON (`graphics.lowResMaps`) | from the next match |
+
+The Applies column is for a change on PERFORMANCE. The same values on the settings page (Graphics: Antialiasing, Screen
+scale, Low resolution maps) apply at the next start of the game.
+
+Until you change a row it shows what the game uses now (`auto` in `settings.json`). Steam's FULL SCREEN, SCREEN
+RESOLUTION and VSYNC do nothing on a phone and are left out; FIELD OF VIEW stays in Gameplay Settings. Gameplay Settings
+no longer has GRAPHICS SETTINGS and FRAME RATE LIMIT, in the main menu and during a match: change them on PERFORMANCE,
+from the main menu. Two settings on the page (Settings › Gameplay, on by default, applied the next time Settings opens)
+undo this: **Shorter Settings menu** (`admin.settingsMenu.trim`) brings the hidden tiles back, **PERFORMANCE in the
+Settings menu** (`admin.settingsMenu.performance`) removes the PERFORMANCE tile and puts the two Gameplay rows back
+(FRAME RATE LIMIT then has 30, 60 and UNLIMITED again from the next start, your choice carried over). A third,
+**Lay out Settings before it is drawn** (`admin.settingsMenu.sameFrame`, on by default), prepares the menu before the
+game draws it, so MORE GAMES and FORUM never flash on a return; off, the first opening can show the stock menu for one
+frame. It turns itself off when the game closed during that step (or, from build 23, during the first ABOUT tap) at the
+last start (the status page's "Recent problems"
+then has a `same frame skipped` line): switch it back on to try again (if settings.json could not be saved, the line
+names the marker file to delete instead). From build 23 ABOUT sits in the middle of the bottom row: it is drawn on the
+button the game itself centres (the one MORE GAMES used), and a tap on it opens ABOUT; the Gameloft logo in the top bar
+still does what it did. A fourth setting, **ABOUT centred in the Settings menu** (`admin.settingsMenu.aboutCentre`, on by
+default), switches that off: ABOUT then sits at the right of the bottom row, where the game puts it (build 22). If the menu
+cannot be rearranged, it stays as the game draws it and
+`server.log` says why in a `settings menu:` line.
 
 **Chrome is not supported.** Open the page only from the game. In Chrome (or any other browser)
 `http://127.0.0.1:51780/_mcvs/ui/` shows a view-only page at most: Android freezes the game about a minute after it leaves the screen, and the page's
@@ -420,7 +557,8 @@ in-game host:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `port` | `51780` | Port of the local backend. If you change it, re-patch with the same `--port` (the `geo` patch contains it). |
+| `port` | `51780` | Port of the local backend. When another app holds it at start (a frozen earlier copy of the game, an `adb reverse`), the game does not wait: it uses the next free port (51781..51789, else any) for that start, and `args.txt`, the settings page and the `geo` lookup follow it (one WARN line in `bootstrap.log` says why). This file keeps its value and the next start tries it first. If a working MCVS Offline server answers there (the development loop's `adb reverse`), the game uses that one. `--port` only sets the fallback value baked into the `geo` patch. |
+| `embedded.portFallback` | `true` | `false` pins `port`: when it is busy the server keeps trying it (as before build 26) instead of moving. |
 | `lanMode` | `false` | Experimental LAN host mode (see below). |
 | `embedded.manageArgs` | `true` | `false` stops MCVS Offline from touching `args.txt`. |
 | `embedded.lanAdvertiseHost` | `""` | LAN host mode: the IP address to announce to other devices (empty = detect). |
@@ -428,6 +566,7 @@ in-game host:
 | `gameLog.levels` | `"error warning"` | Levels of the game's own log (`error warning info debug`). A build patched with `--game-log all` logs every level anyway. |
 | `gameLog.mute` | `"profile:debug"` | `category:level` pairs to silence, e.g. `online:debug`; `category:all` silences a category. |
 | `gameLog.file` | `true` | Copy the game's log to `logs/game.log`. |
+| `logging.keepStarts` | `1` | Starts whose logs are kept besides the current one (0–10). Older logs are deleted at the next start. |
 | `embedded.physics.serverMultithreaded` | `false` | `true` gives the in-process server worlds the game's multithreaded physics again (the suspected cause of the device-test-2 freeze; for testing only). |
 | `embedded.physics.clientMultithreaded` | `true` | `false` makes the game's own physics single-threaded too. |
 | `embedded.physics.stepGate` | `true` | `false` lets several worlds step their physics at the same time again (for testing only). |
@@ -464,6 +603,14 @@ for testing only:
   -EnvironmentSwitcherUrl http://<host-ip>:51780/
   ```
 
+  If 51780 was busy on the host when it started, the host's server uses another port for that start, and the guests'
+  line has to name it: the host's `bootstrap.log` says which (`LAN guests must use -EnvironmentSwitcherUrl
+  http://<this device's address>:51781/ for this start`). Likewise, if the host's own LocalAnubis Finder port (51750) was
+  busy, its log names the `-LocalAnubisFinderPort <n>` line guests need for that start (it moves the guest's own Finder
+  too). Restart the host to get 51780 back, or set `embedded.portFallback` to `false` on the host. A guest whose own
+  ports were busy keeps asking the host on 51750, and its log line about the host's `-EnvironmentSwitcherUrl` is a WARN,
+  not an error.
+
 ## What the patcher changes, exactly
 
 For reviewers (details and evidence: `docs/research/verify-C7-integrity-patching.md`, `verify-C4`, `verify-C6`):
@@ -476,7 +623,7 @@ For reviewers (details and evidence: `docs/research/verify-C7-integrity-patching
   only; physics: `PhysicsComponent`'s constructor asks `McvsPhysics.UseMultithreading(this)` instead of reading the
   game option, and `UpdateSimulationSteps` runs inside a process-wide, time-bounded gate). Optional: `Gameloft.Engine.dll`
   (nativeonline, waits: `WaitHandle.WaitAny(handles)` -> `WaitAny(handles, 100)` in both `TaskExtension.WaitAndWork`
-  overloads, finder, lan), `Gameloft.Util.dll` (geo), `Game.dll` (bottile; store: `KillSignatureRewardItem.GetAvailableId` handles sounds, the `GameUnifiedStoreComponent.SelectItems` availability filter skips an item that throws; signatures: set lookups in `GetSignatureAssetsList`, one list per `GetKillSignItems` call; adminpage: `PlayerProfileComponent.GetAccountMenuButtonList` passes its list through `McvsOffline.AdminHooks.AccountMenuButtons`, and `ProcessAccountMenuButtonAction("mcvs_offline")` calls `AdminHooks.OpenPage`; forum: `UIComponent.GoToForum` calls `AdminHooks.OpenPage`), `Gameloft.Engine.dll` (adminlink: `BrowserComponent.OpenUrl` first asks `AdminHooks.OpenIfPageMarker`, which handles only the inbox message's fixed link; graphics: `GameOptionPerformanceProfileComponent.OnCreate` passes the GameOptions_android.json text through `McvsOffline.GraphicsHooks.GameOptionsJson` before the engine reads it, and reports the resolved options to `GraphicsHooks.GameOptionsApplied`). Each site is checked against the exact code
+  overloads, finder, lan; finderport: `ClientSettings` takes its LocalAnubis Finder port from `McvsOffline.PortHooks.LocalAnubisFinderPort(51750)`), `Gameloft.Util.dll` (geo: the geolocation URL points at the server, through `McvsOffline.PortHooks.GeolocalizationUrl` so it follows the port of the start), `Game.dll` (store: `KillSignatureRewardItem.GetAvailableId` handles sounds, the `GameUnifiedStoreComponent.SelectItems` availability filter skips an item that throws; signatures: set lookups in `GetSignatureAssetsList`, one list per `GetKillSignItems` call; inbox: `InboxComponent.GenerateRewardsObjects` builds at most 30 rewards of a message plus its Gear rewards, each in try/catch, `GetObject` adds `RewardsTotal`, the claim popup of `ClaimRewardsForMessage` lists the first 30, `RefreshUI` refreshes once per 10 s window, and on PC `KillSignatureRewardItem.IsRandom` checks for a null id; adminpage: `PlayerProfileComponent.GetAccountMenuButtonList` passes its list through `McvsOffline.AdminHooks.AccountMenuButtons`, and `ProcessAccountMenuButtonAction("mcvs_offline")` calls `AdminHooks.OpenPage`; forum: `UIComponent.GoToForum` calls `AdminHooks.OpenPage`), `Gameloft.Engine.dll` (adminlink: `BrowserComponent.OpenUrl` first asks `AdminHooks.OpenIfPageMarker`, which handles only the inbox message's fixed link; graphics: `GameOptionPerformanceProfileComponent.OnCreate` passes the GameOptions_android.json text through `McvsOffline.GraphicsHooks.GameOptionsJson` before the engine reads it, and reports the resolved options to `GraphicsHooks.GameOptionsApplied`). Each site is checked against the exact code
   of 1.17.32 first (the device-test-2 patches against an IL fingerprint of the whole method); if anything differs, the
   patcher stops without writing.
 - `res/raw/args.txt` (with `--game-log all`, the default): `-LogCategoryFilter Fatal` is replaced by a line the game
@@ -495,7 +642,9 @@ For reviewers (details and evidence: `docs/research/verify-C7-integrity-patching
   local-reminder receiver), the notification permission, a declaration that lets the in-game browser find your browser,
   and heap-pointer tagging off; the two `res/layout-*/activity_in_game_browser.xml` files (the browser that shows the
   MCVS Offline page) keep the page clear of the navigation bar. The patcher checks the shipped manifest and layouts
-  byte for byte first.
+  byte for byte first. With `game` (at any target) `<application>` gets `android:isGame="true"` and
+  `android:appCategory="game"`, encoded as Android's own build tools write them; the patcher refuses a manifest that
+  already sets either of them.
 - `classes.dex` (the game's Java code), also with `targetsdk` at 35 or 36: 14 places in 13 methods are changed in
   place, each method checked against its verified fingerprint first (docs/research/target-sdk.md, P1-P14): the restart
   alarm, the local reminders and the download notification create their `PendingIntent`s with `FLAG_IMMUTABLE`

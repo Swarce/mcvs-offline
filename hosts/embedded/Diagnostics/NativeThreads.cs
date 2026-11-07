@@ -1,5 +1,6 @@
 // Host: embedded - owner group: EMBED (hosts/embedded, patcher/)
-// Platform-independent (Linux /proc and libc): compiled into the embedded DLL and into the net8 tests.
+// Platform-independent (Linux /proc and libc): compiled into the embedded DLLs and into the net8 tests. The PC DLL has no
+// libc import: CurrentTid is GetCurrentThreadId there, and the /proc readers just find nothing (docs/design/pc-port.md §3.1).
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -24,7 +25,11 @@ namespace McvsOffline.Embedded.Diagnostics
             if (noGettid) return 0;
             try
             {
+#if MCVS_WINDOWS
+                return (int) McvsOffline.Embedded.Windows.Win32.GetCurrentThreadId();
+#else
                 return NativeMethods.gettid();
+#endif
             }
             catch (Exception)
             {
@@ -128,10 +133,12 @@ namespace McvsOffline.Embedded.Diagnostics
             }
         }
 
+#if MCVS_ANDROID || !MCVS_EMBEDDED
         private static class NativeMethods
         {
             [DllImport("libc", SetLastError = true)]
             public static extern int gettid();
         }
+#endif
     }
 }

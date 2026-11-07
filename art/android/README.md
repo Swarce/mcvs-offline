@@ -113,3 +113,25 @@ File names: `ic_launcher_foreground.png`, `ic_launcher_background.png`, `ic_laun
    file it would replace and every warning, and refuses art that is off-spec.
 3. A test build: the same with `--out`, then install. If the launcher keeps showing the old icon, reboot the phone (the
    launcher caches icons).
+
+## 5. The game's data installer background (kept outside the repository)
+
+Gameloft's data installer (the download and data-check screens, with the spinner) shows
+`res/drawable/installing_splash_bg_left.png` and `_right.png` (512 x 768 each) side by side, each half of the screen
+zoomed to fill (`centerCrop`). A wide phone therefore shows the middle band of the 1024 x 768 picture they make: on a
+2340 x 1080 screen, the middle 61 % of its height. Keep the logo and anything that matters inside that band. A third
+file, `installing_splash_bg.png` (800 x 600), is the same picture for the other installer layout.
+
+| File | Size (px) |
+|---|---|
+| `installer/installing_splash_bg_left.png` | 512 x 768 (the left half) |
+| `installer/installing_splash_bg_right.png` | 512 x 768 (the right half) |
+| `installer/installing_splash_bg.png` | 800 x 600 (optional) |
+
+Exactly these sizes: a drawable in `res/drawable/` is decoded scaled to the screen density, so a larger file costs memory
+without showing more detail. The two halves come together.
+
+**These pictures are not committed.** A background is often someone else's artwork (the current one is Gameloft's
+promotional art). Put the files in `art/local/installer/` (git-ignored) or any other folder, and give that folder to the
+patcher with `--art-extra <folder>`: its files are laid over this folder's art (the icon and art.json still come from
+here). `tools/art/installer-background.py` makes the three files from a picture.

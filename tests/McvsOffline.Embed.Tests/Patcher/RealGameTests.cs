@@ -28,9 +28,9 @@ namespace McvsOffline.Embed.Tests.Patcher
         /// <summary>Report notes per IL patch id on the real 1.17.32 assemblies. A new IL patch adds its id here.</summary>
         internal static readonly IReadOnlyDictionary<string, int> IlPatchNotes = new Dictionary<string, int>(StringComparer.Ordinal)
         {
-            ["hook"] = 1, ["headless"] = 5, ["headless-engine"] = 3, ["physics"] = 2, ["nativeonline"] = 1, ["waits"] = 2, ["geo"] = 1,
-            ["bottile"] = 1, ["finder"] = 1, ["lan"] = 3, ["store"] = 2, ["signatures"] = 2, ["debloat"] = 7, ["adminpage"] = 2,
-            ["adminlink"] = 1, ["forum"] = 1, ["graphics"] = 1,
+            ["hook"] = 1, ["headless"] = 5, ["headless-engine"] = 3, ["physics"] = 2, ["finderport"] = 1, ["nativeonline"] = 1, ["waits"] = 2, ["geo"] = 1,
+            ["finder"] = 1, ["lan"] = 3, ["store"] = 2, ["signatures"] = 2, ["inbox"] = 4, ["debloat"] = 7, ["adminpage"] = 2,
+            ["adminlink"] = 1, ["forum"] = 1, ["graphics"] = 1, ["botmove"] = 1,
         };
 
         /// <summary>
@@ -38,7 +38,8 @@ namespace McvsOffline.Embed.Tests.Patcher
         /// rewrite (--game-log all), the ABI selection, for "debloat" one per removed manifest element plus one for the
         /// dropped Crashlytics/Fabric files, and for "targetsdk" at <paramref name="target"/> 35 the target, the three exported
         /// components, heap tagging, POST_NOTIFICATIONS, &lt;queries&gt;, the two browser layouts, the four Google Analytics
-        /// components it removes and the 14 classes.dex sites (<see cref="DexNotes"/>; none of them at 29).
+        /// components it removes and the 14 classes.dex sites (<see cref="DexNotes"/>; none of them at 29), and for "game" its
+        /// two manifest flags (at any target).
         /// </summary>
         internal static int ExpectedNotes(IEnumerable<string> optionalPatches, bool gameLogAll = true, int target = ManifestTargetSdk.DefaultTarget)
         {
@@ -46,6 +47,7 @@ namespace McvsOffline.Embed.Tests.Patcher
             int notes = ids.Sum(id => IlPatchNotes.TryGetValue(id, out int n) ? n : 0);
             notes += 1 + (gameLogAll ? 1 : 0) + 1;
             if (ids.Contains(ManifestDebloat.PatchId)) notes += ManifestDebloat.Targets.Count + 1;
+            if (ids.Contains(ManifestGame.PatchId)) notes += 2;
             if (ids.Contains(ManifestTargetSdk.PatchId) && target != ManifestTargetSdk.ShippedTarget) notes += 1 + 3 + 1 + 1 + 1 + BrowserLayoutInsets.Layouts.Count;
             if (ids.Contains(ManifestTargetSdk.PatchId) && target >= DexTargetSdkEdits.MinTargetSdk) notes += ManifestTargetSdk.GoogleAnalyticsComponents.Count + DexNotes;
             return notes;
@@ -80,11 +82,13 @@ namespace McvsOffline.Embed.Tests.Patcher
                                  "classes.dex", "res/layout-land/activity_in_game_browser.xml", "res/layout-port/activity_in_game_browser.xml", "res/raw/args.txt" },
                          report.Modified.OrderBy(m => m, StringComparer.Ordinal));
             Assert.Equal(new[] { "assemblies/McvsOffline.Server.dll" }, report.Added);
-            // 36 IL patch notes, the manifest permission rename, the res/raw/args.txt rewrite, the ABI selection, debloat's
-            // 44 manifest removals and file drop, and targetsdk's 7 manifest, 2 layout, 4 Google Analytics removal and 14
-            // classes.dex edits: 111 (see IlPatchNotes / ExpectedNotes).
+            // 41 IL patch notes (finderport from build 26, botmove from build 27), the manifest permission rename, the res/raw/args.txt rewrite, the ABI
+            // selection, debloat's 44 manifest removals and file drop, targetsdk's 7 manifest, 2 layout, 4 Google Analytics removal and 14
+            // classes.dex edits, and game's 2 manifest flags: 118 (see IlPatchNotes / ExpectedNotes).
             Assert.Equal(14, DexNotes);
-            Assert.Equal(111, ExpectedNotes(options.Patches, target: 35));
+            Assert.Equal(118, ExpectedNotes(options.Patches, target: 35));
+            Assert.Contains(report.Notes, n => n.Contains("BT_Action_MoveTo::adaptSpeed") && n.Contains("McvsBotMove.Ramp"));
+            Assert.Equal(2, report.Notes.Count(n => n.StartsWith(ManifestGame.NotePrefix, StringComparison.Ordinal)));
             Assert.Equal(ExpectedNotes(options.Patches, target: 35), report.Notes.Count);
             Assert.Equal(ManifestDebloat.Targets.Count, report.Notes.Count(n => n.StartsWith("manifest: removed <", StringComparison.Ordinal)));
             Assert.Contains(report.Notes, n => n.StartsWith("debloat: dropped 8 Crashlytics/Fabric files", StringComparison.Ordinal));   // armeabi-v7a's went with its ABI
@@ -104,7 +108,6 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Equal(2, report.Notes.Count(n => n.Contains("TaskExtension::WaitAndWork") && n.Contains("WaitAny(handles, 100)")));
             Assert.Contains(report.Notes, n => n.StartsWith("res/raw/args.txt: \"-LogCategoryFilter Fatal\" -> \"-McvsOfflineGameLogAll\""));
             Assert.Contains(report.Notes, n => n.StartsWith("manifest: vendor-wide signature permission glshare.permission.ACCESS_SHARED_DATA renamed"));
-            Assert.Contains(report.Notes, n => n.Contains("<NativeStartMatchWithBots>b__354_0") && n.Contains("IL_0007"));
             Assert.Contains(report.Notes, n => n.Contains("http://127.0.0.1:51780/location/?ip="));
             Assert.Contains(report.Notes, n => n.Contains("PlayerProfileComponent::GetAccountMenuButtonList") && n.Contains("AdminHooks.AccountMenuButtons(list)"));
             Assert.Contains(report.Notes, n => n.Contains("PlayerProfileComponent::ProcessAccountMenuButtonAction") && n.Contains("OpenPage(\"account\", World)"));
@@ -146,13 +149,15 @@ namespace McvsOffline.Embed.Tests.Patcher
             }
             var log = new List<string>();
             PatchReport report = ApkPatcher.Run(new PatcherOptions { InputApk = apk, ServerDll = server, DryRun = true }, log.Add);
-            // 32 IL patch notes (hook, headless 5 + 3, physics 2, nativeonline, waits 2, geo, bottile, finder, store 2,
-            // signatures 2, debloat 7, adminpage 2, adminlink, graphics), the manifest rename, res/raw/args.txt, the ABI selection,
-            // debloat's 44 + 1, and targetsdk at its default 35: 7 manifest, 2 layout, 4 Google Analytics removal and 14
-            // classes.dex edits: 107.
-            Assert.Equal(107, ExpectedNotes(PatcherOptions.DefaultPatches));
+            // 36 IL patch notes (hook, headless 5 + 3, physics 2, finderport (build 26), nativeonline, waits 2, geo, finder, store 2,
+            // signatures 2, inbox 4, debloat 7, adminpage 2, adminlink, graphics), the manifest rename, res/raw/args.txt, the ABI selection,
+            // debloat's 44 + 1, targetsdk at its default 35: 7 manifest, 2 layout, 4 Google Analytics removal and 14
+            // classes.dex edits, and game's 2: 113.
+            Assert.Equal(113, ExpectedNotes(PatcherOptions.DefaultPatches));
             Assert.Equal(ExpectedNotes(PatcherOptions.DefaultPatches), report.Notes.Count);
+            Assert.DoesNotContain(report.Notes, n => n.Contains("McvsBotMove"));   // build 27: 'botmove' is not in the default APK
             Assert.Contains("patch targetsdk: targetSdkVersion 29 -> 35, with what that target needs in the manifest, the settings page's layouts and classes.dex", log);
+            Assert.Contains("patch game: android:isGame=\"true\" and android:appCategory=\"game\" on <application> (Game Mode / OEM game detection)", log);
             Assert.Contains(ManifestTargetSdk.DexEntry, report.Modified);
             Assert.DoesNotContain(report.Notes, n => n.Contains("LocalAnubisManager"));
 

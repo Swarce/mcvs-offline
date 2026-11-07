@@ -343,6 +343,13 @@ namespace McvsOffline.Tests.Admin
             Assert.False(portal.IsPageMarker("http://127.0.0.1:51780/_mcvs/ui/#NEWS"));
             Assert.False(portal.IsPageMarker("http://localhost:51780/_mcvs/ui/#news"));
             Assert.False(portal.IsPageMarker(null));
+            // Build 26 (port fallback): an inbox message built on another port of this or an earlier start still opens the page.
+            Assert.True(portal.IsPageMarker("http://127.0.0.1:51783/_mcvs/ui/#news"));
+            Assert.True(portal.IsPageMarker("http://127.0.0.1:1/_mcvs/ui/#news"));
+            Assert.False(portal.IsPageMarker("http://127.0.0.1:/_mcvs/ui/#news"));
+            Assert.False(portal.IsPageMarker("http://127.0.0.1:123456/_mcvs/ui/#news"));
+            Assert.False(portal.IsPageMarker("http://127.0.0.1:51x80/_mcvs/ui/#news"));
+            Assert.False(portal.IsPageMarker("http://127.0.0.1:51780/_mcvs/ui/#t=0123456789abcdef0123456789abcdef"));
 
             Assert.Matches(@"^http://127\.0\.0\.1:51780/_mcvs/ui/#t=[0-9a-f]{32}$", portal.MintPageUrl(AdminTriggers.Account, null));
             Assert.Matches(@"^http://127\.0\.0\.1:51780/_mcvs/ui/#t=[0-9a-f]{32}&s=saves$", portal.MintPageUrl(AdminTriggers.Resume, "saves"));

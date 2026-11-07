@@ -1,19 +1,17 @@
 #define ENABLE_LOGGER
 // Host: embedded - owner group: EMBED (hosts/embedded, patcher/)
-// Android only: compiled into the embedded DLL (MCVS_EMBEDDED), never into the net8 build.
+// Compiled into the embedded DLLs that reference Gameloft.Logs (MCVS_GAMELOG: always on Android, on PC when the build saw
+// the Steam install's Gameloft.Logs.dll; the PC Gameloft.Logs has the same API), never into the net8 build.
 // ENABLE_LOGGER must be defined in THIS file: Gameloft.Log.EnableLogCategory and DisableLogLevelForCategory are
 // [Conditional("ENABLE_LOGGER")], so without it the compiler drops our calls (that is how the game's own
 // SetLogCategoryFilter call vanished from the release Gameloft.Engine; its GameLog.cs defines it the same way).
-#if MCVS_EMBEDDED
+#if MCVS_GAMELOG
 using System;
 using System.Collections.Generic;
-using System.Globalization;
-using System.Text;
 using Gameloft.Logs;
-using LogRedaction = McvsOffline.Server.Core.Http.LogRedaction;
 using SafeLogFile = McvsOffline.Server.Core.SafeLogFile;
 
-namespace McvsOffline.Embedded.Android
+namespace McvsOffline.Embedded.Diagnostics
 {
     /// <summary>
     /// The game's own log (Gameloft.Logs, which writes to logcat "mono-stdout" through its ConsoleLogger) at the levels the
@@ -22,24 +20,46 @@ namespace McvsOffline.Embedded.Android
     /// "gameLog": { "levels": "error warning", "mute": "profile:debug", "file": true, "maxMessageChars": 8192 }
     /// </code>
     /// <c>levels</c> adds levels to the game's Fatal-only default (with the patcher's default --game-log all the game enables
-    /// every level itself in GameApplication's constructor, a superset); <c>mute</c> takes "category:level" pairs
-    /// ("profile:debug", "online:all"), which survive that constructor because they live in a separate table.
+    /// every level itself in GameApplication's constructor, a superset; on PC Gameloft.Log's static constructor already does,
+    /// so there game.log keeps only Fatal plus <c>levels</c>, <see cref="GameLogFormat"/>); <c>mute</c> takes "category:level"
+    /// pairs ("profile:debug", "online:all"), which survive that constructor because they live in a separate table.
+    /// Lines: <see cref="GameLogFormat.Line"/> (UTC time, redacted).
     /// Applied once from Bootstrap.Init (UI thread, before GameApplication exists and before any game thread logs), so the
     /// game's List/Dictionary inside Gameloft.Log are never mutated while it reads them.
+    /// <para>
+    /// PC only: with a <see cref="GameFatalLines"/> (WindowsPlatform.ApplyGameLog) every Fatal entry also goes there, which
+    /// writes the "PROBABLY FATAL" report of an exception the game rethrows into native code (docs/design/pc-port.md §6.4).
+    /// </para>
     /// </summary>
     internal sealed class GameLogBridge : ILogger
     {
         private readonly SafeLogFile file;
         private readonly int maxMessageChars;
+        private readonly GameFatalLines fatalLines;
 
-        private GameLogBridge(SafeLogFile file, int maxMessageChars)
+        /// <summary>The levels game.log keeps, indexed by (int)LogLevel; null: every entry the game logs (Android).</summary>
+        private readonly bool[] accepted;
+
+        private GameLogBridge(SafeLogFile file, int maxMessageChars, bool[] accepted, GameFatalLines fatalLines)
         {
             this.file = file;
             this.maxMessageChars = maxMessageChars;
+            this.accepted = accepted;
+            this.fatalLines = fatalLines;
         }
 
-        /// <summary>Returns a description of what was applied, e.g. "Fatal Error Warning, muted profile:Debug, copy to game.log".</summary>
-        public static string Apply(string levels, string mute, SafeLogFile file, int maxMessageChars)
+        /// <summary>
+        /// Returns a description of what was applied, e.g. "Fatal Error Warning, muted profile:Debug, copy to game.log".
+        /// <paramref name="fileKeepsLevels"/>: game.log keeps only Fatal and <paramref name="levels"/> (PC, where the game
+        /// itself enables every level); false: every entry the game logs (Android).
+        /// </summary>
+        public static string Apply(string levels, string mute, SafeLogFile file, int maxMessageChars, bool fileKeepsLevels)
+        {
+            return Apply(levels, mute, file, maxMessageChars, fileKeepsLevels, null);
+        }
+
+        /// <summary><see cref="Apply(string,string,SafeLogFile,int,bool)"/>, and every Fatal entry to <paramref name="fatalLines"/> (PC).</summary>
+        public static string Apply(string levels, string mute, SafeLogFile file, int maxMessageChars, bool fileKeepsLevels, GameFatalLines fatalLines)
         {
             var applied = new List<string> { "Fatal" };
             foreach (string word in Split(levels))
@@ -76,31 +96,35 @@ namespace McvsOffline.Embedded.Android
             }
             string text = string.Join(" ", applied.ToArray());
             if (muted.Count > 0) text += ", muted " + string.Join(" ", muted.ToArray());
-            if (file != null)
+            if (file != null || fatalLines != null)
             {
-                Gameloft.Log.Settings.AddLogger(new GameLogBridge(file, maxMessageChars < 256 ? 256 : maxMessageChars));
-                text += ", copy to " + file.Path;
+                bool[] keep = file != null && fileKeepsLevels ? GameLogFormat.AcceptedLevels(levels) : null;
+                Gameloft.Log.Settings.AddLogger(new GameLogBridge(file, maxMessageChars < 256 ? 256 : maxMessageChars, keep, fatalLines));
+                if (file != null) text += ", copy to " + file.Path;
+                if (keep != null) text += " (" + GameLogFormat.Describe(keep) + " only; the game itself logs every level here)";
+                if (fatalLines != null) text += ", Fatal lines watched";
             }
             return text;
         }
 
         /// <summary>
         /// Called synchronously by Gameloft.Log.AddEntry on the logging thread (mostly the game thread), which has no try/catch
-        /// around it: an enqueue plus the redaction's fast path (a few ordinal searches; the game may log the URL it opens, which
-        /// can carry the settings page's one-time ticket, design §5.4), never throws.
+        /// around it: a level check, then an enqueue plus the redaction's fast path (a few ordinal searches; the game may log
+        /// the URL it opens, which can carry the settings page's one-time ticket, design §5.4, and its own access tokens),
+        /// never throws.
         /// </summary>
         public void EntryAdded(Gameloft.Logs.LogEntry entry)
         {
             try
             {
-                string message = entry.Message ?? "";
-                if (message.Length > maxMessageChars)
-                    message = message.Substring(0, maxMessageChars) + "...[" + message.Length.ToString(CultureInfo.InvariantCulture) + " chars]";
-                var sb = new StringBuilder(message.Length + 64);
-                sb.Append(entry.Time.ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture)).Append(' ')
-                  .Append(entry.Level.ToString()).Append(" [").Append(entry.Category.ToString()).Append("] ").Append(message);
-                if (entry.Exception != null) sb.Append('\n').Append(entry.Exception.ToString());
-                file.AppendLine(LogRedaction.Redact(sb.ToString()));
+                bool fatal = entry.Level == LogLevel.Fatal;
+                bool keep = file != null && GameLogFormat.Keeps(accepted, (int)entry.Level);
+                if (!keep && !(fatal && fatalLines != null)) return;
+                string line = GameLogFormat.Line(entry.Time, entry.Level.ToString(), entry.Category.ToString(), entry.Message,
+                                                 entry.Exception, maxMessageChars);
+                if (keep) file.AppendLine(line);
+                // After the copy: the report flushes the log files, game.log with this line included.
+                if (fatal && fatalLines != null) fatalLines.Fatal(entry.Member, entry.Message, entry.Exception, line);
             }
             catch (Exception)
             {

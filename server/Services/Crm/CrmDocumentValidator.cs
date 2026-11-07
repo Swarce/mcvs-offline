@@ -342,7 +342,39 @@ namespace McvsOffline.Server.Services.Crm
                              + "': timestamp was not integer epoch seconds; now " + seconds.ToString(CultureInfo.InvariantCulture));
                 }
             }
-            return RemoveInvalid(list, CheckNewsfeedEntry, "newsfeed", "news_id", log);
+            int removed = RemoveInvalid(list, CheckNewsfeedEntry, "newsfeed", "news_id", log);
+            WarnSharedAssets(list, log);
+            return removed;
+        }
+
+        /// <summary>
+        /// Warns (and changes nothing) when two newsfeed items share an <c>asset</c> and the first has no <c>end_date</c>:
+        /// the PC client keys its static <c>NewsFeedData.Newsfeeds</c> by asset (first item wins) and gives every inbox
+        /// message of that asset whose creation date differs the first item's <c>EndDate</c>, <c>default(DateTime)</c>
+        /// without an <c>end_date</c>, so those messages expire at the next refresh (docs/design/pc-port.md §4.3). A missing
+        /// asset is the key "" (<see cref="AssetKey"/>), the one our own item has; the builder puts ours before every
+        /// overlay item of its key, so with our <c>end_date</c> this cannot fire for ours. The document is shared by both
+        /// platforms, so the warning shows on Android too; it names the PC client.
+        /// </summary>
+        private static void WarnSharedAssets(List<object> list, Log log)
+        {
+            var first = new Dictionary<string, Dictionary<string, object>>(StringComparer.Ordinal);
+            foreach (object e in list)
+            {
+                var entry = e as Dictionary<string, object>;
+                if (entry == null) continue;
+                string asset = AssetKey(entry);
+                Dictionary<string, object> earlier;
+                if (!first.TryGetValue(asset, out earlier))
+                {
+                    first[asset] = entry;
+                    continue;
+                }
+                if (!string.IsNullOrEmpty(JsonValue.GetString(earlier, "end_date"))) continue;
+                log.Warn("CRM: newsfeed '" + (JsonValue.GetString(entry, "news_id") ?? "?") + "' shares asset \"" + asset + "\" with '"
+                         + (JsonValue.GetString(earlier, "news_id") ?? "?") + "', which has no end_date: on the PC client its inbox message "
+                         + "expires at the next refresh (give each item its own asset, or the first one an end_date)");
+            }
         }
 
         /// <summary>Why the client would make no proper inbox message of this newsfeeds entry, or null when it is fine.</summary>
@@ -367,6 +399,17 @@ namespace McvsOffline.Server.Services.Crm
             var item = entry as Dictionary<string, object>;
             if (item == null) return "not an object";
             return string.IsNullOrEmpty(JsonValue.Get(item, "news_id") as string) ? "needs a news_id" : null;
+        }
+
+        /// <summary>
+        /// The key of a newsfeeds entry in the PC client's <c>NewsFeedData.Newsfeeds</c>: its <c>asset</c> as
+        /// <c>SafeGetString</c> reads it, so a missing or null asset is "" (the default), like our own item's.
+        /// </summary>
+        internal static string AssetKey(Dictionary<string, object> entry)
+        {
+            object v;
+            if (entry == null || !entry.TryGetValue("asset", out v)) return "";
+            return v as string ?? ClientText(v);
         }
 
         /// <summary>What SafeGetString gives for a JSON value that is not a string (Convert.ChangeType, invariant culture).</summary>

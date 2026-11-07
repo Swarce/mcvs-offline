@@ -33,6 +33,60 @@ namespace McvsOffline.Server.Services.Social.LiveOps
         public const string AchievementType = "TimeLimitedAchievementEvent";
         public const string DailyQuestType = "TimeLimitedDailyQuestEvent";
         public const string CompleteAll = "CompleteAllObjectives";
+        public const string ArenaType = "ArenaModeEvent";
+
+        /// <summary>
+        /// A Special Event (an <c>ArenaModeEvent</c>, GM/ArenaModeEvent.cs Initialize) of <paramref name="mode"/> over
+        /// <paramref name="window"/>, on <paramref name="map"/> ("Random" or a playable map). Everything the client reads,
+        /// as SEM private elements: the tile's loc ids (<c>EventName</c>, <c>EventRule</c>, <c>MatchTypeText</c>; <c>title</c>
+        /// and <c>description</c> repeat the first two for the base class), <c>img</c> (mandatory: a missing one throws and
+        /// drops every event), the match type, the rule tables (<c>MatchParameterSets</c>), the explicit agent list (never
+        /// empty or "Any": the Flash box then gets a null agent list; never "MercClass_": Initialize throws), the map,
+        /// duplicates, the six reward
+        /// multipliers (RewardComponent.GenerateCurrency, GameplayComponent's MVP reward) and the three PlayerComponent
+        /// flags (ignored unless ForcedMercModTier: gear and the level bonus work as in Classic).
+        /// </summary>
+        public static Dictionary<string, object> ArenaMode(LiveOpsCatalog catalog, LiveOpsArena arena, ArenaWindow window, LiveOpsArenaMode mode, string map)
+        {
+            var tuning = Obj();
+            tuning["event_type"] = Private(ArenaType);
+            tuning["title"] = Private(mode.EventName);
+            tuning["description"] = Private(mode.EventRule);
+            tuning["EventName"] = Private(mode.EventName);
+            tuning["EventRule"] = Private(mode.EventRule);
+            tuning["MatchTypeText"] = Private(mode.MatchTypeText);
+            tuning["img"] = Private(mode.Img);
+            tuning["MatchType"] = Private(mode.MatchType);
+            var sets = new List<object>();
+            foreach (string set in mode.ParameterSets) sets.Add(set);
+            tuning["MatchParameterSets"] = Private(sets);
+            var agents = new List<object>();
+            foreach (string agent in mode.Agents) agents.Add(agent);
+            tuning["AgentRestrictions"] = Private(agents);
+            tuning["MapName"] = Private(string.IsNullOrEmpty(map) ? "Random" : map);
+            tuning["AllowDuplicateMercs"] = Private(mode.AllowDuplicates);
+            tuning["CreditsVictoryAmountMultiplier"] = Private(mode.CreditsVictory);
+            tuning["CreditsDefeatAmountMultiplier"] = Private(mode.CreditsDefeat);
+            tuning["CreditsMVPAmountMultiplier"] = Private(mode.CreditsMvp);
+            tuning["VersusCoinsVictoryAmountMultiplier"] = Private(mode.CoinsVictory);
+            tuning["VersusCoinsDefeatAmountMultiplier"] = Private(mode.CoinsDefeat);
+            tuning["VersusCoinsMVPAmountMultiplier"] = Private(mode.CoinsMvp);
+            tuning["ForcedMercModTier"] = Private(false);
+            tuning["GearsAllowed"] = Private(true);
+            tuning["PlayerLevelBonus"] = Private(true);
+            var template = Obj();
+            template["event_tuning"] = tuning;
+
+            var e = Obj();
+            string id = LiveOpsSchedule.ArenaEventId(window, mode.Id);
+            e["id"] = id;
+            e["name"] = id;
+            e["start_date"] = LiveOpsSchedule.WireDate(window.Start);
+            e["end_date"] = LiveOpsSchedule.WireDate(window.End);
+            e["_priority"] = (long)(arena == null ? 3 : arena.Priority);
+            e["_template"] = MiniJson.Serialize(template);
+            return Finish(catalog, e, (string)e["_template"]);
+        }
 
         /// <summary>A division season event: one per division, all with the season id as <c>_batch_tag</c>
         /// (GM/DivisionSeasonEvent.cs Initialize; GM/DivisionsComponent.cs picks the one whose Division is the player's).</summary>

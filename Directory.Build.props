@@ -11,6 +11,11 @@
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <Deterministic>true</Deterministic>
+    <!-- No SourceLink: it writes the git commit into the PDB, which the server DLLs embed (DebugType embedded), so every
+         commit, even a docs-only one, changed the DLL bytes, its MVID and with them the patched assemblies' derived MVIDs
+         and the PC install's 'written' SHA-256 values (docs/design/pc-port.md §13.1). The same sources now give the same
+         bytes. -->
+    <EnableSourceLink>false</EnableSourceLink>
     <Features>strict</Features>
 
     <Version>0.1.0</Version>

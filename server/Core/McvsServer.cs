@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
+using System.Net.Sockets;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Content;
 using McvsOffline.Server.Core.Http;
@@ -64,6 +65,18 @@ namespace McvsOffline.Server
         /// <c>context.Features</c>. null: unknown (the standalone host cannot see the client).
         /// </summary>
         public ClientCapabilities ClientCapabilities { get; set; }
+
+        /// <summary>
+        /// A socket the host already bound and made listen (HttpServer.Listen), or null: the server then binds settings.port and
+        /// settings.bind itself in <see cref="McvsServer.Start"/>. With one, <see cref="ServerContext.Port"/> is its port from
+        /// <see cref="McvsServer.Create"/> on (before any module registers), settings.port stays the configured port, and the
+        /// server owns the socket (Dispose closes it even when Start never ran). The embedded host reserves its port this way
+        /// before the game reads args.txt (docs/design/port-fallback.md).
+        /// </summary>
+        public Socket Listener { get; set; }
+
+        /// <summary>Why the server listens elsewhere than settings.port this run (status, logs zip), or null.</summary>
+        public string PortNote { get; set; }
     }
 
     /// <summary>
@@ -85,6 +98,7 @@ namespace McvsOffline.Server
         private FileLogSink fileSink;
         private int lastHostWarningTick;
         private bool hostWarned;
+        private Socket listener;
 
         private McvsServer(ServerContext context, Router router, RequestLogger requestLogger, HttpServerLimits limits, BootTrace boot)
         {
@@ -164,18 +178,28 @@ namespace McvsOffline.Server
 
             var context = new ServerContext(dataDir, settings, logger, options.Clock, content);
             context.Problems = problems;
+            if (options.Listener != null)
+            {
+                // Before any module registers: every URL built from here on (the admin log line included) names the bound port.
+                context.Port = ((IPEndPoint)options.Listener.LocalEndPoint).Port;
+                context.PortNote = options.PortNote;
+            }
             ClientCapabilities client = options.ClientCapabilities ?? new ClientCapabilities();
             context.Features.Set(client);
             if (client.StorePatch == false)
                 log.Warn("client: Game.dll lacks the patcher's 'store' patch (left out with --patches): the collector stays off");
             else
                 log.Info("client: 'store' patch " + (client.StorePatch == true ? "present" : "unknown (assumed present)"));
+            if (client.InboxPatch == false)
+                log.Warn("client: Game.dll lacks the patcher's 'inbox' patch: a big redeem-code message freezes the inbox until it is claimed");
             var requestLogger = new RequestLogger(logger, Path.Combine(dataDir, "logs", "unknown-endpoints.jsonl"),
-                                                  () => settings.LogBodyLimit);
+                                                  () => settings.LogBodyLimit,
+                                                  options.FileLogOptions != null && options.FileLogOptions.NewFileAtStart);
             var router = new Router(requestLogger);
             BootTrace boot = options.BootTrace ?? new BootTrace(logger.For("boot"));
             var server = new McvsServer(context, router, requestLogger, options.Limits, boot);
             server.fileSink = fileSink;
+            server.listener = options.Listener;
 
             CoreRoutes.Register(router, context);
             var register = options.RegisterServices ?? ServiceRegistry.RegisterAll;
@@ -194,16 +218,33 @@ namespace McvsOffline.Server
             return lines;
         }
 
-        /// <summary>Binds the configured address and port and starts serving.</summary>
+        /// <summary>The server's open log files (server.log, unknown-endpoints.jsonl), for the embedded host's log retention.</summary>
+        public List<SafeLogFile> OpenLogFiles()
+        {
+            var files = new List<SafeLogFile>();
+            if (fileSink != null) files.Add(fileSink.File);
+            if (requestLogger.UnknownFile != null) files.Add(requestLogger.UnknownFile);
+            return files;
+        }
+
+        /// <summary>Binds the configured address and port (or adopts <see cref="ServerOptions.Listener"/>) and starts serving.</summary>
         public void Start()
         {
             lock (gate)
             {
                 if (disposed) throw new ObjectDisposedException("McvsServer");
                 if (http != null) throw new InvalidOperationException("already started");
-                IPAddress address = ParseBind(Context.Settings.Bind);
                 Context.ResetStop();
-                var server = new HttpServer(address, Context.Settings.Port, Handle, Context.Logger.For("http"), limits);
+                HttpServer server;
+                if (listener != null)
+                {
+                    server = new HttpServer(listener, Handle, Context.Logger.For("http"), limits);
+                    listener = null;
+                }
+                else
+                {
+                    server = new HttpServer(ParseBind(Context.Settings.Bind), Context.Settings.Port, Handle, Context.Logger.For("http"), limits);
+                }
                 server.RequestBodyLimit = BodyLimitFor;
                 server.Start();
                 http = server;
@@ -325,6 +366,16 @@ namespace McvsOffline.Server
             {
                 if (disposed) return;
                 disposed = true;
+            }
+            Socket unused;
+            lock (gate)
+            {
+                unused = listener;
+                listener = null;
+            }
+            if (unused != null)
+            {
+                try { unused.Close(); } catch (Exception) { }
             }
             Stop();
             try { Boot.Dispose(); } catch (Exception) { }

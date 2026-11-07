@@ -9,6 +9,7 @@ using McvsOffline.Server;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Accounts;
 using McvsOffline.Server.Core.Http;
+using McvsOffline.Server.Core.Json;
 using McvsOffline.Server.Services.Admin;
 using McvsOffline.Tests.Admin;
 using McvsOffline.Tests.Auth;
@@ -305,7 +306,8 @@ namespace McvsOffline.Tests.Content
             Assert.True(rig.Logs.Contains("coupon 'MCVSOFFLINE' does not exist"));
             Assert.False(rig.Logs.Contains("opens the MCVS Offline page"));
 
-            HttpResponse coupon = rig.Redeem("UNLOCKMERCS");
+            rig.Server.Context.Settings.Override("assets.coupons", MiniJson.ParseObject(@"{""GIFT5"":{""rewards"":[{""type"":""HardCurrency"",""quantity"":5}]}}"));
+            HttpResponse coupon = rig.Redeem("GIFT5");
             Assert.Equal(200, coupon.StatusCode);
             Assert.StartsWith("[{\"type\":", coupon.BodyText);
             Assert.Equal(0, rig.Opened);
@@ -330,10 +332,11 @@ namespace McvsOffline.Tests.Content
         /// "(&lt;client id&gt;; mcvs)" (FedRequestMessage's constructor), the client gets the 404 it maps to "code does not
         /// exist", and the page opens once with a fresh ticket.
         /// </summary>
-        [Fact]
-        public async Task TheRealClientsRedemptionOpensThePage()
+        [Theory]
+        [MemberData(nameof(TestFolders.RealClientFolders), MemberType = typeof(TestFolders))]
+        public async Task TheRealClientsRedemptionOpensThePage(string platform, string folder)
         {
-            GameClient game = GameClient.TryGet(output, "Gameloft.Util");
+            GameClient game = GameClient.TryGetFrom(output, platform, folder, "Gameloft.Util");
             if (game == null) return;
             var ct = new CancellationTokenSource(TimeSpan.FromMinutes(1)).Token;
             using var dir = new TempDir();

@@ -18,15 +18,18 @@ namespace McvsOffline.Tests.Admin
         /// <summary>§3.1, in page order.</summary>
         private static readonly string[] EditableKeys =
         {
-            "instantBots", "devMenu", "leaderboards.virtualPlayers", "geo.country",
-            "graphics.profile", "graphics.fullProfile", "hd.enabled",
+            "instantBots", "embedded.bots.moveFromRest", "admin.settingsMenu.trim", "admin.settingsMenu.sameFrame", "admin.settingsMenu.aboutCentre", "admin.settingsMenu.performance", "devMenu",
+            "leaderboards.virtualPlayers", "crm.botNames", "geo.country",
+            "graphics.profile", "graphics.fullProfile", "graphics.pcFpsLimit", "graphics.msaa", "graphics.renderScale", "graphics.lowResMaps", "hd.enabled",
             "economy.versusCoinsMultiplier", "economy.creditsMultiplier", "economy.xpMultiplier", "economy.priceMultiplier", "crm.dailyCapMultiplier",
             "economy.collector.enabled", "economy.collector.itemsPerCrate",
-            "unlockAll", "assets.couponsEnabled", "crm.redeemCoupons", "unlocks.batchSize", "admin.redeemCode",
+            "unlockAll", "assets.couponsEnabled", "crm.redeemCoupons", "admin.accountMenu.hideDeadButtons", "unlocks.batchSize", "admin.redeemCode",
             "liveops.enabled", "liveops.divisionSeasons", "liveops.dailyQuests", "liveops.weeklyEvents", "liveops.seasonDays",
             "liveops.seasonStart", "liveops.dailyResetHour", "liveops.modifiers", "liveops.difficulty", "liveops.seasonRewardMultiplier",
+            "liveops.arenaEvents", "liveops.arenaRotation", "liveops.arenaHours", "liveops.arenaMap",
             "crm.newsfeedLink",
-            "storage.backups.keep", "storage.backups.intervalMinutes", "storage.autoRestoreCorrupt", "logging.fileLevel", "gameLog.levels",
+            "storage.backups.keep", "storage.backups.intervalMinutes", "storage.autoRestoreCorrupt", "logging.fileLevel", "logging.keepStarts",
+            "gameLog.levels",
             "gameLog.mute", "gameLog.file", "diagnostics.watchdog", "diagnostics.threadDump", "diagnostics.publicLogCopy", "tracking.disable",
         };
 
@@ -62,6 +65,26 @@ namespace McvsOffline.Tests.Admin
             Assert.Null(Def("storage.backups.keep").BackupBefore);
         }
 
+        /// <summary>The log retention's setting (host key, read once at start): 0..10 previous starts, default 1.</summary>
+        [Fact]
+        public void KeepStartsIsAnIntegerFromZeroToTenAppliedAtTheNextStart()
+        {
+            SettingDefinition def = Def("logging.keepStarts");
+            Assert.Equal("diagnostics", def.Group);
+            Assert.Equal("int", def.Type);
+            Assert.Equal(1L, def.Default);
+            Assert.Equal(0d, def.Min.Value);
+            Assert.Equal(10d, def.Max.Value);
+            Assert.Equal("restart", def.Apply);
+            Assert.Contains("Saves, settings and the zips you saved are never deleted", def.Help);
+            Assert.Null(JsonPath.Get(Settings.CreateDefaults(), "logging.keepStarts"));   // not a standalone server key
+            Assert.True(SettingsSchema.Validate(def, 0L, out object normalized, out _));
+            Assert.Equal(0L, normalized);
+            Assert.True(SettingsSchema.Validate(def, 10L, out normalized, out _));
+            Assert.False(SettingsSchema.Validate(def, 11L, out _, out _));
+            Assert.False(SettingsSchema.Validate(def, -1L, out _, out _));
+        }
+
         [Fact]
         public void DefaultsAreTheModulesDefaults()
         {
@@ -86,6 +109,10 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal(liveOps.Modifiers, Default("liveops.modifiers"));
             Assert.Equal(liveOps.Difficulty, Default("liveops.difficulty"));
             Assert.Equal(liveOps.SeasonRewardMultiplier, Default("liveops.seasonRewardMultiplier"));
+            Assert.Equal(liveOps.ArenaEvents, Default("liveops.arenaEvents"));
+            Assert.Equal(liveOps.ArenaRotation, Default("liveops.arenaRotation"));
+            Assert.Equal((long)liveOps.ArenaHours, Default("liveops.arenaHours"));
+            Assert.Equal(liveOps.ArenaMap, Default("liveops.arenaMap"));
 
             var collector = new CollectorOptions();
             Assert.Equal(collector.Enabled, Default("economy.collector.enabled"));
@@ -111,7 +138,12 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal(true, Default("diagnostics.threadDump"));
             Assert.Equal(true, Default("diagnostics.publicLogCopy"));
             Assert.Equal("MCVSOFFLINE", Default("admin.redeemCode"));
+            // Read by the embedded host (AdminHost.HideDeadAccountButtons) each time Settings › Account opens.
+            Assert.Equal(true, Default("admin.accountMenu.hideDeadButtons"));
+            Assert.Equal("live", Def("admin.accountMenu.hideDeadButtons").Apply);
             Assert.Equal(true, Default("crm.newsfeedLink"));
+            // crm.practiceTile went in build 21 (PracticeTileRemovedTests): an old settings.json keeps it, unread.
+            Assert.Null(SettingsSchema.Find("crm.practiceTile"));
 
             // Read by the embedded host (EmbeddedHost.ConfigureGraphics, AddEmbeddedDefaults) and patch 'graphics'.
             Assert.Equal("auto", Default("graphics.profile"));
@@ -122,6 +154,61 @@ namespace McvsOffline.Tests.Admin
             Assert.Null(Def("graphics.fullProfile").BackupBefore);
             Assert.Equal(true, Default("hd.enabled"));
             Assert.Equal("restart", Def("hd.enabled").Apply);
+
+            // Read by the embedded host's Settings menu natives each time Settings opens (docs/design/settings-menu.md §3); the
+            // owner can turn either off and get the game's own menus back.
+            Assert.Equal(true, Default(SettingsSchema.SettingsMenuTrimKey));
+            Assert.Equal("live", Def(SettingsSchema.SettingsMenuTrimKey).Apply);
+            // Build 22: the same-frame step has a switch of its own (off: build 20's one-frame-late layout, the trim stays).
+            Assert.Equal("admin.settingsMenu.sameFrame", SettingsSchema.SettingsMenuSameFrameKey);
+            Assert.Equal(true, Default(SettingsSchema.SettingsMenuSameFrameKey));
+            Assert.Equal("live", Def(SettingsSchema.SettingsMenuSameFrameKey).Apply);
+            Assert.Equal("bool", Def(SettingsSchema.SettingsMenuSameFrameKey).Type);
+            Assert.Equal("Lay out Settings before it is drawn", Def(SettingsSchema.SettingsMenuSameFrameKey).Label);
+            Assert.Contains("can flash briefly", Def(SettingsSchema.SettingsMenuSameFrameKey).Help);
+            Assert.Equal("admin.settingsMenu.aboutCentre", SettingsSchema.SettingsMenuAboutCentreKey);
+            Assert.Equal(true, Default(SettingsSchema.SettingsMenuAboutCentreKey));
+            Assert.Equal("live", Def(SettingsSchema.SettingsMenuAboutCentreKey).Apply);
+            Assert.Equal("bool", Def(SettingsSchema.SettingsMenuAboutCentreKey).Type);
+            Assert.Equal("ABOUT centred in the Settings menu", Def(SettingsSchema.SettingsMenuAboutCentreKey).Label);
+            Assert.Contains("build 22", Def(SettingsSchema.SettingsMenuAboutCentreKey).Help);
+            Assert.Equal(true, Default(SettingsSchema.SettingsMenuPerformanceKey));
+            Assert.Equal("live", Def(SettingsSchema.SettingsMenuPerformanceKey).Apply);
+            Assert.Contains("FRAME RATE LIMIT", Def(SettingsSchema.SettingsMenuPerformanceKey).Help);
+            Assert.Contains("during a match", Def(SettingsSchema.SettingsMenuPerformanceKey).Help);
+            // The Android PERFORMANCE page's values (PerformancePrefs): "auto" leaves the graphics profile's own value.
+            Assert.Equal("auto", Default(SettingsSchema.GraphicsMsaaKey));
+            Assert.Equal(new[] { "auto", "off", "2x", "4x", "8x" }, Def(SettingsSchema.GraphicsMsaaKey).Options);
+            Assert.Equal("restart", Def(SettingsSchema.GraphicsMsaaKey).Apply);
+            Assert.Equal("auto", Default(SettingsSchema.GraphicsRenderScaleKey));
+            Assert.Equal("string", Def(SettingsSchema.GraphicsRenderScaleKey).Type);
+            Assert.Equal("restart", Def(SettingsSchema.GraphicsRenderScaleKey).Apply);
+            Assert.Equal("auto", Default(SettingsSchema.GraphicsLowResMapsKey));
+            Assert.Equal(new[] { "auto", "on", "off" }, Def(SettingsSchema.GraphicsLowResMapsKey).Options);
+            Assert.Equal("restart", Def(SettingsSchema.GraphicsLowResMapsKey).Apply);
+            // The host's FPS-list marker is shown, never edited.
+            Assert.Null(SettingsSchema.Find(SettingsSchema.GraphicsFpsListVersionKey));
+            Assert.Contains(SettingsSchema.AdvancedKeys, kv => kv.Key == "graphics.fpsListVersion");
+        }
+
+        /// <summary>
+        /// Every Graphics key but the PC's frame rate limit applies at the next start from this page: the embedded host reads them
+        /// from its own copy of settings.json at start (GraphicsHooks.Configure, PerformancePrefs.Configure, the HD installer), and
+        /// nothing applies a save of the server's copy to the running engine. Only the game's PERFORMANCE page applies its own SCREEN
+        /// SCALE and LOW RESOLUTION MAPS changes live, and the help says so; a "live" or "menu" badge here would promise a change
+        /// that never comes. graphics.pcFpsLimit (build 27) is the exception: the PC host listens to the server's copy
+        /// (Settings.Changed) and sets the pacer at once.
+        /// </summary>
+        [Fact]
+        public void EveryGraphicsKeyAppliesAtTheNextStartFromThisPage()
+        {
+            SettingDefinition[] graphics = SettingsSchema.Keys.Where(d => d.Group == "graphics").ToArray();
+            Assert.Equal(new[] { "graphics.profile", "graphics.fullProfile", "graphics.pcFpsLimit", "graphics.msaa", "graphics.renderScale", "graphics.lowResMaps", "hd.enabled" },
+                         graphics.Select(d => d.Key).ToArray());
+            Assert.All(graphics.Where(d => d.Key != SettingsSchema.GraphicsPcFpsLimitKey), d => Assert.True(d.Apply == "restart", d.Key + " is " + d.Apply));
+            Assert.Equal("live", Def(SettingsSchema.GraphicsPcFpsLimitKey).Apply);
+            Assert.Contains("applies at the next start; the game's PERFORMANCE page applies it at once", Def(SettingsSchema.GraphicsRenderScaleKey).Help);
+            Assert.Contains("applies at the next start; the game's PERFORMANCE page applies it from the next match", Def(SettingsSchema.GraphicsLowResMapsKey).Help);
         }
 
         [Theory]
@@ -244,6 +331,17 @@ namespace McvsOffline.Tests.Admin
         [InlineData("gameLog.mute", "profile:debug  net:all", false)]
         [InlineData("gameLog.mute", "pro_file:debug", false)]
         [InlineData("gameLog.mute", ":debug", false)]
+        [InlineData("graphics.renderScale", "auto", true)]
+        [InlineData("graphics.renderScale", "0", true)]
+        [InlineData("graphics.renderScale", "100", true)]
+        [InlineData("graphics.renderScale", "75", true)]
+        [InlineData("graphics.renderScale", "101", false)]
+        [InlineData("graphics.renderScale", "999", false)]
+        [InlineData("graphics.renderScale", "AUTO", false)]
+        [InlineData("graphics.renderScale", "", false)]
+        [InlineData("graphics.renderScale", "-1", false)]
+        [InlineData("graphics.renderScale", "0.5", false)]
+        [InlineData("graphics.renderScale", "1000", false)]
         public void StringsMatchTheirPatterns(string key, string value, bool valid)
         {
             Assert.Equal(valid, Check(key, value).ok);

@@ -13,7 +13,9 @@ namespace McvsOffline.Embedded
     /// &lt;root&gt;/Data/                      the player's data pack (read-only for us)
     /// &lt;root&gt;/args.txt                   launch arguments (managed block + the player's own lines)
     /// &lt;root&gt;/McvsOffline/               server data directory: settings.json, accounts, profiles, ...
-    /// &lt;root&gt;/McvsOffline/logs/          server.log, unknown-endpoints.jsonl, bootstrap.log
+    /// &lt;root&gt;/McvsOffline/logs/          bootstrap.log, server.log, game.log, unknown-endpoints.jsonl (each with .1..N,
+    ///                                      a new file per start), crash-/exception-/threaddump-/exit-* files and starts.txt;
+    ///                                      the logs of older starts are deleted at start (LogRetention, logging.keepStarts)
     /// &lt;root&gt;/McvsOffline/device-id.txt
     /// </code>
     /// The folder is visible over USB/adb, so players can back it up; Android deletes it when the app is uninstalled.

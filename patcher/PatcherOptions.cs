@@ -41,25 +41,33 @@ namespace McvsOffline.Patcher
         /// <see cref="TargetSdk"/> with what that target needs (Manifest.ManifestTargetSdk, Manifest.BrowserLayoutInsets); by
         /// default 35 (Manifest.ManifestTargetSdk.DefaultTarget), with the classes.dex edits that needs (Dex.DexTargetSdkEdits). "graphics" passes
         /// GameOptions_android.json through McvsOffline.GraphicsHooks (settings graphics.profile; auto leaves it unchanged) and
-        /// logs the effective options.
+        /// logs the effective options. "game" is no IL patch either: android:isGame and android:appCategory="game" on
+        /// &lt;application&gt; (Manifest.ManifestGame), at any target; --target-sdk 36 needs it. "inbox" caps what an inbox message
+        /// builds (Patches.InboxPatch: the big redeem codes froze the inbox).
         /// </summary>
         public static readonly string[] DefaultPatches =
         {
-            "nativeonline", "waits", "geo", "bottile", "finder", "store", "signatures", "debloat", "adminpage", "adminlink", "graphics", "targetsdk",
+            "nativeonline", "waits", "geo", "finder", "store", "signatures", "inbox", "debloat", "adminpage", "adminlink", "graphics", "targetsdk", "game",
         };
 
-        /// <summary>Every id --patch accepts; "lan" and "forum" are the ones not in <see cref="DefaultPatches"/>.</summary>
+        /// <summary>
+        /// Every id --patch accepts; "lan", "forum" and "botmove" are the ones not in <see cref="DefaultPatches"/>. "botmove" (build 27)
+        /// lets a resting bot take its first step on frames shorter than 1/60 s (Patches.BotMovePatch): the PC's 60 FPS limit froze
+        /// the bots, the phone's are fine, so the default APK stays without it (its Game.dll unchanged); an uncapped 90/120 Hz phone
+        /// whose bots wait at spawn can add it.
+        /// </summary>
         public static readonly string[] OptionalPatches =
         {
-            "nativeonline", "waits", "geo", "bottile", "finder", "lan", "store", "signatures", "debloat", "adminpage", "adminlink", "targetsdk", "forum",
-            "graphics",
+            "nativeonline", "waits", "geo", "finder", "lan", "store", "signatures", "inbox", "debloat", "adminpage", "adminlink", "targetsdk", "forum",
+            "graphics", "game", "botmove",
         };
 
         /// <summary>
         /// Patches applied whatever --patch says: the server hook and the fixes the in-process TS/GS Worlds need (headless-World
-        /// components, device test 1; single-threaded server physics and one Havok step at a time, device test 2).
+        /// components, device test 1; single-threaded server physics and one Havok step at a time, device test 2), and since build 26
+        /// the client's LocalAnubis Finder port, which the host moves when 51750 is busy at start (port fallback).
         /// </summary>
-        public static readonly string[] MandatoryPatches = { "hook", "headless", "headless-engine", "physics" };
+        public static readonly string[] MandatoryPatches = { "hook", "headless", "headless-engine", "physics", "finderport" };
 
         public string InputApk { get; set; }
 
@@ -126,6 +134,12 @@ namespace McvsOffline.Patcher
         /// </summary>
         public string Art { get; set; } = "auto";
 
+        /// <summary>
+        /// --art-extra: a folder laid over the art of --art (Art.OverlayArtSource), for files kept out of the repository, such
+        /// as the data installer's background (installer/*.png); null = none.
+        /// </summary>
+        public string ArtExtra { get; set; }
+
         /// <summary>Patch even when the APK is not the verified 1.17.32 build (locators still verify every site).</summary>
         public bool Force { get; set; }
 
@@ -133,6 +147,9 @@ namespace McvsOffline.Patcher
         public bool DryRun { get; set; }
 
         public bool Verbose { get; set; }
+
+        /// <summary>What the command line asked for and the run ignores (a removed patch id in --patch); printed before the run.</summary>
+        public List<string> Warnings { get; } = new List<string>();
 
         /// <summary>Tests only: apply only the hook as mandatory patch (synthetic APKs have no Game.dll or Gameloft.Engine.dll).</summary>
         internal bool TestOnlyHookIsMandatory { get; set; }
@@ -149,6 +166,17 @@ namespace McvsOffline.Patcher
         /// <summary>Parses a --patch value: comma-separated ids, "none", "all" or "default".</summary>
         public static SortedSet<string> ParsePatchList(string value)
         {
+            return ParsePatchList(value, null);
+        }
+
+        /// <summary>
+        /// Parses a --patch value: comma-separated ids, "none", "all" or "default". An id an earlier build had
+        /// (<see cref="Core.PatchPlan.Removed"/>, e.g. 'bottile' from a saved command line) is left out, with its
+        /// <see cref="Core.PatchPlan.RemovedWarning"/> added to <paramref name="warnings"/> (when given); any other unknown id
+        /// is an <see cref="ArgumentException"/>.
+        /// </summary>
+        public static SortedSet<string> ParsePatchList(string value, ICollection<string> warnings)
+        {
             var result = new SortedSet<string>(StringComparer.Ordinal);
             foreach (string raw in (value ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
@@ -157,10 +185,16 @@ namespace McvsOffline.Patcher
                 if (id == "all") result.UnionWith(OptionalPatches);
                 else if (id == "default") result.UnionWith(DefaultPatches);
                 else if (OptionalPatches.Contains(id)) result.Add(id);
+                else if (Core.PatchPlan.Removed.ContainsKey(id)) AddOnce(warnings, Core.PatchPlan.RemovedWarning(id));
                 else throw new ArgumentException("unknown patch '" + raw + "' (known: " + string.Join(", ", OptionalPatches) + ", none, all, default)");
             }
             if (result.Contains("lan")) result.Add("finder");
             return result;
+        }
+
+        private static void AddOnce(ICollection<string> list, string item)
+        {
+            if (list != null && !list.Contains(item)) list.Add(item);
         }
 
         /// <summary>Android ABIs a lib/ folder can be named after.</summary>

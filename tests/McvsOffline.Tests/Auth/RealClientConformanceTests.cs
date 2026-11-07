@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
@@ -7,6 +8,7 @@ using System.Runtime.Loader;
 using System.Threading;
 using System.Threading.Tasks;
 using McvsOffline.Server;
+using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Accounts;
 using McvsOffline.Server.Core.Json;
 using Xunit;
@@ -19,13 +21,17 @@ namespace McvsOffline.Tests.Auth
     /// MCVS_REFS, never committed) talks to the server over HTTP. The library targets mscorlib 4.0 and a
     /// retargetable Newtonsoft PCL, so it runs on net8 in its own load context; only the transport differs from the
     /// device (net8 SocketsHttpHandler instead of Mono's handler, covered by <see cref="AuthWireTests"/>).
-    /// Skipped (with a note) when the assemblies are not available.
+    /// Skipped (with a note) when the assemblies are not available. Every test runs for each folder of
+    /// <see cref="TestFolders.RealClientFolders"/>: the APK's (MCVS_REFS) and the Steam install's (MCVS_PC_REFS, whose
+    /// client sends the Steam client id; docs/design/pc-port.md §4.7).
     /// </summary>
     public class RealClientConformanceTests
     {
-        private const string ClientId = FedFederation.GameClientId;
         private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
-        private static readonly Lazy<Assembly> Library = new Lazy<Assembly>(LoadLibrary);
+
+        /// <summary>One load context per folder.</summary>
+        private static readonly ConcurrentDictionary<string, Lazy<Assembly>> Libraries =
+            new ConcurrentDictionary<string, Lazy<Assembly>>(StringComparer.Ordinal);
 
         private readonly ITestOutputHelper output;
 
@@ -34,14 +40,18 @@ namespace McvsOffline.Tests.Auth
             this.output = output;
         }
 
-        public static string RefsDirectory =>
-            Environment.GetEnvironmentVariable("MCVS_REFS") is string dir && dir.Length > 0 ? dir : "/home/user/mcvs-work/extracted/assemblies";
+        public static string RefsDirectory => TestFolders.AndroidRefs;
 
-        [Fact]
-        public void AnonymousGameServerOnBehalfAndLocalAnubisSessionsAgree()
+        /// <summary>The client id the platform's client sends (the Federation constructor's first argument).</summary>
+        private static string ClientIdOf(string platform) =>
+            platform == TestFolders.Pc ? McvsConstants.ClientIdSteam : FedFederation.GameClientId;
+
+        [Theory]
+        [MemberData(nameof(TestFolders.RealClientFolders), MemberType = typeof(TestFolders))]
+        public void AnonymousGameServerOnBehalfAndLocalAnubisSessionsAgree(string platform, string folder)
         {
-            if (!Available()) return;
-            using var host = new Host();
+            if (!Available(platform, folder)) return;
+            using var host = new Host(folder, ClientIdOf(platform));
 
             // Client: EN/AuthenticationComponent.cs OpenAnonymousSession.
             dynamic clientFed = host.Federation();
@@ -87,14 +97,15 @@ namespace McvsOffline.Tests.Auth
             string lobbyToken = Await(client.GetAccessToken(new List<string> { "lobby" }, true, null, CancellationToken.None));
             dynamic finder = Await(anubis.Verify(lobbyToken, CancellationToken.None));
             Assert.Equal((string)login["account"].ToString(), (string)finder["account"].ToString());
-            Assert.Equal(ClientId, (string)finder["client_id"].ToString());
+            Assert.Equal(ClientIdOf(platform), (string)finder["client_id"].ToString());
         }
 
-        [Fact]
-        public void FirstRunProfileCallsSucceed()
+        [Theory]
+        [MemberData(nameof(TestFolders.RealClientFolders), MemberType = typeof(TestFolders))]
+        public void FirstRunProfileCallsSucceed(string platform, string folder)
         {
-            if (!Available()) return;
-            using var host = new Host();
+            if (!Available(platform, folder)) return;
+            using var host = new Host(folder, ClientIdOf(platform));
             dynamic client = Await(host.Federation().OpenSession(host.Credential("anonymous:firstrun"), "pw", "device-9", null,
                                                                  new List<string>(GameScopes.Client), CancellationToken.None));
             dynamic ts = Await(host.Federation().OpenSessionForUser(host.Credential("game:mcvsoffline"), "mcvsoffline",
@@ -128,11 +139,12 @@ namespace McvsOffline.Tests.Auth
             Assert.True((bool)Await(host.Federation().CheckIfUserExists(CancellationToken.None, host.Credential("anonymous:firstrun"))));
         }
 
-        [Fact]
-        public void TransferCodeRoundTrip()
+        [Theory]
+        [MemberData(nameof(TestFolders.RealClientFolders), MemberType = typeof(TestFolders))]
+        public void TransferCodeRoundTrip(string platform, string folder)
         {
-            if (!Available()) return;
-            using var host = new Host();
+            if (!Available(platform, folder)) return;
+            using var host = new Host(folder, ClientIdOf(platform));
             dynamic oldDevice = Await(host.Federation().OpenSession(host.Credential("anonymous:olddevice"), "pw", "d1", null,
                                                                     new List<string>(GameScopes.Client), CancellationToken.None));
             dynamic code = Await(oldDevice.GetTransferCode(CancellationToken.None));
@@ -150,11 +162,12 @@ namespace McvsOffline.Tests.Auth
         /// client's cached token gets a 401, the client drops its tokens, re-authorizes once and retries
         /// (OP/Federation.cs Inspect); the account and its alias come back identical because both are derived.
         /// </summary>
-        [Fact]
-        public void LostTokensRecoverThroughTheClientsOwn401Handling()
+        [Theory]
+        [MemberData(nameof(TestFolders.RealClientFolders), MemberType = typeof(TestFolders))]
+        public void LostTokensRecoverThroughTheClientsOwn401Handling(string platform, string folder)
         {
-            if (!Available()) return;
-            using var host = new Host();
+            if (!Available(platform, folder)) return;
+            using var host = new Host(folder, ClientIdOf(platform));
             dynamic client = Await(host.Federation().OpenSession(host.Credential("anonymous:restart"), "pw", "d1", null,
                                                                  new List<string>(GameScopes.Client), CancellationToken.None));
             string alias = Await(client.CreateAlias(CancellationToken.None));
@@ -167,11 +180,12 @@ namespace McvsOffline.Tests.Auth
 
         // ------------------------------------------------------------------------------------------ plumbing
 
-        private bool Available()
+        private bool Available(string platform, string folder)
         {
-            if (File.Exists(Path.Combine(RefsDirectory, "Gameloft.OnlinePlatform.dll"))) return true;
-            if (Conformance.GameClient.Required) throw new InvalidOperationException("MCVS_REQUIRE_REAL_CLIENT=1 but Gameloft.OnlinePlatform.dll is not in " + RefsDirectory);
-            output.WriteLine("Gameloft.OnlinePlatform.dll not found in MCVS_REFS (" + RefsDirectory + "): skipped");
+            if (File.Exists(Path.Combine(folder, "Gameloft.OnlinePlatform.dll"))) return true;
+            if (TestFolders.Required(platform))
+                throw new InvalidOperationException("the " + platform + " client is required but Gameloft.OnlinePlatform.dll is not in " + folder);
+            output.WriteLine("Gameloft.OnlinePlatform.dll not found in " + TestFolders.VariableOf(platform) + " (" + folder + "): skipped");
             return false;
         }
 
@@ -192,19 +206,24 @@ namespace McvsOffline.Tests.Auth
             return 0;
         }
 
-        private static Assembly LoadLibrary()
+        /// <summary>Gameloft.OnlinePlatform from <paramref name="folder"/>, loaded once per folder.</summary>
+        private static Assembly LoadLibrary(string folder)
         {
-            var context = new GameLoadContext(RefsDirectory);
-            return context.LoadFromAssemblyName(new AssemblyName("Gameloft.OnlinePlatform"));
+            return Libraries.GetOrAdd(Path.GetFullPath(folder), f => new Lazy<Assembly>(() =>
+                new GameLoadContext(f).LoadFromAssemblyName(new AssemblyName("Gameloft.OnlinePlatform")))).Value;
         }
 
         /// <summary>A server on an ephemeral port plus factories for the client's own types.</summary>
         private sealed class Host : IDisposable
         {
             private readonly TempDir dir = new TempDir();
+            private readonly Assembly library;
+            private readonly string clientId;
 
-            public Host()
+            public Host(string folder, string clientId)
             {
+                library = LoadLibrary(folder);
+                this.clientId = clientId;
                 Start(0);
             }
 
@@ -228,13 +247,13 @@ namespace McvsOffline.Tests.Auth
 
             public string Eve => "http://127.0.0.1:" + Server.Port + "/";
 
-            public Type Type(string name) => Library.Value.GetType(name, true);
+            public Type Type(string name) => library.GetType(name, true);
 
             public dynamic Protocol(string name) => Enum.Parse(Type("Gameloft.OnlinePlatform.Federation").GetNestedType("Protocol"), name);
 
             /// <summary>new Federation(clientId, eve, datacenter, 60000, 3, protocol), as OnlinePlatformComponent and LocalAnubisManager build it.</summary>
             public dynamic Federation(string datacenter = null, string protocol = "Unspecified") =>
-                Activator.CreateInstance(Type("Gameloft.OnlinePlatform.Federation"), ClientId, Eve, datacenter, 60000, 3, Protocol(protocol));
+                Activator.CreateInstance(Type("Gameloft.OnlinePlatform.Federation"), clientId, Eve, datacenter, 60000, 3, Protocol(protocol));
 
             public dynamic Credential(string text) =>
                 Type("Gameloft.OnlinePlatform.Credential").GetConstructor(new[] { typeof(string) }).Invoke(new object[] { text });
@@ -249,7 +268,7 @@ namespace McvsOffline.Tests.Auth
             }
         }
 
-        /// <summary>Loads Gameloft.* and their Newtonsoft copy from MCVS_REFS; the BCL comes from net8 (never Mono's copies).</summary>
+        /// <summary>Loads Gameloft.* and their Newtonsoft copy from the folder (MCVS_REFS or MCVS_PC_REFS); the BCL comes from net8 (never Mono's copies).</summary>
         private sealed class GameLoadContext : AssemblyLoadContext
         {
             private readonly string directory;

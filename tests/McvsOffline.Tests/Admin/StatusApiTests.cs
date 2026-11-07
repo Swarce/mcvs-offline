@@ -77,6 +77,8 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal(new List<object> { "android/os/StatFs.getAvailableBytes()J" }, JsonPath.Get(body, "host.missingJni"));
             Assert.Equal(false, JsonPath.Get(body, "host.capabilities.exit"));
             Assert.Equal(true, JsonPath.Get(body, "host.capabilities.clipboard"));
+            // A Windows-only capability is left out where it is off, so the Android status card does not list it.
+            Assert.False(((Dictionary<string, object>)JsonPath.Get(body, "host.capabilities")).ContainsKey("openInBrowser"));
 
             Assert.Equal(account.Id, JsonPath.Get(body, "player.account"));
             Assert.Equal("fed_id:" + account.Id, JsonPath.Get(body, "player.fedId"));
@@ -94,6 +96,60 @@ namespace McvsOffline.Tests.Admin
                 ["account"] = account.Id, ["source"] = "http", ["deleted"] = false, ["selector"] = "_mcvs.gameProfile",
             });
             Assert.NotNull(AdminTestClient.At(client.Get("status"), "player.lastGameSave"));
+        }
+
+        /// <summary>
+        /// WR2 F2: "client" carries "notActive", the PC error the page shows as "installed, NOT ACTIVE", and is there only while it is
+        /// set (only the PC host sets it) or while the client is known to lack the 'store' or 'inbox' patch (Android's only sign of an
+        /// APK patched without 'inbox'); unknown or present patches keep the payload's shape.
+        /// </summary>
+        [Fact]
+        public void TheClientSectionCarriesNotActive()
+        {
+            using var dir = new TempDir();
+            using var server = AdminTestClient.CreateServer(dir.Combine("data"));
+            var client = new AdminTestClient(server);
+            client.OpenSession();
+            var body = AdminTestClient.Json(client.Get("status"));
+            Assert.False(body.ContainsKey("client"));
+            ClientCapabilities capabilities = server.Context.Features.Get<ClientCapabilities>();
+            capabilities.StorePatch = true;
+            capabilities.InboxPatch = true;
+            Assert.False(AdminTestClient.Json(client.Get("status")).ContainsKey("client"));
+
+            capabilities.StorePatch = false;
+            capabilities.NotActive = "Game loaded from the game folder; the 'store' patch is missing";
+            body = AdminTestClient.Json(client.Get("status"));
+            Assert.Equal("Game loaded from the game folder; the 'store' patch is missing", JsonPath.Get(body, "client.notActive"));
+            Assert.Equal(false, JsonPath.Get(body, "client.storePatch"));
+        }
+
+        /// <summary>
+        /// Android: no host sets notActive, so a Game.dll without the 'inbox' (or 'store') patch alone brings the "client" section, which
+        /// the page shows as a banner and a "Game patches: missing" row (a big redeem-code message would freeze the inbox).
+        /// </summary>
+        [Fact]
+        public void AMissingPatchWithoutNotActiveStillReportsTheClient()
+        {
+            using var dir = new TempDir();
+            using var server = AdminTestClient.CreateServer(dir.Combine("data"));
+            var client = new AdminTestClient(server);
+            client.OpenSession();
+            ClientCapabilities capabilities = server.Context.Features.Get<ClientCapabilities>();
+            capabilities.StorePatch = true;
+            capabilities.InboxPatch = false;
+            capabilities.NotActive = null;
+            var body = AdminTestClient.Json(client.Get("status"));
+            Assert.True(body.ContainsKey("client"));
+            Assert.Equal(false, JsonPath.Get(body, "client.inboxPatch"));
+            Assert.Equal(true, JsonPath.Get(body, "client.storePatch"));
+            Assert.Null(JsonPath.Get(body, "client.notActive"));
+
+            capabilities.InboxPatch = null;
+            capabilities.StorePatch = false;
+            body = AdminTestClient.Json(client.Get("status"));
+            Assert.Equal(false, JsonPath.Get(body, "client.storePatch"));
+            Assert.Null(JsonPath.Get(body, "client.inboxPatch"));
         }
 
         [Fact]

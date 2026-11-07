@@ -1,14 +1,47 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-Last updated for build 12 and device test 9 (October 2026, the owner's Galaxy S22, Android 16): the ASTC HD data pack
-and the graphics profiles work, and builds 10 to 12 (target Android 15) install and play; see "Build 12 and device
-test 9". Before that: the build 11 device test (the HD installer could not write in `McvsOffline/hd/`; fixed in build
+Last updated for build 29 (November 2026, on `wip/pc-port`; APK and PC kit): build 29 replaces the generic gamer tags with about 2,000 hand-written names; see "Build 29". Build 28 gives the leaderboard rivals gamer-tag names and their own emblems, and the in-match bots thousands of names; see "Build 28". The owner confirmed build 27's bot fix on Steam. Build 27 fixes the Steam bots (a resting bot could not start on frames shorter than 1/60 s) and adds a Steam frame rate setting up to unlimited; see "Build 27". Build 26 starts normally when another program holds the server's port (it moves to a free one and everything follows); see "Build 26". Build 25 brings the project's own launcher icon (the owner's art), a dark red launch screen and a new background for the game's data installer (kept outside the repository); see "Build 25". Build 24 keeps ABOUT centred on the return from a tab (the owner's build-23 log: the tile just tapped was still in its pressed animation and our width check refused it); see "Build 24". Build 23 fixes what the owner saw on the phone in build 22 (the PERFORMANCE title drawn over its icon, ABOUT right of centre, a small stutter on the gear tap) and adds timings to the `settings menu:` log lines; Steam is unchanged apart from log text; not yet tested on a phone or on Windows; see "Build 23". The Steam bots' report (they idle at spawn and sometimes stop moving) is open: its investigation was stopped before any result, see "Build 23". Build 22: on the owner's phone build 21 still flashed
+MORE GAMES and the FORUM tile on a return to Settings; build 22 no longer races the game's own `setup()`: on the phone
+its stock writes are made to draw nothing (the engine's text remap turns FORUM into PERFORMANCE, the icon is out of its
+reach, the removed tiles are off the panel, ABOUT stays at the game's own place on the bottom row), prepared before
+`setup()` runs; a new switch, **Lay out Settings before it is drawn** (`admin.settingsMenu.sameFrame`), turns that work
+off, and turns itself off after a start that ended inside it (one `same frame skipped` line). Build 21: build 20 fixed the stock Settings menu after
+a return, but the stock menu still flashed for a split second before our layout; build 21 lays the grid out inside the
+frame of the return itself (from a Flash native the game's own `setup()` calls after its last stock write:
+`GetPlatformId` on the phone, `GetLanguage` on Steam), so no frame draws the stock grid, keeps build 20's run as the
+safety net, and says per return whether it landed in the same frame (`same frame: laid out`, `stock grid drawn 0
+frames`); it also removes the Practice tile and its `bottile` patch (an old `settings.json` loads as before); not yet
+tested on a phone or on Windows; see "Build 21". Build 20: on the owner's phone and PC build 19's
+shorter Settings menu showed on the first entry, but the stock menu came back after a tab and Back; the game's code puts
+the stock grid back on every return and build 19 laid it out once per return, with no second try; why that one try failed
+on the device is not known; build 20 tries again on the following frames, lays the grid out again when the stock grid
+comes back, and logs per return what it found (`settings menu: focus-in …`); not yet tested on a phone or on Windows; see
+"Build 20". Build 19: the game's Settings menu without the tiles
+that cannot work offline (both platforms), and on the phone the Steam version's PERFORMANCE page (graphics, antialiasing,
+screen scale, frame rate limit up to 120, low resolution maps) with GRAPHICS SETTINGS and FRAME RATE LIMIT out of
+Gameplay Settings; not yet tested on a phone or on Windows; see "Build 19". Build 18: on the owner's PC build 17 still ran the
+game's own `Game.dll` (`store NO, inbox NO`) although every other file came from `McvsOffline\bin`; the cause was most
+likely MCVS Offline's own start code, which loaded `Game` by a partial name before the game did; build 18 no longer
+loads any game assembly itself and logs who loaded one from the game folder; see "Build 18". Build 17: the big unlock
+codes froze the inbox (one inbox message with thousands of rewards); the codes now go straight into the inventory
+ledger, and the new `inbox` patch bounds the inbox for any message, also one already in a profile; see "Build 17". Build 16 (PC only, no APK): the
+build-14/15 PC config most likely made Windows start the game without MCVS Offline (the owner's "game fails to
+connect"); build 16 writes the WR2-proven config again and says when a start ran without us; see "Build 16 (PC only)". Build 15: rotating Special Events (the Battle menu's Arena box,
+filled with bots, a new mode every day, or one pinned mode), an optional Practice tile (off by default; removed in build 21) and the
+corrected match-mode docs (the full-reward bot match is Battle › Classic multiplayer); server only, not yet tested on
+a phone; see "Build 15". Build 14: the PC port's fixes after the second Windows round (WR2:
+the game ran its own `Game.dll`; build 14 loads ours and says when it does not, and captures crashes and freezes),
+ready for the third Windows round, plus small shared log and page changes on Android; see "Build 14". Build 13 (not
+yet tested on the phone): the Android 'game' manifest flags, a Settings › Account menu with only Redeem code and MCVS
+Offline, log cleanup at every start; see "Build 13". Before that, build 12 and device test 9 (the owner's Galaxy S22,
+Android 16): the ASTC HD data pack and the graphics profiles work, and builds 10 to 12 (target Android 15) install and
+play; see "Build 12 and device test 9". Before that: the build 11 device test (the HD installer could not write in `McvsOffline/hd/`; fixed in build
 12). The build 11 plan put HD textures into `Data/` ("Build 11 (plan)"). On build 10 the HD texture probe showed that
 route B fails and route A works. Build 10 targets Android 15 and adds graphics profiles and the PC test kit ("Build
 10"). Device test 8 tested the MCVS Offline page ("Device test 8", "Build 9"). The Cosmetic crate starts on 2026-11-09
-and is not yet tested on the phone. Not yet merged: the PC port (in progress on `wip/pc-port`) and the Android 'game'
-manifest flags. Earlier: device tests 6 and 7 on the same S22 ("Build 8", "Build 7", "Device test 6").
+and is not yet tested on the phone. Not yet merged into `main-dev`: builds 13 to 22 (the PC port, the Android
+'game' manifest flags and build 17's unlock-code and inbox changes are on `wip/pc-port`). Earlier: device tests 6 and 7 on the same S22 ("Build 8", "Build 7", "Device test 6").
 
 **Summary:** the Federation server is complete for the offline single-player goals and passes its full test suite, including a
 conformance harness that runs the game's own client libraries against it (the count of the last full run is under
@@ -32,6 +65,1459 @@ HD texture probe and a Windows test kit for the Steam version. Build 11 installs
 version into the game's own data. Build 12 accepts a full ASTC data pack with 2,215 PC textures in it: **device test 9:
 the HD textures and the graphics profiles work, at the same frame rate as before**, and builds 10 to 12 (target Android
 15) installed and played fine.
+
+## Build 29 (November 2026): hand-written names for rivals and bots
+
+`e66ca2e` on `wip/pc-port` (`McvsVersion.Build` is `29`; the merge of `wip/b29-names`). APK `mcvs-offline-e66ca2e.apk`
+(SHA-256 `8111a70f68077d1bd479cc8bd2f3d5a6473da4984bfc20356e416145d132f3a2`): against build 28 only the server DLL, the MVID
+spans and the signatures differ. PC kit SHA-256 `348a88a4963a09b8a089c2fc49a0ccdf71c05741c2b329b93ac106e6a760c076`
+(build 28's kept as `McvsOffline.PcKit-cce0971.exe`); PC end to end as before. Tests: 1615 (one timing-dependent exit
+sequence test failed once under load and passed three times alone), Embed 1365, PcKit 63, PcSpike 62.
+
+**The owner's verdict on build 28:** too many names were generic, like auto-picked account names; they wanted creative,
+rare names, and allowed brands, other games' characters and streamers.
+
+**The change:** six themed writers (puns, memes and pop culture, other games and streamers, absurd and wholesome,
+clan-style and short handles, a dozen languages) wrote about 2,500 names using online lists only as inspiration, editors
+cut the generic and offensive ones, and a reviewer read the whole list (it removed, among others, a Thai obscenity, profanity
+puns, political names and handles tied to real misconduct cases). About 2,000 remain in
+`tools/content-gen/names_curated.txt` (the inspiration URLs are in its header). Rivals and bots use this list first
+(deterministic per rival id and per 10-minute bot window, no duplicates or read-alikes); the build-28 generator, without
+its most generic templates, only fills a board once the list is used up. Names may now hold spaces, some signs and
+Latin-1 letters, which the game's font and parsers accept (checked in the client code). The blocklist now allows brands,
+streamers and other games' characters, and still blocks slurs, sexual words, hate, politics, religion, drugs and real
+tragedies. Everyone gets a new name once with this build.
+
+**Checklist:** rival boards and bot matches show the new names; names with spaces, brackets or accents render normally
+in the leaderboard rows, the kill feed and the scoreboard.
+
+## Build 28 (November 2026): gamer-tag names and emblems for the rivals, more names for the bots
+
+`cce0971` on `wip/pc-port` (`McvsVersion.Build` is `28`; the code is the merge of `wip/b28-names`: `a6494dd` and the
+review fixes `b6f832d`). APK `mcvs-offline-cce0971.apk` (SHA-256
+`181200a5be7f051910adef0b89b65ed41536465a68ea0aff3feefdbc65bc223c`, with `--art-extra art/local`): against build 27 only
+the server DLL, the MVID spans and the signature files differ (server-only change, no new IL on either platform). PC kit
+SHA-256 `7fe66eeb79a5885be8f5989d5cf031185f94cf419f3a21df5a041545debe32f5` (two publishes, same bytes; build 27's kept as
+`McvsOffline.PcKit-251f8c9.exe`); PC end to end as before. Tests: 1607/1607, Embed 1365/1365, PcKit 63/63, PcSpike 62/62,
+content-gen 36/36.
+
+**The owner's confirmation (build 27, Steam):** the bot fix works.
+
+**The owner's request:** leaderboard rivals with names that feel like real players, random emblems, and more names for
+the bots in a match.
+
+* **Gamer tags** (`server/Content/names.json` from `tools/content-gen`, our own word lists; `GamerTags`): word combos,
+  leetspeak, clan-style and country tags, numbers and separators, a few non-English words and some default
+  `agent-<9 digits>` names; 2-16 characters of `[A-Za-z0-9_.-]` (the game's name limits; no `<`, `>`, `&`, which its
+  text formatter treats as markup). A blocklist (with leet, case and separator forms) refuses offensive words, brands,
+  other games' characters and streamer handles; no word twice in one name; no rough noun next to a country tag.
+  `content_gen.py --name-pairs FILE` writes every two-word name for a person to read (about 101,800; not yet read by a
+  person).
+* **Leaderboard rivals** (division season rivals and the other boards): the name and emblem now come from the rival's id
+  alone, so a rival keeps them for good, on both platforms (a byte-based hash, no runtime-dependent hashing). No two
+  rivals on a board read as the same player, and none reads like a real player's name on it. Each row now carries
+  `_killSignatureEmblem` and `_killSignatureBg` (230 unlockable profile emblems and the 35 backgrounds the client can
+  show; no season-placement, collab or agent emblems), so rivals no longer show the player's own emblem. Existing rivals
+  get the new names from this build on (scores and season progress unchanged).
+* **In-match bots:** the game reads its bot names from the data pack's `MCVS_AI.BotNames` table (291 names). The server
+  now sends rename cells for it in the CRM answer each match server fetches before its level loads: every 10 minutes a
+  new window renames about three quarters of the stock names, so a day of play meets the stock names and thousands of
+  ours, never a name twice in one window. Setting `crm.botNames` ("Generated bot names", Gameplay, default on).
+
+**Checklist:** a division leaderboard shows varied names and emblems (not your own emblem on every row), the same after a
+restart; a few bot matches: new names each time, some stock ones too; settings `crm.botNames` off: only the stock names.
+
+## Build 27 (November 2026): the Steam bots, and the Steam frame rate
+
+`251f8c9` on `wip/pc-port` (`McvsVersion.Build` is `27`; the code is the merge of `wip/b27-bots`: `0fd3f4f`, `69be58a`
+and the review fix `74f0e31`). APK `mcvs-offline-251f8c9.apk` (SHA-256
+`73dcf29caad757e7e18a8f1b01cbcce42077e3fe0eb151c813663a62ba92f99d`, with `--art-extra art/local`; same key, apksigner and
+zipalign OK): against build 26's `mcvs-offline-3bc93a6.apk` only the server DLL, the four MVID spans and the signature
+files differ (`botmove` is optional on Android, so the default APK's game code is unchanged). PC kit SHA-256
+`b9f51d113d7c835614ee09a9ee15c0991614da11367c360f9f52100de62a2e9e` (two publishes, same bytes; embeds the PC server DLL;
+build 26's kept as `McvsOffline.PcKit-3bc93a6.exe`); PC end to end as before, the install now lists `botmove` and
+`fpslimit`. Not run: the upgrade over a build-26 install. Tests: 1588/1588, Embed 1365/1365 (one earlier full run had two
+timing-dependent port-fallback tests fail under load; they pass alone, three times, and in the next full run), PcKit
+63/63, PcSpike 62/62.
+
+**The owner's report:** on Steam the bots idled at spawn until the player reached the middle, and sometimes stopped
+moving for good while still aiming and shooting; doubling the AI rate helped only a little. The diagnosis
+(five investigations, three skeptics; [design/pc-port.md](design/pc-port.md) §8.10, research 07 §15) found it in the game's
+own bot code, the same on both platforms: a bot at rest starts with a step of 3 x the frame time, and a step of 0.05 or
+less stops it again, so it can only start on frames of at least 1/60 s. Steam's frame limiter ends each frame about
+0.1 ms early, so at FPS 60 every frame is about 16.57 ms and a resting bot never starts on its long paths (it moves only
+on the short combat paths it takes once it sees someone); the phone's limiter never ends a frame early. **The owner
+confirmed it: at FPS 30 the bots behave.**
+
+**The fixes:**
+* `botmove` (Game.dll, `BT_Action_MoveTo.adaptSpeed`, one fingerprint for both builds): a blocked first step is raised to
+  0.051, so a resting bot always starts; on frames of 1/60 s or longer the result is bit for bit the game's. Default on
+  Steam; optional on Android (`--patch ...,botmove`), since the phone's bots are fine. Setting
+  `embedded.bots.moveFromRest` (Gameplay, "Bots start moving at any frame rate", default on). The PC-only reset of every
+  character's movement input when an input device disconnects (`CharacterComponent.ResetInputsWin`, server bots included)
+  is now logged. `bots:` lines per match: blocked starts, the frame period, input resets, headless-World exceptions.
+* `fpslimit` (Game.dll, PC only) and the setting `graphics.pcFpsLimit` ("Frame rate limit", Graphics, applied at once):
+  `game` (default: the in-game FPS LIMIT row, which already offers 30, 60, 90 and 120), 30, 60, 90, 120, 144, 165, 240
+  or `unlimited` (a cap of 1000 FPS: Android's -1 cannot be passed on Steam, the limiter would run at 1 FPS). Every value
+  is sanitised before it reaches the limiter. One `graphics: frame rate limit ...` line names the effective limit and
+  VSYNC. Seeing 60 at most with the in-game 90 or 120 is most likely VSYNC ON on a 60 Hz screen (not traced natively).
+
+**Checklist (Steam):** at FPS 60, then 120 or unlimited (VSYNC off), a bot match: bots leave spawn at once and do not
+stay stuck; `server.log` has the `bots:` lines (blocked starts counted) and the frame rate line. Optional: set
+`embedded.bots.moveFromRest` off to see the old behaviour at 60. Note the FPS actually shown at 144/unlimited with VSYNC
+on and off.
+
+## Build 26 (November 2026): the port fallback
+
+`3bc93a6` on `wip/pc-port` (`McvsVersion.Build` is `26`; the code is the merge of `wip/b26-port`: `a222818` and the
+review fixes `fc52863`). APK `mcvs-offline-3bc93a6.apk` (SHA-256
+`367fcfe690f9e6f65717b17a97cad132e37baf6ea87c5850b735e7d5a2ee9442`, with `--art-extra art/local`; same key, apksigner
+and zipalign OK). Against build 25's `mcvs-offline-f868b10.apk`: the same 952 entries; changed the server DLL,
+`Gameloft.Engine.dll` and `Gameloft.Util.dll` (the `geo` hook and the new mandatory `finderport` patch), the MVIDs of
+`Game.dll` and `NicePlaySDK.dll`, and the signature files. PC kit SHA-256
+`c1d293833767b316cfbbac074eadc1427fd53681e36c14a18338315917efb380` (two publishes, same bytes; embeds the PC server DLL;
+build 25's kept as `McvsOffline.PcKit-f868b10.exe`); PC end to end as before. Not run: the upgrade over a build-25
+install. Tests: 1584/1584, Embed 1336/1336, PcKit 63/63, PcSpike 62/62; 0 skipped (three earlier full Embed runs each had
+one or two timing-dependent tests fail under load: they pass alone and in the final full run).
+
+**The owner's report (build 24):** a long boot and a loading screen that never ended. The log: `port 51780 is busy`
+15 times, then `cannot listen on port 51780`; the game's first Federation request went to whatever held the port. A phone
+restart fixed it (most likely a frozen earlier copy of the game).
+
+**The fix** ([design/port-fallback.md](design/port-fallback.md)): the host binds the port before the game starts reading
+its arguments. If the port is busy it asks the holder: a working MCVS Offline server is used as it is (the adb-reverse dev
+loop; a second copy of the game, watched and taken over once it lets the port go); anything else (silent, closed,
+refused, foreign) gets two quick retries, then the next free port of 51781-51789 (else any free one). One WARN line names
+the busy port, what the probe saw and the port used. args.txt, the eve URLs, the settings page, the inbox marker, the geo
+lookup (an IL hook) and the game's LocalAnubis Finder (its fixed port 51750 moves the same way, with the client side
+following through the `finderport` hook) all follow. The worst case costs about 1 s instead of 30 s and a dead game.
+`settings.json` keeps 51780 (the next start tries it first); `embedded.portFallback` (file-only, default on) set to
+false gives build 25's behaviour. Known limits: no data-folder lock yet (a frozen copy that thaws could still save through
+its own server), Windows' `ExclusiveAddressUse` unchecked on a real PC, the PC kit's probe still checks 51780 only.
+
+**Checklist:** normal starts look as before (no new WARN lines). To see the fallback without waiting for a frozen copy:
+any app that listens on 127.0.0.1:51780 (or a second phone with `adb reverse` and nothing behind it) and start the game:
+it reaches the menu, and `server.log` has one `port 51780 is held by ...; this start uses port 51781` line; the settings
+page opens and shows the note; a bot match works (the Finder line if 51750 was busy too).
+
+## Build 25 (November 2026): the launcher icon, the launch screen colour, the data installer's background
+
+`f868b10` on `wip/pc-port` (`McvsVersion.Build` is `25`). APK `mcvs-offline-f868b10.apk` (SHA-256
+`ea226b71c5563a9bca0560b856e8ee9640a896b1a10d642bc8b8d595ec315f74`, built with `--art-extra art/local`; a second build
+gave the same bytes; same key, apksigner and zipalign OK). Against build 24's `mcvs-offline-2259991.apk`: the same 952
+entries in the same order; changed the 20 launcher icon PNGs, `resources.arsc` (the v31 launch screen style), the three
+`res/drawable/installing_splash_bg*.png`, the server DLL (the build number), the signature files and the MVID spans. PC kit
+SHA-256 `ea5fac33191f17d54ecaf7a0952f9429b8d152b2d319dc09e37a6e90da72ed70` (two publishes, same bytes; build 24's kept as
+`McvsOffline.PcKit-2259991.exe`); PC end to end as before. Tests: 1578/1578, Embed 1299/1299, PcKit 63/63, PcSpike
+62/62; 0 skipped.
+
+* **Launcher icon** (`art/android/icon/`, the owner's own art, committed): the pink cat-helmet picture as the adaptive
+  icon's background layer (1728 px master; the picture fills the 74 dp centre and its blurred edges the bleed; a light
+  blur before the patcher's resampling, so the launcher's own minification does not shimmer), a transparent foreground,
+  and the rounded-square legacy icon for Android 5-7. In a circle mask the "encore" sticker's right end is cut; One UI's
+  squircle shows all of it. A launcher may keep the old icon until its cache refreshes (reboot).
+* **Launch screen** (`art/android/art.json`): `#3B1210`, the deep red of Marketing Detail B's band, day and night, with
+  the icon. Android 12+ draws only a colour and the icon there; a full picture is not possible on that screen.
+* **The game's data installer** (Gameloft's download and data-check screens): Marketing Detail B, with the VERSUS logo
+  moved up onto the black band (a wide phone shows only the middle 61 % of the picture's height) and the owner's "encore"
+  logo under VERSUS. The picture is Gameloft's promotional art, so it is **not in the repository**: the files live in
+  `art/local/installer/` (git-ignored), made by `tools/art/installer-background.py`, and the patcher takes them with the
+  new `--art-extra <folder>`, which lays a folder over the built-in art. The patcher checks them against the shipped
+  files' fingerprints and sizes (800x600, two 512x768 halves that come together). art/android/README.md §5.
+
+**Owner's check (S22, November 2026): everything works as intended** (icon, launch screen, installer background; build 24's centred ABOUT too).
+
+**Checklist:** the launcher shows the pink icon (after a reboot if the old one stays); a cold start shows the dark red
+screen with the icon, then the black installer with its spinner, then the new background with VERSUS and encore at the
+bottom right, nothing cut; the settings page and the game look as before.
+
+## Build 24 (November 2026): ABOUT stays centred on the return from a tab
+
+`2259991` on `wip/pc-port` (`McvsVersion.Build` is `24`). APK `mcvs-offline-2259991.apk` (SHA-256
+`2ffa1cb939c576052e4a08e033ee17c30f3ce992d6705d5afac47df2be6952cf`; same key, apksigner and zipalign OK); against build
+23's `mcvs-offline-3c2115f.apk` the same 952 entries, changed only the server DLL, the signature files and the 16-byte MVID
+span of the four patched game DLLs. PC kit SHA-256 `e5f1ce8c6c9dc6410f59f3c8e41afd4f6afa1297d31f09f30104b001d43617f7`
+(two publishes, same bytes; embeds the PC server DLL; build 23's kept as `McvsOffline.PcKit-3c2115f.exe`); PC end to end
+on a temp copy as in build 23 (install, verify, second install same bytes, uninstall exact, ILVerify unchanged). Tests:
+1578/1578, Embed 1296/1296, PcKit 63/63, PcSpike 62/62; 0 skipped.
+
+**The owner's report and log (build 23, S22):** the stutter is gone and the grid is right, but ABOUT shifts to the right.
+The log's returns say `before setup: not dressed (btn_general is 454 wide)` (and `btn_language is 454 wide`): the tile
+just tapped is still in its focus or pressed animation on the return from its tab (sprite 6716 scales to 0.97 there), and
+the width check (465.35 ± 2, there to stop on a game update that changed the tiles) refused the whole panel. So nothing was
+dressed before `setup()`, the MORE GAMES remap (taken out when Settings was left) was not put back, and the run laid out
+build 22's row 5 frames later: ABOUT at the right. The first entry of the log was right (`ABOUT on MORE GAMES (-177)`,
+`same frame: not needed`, our EnterSection 37.8 ms on the first tap of the process, 1-2 ms after).
+
+**The fix (both platforms):** a tile reads as a tile from 0.97 of its width (less the 2 of tolerance) to its full width;
+the in-match 0.8 panel and a ThinBtn still stop the layout. Tests: the return from GAMEPLAY SETTINGS and LANGUAGES with
+the tapped tile 454 wide keeps one centred ABOUT in every render; width cases 454, 449.5 (accepted) and 449.2 (refused);
+they fail on build 23's check.
+
+**Checklist:** open each tab and press Back (twice each): ABOUT stays centred, no MORE GAMES; the focus-in lines say
+`dressed`/`kept` with `ABOUT on MORE GAMES (-177)`, never `is 454 wide`.
+
+## Build 23 (November 2026): the PERFORMANCE title, ABOUT centred, the gear-tap timings
+
+### What build 23 contains
+
+`3c2115f` on `wip/pc-port` (`McvsVersion.Build` is `23`; the code is the merge of `wip/b23-phone`: `abf0ad6`,
+`e084f97`, its docs `4130d4e` and the review fixes `dc07845`). APK: `mcvs-offline-3c2115f.apk` (SHA-256
+`84cdeb826ec4b1fef83649255ba64a089602d4ff9bd5f590befbbff7fa48df8a`; the default patch set; the same key as every build;
+apksigner v1+v2+v3 and zipalign OK); it installs over build 22 as usual. Compared entry by entry with build 22's
+`mcvs-offline-e1bb9b9.apk`: the same 952 entries in the same order; changed only the server DLL (2,678,272 → 2,703,872
+bytes), the signature files and one 16-byte span (the MVID) in each of `Game.dll`, `Gameloft.Engine.dll`,
+`Gameloft.Util.dll` and `NicePlaySDK.dll`. PC kit `McvsOffline.PcKit.exe` (SHA-256
+`f5b6c4844fce013d834fa8f6f1a6b16bb39b2c58503ed43bb08281d1ece962ea`, two publishes gave the same bytes; it embeds the PC
+server DLL byte for byte) replaces build 22's (kept as `McvsOffline.PcKit-e1bb9b9.exe`). PC end to end on a temp copy of
+the Steam files: install, verify and status `installed, current`, a second install wrote the same bytes, uninstall
+restored the exact listing and every SHA-256, ILVerify the same as build 22's. Not run this time: the upgrade over a
+build-22 install (the installer did not change). Tests at `3c2115f`, every `MCVS_REQUIRE_*` = 1: McvsOffline.Tests
+1578/1578, McvsOffline.Embed.Tests 1290/1290, PcKit 63/63, PcSpike 62/62; 0 skipped. The design is
+[design/settings-menu.md](design/settings-menu.md) §3.2 ("Build 23"), §5 risks 11-17 and §6.
+
+**The owner's report (build 22, S22, screenshot):** the grid no longer flashes, but the PERFORMANCE title sits in the
+middle of its tile over the icon, ABOUT sits right of centre on the bottom row, and the game stutters a little on the
+gear tap.
+
+**The fixes (phone; Steam only gains log text):**
+
+* **The PERFORMANCE title.** The tiles centre their title unless `needAlign` is off, and the game turns it off just
+  before each tile's own setup. Build 22's dress before `setup()` ran on brand-new tiles first, so the title was centred
+  and stayed there. Build 23 turns `needAlign` off first (and reads it back), and puts the title back at the tiles'
+  height only when it is clearly centred; a refused write logs one line and leaves build 22's title.
+* **ABOUT centred.** The game itself writes MORE GAMES at the row's centre (-177) on every return, so MORE GAMES now is
+  the ABOUT button: a text remap (`setting.FreeGamesButton` → `setting.CreditButton`) titles it ABOUT, its tap opens
+  About (the `GoToFreeGames` native is replaced like `GoToForum`, and the top bar's Gameloft button keeps its own
+  behaviour), and the real ABOUT goes off the panel like the other removed tiles. The remap is taken out again when
+  any step fails or Settings is left. It sits about 5 px right of builds 19-21's centre (Gameloft's own centre). Switch:
+  **ABOUT centred** (`admin.settingsMenu.aboutCentre`, phone only, default on); off gives build 22's row exactly.
+* **The stutter (not measured yet).** Every gear tap builds a new Settings menu. On the phone build 23 skips the
+  same-frame look when the dress before `setup()` proved everything is in place (`same frame: not needed (dressed before
+  setup)`), which removes most of our Flash calls in that frame. The `settings menu:` lines now carry timings (`ms`):
+  our time per step, the focus-in frame's length with the frame before it as a baseline, and our time over the run.
+
+**Bots on Steam (open).** The owner reports that on Steam bots wait at spawn until a player reaches the middle of the
+map, and sometimes stop moving for good while still aiming and shooting; on the phone they are lively. An investigation
+(the AI, the level layers the match servers load, timing, our PC patches, logs) was stopped before any result to save
+usage. One lead to check first: on PC our MEM rule keeps the levels' Physics layer (`embedded.physics.keepPhysicsLayer`),
+which the phone's Mid profile leaves out, and the match servers in the game share that setting.
+
+### Checklist (phone, then PC)
+
+1. Open Settings from the gear five times: the PERFORMANCE title sits under the speedometer at the same height as the
+   other titles every time, and shrinks with the tile when pressed.
+2. The bottom row shows one ABOUT, centred, no MORE GAMES and no second ABOUT. Tap it: About opens; Back: the same row.
+3. With Settings open, the Gameloft logo in the top bar (if shown) does what it did in build 22.
+4. Stutter: every gear tap or only the first after a start? Which FRAME RATE LIMIT? Send `server.log` with the
+   `settings menu:` lines (with their `ms` parts).
+5. Switch **ABOUT centred** off: build 22's row (ABOUT at the right); back on: step 2 again.
+6. In a match: pause, Settings: the stock in-match panel as before.
+7. Steam: Settings exactly as in build 22; send one return's `settings menu:` lines (now with `ms`).
+
+## Build 22 (November 2026): the stock Settings writes draw nothing, and a switch with an automatic fallback
+
+### What build 22 contains
+
+`e1bb9b9` on `wip/pc-port` (`McvsVersion.Build` is `22`; the code is the merge of `wip/b22-switch`, `4a6d19a`:
+`9617e34`, `05a2028`, its docs `47c880a` and the review fixes `dd73b81`). APK: `mcvs-offline-e1bb9b9.apk` (SHA-256
+`45a67e8976d4ced03787fc69472610efbb3fab2f256eb5adc78599c9a09f66ed`; the default patch set; the same key as every build: certificate SHA-256 `fc0db84e…7d16`, targetSdk 35,
+both ABIs, `isGame` and `appCategory`, zipalign OK); it installs over build 21 as usual. Compared entry by entry with
+build 21's `mcvs-offline-d74a07a.apk`: the same 952 entries in the same order; changed only the server DLL (2,661,376 → 2,678,272 bytes, byte for byte the built
+one), the signature files and the 16 MVID bytes of `Game.dll`, `Gameloft.Engine.dll`, `Gameloft.Util.dll` and
+`NicePlaySDK.dll` (each difference lies inside the MVID; the patch set and the patches are build 21's). The PC kit `McvsOffline.PcKit.exe` (win-x64, one file, SHA-256
+`d147c06af47f1cd9f8d06109837f4234dcbf5aae3bb5e954315a6435a5662ea4`) replaces build 21's (kept as `McvsOffline.PcKit-d74a07a.exe`). The design is
+[design/settings-menu.md](design/settings-menu.md) §1.2, §3.2 ("Build 22") and §5 risks 2 and 11.
+
+**The owner's report (build 21, S22).** Back to Settings still showed MORE GAMES and the FORUM tile for a moment ("it
+flashes the more games and the forum button after, the trim remains"), then the shorter grid stayed. No device log
+came with it.
+
+**What the diagnosis established** (read only, five investigations against the decompiled C# and the exported
+ActionScript of both games):
+
+* What the owner saw is exactly the state Android's `setup()` leaves before any write of ours: on a return it writes
+  only the FORUM dress of `btn_forum` (title and icon), `btn_more.visible = true` and the bottom row's x (CUSTOMER CARE
+  -564, MORE GAMES -177, ABOUT 208); it never shows SOCIAL MEDIA or CUSTOMER CARE again, which matches the report.
+* **The render thread is ruled out.** In every render mode the menu draw waits for the update signal, which is set
+  after the managers' update, and natively Flash's advance and display hold the same gameswf mutex: no render can draw
+  the menu half way through `setup()`.
+* **The likely cause:** on the phone build 21's same-frame step did not land, or landed too early (about 70 %, by
+  elimination: the managed chain holds in the code and in the 61 tests). The candidates, in order: the look throwing
+  inside the `GetPlatformId` native, the observer never being called, the gate never matching, or the gate opening
+  early when ABOUT could not be read (build 21's gate then looked four times before the FORUM dress). Which one it was
+  only a device log can say.
+* **Why the fix does not depend on it:** build 22 no longer races `setup()`. Every visible effect of `setup()` goes
+  through a property it writes, so what we need moves onto properties it never writes, and its own writes produce our
+  state. However early or late a render comes, it cannot show MORE GAMES or FORUM.
+
+**The fix (phone)**:
+
+* **The title:** the engine's own text remap. `setting.ForumButton → setting.Performance` goes into the client
+  World's localisation remap table (a copy of the table with the entry replaces it; never changed in place), while
+  `admin.settingsMenu.performance` is on. `setup()`'s own FORUM dress then writes the translated PERFORMANCE, in the
+  same call, on every return, and a language change re-formats it the same way. A tap on the tile opens our page from
+  the first frame. One line: `settings menu: FORUM remap installed` (or `removed`, or `not installed (<why>)`; without
+  it build 21's re-dress stands).
+* **The icon:** once per tile it is dressed with PERFORMANCE's icon, then put out of `setup()`'s reach (the `mc_image`
+  slot set to null and the container renamed), so `setup()` skips its FORUM icon write and the icon neither changes nor
+  reloads. If gameswf still reaches the container, both are put back and the icon is re-dressed inside `setup()`'s own
+  call, after its write, as in build 21 (`icon slot kept (<why>)`).
+* **MORE GAMES, SOCIAL MEDIA, CUSTOMER CARE: off the panel** (y 4000, alpha 0, no mouse, hidden; MORE GAMES' x 0 as a
+  marker). `setup()` never writes y, alpha or the mouse flags, so its `btn_more.visible = true` and x writes draw
+  nothing, and the hidden MORE GAMES (above ABOUT) catches no tap.
+* **ABOUT stays at 208**, where `setup()` itself puts it, so its last write draws nothing new. That is a visible change:
+  **ABOUT now sits right of centre on the bottom row, its stock place**, not centred as in builds 19 to 21. Centring it
+  against that write would mean moving its children, and ABOUT's own button timeline moves them on every state (focus,
+  press), so the plate would snap back or freeze its press animation; that fallback (ABOUT at 208 by design) is what
+  build 22 does.
+* **When: before `setup()`.** All of it runs inside our `EnterSection("settings_main_screen")` delegate, which the game
+  calls before `setup()` in the same call stack (`before setup:` on the focus-in line). On a return the tiles are the
+  ones written before, so it only reads them back (`kept`); on the first entry the panel is still on frame 1, so it goes
+  to frame 3 first and dresses the new tiles (`dressed now`). The writes persist, so later returns draw nothing stock
+  whatever the timing.
+* Build 21's **same-frame step** stays, with a new gate: MORE GAMES back at -177 (`setup()`'s write), false whenever
+  something cannot be read. It only tidies now (MORE GAMES hidden again) or re-dresses an icon left within reach.
+  Build 20's **run per focus-in** stays as read-back and safety net.
+* **Steam:** unchanged (build 21's `GetLanguage` step; Steam's `setup()` writes every tile's x, so these per-tile tricks
+  would not survive there), now behind the switch and the breadcrumb below.
+
+**The switch: Lay out Settings before it is drawn** (`admin.settingsMenu.sameFrame`; the settings page, Settings ›
+Gameplay, right under **Shorter Settings menu**; on by default; both platforms; applies the next time Settings opens).
+It covers all our Flash work inside the game's natives: the dress before `setup()` (inside `EnterSection`) and the
+same-frame step (inside `GetPlatformId` on the phone, `GetLanguage` on Steam). Both are covered because both run
+ActionScript from inside a native, the one thing a device fault could come from; the text remap is plain C# and stays
+on. **Off** means build 20's path: the menu is still trimmed and PERFORMANCE is still there, laid out by the run from
+the next frame, so the first opening can show the stock menu for one frame; later returns still draw nothing stock,
+because the run's writes persist and the remap stays.
+
+**The breadcrumb.** Right before the first Flash work inside a native in a process, MCVS Offline writes
+`settings-menu-same-frame.txt` into its log folder (phone: `McvsOffline/logs/`, else the internal log folder the logs move
+to when that one cannot be written; PC: `McvsOffline\logs\`, else `%TEMP%\McvsOffline\logs\`, never a Steam folder that
+cannot be written), and deletes it one frame after the run's first frame (about two frames later, the return's render
+included). A normal exit, the watchdog (it only reports) and going to the background at any other moment never leave it. If the game dies inside that
+window, the next start finds the marker, switches `admin.settingsMenu.sameFrame` off in `settings.json` and logs one
+WARN line (also under "Recent problems" on the status page):
+`settings menu: same frame skipped: the last start ended during it (marker <path>); admin.settingsMenu.sameFrame is now
+off; switch it back on to retry`. If `settings.json` cannot be saved, the step stays off while the marker is there and
+the line ends `… could not be saved as off, so it stays off while the marker is there; delete <path> to retry`. A
+marker that cannot be written is said once on the focus-in line (`; breadcrumb not written (<why>)`) and changes
+nothing else; marker I/O never throws into the game.
+
+**If Settings ever crashes** (the game closes while opening Settings or right after a Back to it): start the game
+again. The `same frame skipped` line should then be in "Recent problems", the switch is off, and Settings opens
+trimmed (perhaps with one frame of the stock menu on the first opening). Send the crash start's logs (Downloads ›
+MCVS-Offline: the previous start's `-server.log.txt`, `-game.log.txt` and any `crash-*.txt`; on PC the `.1` logs in
+`McvsOffline\logs\`) and the new start's `server.log`. Switching it back on retries once; if it crashes again, leave it
+off and say so.
+
+**What the log says now** (`server.log`), per return to Settings on the phone:
+
+* `settings menu: focus-in N (layouts so far: L): on top menu_settings, …, panel frame 3, btn_social hidden; before
+  setup: kept (FORUM remap on, icon slot null, MORE GAMES off the panel, ABOUT 208); same frame: laid out (GetPlatformId
+  calls 40, looks 1)`; the first entry says `before setup: dressed now (panel frame 1 to 3, …)`;
+* `settings menu: frame 3, 7 tiles + ABOUT laid out in the focus-in frame; stock grid drawn 0 frames`;
+* if the phone still cannot run ActionScript from inside `GetPlatformId`, the tail reads `same frame: not laid out,
+  <why>` or `no look (…)` and the run line `… in the focus-in frame; MORE GAMES shown off the panel 1 frame; stock grid
+  drawn 0 frames`: shown off the panel means drawn as nothing, so still no flash;
+* `same frame: off (admin.settingsMenu.sameFrame off)`, or `off (a breadcrumb of the last start is still there)`;
+* once per start: `settings menu: FORUM remap installed`; on Steam the lines are build 21's (`same frame: laid out
+  (GetLanguage calls N, looks 1)`, `frame 1, 6 tiles + ABOUT laid out in the focus-in frame; stock grid drawn 0
+  frames`).
+
+**Known limits** (settings-menu.md §3.2, §5): whether gameswf accepts the icon rename (the read-back decides, and the
+fallback re-dresses inside `setup()`) and the S22's real render-thread mode are still to be confirmed from a device
+log. If `admin.settingsMenu.trim` is switched off while the same Settings screen stays open, the tiles already removed
+stay off the panel until Settings is next opened (build 21 had the same limit).
+
+**Checked**: `McvsOffline.sln` (Release), the Android embedded DLL against the APK's assemblies and the PC DLL with
+`Gameloft.Logs`; all four test projects with `MCVS_REFS`, `MCVS_PC_REFS`, `MCVS_APK`, `MCVS_DATAPACK`,
+`MCVS_BUILD_TOOLS`, `MCVS_REQUIRE_REAL_CLIENT=1`, `MCVS_REQUIRE_PC=1`, `MCVS_REQUIRE_PC_E2E=1`, `MCVS_REQUIRE_EMBEDDED=1`,
+`MCVS_REQUIRE_BUILD_TOOLS=1` and `MCVS_REQUIRE_NODE=1`, at `e1bb9b9`: **McvsOffline.Tests 1578/1578, McvsOffline.Embed.Tests
+1252/1252, McvsOffline.PcKit.Tests 63/63, McvsOffline.PcSpike.Tests 62/62, 0 skipped** (2,955; build 21's was 2,910). New
+tests: `SettingsMenuBuild22Tests` (36 cases on fakes that model `setup()`'s gotoAndStop, BtnBase's icon branch in three
+resolution models, the image reload, the remap and a language reload, a refused icon rename, what each render draws
+and a pipelined render thread: nothing stock drawable at the end of the return's update with the observer refused or
+throwing, the first entry, the trim off with PERFORMANCE on, the early gate, the R4 rows hidden in the focus-in frame,
+the tile kept again after PERFORMANCE was off: of the first 24, 21 fail on build 21's code and three are regression
+checks; the 12 of the review fail on the first cut `05a2028` but one regression check),
+`SameFrameBreadcrumbTests` (the marker's folders and fallback, written once, deleted one frame after the run's first
+frame, a leftover marker switching the key off with the one line, the line naming the marker when the save fails,
+nothing thrown) and the remap's real members (`RealSettingsMenuMembersTests`). The APK was built with `--build-tools`
+and verified as above; its server DLL is the built one byte for byte. The kit published three times (the first right after the full build) from the same build
+output with the same bytes, its `check-server` passed on the PC server DLL (every PC hook (17), `Gameloft.Logs`, only
+allowed references), and its assembly carries that DLL byte for byte. The PC end to end on Linux (§12.6) on a temp
+copy of the Steam files: `install`, `verify`, `status` (`installed, current`, `activation: NOT VERIFIED` before a
+start), a second install with the same bytes, `uninstall` restoring the exact listing and every SHA-256; ILVerify the
+same findings as the stock files, the server DLL clean. The upgrade over a build-21 install (made by a `d74a07a`
+patcher built in a separate folder) on another temp copy: the kit said `OLDER BUILD (21; this kit installs build 22)` and `verify` exit 1;
+`install` wrote the fresh install's bytes, then `verify` and `status` said `installed, current`. The expected `verify`
+values are re-recorded in [design/pc-port.md](design/pc-port.md) §13.1 and [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7
+(build 21's are in §13.2): the four game DLLs differ from a build-21 install's only in their MVID bytes (they change
+with the server DLL, as in every build; no patch changed), the config is build 16's (`3ebe99b3…f94c`),
+`serverBuild` is `22`.
+
+**Not tested** on a phone or on Windows.
+
+### Checklist (phone and PC)
+
+Phone:
+
+1. Open Settings from the main menu (the first entry of the start): the shorter grid with PERFORMANCE, no MORE GAMES,
+   FORUM, SOCIAL MEDIA or CUSTOMER CARE at any moment, ABOUT right of centre on the bottom row.
+2. Open each tile and press Back, each at least twice: GAMEPLAY SETTINGS, AUDIO, CUSTOMIZE CONTROLS, ACCOUNTS, HELP,
+   LANGUAGES, ABOUT and PERFORMANCE (our page). After every Back: **no MORE GAMES, no FORUM, and ABOUT does not jump**
+   (it stays where it was). Film at least a few of the returns in slow motion and say whether any frame shows MORE
+   GAMES or FORUM, and whether the PERFORMANCE icon blinks.
+3. Play a match, return to the main menu, open Settings, then a tab and Back: the same, each time.
+4. Change the language (LANGUAGES), then come back: the tile still reads PERFORMANCE (in the new language) with its
+   icon.
+5. Tap PERFORMANCE: our page opens (not the forum); change GRAPHICS SETTINGS and press Back: the restart prompt and,
+   behind it, the shorter grid with no flash; then No, and the grid stays.
+6. On the settings page (Settings › Gameplay) switch **Lay out Settings before it is drawn** off, then open Settings
+   and a tab and Back a few times: still the shorter grid with PERFORMANCE (the first opening may show the stock menu
+   for one frame). Switch it back on.
+7. Send `server.log` with every `settings menu:` line of the session (the `FORUM remap installed` line, and for each
+   return the `focus-in N … before setup: … ; same frame: …` line and the `… laid out in the focus-in frame; stock grid
+   drawn 0 frames` line, or whatever they say instead), and say for which return anything flashed or was wrong. If
+   Settings ever crashed, see "If Settings ever crashes" above.
+
+PC: unchanged from build 21 (the shorter grid with no flash after every tab and Back, no drift after five round
+trips). Send the `settings menu:` lines of one return from `McvsOffline\logs\server.log` (expected `same frame: laid
+out (GetLanguage calls N, looks 1)` and `… laid out in the focus-in frame; stock grid drawn 0 frames`).
+
+## Build 21 (November 2026): the Settings grid in the same frame as the return, and no Practice tile
+
+### What build 21 contains
+
+`d74a07a` on `wip/pc-port` (`McvsVersion.Build` is `21`; the code is the merges of `wip/b21-flicker`, `6f39e42`:
+`9b865c0` and its docs `1095c5e`, and of `wip/b21-practice`, `3c4373e`: `6c4083c`). APK: `mcvs-offline-d74a07a.apk`
+(SHA-256 `56af2e0c07ea1325ad7f6552ca7f352d61a02d577fce6670a2c4ea06bec283b5`; the default patch set less `bottile`; the
+same key as every build: certificate SHA-256 `fc0db84e…7d16`, targetSdk 35, both ABIs, `isGame` and `appCategory`,
+zipalign OK); it installs over build 20 as usual. Compared entry by entry with build 20's `mcvs-offline-4079f39.apk`: the
+same 952 entries in the same order; changed only the server DLL (2,656,768 → 2,661,376 bytes), the signature files, the
+16 MVID bytes of `Gameloft.Engine.dll`, `Gameloft.Util.dll` and `NicePlaySDK.dll`, and `Game.dll`, whose only
+difference, member by member, is `bottile`'s one instruction put back to the game's own (its bytes move by 16 after that
+method body; [design/pc-port.md](design/pc-port.md) §13.1). The PC kit `McvsOffline.PcKit.exe` (win-x64, one file,
+SHA-256 `4c2f42010941d910d6745616c4958cc3be29177e89ea73122433da16ef6fab26`) replaces build 20's. The design is
+[design/settings-menu.md](design/settings-menu.md) §3.2 ("Build 21").
+
+**The owner's report (build 20).** Back from a tab now returns to the shorter Settings menu (build 20 fixed build 19's
+stock menu after a return), but "the normal menu flashes for a split second before being set to our layout again".
+
+**What the investigation established: the frame order** (decompiled C# of both games, line for line the same here). Each
+frame `GameApplication.UpdateWorlds` runs (1) the managers' pre-update, (2) `GameApplication.Context`'s posted work (where
+our step ran), (3) each World's update: the client World's `MenuComponent` advances Flash, which delivers the input and
+runs every ActionScript handler; the Back runs `popMenu`, the focus-in, `EnterSection` and `MenuSettings.setup()` in one
+synchronous call stack there, (4) the managers' update and the render signal, (5) the render. Build 20's run was posted
+from `EnterSection`, after that frame's (2), so it ran at the start of the next frame, and the render of the return's own
+frame drew what `setup()` left: the stock grid for one frame (33 ms at 30 fps). Nothing else covers that frame (Settings
+has no fade or transition). On Steam this is the whole stock grid (new tile instances); on the phone FORUM's dress, MORE
+GAMES and the stock bottom row. So the only way never to draw the stock grid is to lay it out inside step (3), after
+`setup()`'s last stock write.
+
+**The hook, per platform.** At `EnterSection("settings_main_screen")` MCVS Offline now appends an observer to a Flash
+native that `setup()` calls after its last stock write; the game's own delegate still answers (the observer returns
+nothing), and the run's first frame removes it again, so no other menu pays for it:
+
+* **Steam: `GetLanguage`**, which `setup()` calls right after the last tile write; there the observer reads the grid and
+  lays it out when it is not.
+* **Phone: `GetPlatformId`**, called by `setup()`'s button listeners after the last stock write (Android's `setup()` has
+  no `GetLanguage`). The game calls it about 40 times per return (every label), so the observer only looks once ABOUT
+  stands where `setup()`'s last write puts it, which is after the FORUM dress and every other stock write.
+* The run per focus-in (build 20) stays unchanged as the safety net: it reads the grid back for its frames and lays it out
+  again when needed, and when the same-frame step could not lay it out, it does so on the next frame as in build 20.
+  Rejected: an IL hook in the engine's frame loop (a new patch of `Gameloft.Engine` on both platforms), a post to a later
+  World or the render context (not always there, or on the render thread).
+
+**What the log says now** (`server.log`; on the phone via the MCVS Offline page's Logs, on PC in
+`McvsOffline\logs\`), per return to Settings:
+
+* the focus-in line ends with what the same-frame step did: `settings menu: focus-in N (layouts so far: K): on top
+  menu_settings, …; same frame: laid out (GetPlatformId calls N, looks 1)` (Steam: `GetLanguage calls N`), or `; same
+  frame: not laid out, <why> (…)`, `; same frame: no look (…)`, `; same frame: not watched (<why>)`, `; same frame: off
+  (trim off)`;
+* every laid-out line ends with how many renders drew a grid that was not ours: **same frame** reads `settings menu:
+  frame 3, 7 tiles + ABOUT laid out in the focus-in frame; stock grid drawn 0 frames` (Steam: `frame 1, 6 tiles`);
+  **the safety net** reads `… laid out; stock grid drawn 1 frame` (no `in the focus-in frame`; build 20's path, a
+  one-frame flash) or `… laid out after N frames (<why>); stock grid drawn N frames`; `laid out again Kx after the stock
+  grid came back` still says the stock grid returned after the layout.
+
+**Not covered** (settings-menu.md §3.2): with the trim off and PERFORMANCE on (phone) only the re-dress runs, and it
+stays one frame late; a first read that has to wait is left to the run as before. The phone's PERFORMANCE icon may still
+blink: the stock `setup()` sets the FORUM icon and our re-dress sets PERFORMANCE back in the same frame, but the game's
+image container reloads on every change; that cannot be avoided while the stock `setup()` re-dresses FORUM. Only a device
+can confirm that ActionScript can be re-entered from inside these two natives (the game itself does it with
+`MoveToCamera`, so this is inferred) and that the S22's render-thread mode behaves as analysed.
+
+**The Practice tile is gone.** The owner reported that the tile never showed even with its setting on, and it is not
+needed (the full-reward bot match is Battle › Classic multiplayer). Removed: the setting **Practice tile in the main
+menu** (`crm.practiceTile`, no longer on the settings page) and the `bottile` patch (on both platforms; `Game.dll`'s
+bot-match lambda keeps the game's own value). An old `settings.json` that still has `crm.practiceTile` loads as it is
+(the key is kept and ignored; saving another setting keeps it), and the CRM document is build 20's byte for byte with
+the default settings and with the old key on or off. A saved command line with `bottile` in `--patch` (APK, `pc
+install`, the kit) still works: the id is left out with a warning (`patch 'bottile' was removed in build 21 (…):
+ignored`); unknown ids are still errors. On PC a build-20 install (which lists `bottile`) shows as `OLDER BUILD (20; this
+kit installs build 21)`, never DAMAGED, and the install over it writes exactly a fresh build-21 install's bytes.
+
+**Checked**: `McvsOffline.sln` (Release), the Android embedded DLL against the APK's assemblies and the PC DLL with
+`Gameloft.Logs`; all four test projects with `MCVS_REFS`, `MCVS_PC_REFS`, `MCVS_APK`, `MCVS_DATAPACK`,
+`MCVS_BUILD_TOOLS`, `MCVS_REQUIRE_REAL_CLIENT=1`, `MCVS_REQUIRE_PC=1`, `MCVS_REQUIRE_PC_E2E=1`, `MCVS_REQUIRE_EMBEDDED=1`,
+`MCVS_REQUIRE_BUILD_TOOLS=1` and `MCVS_REQUIRE_NODE=1`, at `d74a07a`: **McvsOffline.Tests 1578/1578,
+McvsOffline.Embed.Tests 1207/1207, McvsOffline.PcKit.Tests 63/63, McvsOffline.PcSpike.Tests 62/62, 0 skipped** (2,910;
+build 20's was 2,879). New tests: `SettingsMenuRenderTests` (the fake host now renders between frames, as the game's
+frame order does, and checks that no render draws the stock grid on the first entry, after every tab and Back, after the
+PERFORMANCE page and its restart prompt and after a match, on both platforms, while the game still gets its own platform
+and language; they fail on build 20's code) and `SettingsMenuSameFrameTests` (the observer after the game's delegate
+only until the next frame, other menus and the in-match panel untouched, Android's one look at the button listeners,
+Steam's look at every armed `GetLanguage`, a throwing step or write that reaches no Flash, a native without the game's
+delegate left to the run, the trim off, the log parts);
+`PracticeTileRemovedTests` (old `settings.json` with the key, the CRM document's bytes), `RemovedPatchTests` (the stale
+id's warning on every path, unknown ids still refused), `PcBuild20UpgradeTests` (a build-20 install on a copy of the real
+Steam files, then build 21 over it) and `AndroidOutputUnchangedTests` (build 21's `Game.dll` pinned). The APK was built
+with `--build-tools` and verified as above; its server DLL is the built one byte for byte. The kit published three times
+from the same build output with the same bytes, its `check-server` passed on the PC server DLL (every PC hook (17),
+`Gameloft.Logs`, only allowed references), and its assembly carries that DLL byte for byte. The PC end to end on Linux
+(§12.6) on a temp copy of the Steam files: `install`, `verify`, `status` (`installed, current`, `activation: NOT
+VERIFIED` before a start), a second install with the same bytes, `uninstall` restoring the exact listing and every
+SHA-256; ILVerify the same findings as the stock files, the server DLL clean. The upgrade over a build-20 install (made by
+a `4079f39` patcher) on another temp copy: the kit said `OLDER BUILD (20; this kit installs build 21)` and `verify` exit
+1; `install` wrote the fresh install's bytes, then `verify` and `status` said `installed, current`; an install with
+build 20's default `--patch` list gave the warning and the same bytes. The expected `verify` values are re-recorded in
+[design/pc-port.md](design/pc-port.md) §13.1 and [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7 (build 20's are in §13.2):
+every DLL changed with the server DLL, `Game.dll` also by `bottile`, the config is build 16's (`3ebe99b3…f94c`),
+`serverBuild` is `21`.
+
+**Not tested** on a phone or on Windows.
+
+### Checklist (phone and PC)
+
+1. Open Settings from the main menu: the shorter grid, with no flash of the stock grid (a slow-motion video helps).
+2. Open each tile and press Back, each one at least twice: GAMEPLAY SETTINGS, AUDIO, ACCOUNTS, HELP, LANGUAGES, ABOUT,
+   CUSTOMIZE CONTROLS (phone), PERFORMANCE (phone: our page; PC: Steam's). After every Back the shorter grid **with no
+   visible flash of the stock menu**, no SOCIAL MEDIA, FORUM, CUSTOMER CARE or MORE GAMES, ABOUT in its place (no drift
+   on PC after five round trips). On the phone, say whether the PERFORMANCE icon blinks.
+3. On the phone, change GRAPHICS SETTINGS on the PERFORMANCE page and press Back: the restart prompt and, behind it,
+   the shorter grid with no flash; then No, and the grid stays.
+4. Play a match, return to the main menu, open Settings, then a tab and Back: the shorter grid each time, no flash.
+5. The MCVS Offline settings page (Settings › Gameplay) has no "Practice tile in the main menu" option any more; the
+   main menu is the game's usual one.
+6. Send `server.log` with every `settings menu:` line of the session (for each return the `focus-in N … ; same frame:
+   …` line and the `… laid out in the focus-in frame; stock grid drawn 0 frames` line, or whatever it says instead), and
+   say for which return the screen flashed or was wrong, if any.
+
+## Build 20 (November 2026): the Settings grid after a return to Settings (a mitigation and a diagnostic)
+
+### What build 20 contains
+
+`4079f39` on `wip/pc-port` (`McvsVersion.Build` is `20`; the code is the merge of `wip/b20-back`, `d07f861`: `ccfab84`,
+its review `a533ed9` and the test fix `383e54c`). APK: `mcvs-offline-4079f39.apk` (SHA-256
+`2946029d8b8ebad632bfb8d3765996c0a85d6cb0839a0888a09a807c23b4da1e`; default patch set, unchanged since build 17; the
+same key as every build: certificate SHA-256 `fc0db84e…7d16`, targetSdk 35, both ABIs, `isGame` and `appCategory`,
+zipalign OK); it installs over build 19 as usual. Compared entry by entry with build 19's `mcvs-offline-41c1407.apk`: the
+same 952 entries in the same order; changed only the server DLL (2,650,112 → 2,656,768 bytes), the signature files and
+the 16 MVID bytes of `Game.dll`, `Gameloft.Engine.dll`, `Gameloft.Util.dll` and `NicePlaySDK.dll`
+([design/pc-port.md](design/pc-port.md) §13.1). The PC kit `McvsOffline.PcKit.exe` (win-x64, one file, SHA-256
+`f17e017ffede038b730876b7df7c93cf635633885bec067878983e87740252bc`) replaces build 19's. Only the server DLL changed:
+no patch, no installer code, no game file. The design is [design/settings-menu.md](design/settings-menu.md) §3.2.
+
+**The owner's report (build 19, phone and Steam).** The shorter Settings menu appears on the first entry, but after a
+tab (for example GAMEPLAY SETTINGS) and Back the game's original Settings menu is there again.
+
+**The cause: what is established and what is not.** Established, from the exported ActionScript of both games:
+`MenuBase.onFocusIn` calls `EnterSection("settings_main_screen")` on every focus-in, the first entry and every return,
+and `MenuSettings.setup()` runs right after it and puts the stock grid back each time (on the phone it re-dresses FORUM,
+shows MORE GAMES and moves ABOUT and CUSTOMER CARE; on Steam it goes to panel frame 3 and back to 1, which places new tile
+instances, and sets the four-column positions). So the screen after a return is only what our step makes of it, and
+build 19 had one step, posted to the next frame, with no second chance: if that one step did not lay the grid out, the
+stock menu stayed. **Not established: why that step did not lay the grid out on the device.** The two likely-looking
+causes do not match the game's code: gluic's `MenusStack.popMenu` pops the submenu before it gives Settings the focus
+(so Settings is on top when `EnterSection` runs, not the closing submenu), and nothing in the ActionScript positions the
+panel again after `setup()`. In that order build 19's step works in the tests too. The device failure is not reproduced.
+
+**The change (a mitigation plus a diagnostic).** Each focus-in now starts a run instead of one step
+(`SettingsMenuLayout.Schedule`):
+
+* every frame it looks for `menu_settings` on top of `MenusStack` or, below another menu, by name in the stack, reads the
+  panel as before and lays the grid out when it is not; a failed read is tried again on the next frame;
+* once laid out it reads the grid back every frame and lays it out again if the stock grid came back, until it has stayed
+  laid out for 2 frames after a 45-frame settle window (about 0.75 s); it stops at 120 frames (about 2 s) at the latest;
+  the next focus-in's run replaces it; Back to the main menu before it could lay the grid out ends it at once;
+* phone: a tap on the PERFORMANCE tile opens our page while the tile is ours (if the game puts a stock FORUM tile back,
+  the tap is the game's forum until the run has re-dressed it); a run that never laid the grid out keeps the two
+  Gameplay rows (GRAPHICS SETTINGS, FRAME RATE LIMIT), as in build 19, since PERFORMANCE may then be out of reach.
+
+**The log lines to look for** (`server.log`; on the phone via the MCVS Offline page's Logs, on PC in
+`McvsOffline\logs\`), per return to Settings:
+
+* `settings menu: focus-in N (layouts so far: K): on top <menu>, menu_settings at I in the stack, panel frame F, btn_social
+  shown|hidden`, the diagnostic: what the run's first frame (after `setup()`) found. `btn_social shown` after a layout
+  means the game made new tile instances; `hidden` means the ones written before;
+* then one of: `settings menu: frame 3, 7 tiles + ABOUT laid out` (phone; Steam: `frame 1, 6 tiles`), with `after N
+  frames (<why it waited>)` when the first frames could not lay it out, `; laid out again Kx after the stock grid came
+  back` when the stock grid came back after it was laid out; or `settings menu: not laid out (<reason>; gave up after N
+  frames)` or `(<reason>; Settings left after N frames)`;
+* no `focus-in` line at all for a return means `EnterSection` never reached MCVS Offline on that return.
+
+Whatever the menu shows, these lines say which precondition failed on the device; send them with the report.
+
+**Flicker.** When the first frame lays the grid out (the order the game's code shows) the stock grid can show for one
+frame, as in build 19 (design risk 2). When the run had to wait, the stock grid shows for the N frames of `after N
+frames` (60 frames are about 1 s); when the stock grid came back after the layout, it shows until the next frame's
+read-back puts it right.
+
+**Checked**: `McvsOffline.sln` (Release), the Android embedded DLL against the APK's assemblies and the PC DLL with
+`Gameloft.Logs`; all four test projects with `MCVS_REFS`, `MCVS_PC_REFS`, `MCVS_APK`, `MCVS_DATAPACK`,
+`MCVS_BUILD_TOOLS`, `MCVS_REQUIRE_REAL_CLIENT=1`, `MCVS_REQUIRE_PC=1`, `MCVS_REQUIRE_PC_E2E=1`, `MCVS_REQUIRE_EMBEDDED=1`,
+`MCVS_REQUIRE_BUILD_TOOLS=1` and `MCVS_REQUIRE_NODE=1`, at `4079f39`: **McvsOffline.Tests 1577/1577,
+McvsOffline.Embed.Tests 1177/1177, McvsOffline.PcKit.Tests 63/63, McvsOffline.PcSpike.Tests 62/62, 0 skipped** (2,879;
+build 19's was 2,844). New tests (`SettingsMenuReturnTests` and additions to the layout, contract, registry and
+member tests): the fake host now runs frames as the game does (the context drain, delayed posts, the Flash frame), and
+the fake Flash tree models a return: `setup()` restocking the grid after `EnterSection`, Steam's new instances, a popped
+submenu still answering `getMenuOnTopOfStack` for K frames and the stock grid coming back K frames after the return
+(the last two have no source in the game's code; they pin what the run does if the device does that). They check the
+grid after the first entry and after every return (each tab, PERFORMANCE, ABOUT/HELP/LANGUAGES/ACCOUNTS, the restart
+prompt, after a match) on both platforms, the one line per run, the tile and the Gameplay rows across retries; 23 of
+the first set fail on build 19's code, and the review's 7 on the code before the review. The test
+`UninstallGivesBackTheOriginalTreePlusTheData` no longer depends on the date (it failed after 2026-11-02T18:00Z). The
+real Android and Steam assemblies have `GameSynchronizationContext.DelayedPost`, which the run uses for its later frames.
+The APK was built with `--build-tools` and verified as above; its server DLL is the built one byte for byte. The kit
+published, its `check-server` passed on the PC server DLL (every PC hook (17), `Gameloft.Logs`, only allowed references),
+and its assembly carries that DLL byte for byte. The PC end to end on Linux (§12.6) on a temp copy of the Steam files:
+`install`, `verify`, `status` (`installed, current`, `activation: NOT VERIFIED` before a start), a second install with
+the same bytes, `uninstall` restoring the exact listing and every SHA-256; ILVerify the same findings as the stock files,
+the server DLL clean. Not run in build 20 (no installer code changed): the upgrade over an older install (build 19's run
+over build 18 stands). The expected `verify` values are re-recorded in [design/pc-port.md](design/pc-port.md) §13.1 and
+[PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7 (build 19's are in §13.2): every DLL changed with the server DLL, the config
+is build 16's (`3ebe99b3…f94c`), `serverBuild` is `20`.
+
+**Not tested** on a phone or on Windows, like build 19 itself (every build-19 check below still applies).
+
+### Checklist (phone and PC)
+
+1. Open Settings from the main menu: the shorter grid (build 19's layout), with no visible flash of the stock grid, or
+   say how long it shows.
+2. Open each tile and press Back, each one at least twice: GAMEPLAY SETTINGS, AUDIO, ACCOUNTS, HELP, LANGUAGES, ABOUT,
+   CUSTOMIZE CONTROLS (phone), PERFORMANCE (phone: our page; PC: Steam's). After every Back the shorter grid, with no
+   SOCIAL MEDIA, FORUM, CUSTOMER CARE or MORE GAMES, and ABOUT in its place (no drift on PC after five round trips).
+3. On the phone, change GRAPHICS SETTINGS on the PERFORMANCE page and press Back: the restart prompt and, behind it,
+   the shorter grid; then No, and the grid stays.
+4. Play a match, return to the main menu, open Settings, then a tab and Back: the shorter grid each time.
+5. Phone: Gameplay Settings (main menu and in a match) still without GRAPHICS SETTINGS and FRAME RATE LIMIT; the
+   PERFORMANCE tile opens the PERFORMANCE page after every return.
+6. Send `server.log` with every `settings menu:` line of the session, and say for which return the screen was wrong,
+   if any.
+
+## Build 19 (October 2026): a shorter Settings menu, and Steam's PERFORMANCE page on the phone
+
+### What build 19 contains
+
+`41c1407` on `wip/pc-port` (`McvsVersion.Build` is `19`; the code is the merges of `wip/b19-contracts`, `-registry`,
+`-grid`, `-page` and `-backend`, the integration commit `6d02c28` and the review fixes `41c1407`, below; the first
+build-19 APK `mcvs-offline-922ce02.apk` and kit `effcc07a…0aef` are replaced, and either installs over them). APK: `mcvs-offline-41c1407.apk` (SHA-256
+`72a40d9c50933492f0b4ad1a574c3ac5024b84e4aefff05341205ad74d38bde6`; default patch set, unchanged since build 17; the same key as every build: certificate SHA-256
+`fc0db84e…7d16`, targetSdk 35, both ABIs, `isGame` and `appCategory`, zipalign OK); it installs over build 18 as
+usual. Compared entry by entry with build 18's `mcvs-offline-9e21ead.apk`: the same 952 entries in the same order; changed only the server DLL (2,562,560 → 2,650,112 bytes), the signature files and the 16 MVID bytes of `Game.dll`, `Gameloft.Engine.dll`, `Gameloft.Util.dll` and `NicePlaySDK.dll` ([design/pc-port.md](design/pc-port.md) §13.1). The PC kit
+`McvsOffline.PcKit.exe` (win-x64, one file, SHA-256 `9f7302dde8bc829df1346989a81d1d947ad2e99b7a20d220dabb29dbcdf56089`) replaces build 18's; build 18's Windows checks (whether
+`Game` now comes from `McvsOffline\bin`) still stand and come first. The design is
+[design/settings-menu.md](design/settings-menu.md).
+
+**The owner's request.** The game's Settings menu shows tiles that cannot work offline (SOCIAL MEDIA, FORUM, CUSTOMER
+CARE, and MORE GAMES on the phone); remove them and centre what is left. On the phone, add the Steam version's
+PERFORMANCE tile with its options, less those that mean nothing on a phone, and take GRAPHICS SETTINGS and FRAME RATE
+LIMIT out of Gameplay Settings. Nothing in the game's files changes: MCVS Offline puts its own handlers on the game's
+menu functions while the game runs (no new patch; the APK's game files are build 18's except for their MVIDs).
+
+**What each Settings screen now looks like.**
+
+* **PC (Steam), main-menu Settings:** two centred rows of three, GAMEPLAY SETTINGS, AUDIO, ACCOUNTS / HELP, LANGUAGES,
+  PERFORMANCE, and ABOUT alone, centred, below them. SOCIAL MEDIA, FORUM and CUSTOMER CARE are hidden. Every page
+  behind the tiles is Steam's own and unchanged (PERFORMANCE keeps its nine rows), and so is the in-match Settings
+  panel. ABOUT no longer drifts sideways after visits to a submenu (Steam moved it relative to its last place).
+* **Phone, main-menu Settings:** GAMEPLAY SETTINGS, AUDIO, CUSTOMIZE CONTROLS, ACCOUNTS in the first row (where the
+  stock row 1 was), HELP, LANGUAGES, **PERFORMANCE** centred under it, ABOUT alone at the bottom. FORUM, SOCIAL MEDIA,
+  CUSTOMER CARE and MORE GAMES are hidden; the PERFORMANCE tile is the game's own FORUM tile with the game's own
+  PERFORMANCE title (translated) and icon. The in-match Settings panel (AUDIO, GAMEPLAY, CUSTOMIZE) is unchanged: it
+  cannot get a PERFORMANCE tile without editing the game's files.
+* **Phone, PERFORMANCE page** (the main menu only; no category headers, as on Steam):
+
+  | Row | Choices | What it changes | When |
+  |---|---|---|---|
+  | GRAPHICS SETTINGS | AUTO, MID, HIGH, ULTRA | `graphics.profile` (the same as the settings page's Graphics profile; also resets the game's own relative step so AUTO is the phone's choice) | next start: back on the Settings grid a confirm popup (the game's own texts) offers to restart now |
+  | ANTIALIASING (English) | OFF, 2x, 4x, 8x | `graphics.msaa` → GameOptions `renderTargetMSAA` | next start, same popup |
+  | SCREEN SCALE (English) | slider 0-100 % | `graphics.renderScale` → `RenderTargetSizeScale` (Steam's formula: 0 is 40 %, above 97 is full) | at once while dragging; stored when the page closes |
+  | FRAME RATE LIMIT (the game's own row, translated, with its battery 'i') | 30, 60, 90, 120, UNLIMITED | the game's `MaxFramerate`; 90 and 120 are new, and a stored choice is carried over to the longer list once (`graphics.fpsListVersion`) | at once |
+  | LOW RESOLUTION MAPS (English) | OFF, ON | `graphics.lowResMaps` → the levels' low-end layers | next level load (next match) |
+
+  Until a row is changed it shows what the game uses now (`auto`); SCREEN SCALE shows the scale matches render at (the
+  menu itself renders at full scale). FULLSCREEN, SCREEN RESOLUTION and VSYNC are left out (nothing to switch on a phone:
+  the game's VSync and Steam's frame limiter are empty functions in the Android engine); FIELD OF VIEW stays in Gameplay
+  Settings, where the phone already has it.
+* **Phone, Gameplay Settings** (main menu and in a match): GRAPHICS SETTINGS and FRAME RATE LIMIT (with its 'i') are
+  gone, with no gap and no empty header; every other row is where it was. FRAME RATE LIMIT is therefore changed only on
+  the main-menu PERFORMANCE page (the owner's choice); the stored limit keeps applying at every start.
+
+**The settings to turn it off** (settings page, or `settings.json`; both apply the next time Settings opens):
+`admin.settingsMenu.trim` (Settings › Gameplay › **Shorter Settings menu**, both platforms: off brings the stock grid
+back) and `admin.settingsMenu.performance` (Settings › Gameplay › **PERFORMANCE in the Settings menu**, phone only: off
+removes the tile, puts the two Gameplay rows back, and from the next start the game's own 30/60/UNLIMITED list with the
+stored choice mapped back). The values themselves are on the phone's settings page under Graphics: `graphics.msaa`,
+`graphics.renderScale`, `graphics.lowResMaps` (`auto` = the profile's own; a change there applies at the next start); a bad value can be fixed there. When the
+grid cannot be laid out, it stays as the game draws it, the two Gameplay rows stay, and `server.log` says why in a
+`settings menu: … not laid out (…)` line; a page that cannot be built shows the stock rows and logs `performance page
+not built (…)`.
+
+**How it works, in short.** The game's Flash menus call C# "native functions"; the engine lets anyone add a delegate
+to one, and the last answer wins. A timer puts ours back every 2 s if the game re-registers its own. `EnterSection` on
+the Settings grid posts the layout step (it reads every tile first and writes nothing unless all are there);
+`GoToForum` opens the PERFORMANCE page while the tile is ours (otherwise it is the game's forum again);
+`CanChangeGraphicSetting`/`CanChangeMaxFramerate` answer `false` outside the page, so the game never builds the two
+Gameplay rows; on the page they let the game build its rows, and a posted step turns them into the five Performance
+rows. That step's own writes fire the menu's change handlers; while it runs, every preference write is ignored (the
+design review's E1), so opening the page never stores anything.
+
+**Checked**: `McvsOffline.sln` (Release), the Android embedded DLL against the APK's assemblies and the PC DLL with
+`Gameloft.Logs`; all four test projects with `MCVS_REFS`, `MCVS_PC_REFS`, `MCVS_APK`, `MCVS_DATAPACK`,
+`MCVS_BUILD_TOOLS`, `MCVS_REQUIRE_REAL_CLIENT=1`, `MCVS_REQUIRE_PC=1`, `MCVS_REQUIRE_PC_E2E=1`, `MCVS_REQUIRE_EMBEDDED=1`,
+`MCVS_REQUIRE_BUILD_TOOLS=1` and `MCVS_REQUIRE_NODE=1`, at `922ce02`: **McvsOffline.Tests 1576/1576, McvsOffline.Embed.Tests 1141/1141, McvsOffline.PcKit.Tests 63/63, McvsOffline.PcSpike.Tests 62/62, 0 skipped** (2,842; build 18's run was 2,623); after the review fixes, at `41c1407`: 1577/1577, 1142/1142, 63/63, 62/62 (2,844). New tests: the native registry on a
+fake native table with the engine's dispatch rules (re-registration, one delegate per name, a throwing step, the forum
+tap, no host), every game member used resolved by signature in the real Android and Steam assemblies, the grid plans
+and their all-or-nothing writes on a fake Flash tree of both panels, the page transform on the real row order (the
+exact five rows, the write order, nothing stored by the transform although every change handler runs, no donor
+preference written), the writes (SCREEN SCALE live and stored once whatever order the saves run in), the restart prompt,
+and the back end on the real `GameOptions_android.json` (MSAA, the 90/120 list, the index migration including a
+VeryLowGPU phone, the scale and the low-end layers). The integration tests were checked to fail on the code they guard. The APK was built with `--build-tools` and verified
+as above. The kit published, its `check-server` passed on the PC server DLL (every PC hook (17), `Gameloft.Logs`, only
+allowed references), and its assembly carries that DLL byte for byte. The PC end to end on Linux (§12.6) with the kit's
+Linux build on temp copies of the Steam files: `install`, `verify`, `status` (`installed, current`, `activation: NOT
+VERIFIED` before a start), a second install with the same bytes, `uninstall` restoring the exact listing. Upgrade: over
+a build-18 install (a `ce90194` patcher), `status` says `installed, OLDER BUILD - OLDER BUILD (18; this kit installs
+build 19): run install …` and `verify` fails (exit 1); `install` over it writes exactly the bytes of §13.1, then
+`installed, current`. The expected `verify` values are re-recorded in [design/pc-port.md](design/pc-port.md) §13.1 and
+[PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7 (build 18's are in §13.2): every DLL changed with the server DLL, the config
+is build 16's (`3ebe99b3…f94c`), `serverBuild` is `19`.
+
+**Review fixes (`41c1407`).** (1) On the settings page, Screen scale and Low resolution maps were marked `live` and
+`menu`, but nothing applies a save of the page's copy of `settings.json` to the running engine: the host reads its own
+copy at start, and only the game's PERFORMANCE page applies its own changes live. Both are `restart` keys now, with help
+saying so (a test pins every Graphics key to `restart`; the game's page still applies SCREEN SCALE at once and LOW
+RESOLUTION MAPS from the next match). (2) The restart prompt now follows the values the game started with: a GRAPHICS
+or ANTIALIASING change put back before leaving the page asks for no restart (it used to stay pending and restart for
+nothing). Both new tests fail on the code before the fix. The APK, the kit and the §13.1 values were rebuilt and
+re-recorded from the same runs as above (APK compared entry by entry with build 18's and with `922ce02`'s: only the
+server DLL, the signature files and the four MVIDs differ; the PC end to end, fresh install, ILVerify, second install
+and uninstall repeated; the upgrade run from build 18 was not repeated, no installer code changed). Integrator note:
+the five build-19 package merges (`3fc37a4`, `54e247f`, `3c4175d`, `0836cae`, `3dc44ea`) lack the `Co-Authored-By` and
+`Claude-Session` trailers; the branch is pushed, so history is not rewritten, and later `--no-ff` merges carry them.
+
+**Not checked (untested)**: **nothing ran on a phone or on Windows.** In particular: the layout and centring on real
+screens and whether the stock grid flashes for one frame before ours; whether the hidden tiles can still be reached (a
+tap on their place; on PC the keyboard and a gamepad); whether gameswf accepts the page transform as the fakes do
+(the first PERFORMANCE visit logs one `spike` line that says so); whether SCREEN SCALE and ANTIALIASING change the
+picture on the S22's Mid profile, whether 8x works on its GPU, and whether 90/120 FPS go above 60 on its 120 Hz panel
+(Samsung may hold a game at 60; then the list falls back to 30/60/UNLIMITED in a later build); the restart on Android
+13+ (it may only close the game; the choice is kept either way).
+
+### What to check on the PC and the phone (build 19)
+
+**PC first** (build 18's steps 1-4 first if they have not been done: `Game` from `McvsOffline\bin`, `store yes, inbox
+yes`):
+
+1. Close the game, run this kit's `status` over the build-18 install: `installed, OLDER BUILD - OLDER BUILD (18; this
+   kit installs build 19): run install …`. Run `install`, then `verify` (the six values of
+   [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7, exactly).
+2. Start the game, open Settings from the main menu at 1920×1080: two rows of three tiles, centred (GAMEPLAY SETTINGS,
+   AUDIO, ACCOUNTS / HELP, LANGUAGES, PERFORMANCE), ABOUT alone and centred below; no SOCIAL MEDIA, FORUM, CUSTOMER
+   CARE. `server.log`: `settings menu: frame 1, 6 tiles + ABOUT laid out`. Once more in a windowed 16:10 size.
+3. Every tile opens its own page (PERFORMANCE: Steam's nine rows); after each, Back: the grid is the same, ABOUT has not
+   moved (five round trips).
+4. The hidden tiles: click where SOCIAL MEDIA, FORUM and CUSTOMER CARE were: nothing. With the **keyboard** (arrows,
+   Tab, Enter) and a **gamepad** (d-pad, A), walk the whole grid: focus never lands on an invisible tile and never
+   opens one. Report any step where focus disappears.
+5. In a match: Settings shows Steam's in-match panel, unchanged.
+6. Settings page › Gameplay › Shorter Settings menu off, reopen Settings: the stock grid; back on.
+
+**Phone (S22), install build 19 over build 18:**
+
+1. Main menu › Settings: row 1 GAMEPLAY SETTINGS, AUDIO, CUSTOMIZE CONTROLS, ACCOUNTS; row 2 HELP, LANGUAGES,
+   PERFORMANCE, centred under it; ABOUT alone and centred. No FORUM, SOCIAL MEDIA, CUSTOMER CARE, MORE GAMES; a slow-motion
+   video of opening Settings and of returning from a submenu (does the stock grid flash for a frame?). `server.log`:
+   `settings menu: frame 3, 7 tiles + ABOUT laid out`.
+2. Tap where each hidden tile and button was: nothing happens. Every visible tile opens its own page, Back returns to
+   the same grid.
+3. PERFORMANCE opens a page titled PERFORMANCE with exactly GRAPHICS SETTINGS, ANTIALIASING, SCREEN SCALE, FRAME RATE
+   LIMIT, LOW RESOLUTION MAPS, no headers. `server.log`: `performance page: 5 rows` and the one `spike` line (copy it).
+   Opening it must not change any value: the settings page's Graphics values still say `auto`.
+4. Each row:
+   * GRAPHICS SETTINGS to HIGH, Back: the restart popup; **Yes** restarts (on Android 13+ it may only close: start it
+     again), and the `[boot] graphics:` line says `HighGPU`. Back to AUTO the same way, once answering **No** (the
+     next start applies it).
+   * ANTIALIASING 4x (then 8x), restart: the `[boot] graphics:` line has `renderTargetMSAA 4` (8); edges in a match look
+     smoother; note any glitch or crash at 8x.
+   * SCREEN SCALE: drag to 0 and back up while watching the background: the picture gets blurrier and sharper at once.
+     Leave it at 50, Back, start a match: still at 50 (blurrier than before); the settings page shows `50`.
+   * FRAME RATE LIMIT: 90, then 120, then UNLIMITED, each in a match with an FPS counter (Game Booster or the developer
+     options' frame rate overlay): the frame rate you see at each. If 90/120 never go above 60, say so (and whether
+     Game Booster's own frame rate setting was on).
+   * LOW RESOLUTION MAPS ON, start a match: plainer level geometry/textures; OFF again: back to normal.
+5. Gameplay Settings from the main menu: no GRAPHICS SETTINGS row, no FRAME RATE LIMIT row and no 'i' button at the
+   bottom, no empty header; FIELD OF VIEW is still there. The same in a match (Settings › GAMEPLAY), also in a match
+   started before opening Settings from the main menu.
+6. Settings page › Gameplay › **PERFORMANCE in the Settings menu** off, reopen Settings: FORUM gone, no PERFORMANCE,
+   row 2 is HELP and LANGUAGES; Gameplay Settings has both rows again; after a restart FRAME RATE LIMIT lists 30, 60,
+   UNLIMITED with your choice kept. Back on. Then **Shorter Settings menu** off: the stock grid with the PERFORMANCE
+   tile in FORUM's place. Back on.
+7. As always: boot to the menu, one Classic bot match, the shop, the MCVS Offline page.
+
+## Build 18 (October 2026): MCVS Offline itself loaded the game's own Game.dll at start
+
+### What build 18 contains
+
+`9e21ead` on `wip/pc-port` (`McvsVersion.Build` is `18`; the code is the merge `ef0057c` of `wip/b18-gameload`). APK:
+`mcvs-offline-9e21ead.apk` (SHA-256 `5981f1098151f61a8a3d9204514e2351a510fe9f70490521f0c6354c861023b8`; default
+patch set, unchanged since build 17; the same key as every build: certificate SHA-256 `fc0db84e…7d16`, targetSdk 35,
+both ABIs, `isGame` and `appCategory`, zipalign OK); it installs over build 17 as usual. Compared entry by entry with
+build 17's `mcvs-offline-a8742ab.apk`: the same 952 entries in the same order; changed only the server DLL, the
+signature files and the 16 MVID bytes of `Game.dll`, `Gameloft.Engine.dll`, `Gameloft.Util.dll` and `NicePlaySDK.dll`
+([design/pc-port.md](design/pc-port.md) §13.1). The PC kit `McvsOffline.PcKit.exe` (win-x64, one file, SHA-256
+`186c1bcb21b46aea633aea888fc6eae531bcdcad73d5027ab660269cd117b28e`) replaces build 17's.
+
+**The owner's build-17 log** (Windows, 2026-10-30, with build 16's config in effect). Every redirected file but one
+came from `McvsOffline\bin`, and the boot line said `gameload yes`, yet:
+
+```
+[boot] +0.109 s assemblies: EngineBridge …\McvsOffline\bin\EngineBridge.dll (McvsOffline\bin)       (and Gameloft.Engine, McvsOffline.Server)
+[game] Game is not loaded yet: the client's patches are probed when it loads
+[boot] +0.125 s assemblies: Gameloft.Util …\McvsOffline\bin\Gameloft.Util.dll (McvsOffline\bin)
+[boot] +0.140 s install: current
+[boot] +0.187 s assemblies: Game …\Modern Combat Versus\Game.dll (GAME FOLDER): the .exe.config redirect did not apply
+[boot] +0.187 s patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload yes, store NO, inbox NO
+[boot] +0.187 s install: installed, NOT ACTIVE (Game loaded from the game folder; the 'store' patch is missing; …)
+[boot] +0.250 s offline server listening at http://127.0.0.1:51780/
+```
+
+The game then ran its own `Game.dll`: none of the fixes in that file (store, signatures, inbox, the settings-page
+button, the bot match) were active.
+
+**Cause (found by reading the code; the timing in both Windows logs fits; not yet confirmed on Windows).** `Game`
+was loaded between `install: current` and `server listening`, which is the host's start thread
+(`EmbeddedHost.RunServer`). On that thread `CreateAdminHost` called `GameReflection.Load()`, which looked up
+`Type.GetType("Game.PlayerProfileComponent, Game", false)` and `Type.GetType("Game.UISceneExtentions, Game", false)`
+for the settings page's "save now". `"Game"` there is a **partial** assembly name: .NET applies no application-config
+policy to it, so the `<codeBase>` of `ModernCombatVersus.exe.config` was ignored, the loader probed the exe folder and
+loaded the **stock** `Game.dll` next to the exe. When the engine later loaded `Game` by its full name (the `gameload`
+patch), the `Game` already loaded was what it got. The same call ran in every WR2 start (build 13 had it), so it most
+likely also explains **WR2's F1** (`Game` from the game folder in 15/15 starts), which was put down to the engine's
+bare-name load. So `gameload` has never had a chance to run first: whether its full name gets the codeBase is still
+open ([design/pc-port.md](design/pc-port.md) §8.9, Q1, Q15). The start thread runs beside the game thread, so the
+timing alone cannot rule out an engine load that also missed the codeBase; the load stack below settles it.
+
+**The fix.** MCVS Offline's own code never makes the runtime load a game assembly:
+
+* `GameReflection.Load` binds lazily, only from assemblies that are **already loaded** (`LoadedTypes.Find`:
+  `AppDomain.GetAssemblies()` by simple name, never a load), and binds what is still missing on the next use (the
+  settings page's save now, the notification prompt, the exit post). On PC it is unbound at boot and bound once the
+  engine has loaded `Game`. On Android `Game` and `Gameloft.Engine` are loaded from the APK before our start, so
+  nothing changes there.
+* The other lookups by name (watchdog, threading line, graphics, IAP status, `WindowsExit`'s `MenuManager`) take
+  `LoadedTypes.EngineType`: the loaded `Gameloft.Engine` (on PC always loaded before our start); only on Android, when
+  it is not loaded yet, the old partial-name lookup (the APK has one copy and no redirect).
+* Tests with teeth: `GameLoadOrderTests` runs the shipped `GameReflection.cs` and `LoadedTypes.cs` in a load context
+  that serves a look-alike `Game` by partial name and records every request (no request and no load of `Game` before
+  the engine loads it, whatever member is used; bound once it is loaded; a control shows build 17's call is caught);
+  a source scan fails on any `"…, Game"`-style literal of a redirected assembly, any bare-name `Assembly.Load` or
+  `LoadWithPartialName`, and any `Type.GetType` in `hosts/` or `server/` outside `LoadedTypes` and `RuntimeInfo`;
+  `PcEmbeddedAssemblyTests.OnlyRuntimeInfoLoadsByName` checks the built PC DLL's IL the same way.
+
+**The load-stack diagnostic.** When a redirected assembly comes from the game folder, `bootstrap.log` now says who
+loaded it, right under the `GAME FOLDER` line: `[boot] load stack: Game (GAME FOLDER) was loaded by (innermost first):`
+and up to 25 indented `at …` frames (the managed stack inside the `AssemblyLoad` event, our handler's and the
+loader's own frames cut), or `… already loaded when the host started watching, so its loader is unknown`. A second
+signature has no stack: `assemblies: Game (no file) (elsewhere)` means the stock `Gameloft.Sequences` read `Game.dll`
+from bytes because the engine's `gameload` bind itself failed ([design/pc-port.md](design/pc-port.md) §8.9). As the
+spec says, the stack is not widened to that case (a redirected assembly with no `Location`); the docs describe its
+signature instead, and widening it needs the owner's agreement.
+
+**What the next Windows start must show** ([PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7 step 4):
+`assemblies: Game …\McvsOffline\bin\Game.dll (McvsOffline\bin)` and `patches: … gameload yes, store yes, inbox yes`,
+then `status`: `installed, current`, `activation: active at the last start`. If `Game` still comes from the game
+folder, the `[boot] load stack:` lines name the loader (send them with `bootstrap.log`); `Game (no file) (elsewhere)`
+means the `gameload` bind failed (send `collect`).
+
+**Checked**: `McvsOffline.sln` (Release), the Android embedded DLL against the APK's assemblies and the PC DLL with
+`Gameloft.Logs`; all four test projects with `MCVS_REFS`, `MCVS_PC_REFS`, `MCVS_APK`, `MCVS_DATAPACK`,
+`MCVS_BUILD_TOOLS`, `MCVS_REQUIRE_REAL_CLIENT=1`, `MCVS_REQUIRE_PC=1`, `MCVS_REQUIRE_PC_E2E=1`, `MCVS_REQUIRE_EMBEDDED=1`,
+`MCVS_REQUIRE_BUILD_TOOLS=1` and `MCVS_REQUIRE_NODE=1`, at `9e21ead`: **McvsOffline.Tests 1565/1565,
+McvsOffline.Embed.Tests 933/933, McvsOffline.PcKit.Tests 63/63, McvsOffline.PcSpike.Tests 62/62, 0 skipped** (2,623;
+build 17's run was 2,613). The APK was built with `--build-tools` and verified as above. The kit published, its
+`check-server` passed on the embedded DLL (every PC hook (17), `Gameloft.Logs`, only allowed references), and its
+assembly carries that DLL byte for byte. The PC end to end on Linux (§12.6) on a temp copy of the Steam files: `pc
+install`, `verify`, `status` (`installed, current`, `activation: NOT VERIFIED` before a start), a second install with
+the same bytes, `uninstall` restoring the exact listing, ILVerify as the stock files; the owner's build-17 start as the
+last start gives `installed, NOT ACTIVE (Game loaded from the game folder; the 'store' patch is missing; the 'inbox'
+patch is missing)`. Upgrade: a build-17 install (the `b20d12b` patcher), on which this kit's `status` says
+`installed, OLDER BUILD - OLDER BUILD (17; this kit installs build 18): run install …` and its `verify` fails (exit
+1); build 18's `install` over it writes exactly the bytes of §13.1, then `installed, current`. The expected `verify`
+values are re-recorded in [design/pc-port.md](design/pc-port.md) §13.1 and [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md)
+§7 (build 17's are in §13.2): every DLL changed with the server DLL, the config is build 16's (`3ebe99b3…f94c`),
+`serverBuild` is `18`.
+
+**Not checked**: **nothing ran on Windows.** The cause is confirmed only by reading the code and by the timing in the
+owner's build-17 log and WR2's log, until the next Windows start shows `Game` from `McvsOffline\bin` (`store yes,
+inbox yes`) or the new load-stack lines. Nothing on a phone either.
+
+### What to check on the PC and the phone (build 18)
+
+1. **PC, first:** close the game, run this kit's `status` over the build-17 install: `installed, OLDER BUILD - OLDER
+   BUILD (17; this kit installs build 18): run install …`. Run `install`, then `verify` (the six values of
+   [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7, exactly).
+2. Start the game from Steam once. In `McvsOffline\logs\bootstrap.log`: `[boot] assemblies: Game
+   …\McvsOffline\bin\Game.dll (McvsOffline\bin)` and `[boot] patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload yes,
+   store yes, inbox yes`; no `NOT ACTIVE`. After closing the game, `status`: `installed, current`, `activation: active
+   at the last start`.
+3. If `Game` still says `(GAME FOLDER)`: copy the `[boot] load stack:` line and all its `at …` lines, send them with
+   `bootstrap.log` and `collect`; stop there. If it says `Game (no file) (elsewhere)`: send `collect`; stop there.
+4. With `Game` from `McvsOffline\bin`: the rest of WR3 as written ([PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7; build
+   17's PC step 7 in "Build 17" below), in particular Settings › Account › **MCVS Offline** (the button lives in our
+   `Game.dll`) and the settings page's Saves › **Save the game now** (it uses the lazily bound `GameReflection`).
+5. **Phone** (install build 18 over build 17): the settings page still works: open it from Settings › Account › MCVS
+   Offline and from the inbox message; Status loads; Saves › Save the game now finishes; Restart works. As always: boot
+   to the menu, one Classic bot match, the shop.
+
+## Build 17 (October 2026): big unlock codes froze the inbox; the codes now go through the ledger, and the inbox is bounded
+
+### What build 17 contains
+
+`a8742ab` on `wip/pc-port` (`McvsVersion.Build` is `17`; after the review fixes below, which replaced the first cut
+`80378cf`/`96801b4`). APK: `mcvs-offline-a8742ab.apk` (SHA-256 `d4d332f1…16a4`;
+default patch set, now with `inbox`; the same key as every build: certificate SHA-256 `fc0db84e…7d16`, targetSdk 35,
+both ABIs, `isGame` and `appCategory`, zipalign OK); it installs over build 15 as usual (build 16 had no APK).
+Compared entry by entry with build 15 (`mcvs-offline-1a70a5b.apk`): the same 952 entries in the same order; changed
+only the server DLL, `Game.dll` (the `inbox` patch), the signature files and the 16 MVID bytes of
+`Gameloft.Engine.dll`, `Gameloft.Util.dll` and `NicePlaySDK.dll` ([design/pc-port.md](design/pc-port.md) §13.1). The
+PC kit `McvsOffline.PcKit.exe` (win-x64, one file, SHA-256 `804dd546825a27af92712062a3ec8603e114c9c4bc34ebb016b7fcee64fc3ec2`)
+replaces build 16's for WR3. The first cut's APK (`mcvs-offline-80378cf.apk`, `b6bcb82b…2219`) and kit (`ba8a977f…50e5`)
+are superseded: use these.
+
+**The owner's report.** "The game simply freezes when I go to the inbox, but only after redeeming specific codes, not
+all of them."
+
+**Cause.** A redeem code became **one** inbox message holding every reward of the code. Opening the inbox makes the
+game build every reward of every unclaimed message on the game thread (`InboxComponent.GetMessagesObject` →
+`GetObject` → `GenerateRewardsObjects` → `RewardItem.GetObject`; for a camo or a jersey that builds a whole merc or
+scans the accessory table), copies all of it into Flash several times and draws one card per reward of the selected
+message. While the inbox stays open the C# part runs again on every constant frame of every 10th second
+(`RefreshUI`, whose `lastRefreshUIDone` was written and never read). The code's size is the whole difference. The
+right column is predicted from the code ([research/inbox-freeze.md](research/inbox-freeze.md) §2): only the owner's
+report and WR2's freeze with stacked codes (below) were observed, nothing was measured per code:
+
+| code | rewards | predicted on inbox open (build 16, from the code) |
+|---|---|---|
+| `UNLOCKALL` (and `UNLOCKALL2`, case variants) | 11,368 | freezes, practically for good (PC: may end in a crash) |
+| `UNLOCKPAID`, `UNLOCKACCESSORIES`, `UNLOCKCAMOS` | 4,450-5,644 | freezes for minutes, again every 10 s |
+| `UNLOCKPAIDACCESSORIES`, `UNLOCKPAIDCAMOS` | 2,704-2,960 | freezes, shorter |
+| `UNLOCKSIGNATURES` | 1,549 | likely stalls for seconds, every 10 s |
+| `UNLOCKGEARSLOTS`, `UNLOCKSKINS`, `UNLOCKWEAPONS`, `UNLOCKMERCS`, `UNLOCKUNRELEASED` | 6-150 | no freeze |
+
+An unclaimed big message stays in the profile (saved with it) for 7 days, so after one big code **every** later
+inbox visit froze, even after a small code: "the code I just redeemed" was not always the one to blame. WR2's 180 s
+freeze at 19:01 (UNLOCKCAMOS and UNLOCKPAIDCAMOS on top of an unclaimed UNLOCKPAID, 12,798 rewards) is this.
+
+**Direct grant (the owner's choice).** Every `UNLOCK*` code (the built-in ones, numbered repeats, any letter case, and
+own codes whose name starts with `UNLOCK`) is now delivered through the inventory ledger, like `"unlockAll": true`
+(`UnlockGranter.GrantKeys`, [protocol/unlocks.md](protocol/unlocks.md) "Unlock codes"): a backup of the profile
+first (reason `unlockcode`), the agents alone in the first batch, then the rest in batches of `unlocks.batchSize`
+(400) with a `set_profile` alert each, `unlocks.batchDelaySeconds` (10) apart. The redeem answer is an empty list.
+What the player sees:
+
+* the game says the code was redeemed, at once;
+* **one empty "Coupon" message** in the inbox: nothing to claim, it goes after 7 days;
+* the items arrive in batches with a rewards popup each: about 30 popups over a few minutes for `UNLOCKALL`; stay in
+  the menus until they stop. A code not finished when the game closes carries on after the next start
+  (`<data>/unlocks/codes.json`);
+* a repeat (`UNLOCKALL2`, or `UNLOCKCAMOS` after `UNLOCKALL`) writes only keys the ledger lacks, so usually nothing; the
+  duplicate compensation the old inbox claim paid for owned agents is gone. Items owned from play, crates, the store or
+  an old inbox claim are not in the ledger and count as new once (the game pays its usual duplicate gear for an agent);
+* in LAN mode (a guest's code would arrive on this device's menu server) and when the server cannot tell whose profile
+  it is, the code is refused: the game says it does not exist, nothing changes, and `server.log` says why.
+
+`server.log`: `unlock code <CODE>: granting <n> of <m> unlock keys to <account> ...` and `... done, <n> keys written in
+<b> batch(es) (<k> already in the inventory ledger)`. A code that is **not** a ledger code still goes to the inbox
+as one message and may hold at most 300 rewards: a bigger one is refused with a WARN line ("would freeze the game's
+inbox"). The settings page (Settings › Unlocks & codes) says the codes arrive in batches, not through the inbox, and
+its code list warns about an own inbox code above 300 rewards and about a ledger code with rewards the ledger cannot
+give (quantity other than 1); the page's `GET /_mcvs/api/v1/codes` carries each code's delivery and reward count. Details:
+[ECONOMY.md](ECONOMY.md), [protocol/content.md](protocol/content.md) "Coupons".
+
+**The `inbox` patch (Game.dll, Android 1.17.32 and PC 1.17.30, default on both).** It bounds the inbox's cost
+whatever a profile holds, so it also **rescues profiles that already hold a giant message** from build 16 or earlier
+(and any other big message):
+
+* the inbox list shows at most the **first 30 rewards** of a message, plus every Gear reward (the game's
+  "gear inventory full" warning looks for them); the rewards past 30 are never built. `GetObject` adds
+  `RewardsTotal` (the message's reward count);
+* the claim popup lists the first 30, but **Claim still grants every reward** of the message and removes it
+  (`ClaimRewardsForMessageRequest` is not touched);
+* `RefreshUI` refreshes once per 10 s window instead of on every frame of every 10th second;
+* each reward is built in a try/catch: one that throws is logged (`inbox reward <id> is left out of the inbox list`)
+  and left out instead of ending the process;
+* PC only: `KillSignatureRewardItem.IsRandom` gets the null check Android already has (an own coupon with a kill
+  signature and no id).
+
+On PC the boot line names it (`[boot] patches: … store yes, inbox yes`); on Android the server log's Debug line
+`Game.dll: … 'inbox' patch present` and the settings page's Status show it (Android writes no `[boot] patches:` line).
+The settings page's Status warns when the running Game.dll lacks it (a banner, "The game was patched without MCVS Offline's 'inbox' patch: opening the inbox freezes the
+game while a big redeem-code message … is unclaimed", and `Game patches: missing: inbox`).
+[PLAYER-SETUP.md](PLAYER-SETUP.md) §4, [design/pc-port.md](design/pc-port.md) §8.1.
+
+**PC kit.** `inbox` is a witness of the kit now (`PcInstaller.Witnesses["inbox"]`, `Game.McvsInbox`; §3.9 is no
+longer open): `verify` and `status` re-read it in `McvsOffline\bin\Game.dll` like `store`, and the contract test
+holds the three copies equal. The expected WR3 values are re-recorded ([design/pc-port.md](design/pc-port.md) §13.1,
+[PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7): `Game.dll` changed with the patch; EngineBridge, Gameloft.Engine,
+Gameloft.Util with the server DLL; the config is build 16's (`3ebe99b3…f94c`); `serverBuild` is `17`.
+
+**Review fixes (`2ce6ee4`, `a8742ab` and the docs after them).**
+
+* The kit's `status` and `verify` call an install of an older build `installed, OLDER BUILD - OLDER BUILD (16; this
+  kit installs build 17): run install to update it (your saves and settings stay)`, and `verify` fails on it (exit 1).
+  Before, build 17's kit called a build-16 install `installed, current`: it records only build 16's patches, so the
+  missing `inbox` had no witness to miss, and a build-16 server still sends the unlock codes to the inbox as one
+  message (the freeze). The kit compares `install.json`'s `serverBuild` with `McvsVersion.Build` of the server DLL it
+  carries (`PcInstaller.ServerBuildOf`, or `--server`'s); DAMAGED, STALE and NOT ACTIVE keep their state and get the
+  same problem line ([design/pc-port.md](design/pc-port.md) §7.6). Tests: `PcOlderBuildTests`,
+  `KitCommandTests.StatusAndVerifyCallAnInstallOfAnOlderBuildOlder`.
+* The settings page's code list: a numbered repeat "gives only what an earlier code or unlockAll did not already give
+  (items from play, crates, the store or an old coupon message count as new once)", instead of "only what is still
+  missing" (the ledger does not know what an old inbox claim gave). This changed the server DLL, so the APK, the kit
+  and every expected WR3 value were rebuilt and re-recorded.
+* Docs: the checklist below gained step 3 (a code on items an old message gave) and PLAYER-SETUP-PC step 8a (WR2's
+  old coupon messages on the PC); the per-code table says it is predicted; the boot line is PC only;
+  [ARCHITECTURE.md](ARCHITECTURE.md) and [protocol/content.md](protocol/content.md)'s device checklist no longer
+  describe the codes as one inbox message; the investigation is in the repo now,
+  [research/inbox-freeze.md](research/inbox-freeze.md); PLAYER-SETUP-PC step 1 had kept build 16's kit hash.
+
+**Checked**: `McvsOffline.sln` (Release), the Android embedded DLL against the APK's assemblies and the PC DLL with
+`Gameloft.Logs`; all four test projects with `MCVS_REFS`, `MCVS_PC_REFS`, `MCVS_APK`, `MCVS_DATAPACK`,
+`MCVS_BUILD_TOOLS`, `MCVS_REQUIRE_REAL_CLIENT=1`, `MCVS_REQUIRE_PC=1`, `MCVS_REQUIRE_PC_E2E=1`, `MCVS_REQUIRE_EMBEDDED=1`,
+`MCVS_REQUIRE_BUILD_TOOLS=1` and `MCVS_REQUIRE_NODE=1`, at `a8742ab`: **McvsOffline.Tests 1564/1564,
+McvsOffline.Embed.Tests 924/924, McvsOffline.PcKit.Tests 63/63, McvsOffline.PcSpike.Tests 62/62, 0 skipped** (2,613;
+the first cut's run was 2,599, and its first Embed run found three tests the `inbox` branch had not updated for the
+real APK, the note totals and P5's Android output, fixed in `80378cf`). `PcInstallerTests.RealFolderEndToEnd` ran
+with `inbox` in the PC set: every recorded witness present, ILVerify findings equal to the stock files'. The
+content-gen tests: 32/32. The PC end to end on Linux (§12.6) on a temp copy of the Steam files: `pc install`,
+`verify`, `status` (`installed, current`, `activation: NOT VERIFIED` before a start), a second install with the same
+bytes, `uninstall` restoring the exact listing; a build-16 install (the `c2b5076` patcher) upgraded by build 17's
+`install` to exactly the bytes of §13.1 (before that, the build-17 kit's `status` says `installed, OLDER BUILD` and its
+`verify` fails; the patcher CLI, which does not compare, says `installed, current`). The APK compared with the first
+cut's: only the server DLL, the signature files and the 16 MVID bytes of `Game.dll`, `Gameloft.Engine.dll`,
+`Gameloft.Util.dll` and `NicePlaySDK.dll` differ. Not checked: anything on a phone or on Windows; the timing of the
+batches and popups in the real game.
+
+### What to check on the phone and the PC (build 17)
+
+Install build 17 over build 15 (no uninstall); the PC: `install` over build 16. Use a **copy** of a profile for the
+code tests (settings page › Saves › Export first, or a fresh profile).
+
+1. **UNLOCKALL on a profile copy.** Settings › Account › Redeem code `UNLOCKALL`: the game says the code was redeemed
+   at once. Open the inbox: it opens **at once** and shows one empty "Coupon" message with nothing to claim. Stay in
+   the menus: rewards popups arrive about every 10 s (about 30), then `server.log` says `unlock code UNLOCKALL: … done,
+   … keys written in … batch(es)`. Afterwards the agents, camos, jerseys and signatures are owned (Agents screen,
+   loadout, kill-signature screen). No `[watchdog] STALL` of more than a few seconds during the popups.
+2. **A profile that already holds an old giant message** (one redeemed on build 16 or earlier and never claimed, for
+   example the owner's stuck profile, or a save from before build 17 with an unclaimed `UNLOCKCAMOS`): open the inbox:
+   it opens **within seconds**, the message shows 30 rewards; staying in the inbox does not freeze every 10 s. Press
+   **Claim**: the popup lists 30, and afterwards **everything** of the message is owned (camos and jerseys of every
+   agent); the message is gone. Repeat with UNLOCKALL's old message if one is at hand.
+3. **A code on what step 2 claimed.** On the same profile copy, which now owns the old message's items from the
+   inbox (not in the ledger): redeem `UNLOCKCAMOS2` (or `UNLOCKPAIDCAMOS` after an old `UNLOCKPAIDCAMOS`). The code
+   writes those keys again and the game claims them again: the one path nobody has seen
+   ([protocol/unlocks.md](protocol/unlocks.md), open items). Record the batches, the popups, any `[watchdog] STALL`,
+   what the duplicate camos and jerseys turn into (nothing, a second copy, gear or currency) and the gear inventory
+   (full?).
+4. **Small codes.** `UNLOCKMERCS`, `UNLOCKSKINS` (fresh profile copy): redeemed, items arrive (ledger, a popup or
+   two); a repeat (`UNLOCKMERCS2`) gives nothing new and no error. `MCVSOFFLINE` still opens the settings page.
+5. **Settings page.** Settings › Unlocks & codes: the text says the codes arrive in batches, not in the inbox; an
+   own inbox code with more than 300 rewards in `settings.json` `assets.coupons` shows its warning in the code list
+   and is refused when redeemed (WARN "would freeze the game's inbox"). Status: no `inbox` warning with build 17; a
+   Game.dll without the patch (an APK patched with `--patch` without `inbox`) shows the banner and `Game patches:
+   missing: inbox`.
+6. **LAN mode on**: redeem `UNLOCKSKINS`: the game says the code does not exist; `server.log` says why. Turn LAN off.
+7. **PC (WR3)**: before `install`, the build-17 kit's `status` over the build-16 install says `installed, OLDER
+   BUILD - OLDER BUILD (16; this kit installs build 17): run install …`; after it, PLAYER-SETUP-PC step 4's
+   `[boot] patches:` line ends `store yes, inbox yes`; `verify` prints the values of
+   [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7; steps 8a (WR2's old coupon messages: 30 shown, Claim gives all) and 8b
+   as written there (one empty Coupon message, the batches with a popup each, the `done` line).
+8. As always: boot to the menu, one Classic bot match, the shop, the page (Status, Settings, Saves › Save now).
+
+## Build 16 (PC only, October 2026): the config that kept MCVS Offline from starting, and start diagnostics
+
+### What build 16 contains
+
+`McvsVersion.Build` is `16` on `wip/pc-port`. **PC only**: no server code changed for Android, so there is no new APK
+(build 15's `mcvs-offline-1a70a5b.apk` stays current on the phone). The kit `McvsOffline.PcKit.exe` (win-x64, one file,
+SHA-256 `06235ac9f0cf6339bb201ffb32b9c9b14fb3c98453d0a2604a16470c0c31ae41`) replaces build 15's for WR3.
+
+**The regression (builds 14 and 15).** Build 14 added one `<qualifyAssembly partialName="X" fullName="X, Version=…,
+Culture=neutral, PublicKeyToken=null" />` per redirected assembly to `ModernCombatVersus.exe.config` (§7.4; config
+SHA-256 `fda12aef…c4b6`, unchanged in build 15). The owner installed build 14 on the PC and the game "fails to connect":
+our server never started. Copying the files of `McvsOffline\bin` next to `ModernCombatVersus.exe` made it work. While a
+`<codeBase>` applies, .NET never uses a copy next to the exe, so the copy can only have mattered if .NET was **not using
+our config at all**: the stock `EngineBridge.dll` loaded, and none of our code ran (no server, no `bootstrap.log`). The
+kit could not see this: with no `bootstrap.log`, `status` still said `installed, current`.
+
+**Cause (H-A, confirmed on Windows by the owner).** The .NET Framework assembly loader (fusion) parses the whole
+`<assemblyBinding>` section at once. In the only published fusion source (SSCLI 2.0), a `<qualifyAssembly>` whose
+`fullName` has `PublicKeyToken=null` (every game assembly: none is strong-named) fails the parse with `E_UNEXPECTED`, and
+the loader then throws away everything it parsed, the five `<codeBase>` entries included, and runs with no app policy.
+Build 13's config (no `<qualifyAssembly>`) was proven on WR2: 4 of 5 assemblies came from `McvsOffline\bin`. The CLR 4
+loader in `clr.dll` is not public, but the owner's A/B test on Windows settles it: with build 14's installed config,
+deleting only the five `<qualifyAssembly>` lines (nothing else changed, the stock DLLs back after Steam › Verify) made
+the server start. Which file `Game` itself bound from in that run was not reported, so the gameload claim below stays
+open.
+
+**The fix.** The config is back to build 13's codeBase-only shape, byte for byte the one WR2 ran (SHA-256
+`3ebe99b3c93a9540cd7f7b03da55fc048a544501c17e8621457884eae456f94c`). `Game` no longer needs `<qualifyAssembly>`: the
+`gameload` IL patch (Gameloft.Engine.dll, `GameAssemblyLoadPatch.cs`) inserts `McvsGameLoad.Qualify(name)` before the
+engine's `new AssemblyName(name)`, so the engine's `Assembly.Load` for `Game` gets
+`Game, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null`, a full reference, to which the config's `<codeBase>`
+should apply as it does for the static references. That too is expected, not proven (gameload has never run with a
+config in effect; WR3 step 4 settles it). An install over build 14 or 15 rewrites their config (checked on Linux: the
+`feb1684` patcher's install, then build 16's `install` over it, gives exactly build 16's bytes, with no `<qualifyAssembly>`
+line).
+
+**New diagnostics** ([design/pc-port.md](design/pc-port.md) §7.6, §8.2; [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §4-5):
+
+* **hook.txt marker**: our `EngineBridge.dll` (`hook-pc`) appends one line to `%TEMP%\McvsOffline\hook.txt` per start
+  (mscorlib only, before it calls into the server DLL) and the exception if starting the server fails. So "our
+  EngineBridge never ran" and "it ran, but the server did not start" can be told apart without the server DLL.
+* **`status`/`verify` activation**: `NOT VERIFIED: no start of MCVS Offline since the install` until the first start;
+  `NOT ACTIVE: the game started without MCVS Offline; Windows did not use …\ModernCombatVersus.exe.config` when the game
+  wrote its own files (`dr0.bin`, `OF_PP.bin`, `GameVersion`) after the install with no start of ours; `NOT ACTIVE: MCVS
+  Offline's EngineBridge ran at … but the server did not start: …` from the marker; a `hook:` line. While the game is
+  running none of these is a NOT ACTIVE verdict.
+* **A leftover build-14/15 config** is `DAMAGED: … has <qualifyAssembly> entries …: an old build-14/15 config: run
+  install again` (`verify` exits 1); `install` replaces it.
+* **The manual copy is recognised**: a game DLL with the same SHA-256 as its `McvsOffline\bin` copy is named
+  (`… is MCVS Offline's copy from McvsOffline\bin (copied over the game's own file)`), with the advice "Steam > Verify
+  integrity of game files restores them, then run install"; `install` and `uninstall` refuse until then, instead of
+  calling it a Steam update.
+* **Install output**: the end of `install` names the exe and the config Windows must read and says to start the game
+  once and run `status`; a failed config write says the game will start WITHOUT MCVS Offline; the double-click menu
+  shows `INSTALL FAILED`.
+
+**The owner's manual copy** must be undone before installing build 16: Steam › Properties › Installed Files › Verify
+integrity of game files (puts back the four game DLLs), delete the `McvsOffline.Server.dll` next to the exe, then
+`install` ([PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §5).
+
+**Checked**: `McvsOffline.sln` (Release), the Android embedded DLL against the APK's assemblies and the PC DLL with
+`Gameloft.Logs`; all four test projects with `MCVS_REFS`, `MCVS_PC_REFS`, `MCVS_APK`, `MCVS_DATAPACK`,
+`MCVS_BUILD_TOOLS`, `MCVS_REQUIRE_REAL_CLIENT=1`, `MCVS_REQUIRE_PC=1`, `MCVS_REQUIRE_PC_E2E=1`, `MCVS_REQUIRE_EMBEDDED=1`,
+`MCVS_REQUIRE_BUILD_TOOLS=1` and `MCVS_REQUIRE_NODE=1`: **McvsOffline.Tests 1551/1551, McvsOffline.Embed.Tests 897/897,
+McvsOffline.PcKit.Tests 62/62, McvsOffline.PcSpike.Tests 62/62, 0 skipped** (2,572). The PC end to end on Linux
+(§12.6) on a temp copy of the Steam files: `pc install`, `verify`, `status` (`installed, current`, `activation: NOT
+VERIFIED` before a start), a second install with the same bytes, `uninstall` restoring the exact listing, ILVerify as the
+stock files; the build-15-then-16 upgrade above; WR2's first start as the last start gives `installed, NOT ACTIVE (Game
+loaded from the game folder; …)`. The new expected `verify` values are in [design/pc-port.md](design/pc-port.md) §13.1
+and [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7. Not checked here: anything that runs only on Windows. On the
+owner's PC the build-14 config without its `<qualifyAssembly>` lines (the build-16 shape) started the server (H-A
+confirmed); whether `Game` follows the codeBase (gameload) is not yet reported.
+
+### What WR3 must check first
+
+* **Step 4** of [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7: `McvsOffline\logs\bootstrap.log` exists after the first
+  start, and its `[boot] assemblies:` lines name **all five** assemblies from `McvsOffline\bin`: EngineBridge,
+  Gameloft.Engine, Gameloft.Util, McvsOffline.Server **and Game** (`Game …\McvsOffline\bin\Game.dll`); `[boot] patches:`
+  every witness `yes` (`gameload yes`, `store yes`).
+* `status` after closing the game: `installed, current` and `activation: active at the last start`. Any `NOT ACTIVE` or
+  `NOT VERIFIED` after a start: stop, `collect`, send it (with `%TEMP%\McvsOffline\hook.txt`).
+* H-A is already confirmed (the owner's A/B test above). If all five come from `McvsOffline\bin`, so is the gameload
+  full-reference claim; if `Game` still comes from the game folder (`(GAME FOLDER)`, `store NO`), gameload does not
+  qualify the load on Windows and needs another way (an `AssemblyResolve` handler or an in-place `Game.dll`).
+
+## Build 15 (October 2026): rotating Special Events, an optional Practice tile, the match-mode doc corrections
+
+### What build 15 contains
+
+`1a70a5b` on `wip/pc-port` (`McvsVersion.Build` is `15`). APK: `mcvs-offline-1a70a5b.apk` (SHA-256 `424f7351…04d4`; default patch set, the same key as every
+build: certificate SHA-256 `fc0db84e…7d16`, targetSdk 35, both ABIs, `isGame` and `appCategory`, zipalign OK); it
+installs over build 14 as usual. Compared entry by entry with build 14 (`mcvs-offline-0b90763.apk`) it changes only
+the server DLL, the signature files and the 16 MVID bytes of `Game.dll`, `Gameloft.Engine.dll`,
+`Gameloft.Util.dll` and `NicePlaySDK.dll` ([design/pc-port.md](design/pc-port.md) §13.1). All of build 15 is in the server: no patch's code changed (only the `bottile` description text), and
+the PC kit changes by its embedded server DLL (and that text).
+
+**Special Events: the Battle menu's second box, generated offline** ([LIVEOPS.md](LIVEOPS.md) §8a). The Battle popup's
+**Special Event** box is the game's Arena mode; it unlocks only while an `ArenaModeEvent` is in progress, and before
+build 15 the server never served one, so the box was always locked. Live ops now generates them from the clock:
+
+* **Rotation**: a new mode every window (`liveops.arenaHours`, default 24 h, on a grid from the daily reset hour, so
+  by default a new mode every day with the daily missions). 22 rotating modes built from the data pack's Arena
+  variants: Havoc, Override, Ambush, Grand Bounty, Bountiful, Blitz and Scorecharge in the four modes, Competitive
+  (best of 3, no duplicate agents) in the four modes and with a random mode per map, and the four plain modes. Each
+  mode once per cycle, never the same twice in a row; the rotation is a function of the window alone (nothing is
+  stored). `tripleElixir` runs only when pinned.
+* **Rewards**: a Special Event match is a public PvP match like Classic (trophies, division, Credits, VersusCoins, MVP,
+  agent XP, daily and weekly objectives), and wins pay ×1.25 Credits and VersusCoins (×1.5 in the Competitive modes),
+  within the daily caps ([ECONOMY.md](ECONOMY.md) §4). The bots fill it exactly as in Classic (`instantBots`); every
+  event allows all 21 agents and plays on a random PvP map.
+* **Pin**: `liveops.arenaRotation` set to a mode id (for example `competitiveWarzone`, or `tdm` with
+  `liveops.arenaMap`) always runs that mode: a "pick your mode" bot match with full rewards. `off` shows no Special
+  Event.
+* **Settings** (page: Live ops): `Special Events` (`liveops.arenaEvents`, on), `Special Event mode`
+  (`liveops.arenaRotation`, `rotate`), `Special Event length (hours)` (`liveops.arenaHours`, 24, 1–168), `Special
+  Event map` (`liveops.arenaMap`, `Random`); applied at the next CRM fetch. Once the game has been handed a Special
+  Event, switching them off keeps the current mode until the game restarts (the game never clears its Arena event, and
+  a gap would leave the match without its parameters; the log says `Special Events are switched off, but the game
+  already has one`).
+* **Safety**: every Arena event passes `TleTemplateValidator` (the client's three traps: `img` mandatory, a non-empty
+  agent list without "Any", no gap between windows); the CRM always lists the window in progress and the next one as a
+  contiguous chain (three in a window's last 2 s), so the box switches to the next mode on its own timer. Hand-written
+  Arena events in `content/social/events.json` get the same per-event checks and a log line where their chain ends.
+  `GET /_mcvs/liveops` shows the current, next and upcoming modes.
+* Checked through the real client's code (`LiveOpsArenaConformanceTests`: 14 days of events through `ArenaModeEvent`
+  parsing, `GetArenaUIInfo` for the Battle popup's box, the TS's choice of the event for a room and the TS to GS
+  hand-over), **not yet on a device**.
+
+**The Practice tile (optional, off by default)**. The game has its own bot-match tile, "PRACTICE" (MCVS_Meta
+`MainMenuElements` row 13), hidden in Gameloft's shipped data. The new setting **Practice tile in the main menu**
+(`crm.practiceTile`, page: Settings › Gameplay, default off) adds two CRM cells that show it as the sixth and last
+tile of the main menu; with the default `bottile` patch it starts the same bot-filled, full-reward match as Battle ›
+Classic multiplayer, without the mode and group screens (without `bottile`: the game's free bot match, 5 Credits per
+win). It applies at the next CRM fetch (after a match, or at the next start). The served documents go through the
+real `StandardCrm.Data` in `PracticeTileConformanceTests`; where the tile sits and how it looks are **untested**. To
+try it: turn it on on the page, play one match (or restart), look at the main menu; turn it off again if the menu
+looks wrong.
+
+**Doc corrections**. The docs said Battle had a visible "bot-match tile" and that the `bottile` patch drove it. In fact
+the game shows no bot-match tile: the full-reward bot match is **Battle › Classic multiplayer** (7 bots at once with
+`instantBots`), `bottile` only affects the hidden PRACTICE tile (so it changes nothing unless `crm.practiceTile` is
+on), and "BOTMATCH" is only a `MenuMatchInfos` row with the confirm popup's text. Corrected in README, PLAYER-SETUP
+(a new "Match modes" list), PLAYER-SETUP-PC (WR3 step 8 starts the bot match from Battle › Classic), ARCHITECTURE,
+ECONOMY ("What each match mode pays": Classic, Special Event, tournaments, the Practice tile with its payout before and
+after PvP activation), LIVEOPS (`ArenaModeEvent` needs no LocalAnubis change: it already copies the room kwargs),
+PROTOCOL, the PC-port design and research notes, research 07 and verify-C4, and the `bottile` patch's description.
+Tournaments are stated as they are: private matches, never filled with bots and without trophies or currency by the
+game's design; they need other players (LAN is experimental). Not built, by decision: bots in tournaments.
+
+**PC**: no PC-specific change. The kit `McvsOffline.PcKit.exe` (win-x64, one file, SHA-256 `34131809abd25515bd0ff791f3ebc82f337d906e7598ca0c3d4176b3ae1baabb`) was republished
+because its embedded server DLL changed; the expected `verify` values of WR3 ([design/pc-port.md](design/pc-port.md)
+§13.1, [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7) were re-recorded: the server DLL and, with it, the four patched
+DLLs' hashes and MVIDs changed; the config is build 14's, and `install.json` says `serverBuild` 15. WR3 runs with
+this kit.
+
+**Checked**: `McvsOffline.sln` (Release), the Android embedded DLL against the APK's assemblies and the PC DLL with
+`Gameloft.Logs`; all four test projects with `MCVS_REFS`, `MCVS_PC_REFS`, `MCVS_APK`, `MCVS_DATAPACK`,
+`MCVS_BUILD_TOOLS`, `MCVS_REQUIRE_REAL_CLIENT=1`, `MCVS_REQUIRE_PC=1`, `MCVS_REQUIRE_PC_E2E=1`, `MCVS_REQUIRE_EMBEDDED=1`,
+`MCVS_REQUIRE_BUILD_TOOLS=1` and `MCVS_REQUIRE_NODE=1`: **McvsOffline.Tests 1551/1551, McvsOffline.Embed.Tests 878/878,
+McvsOffline.PcKit.Tests 59/59, McvsOffline.PcSpike.Tests 62/62, 0 skipped** (2,550). The content-gen tests (`python3 -I tools/content-gen/test_content_gen.py`): 32/32.
+The PC end to end on Linux (§12.6): `pc install` on a temp copy of the Steam files, `verify`, `status`, a second install with the same bytes, `uninstall` restoring every original SHA-256. Not checked: anything on a phone or on Windows.
+
+### What to check on the phone (build 15)
+
+Install build 15 over build 14 (no uninstall); the save and settings stay. Build 14's checks still apply.
+
+1. **Special Event unlocked.** Battle › "Select game mode": the second box, **Special Event**, is unlocked and shows the
+   mode's title and match type (e.g. "TEAM DEATHMATCH: HAVOC") and a countdown to its end. In `server.log` the TS's
+   `GET events?event_ids=…` lists two `mcvs_arena_…` ids. The page's Live ops shows the four Special Event settings.
+2. **A Special Event match.** Open the box: the lobby shows the rules text and the 21 agent icons; Start fills the
+   room with 7 bots at once, as in Classic, and the match is the event's mode on a valid map. No GS exception about
+   `_arenaParams` in the logs, no `[watchdog] STALL`, no `AndroidRuntime: FATAL EXCEPTION`.
+3. **Its rewards.** The end screen pays trophies, Credits and VersusCoins; a win pays more than the same win in
+   Classic (×1.25, ×1.5 in a Competitive mode, up to the daily cap); the daily and weekly objectives advance.
+4. **The next window.** Set `Special Event length (hours)` to 1 on the page (or play across the daily reset): when the
+   countdown ends the box switches to the next mode without a restart, and a match started after the change still
+   plays. Put it back to 24.
+5. **Pin.** Set `Special Event mode` to `competitiveWarzone`: after the next match (or a restart) the box shows it;
+   the match has three rounds and no duplicate agents in a team. Put it back to `rotate`.
+6. **Off.** Turn `Special Events` off while the game runs: the box stays usable (the log says `Special Events are
+   switched off, but the game already has one`); after a restart it is locked. Turn it on again.
+7. **Practice tile (optional).** Turn on **Practice tile in the main menu** (Settings › Gameplay), play one match or
+   restart: does a PRACTICE tile appear in the main menu, where, and does it look right? Tap it, confirm: a bot match
+   that pays like Classic. Turn the setting off: the tile is gone after the next match or start.
+8. As always: boot to the menu, one Classic bot match, the shop, the page (Status, Settings, Saves › Save now).
+
+## Build 14 (October 2026): the PC port's WR2 fixes, ready for the third Windows round
+
+### What build 14 contains
+
+`0b90763` on `wip/pc-port` (`McvsVersion.Build` is `14`). APK: `mcvs-offline-0b90763.apk` (default patch set, the same key as every
+build: certificate SHA-256 `fc0db84e…7d16`, targetSdk 35, both ABIs, `isGame` and `appCategory`, zipalign OK); it
+installs over build 13 as usual. Compared entry by entry with build 13 (`mcvs-offline-f158cb9.apk`) it changes only
+the server DLL, the signature files and the 16 MVID bytes of `Game.dll`, `Gameloft.Engine.dll`, `Gameloft.Util.dll`
+and `NicePlaySDK.dll` ([design/pc-port.md](design/pc-port.md) §13.1).
+
+**PC (Steam): what WR2 showed.** The owner's second Windows round (2026-10-29, the build-13 preview kit, Windows build
+26200, .NET 4.8.1) installed exactly the tested bytes, started the game 15 times to the main menu with our server,
+played two matches with their rewards saved, and opened the settings page in the Steam overlay twice. But **the game
+loaded its own `Game.dll` from the game folder in every start**: the engine loads `Game` by its bare name, and such a
+load ignores the `<codeBase>` redirect in `ModernCombatVersus.exe.config`. The other four redirected assemblies were
+ours. So every fix that lives in `Game.dll` was missing: the inbox crashed twice after unlock codes (a stock-game bug
+our `store` patch fixes), the bot match ran the game's old offline mode instead of our in-process server, Settings ›
+Account had no "MCVS Offline" button, and long game-thread freezes of 60-180 s followed the big unlock codes (most likely
+the stock code without our `signatures` fix). A third crash was a native access violation in the engine during the
+unlock-all grant at the in-game High graphics; its cause is unknown, because no crash dump was kept. The kit still said
+"installed, current", and our crash reporter wrote nothing for the three crashes. Settled by WR2: http.sys works for a
+normal user (no extra server mode needed), the quicklaunch continuations run on the game thread, the memory rule keeps
+Physics, the game log bridge attaches, and there is no tracker traffic with the defaults
+([design/pc-port.md](design/pc-port.md) §13.0 and §14 have the step-by-step results and the open questions).
+
+**PC: the fixes in build 14** ([design/pc-port.md](design/pc-port.md)):
+
+* **`Game.dll` is ours** (WR2 F1): the new mandatory PC patch `gameload` (Gameloft.Engine.dll, fingerprint-guarded,
+  §8.9) makes the engine load `Game` by its full name, which does follow the redirect; the config also gets one
+  `<qualifyAssembly>` per redirected assembly (§7.4; build 16 removes them again: most likely they made .NET ignore the
+  whole config, so the game ran without MCVS Offline). `[boot] patches:` reports `gameload`.
+* **"installed, NOT ACTIVE"** (F2): a start that loaded a redirected assembly from outside `McvsOffline\bin`, or ran
+  without the witness of an applied patch, is an error: a `[boot] ERROR` line, `install: installed, NOT ACTIVE (…)` in
+  the `[status]` line, a red banner on the settings page, and the kit's `status` and `verify` read the last start's
+  boot lines (`activation:`), §7.6.
+* **Crash capture on the game thread** (F3): the game's exe replaces the crash handler without chaining, so the host
+  now installs a native top-level filter over it (compiled ahead while the process is healthy, no allocation in the
+  report): `logs\crash-<time>-native.txt` with the code, the address and module, the thread and the game's last Fatal
+  line, then the game's own filter runs as before. The game's Fatal lines before a rethrow into native code become one
+  `exception-*.txt` headed `PROBABLY FATAL`. The pid is in the start and STALL lines (§6.4).
+* **Freeze and crash dumps** (F4): the kit's `watch` follows `bootstrap.log` and takes one full dump of the game per
+  STALL of 60 s or more (at most 3 per run, 6 in `%LOCALAPPDATA%\McvsOffline\dumps`, only with 5 GB free); `collect`
+  lists these and Windows' LocalDumps with path and size and never zips them. The player guide has the one-time WER
+  LocalDumps setup ([PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §6).
+* **game.log** (F5, F6): on PC the game enables every log level itself, so `game.log` was 4 MB of online chatter; it now
+  keeps Fatal plus `gameLog.levels`. Lines carry UTC ISO times, and the game's own access tokens are redacted.
+* **Graphics** (F7): the `[boot] graphics:` and `[status]` lines read the in-game Graphics options (`Performance`,
+  render scale, FPS, Vsync, full screen) from the game's `GamePreferencesComponent`, not the Android key; the PC help
+  texts of `graphics.profile` and `graphics.fullProfile` say what they do there; the player guide points to the in-game
+  menu and says High costs memory.
+* **The kit's capture** (F9): Windows events with UTC times and in the ANSI code page (no more `Informaþ§es`), each
+  event parsed on its own; the debug-output capture in the ANSI code page; `MyLocalStorage` files listed; `probe` lists
+  the GPU adapters, displays, physical memory and the firewall rules for the game; the kit's own SHA-256 in
+  `summary.txt` and every log header; `GameVersion` and `core.dmp` counted as the game's own files (`core.dmp` with size
+  and time, never zipped); process memory in every `[status]` line.
+* **Smaller** (F8, F10, F11): the settings page's first 401 is no longer a boot milestone, an overlay tab from an
+  earlier start says so, `/favicon.ico` answers 204, and `DataCenter` is a managed `args.txt` key.
+* **Memory** (not changed in build 14): WR2 peaked at 84 % of the 2 GB address space with three Worlds during a stall.
+  The recommendation, if WR3 confirms the pressure, is an opt-in LAA-flagged copy of the exe in `McvsOffline\bin`
+  started by a Steam launch option ([design/pc-port.md](design/pc-port.md) §17).
+
+The kit `McvsOffline.PcKit.exe` (win-x64, one file, SHA-256 `0aa37f249bb57661e49d50af50596e2765052a2f37390e23073156a9d7f6a7be`) and the
+owner's guide for **WR3**: [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) (design §13). The expected `verify` values were
+re-recorded for build 14 (the config and all five DLLs changed). WR3 repeats the steps WR2 could not reach with
+`Game.dll` active, and does the untested ones (the page's actions, a bot match from Battle › Classic multiplayer, minimise and fullscreen, Steam
+achievements, Restart, uninstall).
+
+**Android: the shared changes.** Android's behaviour changes only where the code is shared, all small:
+
+* Access tokens (`mcvs` + 8 hex + `.` + 32 hex) are redacted anywhere in a log line, in every log (server.log,
+  game.log, the share text). The 401 diagnosis line shows the token redacted too.
+* `game.log` lines carry UTC ISO times (`2026-10-28T17:53:25.781Z`) instead of the local `HH:mm:ss.fff`; the page's log
+  view reads both forms and shows local time. Android's `game.log` still keeps every entry the game logs.
+* The settings page: a tab whose ticket was refused (a used ticket without its cookie) shows "This tab is from an earlier
+  start of the game: close it and open the page from the game again"; the pages carry an empty icon, and
+  `/favicon.ico` answers 204 (logged at DEBUG) instead of an unknown endpoint.
+* The boot trace no longer records the page's routes (its first 401 by design) as the last milestone.
+* `DataCenter` is a managed `args.txt` key: with the end marker deleted by hand, the line no longer survives as a player
+  line.
+* The admin status payload is unchanged on Android (the new `client` object appears only while the PC host reports NOT
+  ACTIVE).
+
+**Checked**: `McvsOffline.sln` (Release), the Android embedded DLL against the APK's assemblies and the PC DLL with
+`Gameloft.Logs`; all four test projects with `MCVS_REFS`, `MCVS_PC_REFS`, `MCVS_APK`, `MCVS_DATAPACK`,
+`MCVS_BUILD_TOOLS`, `MCVS_REQUIRE_REAL_CLIENT=1`, `MCVS_REQUIRE_PC=1`, `MCVS_REQUIRE_PC_E2E=1`, `MCVS_REQUIRE_EMBEDDED=1`,
+`MCVS_REQUIRE_BUILD_TOOLS=1` and `MCVS_REQUIRE_NODE=1`: **McvsOffline.Tests 1521/1521, McvsOffline.Embed.Tests 878/878,
+McvsOffline.PcKit.Tests 59/59, McvsOffline.PcSpike.Tests 62/62, 0 skipped** (2,520). The PC end to end on Linux (§12.6): `pc install` on a
+temp copy of the Steam files, `verify`, `status`, a second install with the same bytes, `uninstall` restoring the exact
+listing, ILVerify as the stock files (§13.1). Not checked: anything that runs only on Windows (the native crash filter
+through a real crash, the kit's dumps, the Windows event capture end to end) or only on a phone.
+
+### What to check
+
+* **PC: WR3**, the checklist in [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) §7. First of all step 4: `[boot] assemblies:`
+  with `Game …\McvsOffline\bin\Game.dll`, `gameload yes`, `store yes`, and `status` saying `activation: active at the
+  last start`.
+* **Phone**: build 13's checks still apply (Game Mode flags, the Account menu, log cleanup; "What to check on the phone
+  (build 13)" below). For build 14 also: in `McvsOffline/logs/game.log` the lines start with UTC ISO times; no
+  `mcvs<8 hex>.<32 hex>` token appears unredacted in any log; the page's Logs view still shows `game.log` lines with
+  their times.
+
+## Build 13 (October 2026): Game Mode flags, a two-button Account menu, log cleanup; the PC port ready for WR2
+
+### What build 13 contains
+
+`f158cb9` on `wip/pc-port` (`McvsVersion.Build` is `13`). APK: `mcvs-offline-f158cb9.apk` (default patch set, the
+same key as every build: certificate SHA-256 `fc0db84e…7d16`, targetSdk 35, both ABIs, zipalign OK); it installs over
+build 12 as usual. Compared entry by entry with build 12 it changes only `AndroidManifest.xml` (the two `game`
+attributes), the server DLL, the signature files and the 16 MVID bytes of `Game.dll`, `Gameloft.Engine.dll`,
+`Gameloft.Util.dll` and `NicePlaySDK.dll` ([design/pc-port.md](design/pc-port.md) §13.1).
+
+**Android**
+
+* **The 'game' manifest flags** (new default patch `game`, [design/pc-port.md](design/pc-port.md) §10,
+  [PLAYER-SETUP.md](PLAYER-SETUP.md) §4 and §6): `<application>` gets `android:isGame="true"` and
+  `android:appCategory="game"`, so Android's Game Mode (Android 12+) and the phone maker's game tools can treat MCVS as
+  a game. Samsung's Gaming Hub and Game Booster go mostly by their own package list, so the APK can only help; adding
+  the game by hand (Gaming Hub › My games › Add game) always works. Side effects, all from Android: GameManager reports a
+  mode, the chip may get a game power hint while the game is in front, and a phone may cap the screen at 60 Hz for it
+  (the game runs at 30 fps). Nothing in the game reads the flags.
+* **Settings › Account shows only Redeem code and MCVS Offline**, side by side in the middle of the screen (patch
+  `adminpage`; `hosts/embedded/Admin/AccountMenuLayout.cs`). Facebook, Google Play Games and Restore (the in-app purchase
+  restore) are hidden, since none of them can work offline. The setting `admin.accountMenu.hideDeadButtons` (Settings ›
+  Unlocks & codes, on by default) brings them back at the next opening of the menu. Every opening writes one
+  `[admin] account menu:` line in `server.log`: `2 buttons centred (vpX=…, vpW=…, x0=…, x1=…)`, or `not centred (<why>)`
+  when the buttons stay where the game puts them ([PLAYER-SETUP.md](PLAYER-SETUP.md) §7).
+* **Log cleanup at every start** (`hosts/embedded/Diagnostics/LogRetention.cs`, [design/settings-page.md](design/settings-page.md)
+  §7.7, [PLAYER-SETUP.md](PLAYER-SETUP.md) §6 and §8): each start begins new `bootstrap.log`, `server.log`, `game.log` and
+  `unknown-endpoints.jsonl` files (the previous start's are usually the `.1` files), records itself in
+  `logs/starts.txt`, and the thread `mcvs-log-retention` deletes the log, crash, exception, thread-dump and exit files
+  of older starts in `McvsOffline/logs/` (at most 5 s, the rest at the next start). The Downloads/MCVS-Offline copies
+  follow the same starts. Setting `logging.keepStarts` (Settings › Diagnostics, 0–10, default 1: this start and the
+  previous one; applies at the next start). Saves, settings and the logs zips are never deleted. Log lines: one
+  `[logs]` line in `bootstrap.log`, e.g. `keeping this start and 1 previous (since 2026-10-28T19:02:11Z): deleted 23
+  files, 41.6 MB (server.log.2-5, game.log.1, crash 1, exit 2; fallback 3)` (WARN when a file could not be deleted; on
+  the first starts of build 13, before enough starts are recorded, `…: only 0 starts recorded so far, nothing deleted
+  this time`), and `[mirror] keeping 2 starts:
+  deleted N copies (… MB)` for Downloads. The share text's "previous start" section now reads the previous start's
+  files.
+* **CRM inbox**: our MCVS Offline item comes first among the newsfeed items of its asset key (items without an asset
+  share the key ""), so an overlay item cannot give it its dates.
+
+**PC (Steam)**
+
+* The port is **ready for the second Windows round (WR2)**: the kit `McvsOffline.PcKit.exe` (win-x64, one file, SHA-256
+  `c608fd1903b83763657646482a0c7aee6ec8282e10f63aa237dcb753b2e8715d`) and the owner's guide with the checklist and the
+  expected `verify` values, [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md) (design: [design/pc-port.md](design/pc-port.md)
+  §13). The values were re-recorded for build 13 (the server DLL changed); `ModernCombatVersus.exe.config` is unchanged.
+* New in build 13: `install --port n` also sets `"port"` in `McvsOffline\settings.json` (the port the server listens
+  on), and without `--port` the installer keeps the port already there; the installer retries a `.mcvs-tmp` rename on a
+  file a virus scanner briefly holds; the log cleanup works the same way in `McvsOffline\logs` and
+  `%TEMP%\McvsOffline\logs`. The Account menu setting is not on the PC's settings page (the Steam build has no
+  Facebook, Google or Restore button).
+
+**Checked**: `McvsOffline.sln` (Release), the Android embedded DLL against the APK's assemblies and the PC DLL with
+`Gameloft.Logs`; all four test projects with `MCVS_REFS`, `MCVS_PC_REFS`, `MCVS_APK`, `MCVS_DATAPACK`,
+`MCVS_BUILD_TOOLS`, `MCVS_REQUIRE_REAL_CLIENT=1`, `MCVS_REQUIRE_PC=1`, `MCVS_REQUIRE_PC_E2E=1`, `MCVS_REQUIRE_EMBEDDED=1`,
+`MCVS_REQUIRE_BUILD_TOOLS=1` and `MCVS_REQUIRE_NODE=1`: **McvsOffline.Tests 1501/1501, McvsOffline.Embed.Tests 827/827,
+McvsOffline.PcKit.Tests 40/40, McvsOffline.PcSpike.Tests 62/62, 0 skipped** (2,430). Not checked: the JNI and
+MediaStore side of the log cleanup (`ExitReasons`, the Downloads copies) and the menu layout run only on a phone.
+
+### What to check on the phone (build 13)
+
+1. **Before installing**, with a PC: `adb shell cmd game list-modes com.gameloft.android.ANMP.GloftMVHM` on build 12.
+   Android 16 prints `Package com.gameloft.android.ANMP.GloftMVHM is not of game type, …` (Android 12–15: `current
+   mode: unsupported, available game modes: []`).
+2. Install build 13 over build 12 (no uninstall); the save and settings stay. Run the same command again: expected
+   `current mode: standard, available game modes: [standard,custom]`; `adb shell dumpsys game` lists the game.
+3. Settings › Storage (or Settings › Apps › MCVS › Storage): is the game counted under **Games** instead of **Apps**?
+   (Only on Settings that follow Android's own; One UI may not show it.) Gaming Hub › My games: is MCVS listed without
+   adding it? Does the Game Booster panel appear in a match?
+4. Settings › Account: only **Redeem code** and **MCVS Offline**, side by side in the middle; both work. In `server.log`:
+   `[admin] account menu: 2 buttons centred (…)` once per opening. Then turn off **Only Redeem code and MCVS Offline in
+   Settings › Account** on the page, reopen Settings › Account: the game's own buttons are back (stacked on the left);
+   turn it on again.
+5. Logs: after three starts of build 13, `McvsOffline/logs/` (Files app or `adb shell ls`) holds only the last two starts' files;
+   `bootstrap.log` has one `[logs] keeping this start and 1 previous …` line and no WARN after it; Downloads/MCVS-Offline
+   holds the copies of two starts (`[mirror] keeping 2 starts: …`). Set `logging.keepStarts` to 0, restart twice: only
+   the current start remains. Put it back to 1. The saves, `settings.json` and any saved `mcvs-logs-*.zip` are untouched.
+6. The inbox: the MCVS Offline message is still there and its button opens the page (where it sits in the list was
+   not checked in a running game).
+7. As always: boot to the menu, one bot match, the shop, the page (Status, Settings, Saves › Save now) and the
+   graphics profile; no `AndroidRuntime: FATAL EXCEPTION` and no `[watchdog] STALL` in the log.
 
 ## Build 12 and device test 9 (October 2026): ASTC HD textures and graphics profiles work
 
@@ -83,8 +1569,7 @@ Owner's Galaxy S22 (Android 16), October 2026. No logs were sent; the results ar
 * The logcat checks of build-10 items 1 and 6, which need a log: no `AndroidRuntime: FATAL EXCEPTION` in the first hour
   after the install; the `[boot] graphics:` line for each profile, no `[watchdog] STALL` and a bot match with
   `graphics.fullProfile` at `ultra`.
-* Not yet merged: the PC port (in progress on `wip/pc-port`) and the Android 'game' manifest flags (Game Mode and
-  Samsung's Game Booster).
+* The PC port and the Android 'game' manifest flags (Game Mode and Samsung's Game Booster): in build 13 ("Build 13").
 
 ## Build 11 device test: the HD installer could not write in `McvsOffline/hd/` (fixed on `wip/hd-writable`)
 
@@ -1257,8 +2742,12 @@ the first part of the boot on a real phone (see above).
   guest's own server are unknown to the host (401, the log names the issuer); storage, mailboxes and alerts are not
   forwarded between devices (`IProfileStoreLocator` is the seam).
 - **Live ops** use our own tuning: the original season length and rival strength are not in the client
-  ([LIVEOPS.md](LIVEOPS.md)); permanent achievements are switched off in 1.17.32 itself; Arena-mode events and shard
-  "mega events" are not generated. Changing the live-ops content while an event runs resets that event's progress.
+  ([LIVEOPS.md](LIVEOPS.md)); permanent achievements are switched off in 1.17.32 itself; shard "mega events" are not
+  generated (Arena-mode events are, as the rotating Special Events of build 15, [LIVEOPS.md](LIVEOPS.md) §8a). Changing
+  the live-ops content while an event runs resets that event's progress.
+- **Special Events** (build 15) are checked through the real client's code (event parsing, the Battle popup's box, the
+  TS's choice for a room, the TS to GS hand-over) but not yet on a device: a Special Event match with bots, its rewards
+  and the box's timers are on the device checklist ([LIVEOPS.md](LIVEOPS.md) §8a).
 - The CRM `iap` catalogue is empty on purpose (it would start real Google Play purchases nothing can fulfil).
 - A brand-new account's root GET is `{}` without the server-maintained fields (`credential`, `datacenter`,
   `created`) until its first save; every game reader defaults them (checked in the conformance harness).
@@ -1317,9 +2806,14 @@ modules' open issues.
    app, start again: same profile. `data/storage/profiles/<account>.json` grows; backups appear every 30 minutes.
 10. **Match end on the GS** saves the result; the bot-match resume race (verify-C3 §4): a match result followed
     quickly by a resume GET must not restore the pre-match state.
-11. **Bot matches.** With the `bottile` patch the BOTMATCH tile goes through the GS flow and pays full rewards
-    (trophies, MVP, merc XP) once PvP is activated; quick PvP starts at once and is filled with 7 bots (`instantBots`)
-    (verify-C4).
+11. **Bot matches.** Battle › Classic multiplayer goes to the GS and pays full rewards (trophies, MVP, merc XP) once
+    PvP is activated; it starts at once, filled with 7 bots (`instantBots`) (verify-C4). There is no visible
+    bot-match tile: `bottile` only affects the hidden PRACTICE tile (MainMenuElements row 13, `Displayed=false`), which
+    the opt-in `crm.practiceTile` shows (placement and art untested). Tournaments (custom matches) are private matches:
+    the GS never fills them with bots and they give no trophies, currency, MVP, agent XP or stats, by design; they
+    need other human players (LAN is experimental and does not work end to end yet, PLAYER-SETUP §9), so use Classic
+    for bots. Special Event is the game's Arena mode: live ops generates a rotating one (build 15, LIVEOPS §8a),
+    filled with bots like Classic.
 12. **The GS's Lobby round-trips** (`encrypt_token`/`verify` for its own super session, `GetRoomInfo`) never fail: a
     failure there plays the match and grants nothing (verify-C4 §4.1). Fed ids must match on both paths (§4.3).
 13. **Matchmaking after a network change** (Wi-Fi or airplane mode toggled while the game runs), fixed by the default

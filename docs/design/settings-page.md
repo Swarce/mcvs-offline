@@ -64,6 +64,9 @@ Found while implementing and reviewing the packages and at the integration (WP8)
 | `AdminHostInfo` gains `RelaunchUnconfirmed` (Android 13+), `Notifications`, `Graphics`, `HdTextures`; `GET status` returns them as `host.relaunchUnconfirmed`, `host.notifications`, `host.graphics`, `host.hdTextures`; Status › Game host shows the three rows. | The status row of the notification permission, and what the engine really got. | §4.3, §8.1 |
 | Build 11: `hd.mount` is gone (the zip mount was removed); `hd.enabled` installs the HD pack `McvsOffline/hd/mcvs-hd-*.zip` into `Data/` (false: removes it at the next start). `AdminHostInfo.HdInstalled` (`host.hdInstalled`); Actions › **Remove HD textures** (shown while it is true and `hd.enabled` is not false) asks first, posts `hd.enabled` false through `POST settings` and offers the restart. | [design/hd-install.md](hd-install.md); a restart is what puts the originals back (the installer step runs only at start-up, before the game's installer). | §4.3, §4.5 |
 | On Android 13+ (`host.relaunchUnconfirmed`) every Restart text (Actions, the restart dialog and its toast, the restart banner, Status' "Restart via") says the game may close without coming back and then must be started again; none says it will not come back. | Since Android 13 AlarmManager is expected to start no activity for an alarm, at any target (target-sdk.md §4.6, critic note 3), but STATUS device-test item 9 has not been observed on its own (device test 8 passed checks 1–13 only as a whole). Reword to a firm "closes" only after item 9 or WP-T7 shows no relaunch. | §4.5, §8.8 |
+| Build 19: the game's Settings menu ([design/settings-menu.md](settings-menu.md)). Gameplay: `admin.settingsMenu.trim` (bool, true, live; both platforms) and `admin.settingsMenu.performance` (bool, true, live; Android only, hidden on PC). Graphics (Android only, hidden on PC): `graphics.msaa` (enum auto/off/2x/4x/8x, restart), `graphics.renderScale` (text `auto` or 0-100, restart), `graphics.lowResMaps` (enum auto/on/off, restart): from this page all three apply at the next start, since the embedded host reads its own copy at start and nothing applies a save of the server's copy; only the game's PERFORMANCE page applies SCREEN SCALE and LOW RESOLUTION MAPS live. Advanced (read-only, Android): `graphics.fpsListVersion`. | The trimmed Settings grid on both platforms and the Android PERFORMANCE page; the game's PERFORMANCE page and this page edit the same keys, so a bad value can be fixed here. | §3.1, §3.2, §9.4 |
+| Build 22: Gameplay gains `admin.settingsMenu.sameFrame` (bool, true, live; both platforms), after `admin.settingsMenu.trim`: our Flash work inside the game's natives (Android's dress of the menu before setup(), the same-frame layout). The embedded host sets it false itself, with one WARN line, when the previous start ended inside that work (a breadcrumb file in the log folder). | The owner saw build 21 still flash MORE GAMES and FORUM on a return; a native fault in that work cannot be caught, so it must be possible to switch it off, and it switches itself off after one. | §3.1 |
+| Build 23: Gameplay gains `admin.settingsMenu.aboutCentre` (bool, true, live; Android only, hidden on PC), after `admin.settingsMenu.sameFrame`: with the shorter menu, ABOUT is drawn on the button the game centres itself (MORE GAMES'), the real ABOUT off the panel, and that button's tap opens ABOUT; off, ABOUT at setup()'s 208 (build 22). | The owner saw ABOUT right of centre on build 22; only setup()'s own centred x holds against its writes on every focus-in, and the redirect of a native tap needs a way back. | §3.1 |
 
 ## 0. Decisions already taken (not reopened here) and invariants
 
@@ -188,7 +191,9 @@ Main flows:
   button row `#dialog-ok`, `#dialog-cancel` is always visible); never `alert/confirm/prompt` (the plain `WebChromeClient`
   makes them unreliable). Transient messages in `#toast`.
 * **Banners** (stacked, each dismissable except the first three): `#banner-nosession` (no or expired session: "Open this
-  page from the game: Settings › Account › MCVS Offline, or the MCVS Offline message in the inbox."), `#banner-viewmode`
+  page from the game: Settings › Account › MCVS Offline, or the MCVS Offline message in the inbox."; when the fragment's
+  ticket was refused (§2.2 step 4), `#banner-nosession-text` says instead "This tab is from an earlier start of the game:
+  close it and open the page from the game again." (WR2 F8)), `#banner-viewmode`
   (§2.4), `#banner-error` (server unreachable after 3 failed pings: "The game is not answering. Go back to the game."),
   `#banner-staged` (an operation waits for a restart, with "Restart now" and "Cancel"), `#banner-restart` (N settings
   apply after a restart, with "Restart now"), `#banner-probation` (an applied operation waits for the game's first
@@ -259,8 +264,11 @@ re-POSTs it in post mode). The boot sequence tolerates that:
 2. Remove the fragment at once: `history.replaceState(null, '', location.pathname)` (feature-tested; else
    `location.hash = ''`).
 3. `GET status` with whatever cookie the WebView has. 200 → the session is valid: ignore the ticket.
-4. Otherwise, with a ticket: `POST session`; 200 → `GET status`; 401 → `#banner-nosession`. Without a ticket: `#news` →
-   view mode (§2.4), else `#banner-nosession`.
+4. Otherwise, with a ticket: `POST session`; 200 → `GET status`; 401 → `#banner-nosession` with the stale-tab text in
+   `#banner-nosession-text` ("This tab is from an earlier start of the game: close it and open the page from the game
+   again.": tickets live in the game's memory and are used once, so a refused ticket means a tab kept or re-opened from
+   an earlier start, not a link the game just opened; WR2 F8); any other status → `#banner-nosession` with its usual
+   text. Without a ticket: `#news` → view mode (§2.4), else `#banner-nosession`.
 5. Select the screen from `s=` (default Status); `r=nosave` shows the toast "The game did not save."
 
 Unsaved settings and wizard state are lost when Android re-creates the browser; the Settings screen says so in its help
@@ -289,11 +297,19 @@ save before saving the change, §4.4).
 
 ### 3.1 Editable keys
 
+(Build 21 removed `crm.practiceTile`, "Practice tile in the main menu", from Gameplay: the tile never showed. An old
+settings.json keeps the key; nothing reads it.)
+
 | Group | Key | Label | Type / page range | Default | Apply | Help / confirm |
 |---|---|---|---|---|---|---|
 | Gameplay | `instantBots` | Instant bot matches | bool | true | menu | Matches start at once and bots fill the empty slots. Off: the game waits for other players first. |
+| Gameplay | `admin.settingsMenu.trim` | Shorter Settings menu | bool | true | live | Hides SOCIAL MEDIA, FORUM and CUSTOMER CARE (and MORE GAMES on phones) in the game's Settings menu, which cannot work offline, and centres the tiles that are left, with ABOUT alone below them. Applies the next time Settings opens. Read by the embedded host on every Settings opening (`SettingsMenu/UiNatives`, [settings-menu.md](settings-menu.md) §3.2). Both platforms. |
+| Gameplay | `admin.settingsMenu.sameFrame` | Lay out Settings before it is drawn | bool | true | live | Prepares the game's Settings menu before the game draws it (the shorter menu and the PERFORMANCE tile), so the stock menu never shows. Off: the layout comes one frame later (build 20 behaviour) and the stock menu can flash briefly. Turns itself off when the game closed during this step at the last start; switch it back on to try again. Applies the next time Settings opens. Read by the embedded host on every Settings opening (`SettingsMenu/SettingsMenuLayout`, `SameFrameBreadcrumb`, [settings-menu.md](settings-menu.md) §3.2, §5 risk 2); the host writes it false itself after a start that ended inside that step. Build 22. Both platforms. |
+| Gameplay | `admin.settingsMenu.aboutCentre` | ABOUT centred in the Settings menu | bool | true | live | With the shorter Settings menu, ABOUT is drawn centred below the tiles (on the button the game centres itself, which MORE GAMES used), and a tap on it opens ABOUT. Off: ABOUT sits right of centre (build 22). Applies the next time Settings opens. Read by the embedded host on every Settings opening (`SettingsMenu/SettingsMenuLayout`, `AboutRedirect`, [settings-menu.md](settings-menu.md) §3.2, "Build 23"). Build 23. Android only (not shown on PC). |
+| Gameplay | `admin.settingsMenu.performance` | PERFORMANCE in the Settings menu | bool | true | live | Adds a PERFORMANCE tile to the game's Settings menu, as on Steam: GRAPHICS, ANTIALIASING, SCREEN SCALE, FRAME RATE LIMIT and LOW RESOLUTION MAPS. GRAPHICS SETTINGS and FRAME RATE LIMIT then leave Gameplay Settings, also during a match. FRAME RATE LIMIT offers 90 and 120 from the next start. Off: the game's own menus. Applies the next time Settings opens. Android only (not shown on PC; settings-menu.md §3.3-§3.5). |
 | Gameplay | `devMenu` | Developer cheat menu | bool | false | restart | Gameloft's developer menu (`IsDevelopment` in the menu server handshake). `confirmWhen: enable`, `backupBefore: enable`: "Cheats can damage your profile. A backup of your save is made now." |
 | Gameplay | `leaderboards.virtualPlayers` | Leaderboard opponents | bool | true | live | Division leaderboards are filled with generated players. |
+| Gameplay | `crm.botNames` | Generated bot names | bool | true | restart | On: the bots in a match carry gamer tags made by the server, a new set about every match mixed with some of the game's own names (needs the game's data files, which the server reads the game's bot list from). Off: the game's own bot names; the game keeps the last names it got until it restarts. Read by the CRM game object the GS fetches (`CrmBotNames`, [../protocol/content.md](../protocol/content.md) layer 7b). Build 28. Both platforms. |
 | Gameplay | `geo.country` | Country | string `^[A-Z]{2}$` | `US` | restart | Two-letter country code reported to the game. |
 | Economy | `economy.versusCoinsMultiplier` | VersusCoins per match | number 0.1–20, step 0.1 | 1.0 | menu | Multiplies VersusCoins for wins, defeats, MVP and the daily cap. |
 | Economy | `economy.creditsMultiplier` | Credits per match | number 0.1–20, step 0.1 | 1.0 | menu | Same for Credits (faster loot crates). |
@@ -305,6 +321,7 @@ save before saving the change, §4.4).
 | Unlocks & codes | `unlockAll` | Unlock everything | bool | false | live | Grants what UNLOCKALL grants, through the inventory, at the game's next save (~11,400 rewards; the level jumps to ~46 and the game lags while it levels up). `confirmWhen: enable`, `backupBefore: enable`: "This cannot be undone: turning it off later removes nothing. A backup of your save is made now." |
 | Unlocks & codes | `assets.couponsEnabled` | Unlock codes | bool | true | live | Settings › Account › Redeem code accepts the codes listed below. |
 | Unlocks & codes | `crm.redeemCoupons` | Redeem-code button | bool | true | menu | Shows the Redeem code button in Settings › Account. |
+| Unlocks & codes | `admin.accountMenu.hideDeadButtons` | Only Redeem code and MCVS Offline in Settings > Account | bool | true | live | Hides the Facebook, Google Play Games and Restore buttons, which cannot work offline, and centres the buttons that are left. Applies the next time Settings > Account opens. Read by the embedded host (`AdminHost.HideDeadAccountButtons`) in `AdminHooks.AccountMenuButtons`, §9.2. Not shown on PC (no effect there, docs/design/pc-port.md §3.6). |
 | Unlocks & codes | `unlocks.batchSize` | Rewards per batch | int 50–400, step 50 | 400 | live | Unlock-all rewards per batch; keep at most 400 (reward popups). |
 | Unlocks & codes | `admin.redeemCode` | Code that opens this page | string `^([A-Z0-9]{4,20})?$` | `MCVSOFFLINE` | live | Typing it in Redeem code opens this page (the game then says the code does not exist). Empty: off. |
 | Live ops | `liveops.enabled` | Live events | bool | true | menu | Division seasons, daily missions and weekly events. |
@@ -317,11 +334,16 @@ save before saving the change, §4.4).
 | Live ops | `liveops.modifiers` | Weekly modifier | enum `rotate`, `off`, `standard`, `coinRush`, `trophyFever`, `creditRush`, `mvpBounty`, `rivalSurge` | `rotate` | menu | `rotate` changes it every season ([LIVEOPS.md](../LIVEOPS.md) §8). |
 | Live ops | `liveops.difficulty` | Event difficulty | number 0.1–10, step 0.1 | 1.0 | menu | |
 | Live ops | `liveops.seasonRewardMultiplier` | Season rewards | number 0.1–20, step 0.1 | 1.0 | menu | |
+| Live ops | `liveops.arenaEvents` | Special Events | bool | true | menu | Battle › Special Event ([LIVEOPS.md](../LIVEOPS.md) §8a). Off applies after a restart once the game has shown one (§8a.3). |
+| Live ops | `liveops.arenaRotation` | Special Event mode | enum `rotate`, `off` and the 23 mode ids of `liveops.json` `arena.modes` (`SettingsSchema.ArenaRotationChoices`, kept equal by a test) | `rotate` | menu | A mode id pins it. |
+| Live ops | `liveops.arenaHours` | Special Event length (hours) | int 1–168 | 24 | menu | Windows run back to back from the daily reset hour; a divisor of 24 keeps them aligned to the reset. |
+| Live ops | `liveops.arenaMap` | Special Event map | enum `Random`, `Snow`, `Desert`, `Favelas`, `Rooftop`, `DogDays`, `Port`, `Stadium`, `Stadium2` | `Random` | menu | |
 | Live ops | `crm.newsfeedLink` | Inbox message for this page | bool | true | menu | The "MCVS Offline" inbox message (§9.1). Off removes it at the next CRM fetch. |
 | Diagnostics | `storage.backups.keep` | Automatic backups kept | int 0–200 | 20 | live | Per account. Counts only the automatic backups taken every N minutes; backups before imports, restores, risky settings and events, and your own backups are kept separately (§6.3). 0: no new automatic backups (existing ones stay). `confirmWhen: decrease`: "Older automatic backups beyond the new number are deleted at the next automatic backup." |
 | Diagnostics | `storage.backups.intervalMinutes` | Minutes between automatic backups | int 5–1440 | 30 | live | |
 | Diagnostics | `storage.autoRestoreCorrupt` | Repair unreadable saves | bool | true | live | An unreadable save file is replaced by its newest readable backup (the broken file is kept). |
 | Diagnostics | `logging.fileLevel` | server.log detail | enum `trace`, `debug`, `info`, `warn`, `error` | `debug` | restart | |
+| Diagnostics | `logging.keepStarts` | Starts whose logs are kept | int 0–10 | 1 | restart | Host key (Android and PC; the standalone server ignores it). "At every start the game deletes the logs of older starts: in logs/ (server, bootstrap and game logs with their numbered files, crash, exception, thread dump and exit files) and their copies in Downloads/MCVS-Offline. 1 keeps the previous start next to the current one; 0 keeps only the current start. The numbered log files also stay within their own file count. Saves, settings and the zips you saved are never deleted." PC wording: "in McvsOffline\logs and %TEMP%\McvsOffline\logs (server, bootstrap and game logs with their numbered files, crash and exception files)", no Downloads copies (§7.7) |
 | Diagnostics | `gameLog.levels` | Game log levels | tokens of `error`, `warning`, `info`, `debug` | `error warning` | restart | A build patched with `--game-log all` logs every level anyway. |
 | Diagnostics | `gameLog.mute` | Muted game log categories | string `^([A-Za-z]+:(all|debug|info|warning|error))?( [A-Za-z]+:(all|debug|info|warning|error))*$`, ≤ 512 | `profile:debug` | restart | |
 | Diagnostics | `gameLog.file` | Copy the game's log to logs/game.log | bool | true | restart | |
@@ -329,6 +351,9 @@ save before saving the change, §4.4).
 | Diagnostics | `diagnostics.threadDump` | Thread dumps on freezes | bool | true | restart | |
 | Diagnostics | `diagnostics.publicLogCopy` | Log copies in Downloads/MCVS-Offline | bool | true | restart | Android 11 and later. |
 | Diagnostics | `tracking.disable` | Block the game's analytics uploads | bool | false | live | |
+| Graphics | `graphics.msaa` | Antialiasing | enum `auto`, `off`, `2x`, `4x`, `8x` | `auto` | restart | ANTIALIASING on the game's PERFORMANCE page: GameOptions `renderTargetMSAA` in the `graphics` rewrite; `auto` leaves the text byte-identical. Android only ([settings-menu.md](settings-menu.md) §2). |
+| Graphics | `graphics.renderScale` | Screen scale | string `^(auto\|[0-9]{1,3})$`, at most 100 | `auto` | restart | SCREEN SCALE on the PERFORMANCE page: `RenderTargetSizeScale` = `v > 0.97 ? 1 : 0.4 + 0.6 v`. From this page: at the next start; the game's PERFORMANCE page applies it at once. Android only. |
+| Graphics | `graphics.lowResMaps` | Low resolution maps | enum `auto`, `on`, `off` | `auto` | restart | LOW RESOLUTION MAPS on the PERFORMANCE page: the levels' low-end layers. From this page: at the next start; the game's PERFORMANCE page applies it from the next level load. Android only. |
 
 New keys introduced by this design (defaults live in code, nothing is added to `settings.json` automatically):
 `admin.redeemCode`, `crm.newsfeedLink` (editable above), and the file-only keys `admin.enabled` (bool, true; kill
@@ -339,19 +364,20 @@ default `game`; §8.8), `security.hostCheck` (bool, true; the Host allowlist on 
 
 Shown with their effective value: `port`, `bind`, `publicUrl`, `lanMode`, `superCredential`, `superPassword` (shown as
 `•••• (default)` or `•••• (custom)`), `dataCenter`, `logging.consoleLevel`, `logging.bodyLimit`,
-`logging.fileMaxBytes`, `logging.fileCount`, `embedded.manageArgs`, `embedded.lanAdvertiseHost`,
+`logging.fileMaxBytes`, `logging.fileCount`, `embedded.manageArgs`, `embedded.lanAdvertiseHost`, `embedded.portFallback`,
 `embedded.nativeOnlineSdk`, `embedded.physics.serverMultithreaded`, `embedded.physics.clientMultithreaded`,
 `embedded.physics.stepGate`, `embedded.physics.stepGateTimeoutMs`, `install.manageInstaller`,
 `install.suppressUpdateCheck`, `install.rebuildIndex`, `install.verifyRestoredData`, `install.monitorInstaller`,
 `crm.usePreconfiguration`, `crm.offlineStore`, `crm.iap`, `crm.omitOwnedSignatures`, `crm.overlay` (shown as "not set"
 or "set, N characters"), `crm.pointcutActions` (count), `assets.coupons` (count), `matchmaker.tsRoomCapacity`,
 `matchmaker.gsRoomCapacity`, `storage.cache`, `storage.absentField`, `auth.requireSuperPassword`, `admin.enabled`,
-`admin.openVia`, `admin.restartVia`, `security.hostCheck`.
+`admin.openVia`, `admin.restartVia`, `security.hostCheck`, `graphics.fpsListVersion` ("Frame rate limit list": which
+FRAME RATE LIMIT list the stored index belongs to, written by the embedded host only; Android, [settings-menu.md](settings-menu.md) §2).
 
 **Server-side denylist** (refused with 400 `not_editable` even if a future schema edit marked them editable):
 `port`, `bind`, `publicUrl`, `lanMode`, `superCredential`, `superPassword`, `dataCenter`, `pandora.*`,
-`embedded.manageArgs`, `embedded.lanAdvertiseHost`, `crm.overlay`, `crm.pointcutActions`, `crm.developerIpRange`,
-`assets.coupons`, `admin.enabled`, `admin.openVia`, `admin.restartVia`, `security.*`, `install.*`. Any key not in §3.1 is
+`embedded.manageArgs`, `embedded.lanAdvertiseHost`, `embedded.portFallback`, `crm.overlay`, `crm.pointcutActions`,
+`crm.developerIpRange`, `assets.coupons`, `admin.enabled`, `admin.openVia`, `admin.restartVia`, `security.*`, `install.*`. Any key not in §3.1 is
 refused the same way.
 
 ### 3.3 Presets (Economy)
@@ -472,7 +498,8 @@ calls `IAdminHost.PageAlive()` (watchdog lease, §8.5).
 ```json
 {
   "version": "0.1.0-dev", "build": "9",
-  "server": {"started": "...", "uptimeSeconds": 3600, "instance": "mcvs1a2b3c4d", "port": 51780, "bind": "127.0.0.1",
+  "server": {"started": "...", "uptimeSeconds": 3600, "instance": "mcvs1a2b3c4d", "port": 51780, "configuredPort": 51780,
+             "portNote": null, "bind": "127.0.0.1",
              "lanMode": false, "hostCheck": true, "dataDir": "/storage/emulated/0/Android/data/.../files/McvsOffline",
              "dataPack": ".../files/Data"},
   "host": {"platform": "android", "sdkInt": 36, "deviceId": "...", "logsDir": "...", "fallbackLogsDir": null,
@@ -572,9 +599,11 @@ replaced by `"***"` (a character scan for the member name, `:`, a JSON string li
 "restartRequired": true}`. The host keys (`embedded.*`, `gameLog.*`, `diagnostics.*`, `install.*`) are added back
 by `EmbeddedHost.AddEmbeddedDefaults` at the next start.
 
-`GET codes` → `{"codes": [{"code": "UNLOCKALL", "description": "...", "numericSuffix": true}], "pageCode": "MCVSOFFLINE",
-"enabled": true}` from `CouponCatalog.Describe()` (WP2 adds it: code, description, numeric-suffix flag of every entry of
-`coupons.json` merged with `assets.coupons`).
+`GET codes` → `{"codes": [{"code": "UNLOCKALL", "description": "...", "numericSuffix": true, "delivery": "ledger",
+"rewards": 11368}], "pageCode": "MCVSOFFLINE", "enabled": true}` from `CouponCatalog.Describe()` (WP2 adds it: code,
+description, numeric-suffix flag of every entry of `coupons.json` merged with `assets.coupons`; delivery and reward
+count since the inbox-freeze fix). An inbox code above 300 rewards also has `"warning"` (redeeming it is refused), shown
+under the code in the list; so has a ledger code with rewards of a quantity other than 1 (the ledger skips them).
 
 ### 4.5 Actions: save now, restart and the others
 
@@ -757,7 +786,8 @@ into `<data>/admin/share/`; 200 `{"file": "mcvs-logs-20261026-101500.zip", "size
 `POST logs/share` `{"file": "<name from logs/zip>", "target": "share"|"downloads"}` →
 `IAdminHost.ShareFile(zip, "application/zip", name, "MCVS Offline logs", note)`; 200 `{"share": {...}}`.
 `GET logs/bundle?scope=` → a fresh zip as `application/zip` attachment. `POST logs/share-text` `{"note": "..."}` → a
-plain-text report (status summary, last 300 WARN+ entries of server.log, bootstrap.log and game.log, the newest crash
+plain-text report (status summary, last 300 WARN+ entries of server.log, bootstrap.log and game.log, then of the
+previous start's last file of each as "previous start" (§7.7), the newest crash
 file's first 200 lines; total ≤ 100,000 characters) through `IAdminHost.ShareText`; 501 when unavailable, in which case
 the page shows the same text in a read-only box for copying (returned in `text`).
 
@@ -880,8 +910,14 @@ GET: the browser's Refresh button reloads it with the cookie instead of re-POSTi
   Replaces `#t=<8+ hex>` and its percent-encoded form `%23t%3D<hex>` → `#t=<redacted>`; `mcvs_s=<hex>` →
   `mcvs_s=<redacted>`; `"ticket":"<hex>"` (any spacing) → `"ticket":"<redacted>"`; form/query `t=<32 hex>` →
   `t=<redacted>`; the value of every form/query parameter and JSON string member named `password`, `access_token`,
-  `refresh_token`, `token` or `superPassword` → its first 4 characters + `…<redacted>`. Fast path: the input is returned
-  unchanged when none of the trigger substrings occurs (ordinal `IndexOf`); otherwise a linear scan, no regex engine.
+  `refresh_token`, `token` or `superPassword` → its first 4 characters + `…<redacted>`; an access token of this server
+  anywhere in a line, also inside a word (`mcvs` + exactly 8 hex + `.` + 32 or more hex, the shape `TokenService`
+  issues; the game prints it in game.log, WR2 F6) → `mcvs…<redacted>`. The PC port adds MAC and SteamID64 rules
+  (pc-port.md §4.2). Fast path: the input is returned unchanged when none of the trigger substrings occurs (ordinal
+  `IndexOf`) and no access token occurs (an ordinal, case-sensitive search for `mcvs` followed by the token's shape;
+  `mcvs` cannot be a trigger: every McvsOffline path contains it); otherwise a linear scan, no regex engine. `Redact`
+  runs on every log line (below), so the access token rule applies to server.log, bootstrap.log and game.log on
+  Android too: e.g. the 401 diagnosis line reads `token mcvs…<redacted> is not known here`.
 * **In the logger, for every logger**: `Logger` (server/Core/Logger.cs) gains `Func<string, string> Redactor`, applied in
   `Logger.Write` to the message and in `LogEntry.Format` to the exception text. `McvsServer.Create` sets it on the server
   logger and `EmbeddedHost.Prepare` on the host logger (bootstrap.log, logcat lines, `MemoryLogSink`), so server.log,
@@ -1040,14 +1076,14 @@ id on `-` and reads the token as the third part.
 | Pool | Tokens | Cap per account | Pruning |
 |---|---|---|---|
 | `auto` | `auto` | `storage.backups.keep` (0–200) | after each new `auto` backup, oldest `auto` beyond the cap. `keep = 0`: `Commit` takes no `auto` backup, so nothing is pruned; existing ones stay. |
-| `event` | `wipe`, `delete`, `replace`, `unlockall`, any other reason a `WriteOutcome`/`IProfileAccess` gives, `backup` | 20 | after each new `event` backup |
+| `event` | `wipe`, `delete`, `replace`, `unlockall`, `unlockcode`, any other reason a `WriteOutcome`/`IProfileAccess` gives, `backup` | 20 | after each new `event` backup |
 | `system` | `preimport`, `prerestore`, `presettings`, `prerevert` | 10 | after each new `system` backup |
 | `manual` | `manual` | 10 | **never**: an 11th is refused (`ManualBackupLimitException` → 409 `manual_full`); only the player's Delete removes one (I4) |
 
 Changes:
 
 * `LocalProfileStore.Backup(account, revision, reason)` no longer returns when `keep <= 0`: every non-`auto` backup is
-  always taken (`wipe`, `delete`, `replace`, `unlockall`, the pre-* backups of §6.4). `Commit` still requests `auto` only
+  always taken (`wipe`, `delete`, `replace`, `unlockall`, `unlockcode`, the pre-* backups of §6.4). `Commit` still requests `auto` only
   when `keep > 0` and the interval is due.
 * `ProfileBackups.Create(accountId, fileText, revision, reason, nowUtc, autoKeep)`: for `manual`, counts first and throws
   before writing when 10 exist; writes; then `Prune(accountId, PoolOf(token), cap)` for that pool only (`auto` with
@@ -1260,9 +1296,13 @@ Read the last `min(size, 1 MiB)` bytes with `FileShare.ReadWrite`; if the window
 
 * server/bootstrap: `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z (TRACE|DEBUG|INFO |WARN |ERROR|     ) \[([^\]]*)\] `
   (`LogEntry.Format`), or
-* game.log: `^\d{2}:\d{2}:\d{2}\.\d{3} (\w+) \[([^\]]*)\] ` (`GameLogBridge`; levels mapped `Fatal/Error → ERROR`,
-  `Warning → WARN`, `Info → INFO`, `Debug/Verbose → DEBUG`; the entry's `t` is then the game's clock as written,
-  `HH:mm:ss.fff` without a date, which the page shows as it is),
+* game.log, in either of two forms (`GameLogBridge`; levels mapped `Fatal/Error → ERROR`, `Warning → WARN`,
+  `Info → INFO`, `Debug/Verbose → DEBUG`):
+  * build 14 and later: `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z (\w+) \[([^\]]*)\] ` (`GameLogFormat.Line`, UTC
+    like server.log; WR2 F5): the entry's `t` is that ISO time, which the page shows in local time (`fmtClock`, as for
+    server.log);
+  * builds up to 13: `^\d{2}:\d{2}:\d{2}\.\d{3} (\w+) \[([^\]]*)\] `: the entry's `t` is then the game's clock as
+    written, `HH:mm:ss.fff` without a date, which the page shows as it is,
 
 and continues over the following lines that match neither (exceptions, multi-line messages). Lines before the first
 entry form one entry with level `?`. Filter by `min` (level `?` always shown) and `q`, return the last `lines`
@@ -1280,7 +1320,8 @@ Every message goes through `LogRedaction.Redact` (files written by older builds)
   data; central directory at the end; no data descriptors, no zip64. Peak memory about twice the largest entry (≤ 8 MiB).
   `File.Copy` and `ZipArchive` are not used.
 * **Scope `recent`** (default), in priority order: `server.log`, `bootstrap.log`, `game.log` (tails ≤ 4 MiB each);
-  their newest rotation `.1` (tails ≤ 2 MiB: usually the end of the previous session, where a crash happened);
+  their newest rotation `.1` (tails ≤ 2 MiB: the end of the previous start, where a crash happened; the host begins
+  new log files at every start, §7.7);
   `crash-*`, `exception-*`, `exit-*` and `threaddump-*` files of the last 72 h (newest 10 per kind, ≤ 1 MiB each);
   `unknown-endpoints.jsonl` (tail ≤ 512 KiB). **Hard cap 8 MiB compressed**: entries are added in priority order and the
   build stops adding when the next entry would cross the cap (listed as `skipped`). Expected 1–3 MiB.
@@ -1325,8 +1366,14 @@ scan during the rewrite records 0. Change, Android 11+ only (the mirror's existi
    (as `.txt` copies; crash and exception copies are redacted, §5.4); `unknown-endpoints.jsonl` as `.jsonl.txt`. Like the
    logs, each is copied again while its size or time changes: a thread dump is written for up to 10 s, an ANR trace (up to
    8 MB) streams in on the exit-reasons thread, so a copy taken by an early cycle would stay truncated.
-4. Pruning: keep 5 sessions as today, and additionally at most 20 `crash-*`/`threaddump-*`/`exception-*` copies (oldest
-   by name; today crash copies are never pruned because `Prune` only groups names with `name[8] == '-'`).
+4. Pruning (at `Open`, and the diagnostics after a copy cycle that copied something): keep `logging.keepStarts` + 1
+   sessions: this one and the newest others by their copies' last write time (UTC; the prefix, 8 digits, `-`, 6 digits,
+   `-`, is local time and a time-zone change or the DST fall-back hour reorders it), none at all when the clock went back
+   (`LogRetention.ClockWentBackNow`); `crash-*`/`threaddump-*`/
+   `exception-*`/`exit-*` copies made before the oldest kept start go (§7.7), then at most 20 of them (oldest by time,
+   then name). A copy left by an earlier install cannot be deleted (not ours): counted, never a prompt. One `[mirror]`
+   line when something was deleted (`keeping 2 starts: deleted 9 copies (12.1 MB); 3 from an earlier install are not
+   ours`).
 5. Leftover `*.tmp` from a killed copy are deleted at the next start.
 
 Confirm on the device before and after (§12, C13):
@@ -1338,6 +1385,46 @@ Confirm on the device before and after (§12, C13):
 The host records each inserted content URI with its kind and time in `<data>/admin/mediastore.json` and, after each
 insert, deletes the rows of that kind beyond the newest 5 with `ContentResolver.delete(uri, null, null)` (the game owns
 them; no permission needed on Android 10+). Rows that no longer exist are dropped from the ledger.
+
+### 7.7 Log retention at start (`LogRetention.cs`, build 13)
+
+At every start the host keeps this start's logs and those of the previous N starts (`logging.keepStarts`, 0–10,
+default 1) and deletes older log files in `<logs>` (`McvsOffline/logs`), the fallback log folder (`getFilesDir()/
+McvsOffline/logs`; PC `%TEMP%\McvsOffline\logs`) and, through the mirror, `Download/MCVS-Offline` (§7.5). Same code on
+Android and PC (EmbeddedHost); the PC has no mirror and no exit or thread-dump files.
+
+* **A start** is one host process. `logs/starts.txt` gets one line per start (`<ISO UTC start> <platform> <version>`,
+  the last 50 kept); the time is taken at the top of `EmbeddedHost.Start`, before anything of the process writes in
+  `<logs>`. The page lists the file as kind "other"; the `all` zip includes it.
+* **The cutoff** is the earliest recorded start time among the N starts kept (the last N lines of `starts.txt`, which are
+  in file order, not time order, after a clock correction; N = 0: this start's own time). A file whose last
+  write time is before it belongs to an older start and is deleted. Fewer than N starts recorded (the first start after
+  the update), an unreadable `starts.txt`, or a kept start later than this one (the clock went back): no cutoff, nothing
+  is deleted by age.
+* **New files at every start**: `bootstrap.log`, `server.log`, `game.log` and `unknown-endpoints.jsonl` rotate a
+  non-empty earlier file to `.1` before this start's first line (`SafeLogFileOptions.NewFileAtStart`; a failed rotation
+  is one warning and the lines go on into the existing file). So `.1` is usually the previous start (unless the log also
+  rotated by size during this start), `game.log` (no dates) is split by start, and the rule works on whole files. The rotating logs still keep at most their own file count.
+* **Deleted** (an allowlist of names, never recursive): in `<logs>` the four logs' `.<digits>` files and, when no log of
+  this process owns them, their current names; `crash-*.txt`, `exception-*.txt`, `threaddump-*.txt`, `exit-*-anr.txt`,
+  `exit-*-tombstone.pb`; in the fallback folder `bootstrap.log`, `server.log`, `game.log` and their `.<digits>` files.
+  A log that is open deletes its own older files under its I/O lock (`SafeLogFile.DeleteFilesBefore`: no race with its
+  rotation), never the file it writes. Exit traces older than `LogRetention.TraceCutoffUtc` are not saved again (`ExitReasons`): the cutoff for N >= 1;
+  for N = 0 the previous recorded start, so the trace of the process that just ended is still saved (and deleted with
+  this start's files at the next start).
+* **Never deleted**: `starts.txt`, `restart-requested.txt` (taken before), `*.tmp`, sub-folders, any other name, the
+  fallback folder's parent (`hd-install/`), saves and settings, the logs zips the player saved or shared
+  (`mcvs-logs-*.zip` in Downloads and `admin/share/`), `mcvs-save-*` exports.
+* **Order**: Prepare reads the setting and records the start (`LogRetention.Begin`, milliseconds, UI thread) after
+  `settings.json` and before `game.log` opens; the thread `mcvs-log-retention` starts right after `McvsServer.Create`
+  (every log of this start is open then) and works for at most 5 s (the rest at the next start). One `[logs]` line in
+  `bootstrap.log`, e.g. `keeping this start and 1 previous (since 2026-10-28T19:02:11Z): deleted 23 files, 41.6 MB
+  (server.log.2-5, game.log.1, crash 1, exit 2; fallback 3)`; WARN when a file could not be deleted.
+* **Share-text report** (§4.7): after the three current logs, the WARN+ entries of the previous start's last file of each:
+  the lowest-numbered file last written before this start (`AdminHostInfo.StartedUtc`), "previous start"; a log that
+  rotated by size during this start has its `.1` in this start. Without the start time (standalone server): `.1`,
+  "previous file, usually the previous start". A player who restarted a broken game before opening the page still sends
+  the broken start.
 
 ## 8. Host integration (`hosts/embedded`, Android)
 
@@ -1538,7 +1625,9 @@ namespace McvsOffline
 otherwise return the same `List<object>` (or a new list with every item) with one more entry, a
 `Dictionary<string, object>` `{"customAction": "mcvs_offline", "isClickable": true, "label": ButtonLabel, "icon":
 ButtonIcon}` (`ASValue.SetObject` turns an `IDictionary` into a real AS object; the game's own entries are anonymous
-types and become managed objects with the same property names). The entry goes last (after "Recover progress").
+types and become managed objects with the same property names). The entry goes last. Build 13: with
+`admin.accountMenu.hideDeadButtons` (default on) the dead entries are dropped first, also when the page is off, and the
+buttons left are centred (§9.2).
 
 `OpenIfPageMarker`: `url == null` or not `IsPageMarker(url)` → false (an ordinal compare, no allocation: this runs for
 every URL the game opens). Marker: `world = browserComponent.World` (reflection, cached); a server World (`IsServer !=
@@ -1863,7 +1952,9 @@ Document shape added at the top level of the CRM document:
 * When `crm.newsfeedLink` is false, `admin.enabled` is false or no `IAdminPortal` is registered, the document carries
   **`"newsfeeds": []`** (an absent key would leave an existing message in the inbox forever: `OnCrmDataSet` returns
   before `RemoveExpiredNewsFeed` when `NewsFeed` is null).
-* A `newsfeeds` array from `crm.overlay` is kept; ours is appended (replacing an entry with the same `news_id`).
+* A `newsfeeds` array from `crm.overlay` is kept; ours is added (replacing an entry with the same `news_id`) before the
+  first kept entry with the same asset key (a missing asset is "", like ours), else at the end: the PC client gives
+  every inbox message the dates of the first item of its asset (docs/design/pc-port.md §4.3).
 * Implementation: `server/Services/Crm/CrmNewsfeed.cs` builds the list from `IAdminPortal.PageMarkerUrl` and the clock;
   `CrmDocumentBuilder.Build` gains a `List<object> newsfeeds` parameter applied after the `crm.overlay` merge and before
   `CrmDocumentValidator.Sanitize` (which gains a `newsfeeds` check, §10.8); `CrmDocumentCache` passes it and adds the
@@ -1927,6 +2018,40 @@ notes. A second run on a patched assembly fails the fingerprint check ("is not t
 Registration (WP6): `new AdminPagePatch()` in `ApkPatcher.AllPatches` (after `SignaturesPatch`), `"adminpage"` in
 `PatcherOptions.DefaultPatches` and `OptionalPatches`; `--help` and PLAYER-SETUP list it (WP8 docs).
 
+**Build 13: only Redeem code and MCVS Offline, centred** (`hosts/embedded/Admin/AccountMenuLayout.cs`; setting
+`admin.accountMenu.hideDeadButtons`, bool, default true, `live`). No new IL: both steps run in the A1 hook.
+
+* *Filter.* With the server up and the setting on, `AccountMenuButtons` drops the entries with `snsId` 0 (Facebook) or
+  2 (Google Play Games), whose login the `debloat` patch fails one frame later, and `customAction "restore_purchase"`
+  (`IapStoreComponent.RestoreTransactions`: in-app purchases, not cloud progress; no store exists offline). The members
+  are read by reflection from the game's anonymous objects; an entry that cannot be read, and anything else (Redeem,
+  the PC's GameCenter `snsId 1`, the link-code entry of other platforms, unknown entries), stays. The Steam build's
+  Win32 list is [Redeem, GameCenter] (no Facebook, Google or Restore entry, and `ShowLinkCode` only on platforms other
+  than Android, iOS and Win32), so the setting changes nothing on PC and the Windows page does not show it. The filter runs before the
+  `PortalEnabled` check (the MCVS entry is still appended only with the page on), and a list it would empty is returned
+  as it was. Flash side effects: none beyond gameswf null-call lines the stock menu already logs
+  (`removeButtonListeners` and `resultSNSConnect` look children up by `btnSocial_<k>` / `btnSocial_<sns>`).
+* *Centring.* `MenuAccountSettings.onPush` places list key k at `x = 77 + floor(k/2)·(w+50)`,
+  `y = 320 + (k%2)·(h+45)` (no centring, column-major, 2 rows), so [Redeem, MCVS Offline] would be stacked at the left
+  edge. When the final list is 1 or 2 entries without `snsId` (Flash names them `btnSocial_customAction0/1`), the hook
+  posts one work item to `GameApplication.Context`; `GameSynchronizationContext.Post` only enqueues, so it runs after
+  `onPush`. It takes `UISceneExtentions.GetUI(World)`, `FindClass("gluic.components.menus", "MenusStack")
+  .InvokeMethod("getMenuOnTopOfStack")` (named `menu_accounts`: `ASCharacter.Name`, else the AS `name`; not
+  `MenusManager.getMenuByName`, which skips disposable menus), the two buttons through `getChildByName`, their `width`
+  and the first one's `y`, and `FindClass("managers", "VPManager")` `getViewportBoundX/Width`. Then
+  `x0 = vpX + (vpW − (w0 + 50 + w1))/2`, `x1 = x0 + w0 + 50`, the second button's `y` = the first's (one button:
+  `x0 = vpX + (vpW − w0)/2`), set as `float` (an AS Number; `ASValue.SetObject` would wrap a `double` as a managed
+  object). Both symbols are 841 wide with their registration point at the left edge, so on the S22 (viewport 2048 stage
+  units at screen x 84-1916) the pair lands at x 158 and 1049, screen 225-1775, centred on 1000. One INFO line:
+  `account menu: 2 buttons centred (vpX=0, vpW=2048, x0=158, x1=1049)`; any failure (no UI, another menu on top, a
+  missing button or member, a row wider than the viewport, an exception) logs one `account menu: not centred (...)`
+  line and moves nothing. Every `ASClass`/`ASCharacter`/`ASValue` wrapper is disposed. The members (`GetUI`,
+  `MenuComponent.FindClass`, the non-generic `InvokeMethod(string, object[])`, `GetMember`, `SetMember`, `Name`,
+  `ASValue.GetObject(Type)`) are in `GameReflection.Verify` (RealGameReflectionTests: Android and PC assemblies).
+* *Open on a phone:* `vpW` in that log line should read 2048 on the S22 (layout research §2: if gameswf's stage width
+  were the full screen in stage units, the pair would sit 84 px right of centre, and so would the game's own centred
+  settings menus).
+
 ### 9.3 The inbox marker link (WP6: patch `adminlink`, default)
 
 `patcher/Patches/AdminLinkPatch.cs`:
@@ -1978,6 +2103,11 @@ ret
 ```
 
 Id `forum`, in `OptionalPatches` only. The label stays "Forum".
+
+Build 19: with `admin.settingsMenu.trim` on, the Forum tile is hidden ([settings-menu.md](settings-menu.md) §1); on
+Android with `admin.settingsMenu.performance` on it is the PERFORMANCE tile, whose `GoToForum` calls the game's own
+`UIComponent.GoToForum()` (this patch's body) only while the tile is not active. So the patch is reachable only with the
+trim off on PC, and with both switches off on Android.
 
 ### 9.5 Optional: hidden redeem code (WP7)
 
@@ -2068,7 +2198,9 @@ allowed; LAN mode, a `0.0.0.0` bind or `security.hostCheck=false` → allowed); 
 `/_mcvs/api/v1/settings` without a cookie → 413 before the body is read: the test feeds headers and checks the parser
 never reads the body bytes; with a valid cookie → accepted up to 64 KiB; chunked bodies stop at the limit);
 redaction of every pattern including percent-encoded, split across `&`/JSON, parameter names (`password=`,
-`access_token=`, `"superPassword":`), the fast path returning the same instance; `Logger.Redactor` applied to messages
+`access_token=`, `"superPassword":`), access tokens anywhere in a line (`RedactsTheAccessTokenOfTheGamesSessionLog`,
+`RedactsAccessTokensAnywhere`), the fast path returning the same instance (also for paths containing `mcvs`,
+`PathsWithMcvsKeepTheFastPath`); `Logger.Redactor` applied to messages
 and exception text for every sink; `Settings` fallback → `LoadError` set, `MoveAsideAndReset` renames, clears the flag,
 saves defaults, refuses when not fallback; `LastDirectAnonymous` ignores on-behalf and `game:` grants and grants not marked
 `playerLogin`, is updated on re-issue, carries client and device id; `RevokeCredential` removes grants of one credential only. HTTP through

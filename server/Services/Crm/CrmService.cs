@@ -6,7 +6,8 @@
 //                                         and with the collector's per-player cells (economy-collector.md §2.9)
 //   GET configs/users/me/{*selector}      the sub-tree at a selector: "game" (GS/TS game-server session; the GS waits
 //                                         forever without a 200), "game.CrashlyticsParams.Enable" (TS handshake),
-//                                         "iap" (native IAP lib, report 04 §5.1); always the static document
+//                                         "iap" (native IAP lib, report 04 §5.1); always the static document, "game"
+//                                         with the current window's in-match bot names (CrmBotNames)
 //   GET _mcvs/crm, POST _mcvs/crm/reload   diagnostics for testers (not used by the game)
 //   GET _mcvs/collector?account=<id>       what the collector read from a player's dump (economy-collector.md §5.7)
 
@@ -75,6 +76,8 @@ namespace McvsOffline.Server.Services.Crm
                 string json;
                 if (doc.TryGetSelectorJson(path, out json))
                 {
+                    // The game object the GS installs before each match carries the current window's bot names (CrmBotNames).
+                    if (path == "game") json = cache.GameSelectorJson(doc, json);
                     // The per-player document (economy-collector.md §2.9): for the store filter, or while the document
                     // carries the collector layer. Selectors and explicit user paths stay static.
                     if (path.Length == 0 && owned != null)

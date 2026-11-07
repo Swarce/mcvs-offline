@@ -13,6 +13,11 @@
 #   MCVS_APK        optional original APK; enables the patcher's real-APK tests (default /home/user/mcvs-work/apk/mcvs.apk)
 #   MCVS_STRICT=1   fail instead of skipping the embedded build when MCVS_REFS is missing
 #   MCVS_REQUIRE_REAL_CLIENT=0  let the real-client tests skip even though MCVS_REFS has the game's assemblies
+#   MCVS_PC_REFS    the Steam install folder of the PC build (default /home/user/mcvs-work/pc/install when it exists);
+#                   exported, so the solution build compiles the PC server DLL with the game-log bridge and the PC tests
+#                   read the real PC files
+#   MCVS_REQUIRE_PC=0  let the PC real-file tests skip even though MCVS_PC_REFS has the game's assemblies
+#   (step 1 also builds the PC server DLL: artifacts/bin/McvsOffline.Server.Pc/<config>/McvsOffline.Server.dll)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -30,6 +35,14 @@ if [ -z "${MCVS_APK:-}" ] && [ -f /home/user/mcvs-work/apk/mcvs.apk ]; then
 fi
 if [ -z "${MCVS_DATAPACK:-}" ] && [ -d /home/user/mcvs-work/datapack/1.17.32/ETC/files/Data ]; then
   export MCVS_DATAPACK=/home/user/mcvs-work/datapack/1.17.32/ETC/files/Data
+fi
+# The Steam (PC) install, read only (docs/design/pc-port.md §3.7): Gameloft.Logs.dll for the PC server DLL (MCVS_GAMELOG)
+# and the real PC files for every PC test. With its Gameloft.Engine.dll present those tests are mandatory.
+if [ -z "${MCVS_PC_REFS:-}" ] && [ -d /home/user/mcvs-work/pc/install ]; then
+  export MCVS_PC_REFS=/home/user/mcvs-work/pc/install
+fi
+if [ -n "${MCVS_PC_REFS:-}" ] && [ -f "$MCVS_PC_REFS/Gameloft.Engine.dll" ]; then
+  export MCVS_REQUIRE_PC="${MCVS_REQUIRE_PC:-1}"
 fi
 
 echo "==> dotnet build McvsOffline.sln ($CONFIG)"
@@ -54,3 +67,4 @@ config_dir="$(echo "$CONFIG" | tr '[:upper:]' '[:lower:]')"
 if [ "${MCVS_REQUIRE_EMBEDDED:-0}" = "1" ]; then
   echo "embedded server DLL: artifacts/bin/McvsOffline.Server.Embedded/$config_dir/McvsOffline.Server.dll"
 fi
+echo "PC server DLL: artifacts/bin/McvsOffline.Server.Pc/$config_dir/McvsOffline.Server.dll"

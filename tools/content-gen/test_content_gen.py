@@ -13,6 +13,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -272,7 +273,10 @@ class GeneratorTests(unittest.TestCase):
         with open(self.pricing_path, "w") as f:
             json.dump(sample_pricing(), f)
         files = {}
-        for asset in (b"Menus/x/emblem3.png", b"Menus/x/banner.png", b"Menus/x/crate.png"):
+        for asset in (b"Menus/x/emblem3.png", b"Menus/x/banner.png", b"Menus/x/crate.png",
+                      # the plain profile avatars the rivals may show (names.json emblems)
+                      b"Menus/assets/png/profile/avatars/avatar01.png", b"Menus/assets/png/profile/avatars/avatar05.png",
+                      b"Menus/assets/png/profile/avatars/avatar06.png"):
             h = "%x" % zlib.crc32(asset)
             files[h[0] + "/" + h[1:] + ".f"] = {}
         self.asset_files = set(files)
@@ -431,6 +435,9 @@ class GeneratorTests(unittest.TestCase):
         self.assertEqual(codes["UNLOCKUNRELEASED"]["groups"], ["unreleased"])
         for code in ("UNLOCKALL", "UNLOCKMERCS", "UNLOCKCAMOS", "UNLOCKACCESSORIES", "UNLOCKSIGNATURES"):
             self.assertNotIn("unreleased", codes[code]["groups"])
+        # every unlock code goes through the inventory ledger, never as one inbox message (inbox-freeze report F1)
+        for name, code in codes.items():
+            self.assertEqual(code["delivery"], "ledger", name)
         # without names.json nothing can be verified: no unreleased item at all
         os.remove(os.path.join(self.tmp, "names.json"))
         groups = {g["id"]: g for g in self.outputs()["unlocks.json"]["groups"]}
@@ -532,6 +539,177 @@ class GeneratorTests(unittest.TestCase):
         with self.assertRaises(cg.ContentError) as raised:
             self.outputs()
         self.assertIn("collector: crate.locId: localization id Crate.Cosmetic_Crate does not exist", str(raised.exception))
+
+    # ------------------------------------------------------------------------------------------- names
+
+    def names_tuning(self):
+        return cg.load_json(os.path.join(HERE, "names_tuning.json"))
+
+    def test_names_document(self):
+        names = self.outputs()["names.json"]
+        tuning = self.names_tuning()
+        self.assertEqual(list(names), ["format", "version", "limits", "years", "defaultShare", "curated", "parts", "styles",
+                                       "leet", "blocklist", "emblems", "summary"])
+        # The curated names (build 29), as the curated file lists them, comments and blank lines left out.
+        curated = cg.load_curated(os.path.join(HERE, tuning["curatedFile"]))
+        self.assertEqual(names["curated"], curated)
+        self.assertGreaterEqual(len(curated), tuning["minCurated"])
+        self.assertEqual(names["summary"]["curated"], len(curated))
+        self.assertTrue(all(not n.startswith("#") and n == n.strip() for n in curated))
+        self.assertEqual(names["parts"], tuning["parts"])
+        self.assertEqual(names["limits"], {"min": 3, "max": 16})
+        # Plain profile avatars (folder and file name) with Unlockable=true whose image is in the pack: 1, 5, 6; never the
+        # Kayac emblem filed under avatars/ (10, 11), a season emblem or an avatar without its image (2, 3, 4).
+        self.assertEqual(names["emblems"], {"avatars": "1,5-6", "backgrounds": "1-5"})
+        self.assertGreaterEqual(names["summary"]["wordNames"], tuning["minCombinations"])
+        self.assertTrue(all(s["case"] in cg.NAME_CASES and isinstance(s["leet"], bool) for s in names["styles"]))
+        self.assertIn({"name": "names.json", "entries": len(curated) + sum(len(v) for v in tuning["parts"].values())},
+                      self.outputs()["manifest.json"]["files"])
+        # The generic templates the owner disliked are gone (Adjective+Noun+digits, xXNameXx, ...Plays, Word_NN).
+        ids = set(s["id"] for s in names["styles"])
+        self.assertFalse(ids & {"adjNoun_d2", "xXnounXx", "x_noun_x", "short_d2", "noun-d2", "leetNoun_d2"})
+        self.assertFalse(set(names["parts"]["suffix"]) & {"Plays", "Gaming", "Wins"})
+        # One curated name per line in names.json, so a change to the list is a reviewable diff.
+        text = self.generate()["names.json"]
+        self.assertIn('\n    "Flank Sinatra",\n', text)
+        # Build-29 review: a Thai obscenity, blocked words inside a word, innuendo, politics, misconduct scandals and
+        # the same joke twice are out of the list.
+        for gone in ("Kuy", "Kusoge", "Sextou", "Shiitake Happens", "Gherkin Jerkin", "Nagibator228", "Down Bad 0-7",
+                     "Krispy Kremlin", "Elon Musgo", "Ich Bin Ein Bot", "Neuland", "DrDisrespect", "Dr Disrespawn",
+                     "The Two Time", "Snipe Tyson", "Conor McGrenade", "Sheesh", "xQc", "F in Chat", "HighNoon"):
+            self.assertNotIn(gone, curated)
+
+    def test_names_refuse_bad_tuning(self):
+        cat, collector = self.collector_inputs()
+
+        def refused(change, text):
+            tuning = self.names_tuning()
+            change(tuning)
+            with self.assertRaises(cg.ContentError) as e:
+                cg.build_names(cat, tuning, collector)
+            self.assertIn(text, str(e.exception))
+
+        refused(lambda t: t["parts"]["noun"].append("Nazi"), "refused by the blocklist")
+        refused(lambda t: t["parts"]["noun"].append("Wolf"), "'Wolf' twice")
+        refused(lambda t: t["parts"]["noun"].append("Zoë"), "ASCII letters")
+        refused(lambda t: t["parts"]["adj"].append("Way2Long4AName"), "1-12 ASCII")
+        refused(lambda t: t["styles"].append({"id": "x", "pattern": "{nouns}"}), "unknown token {nouns}")
+        refused(lambda t: t["styles"].append({"id": "x", "pattern": "{noun}<3"}), "literal")
+        refused(lambda t: t["styles"].append({"id": "x", "pattern": "_{noun}"}), "starts or ends with a separator")
+        refused(lambda t: t["styles"].append({"id": "x", "pattern": "{d3}"}), "word token")
+        refused(lambda t: t["limits"].update({"max": 17}), "limits")
+        refused(lambda t: t.update({"minCombinations": 10 ** 9}), "fewer than minCombinations")
+        refused(lambda t: t["blocklist"]["words"].append("Ass"), "blocklist.words")
+        # A word in both adj and noun (ShadowShadow); a person, weapon or disaster next to a country code (Bandit_MX).
+        refused(lambda t: t["parts"]["adj"].append("Shadow"), "parts.adj and parts.noun share shadow")
+        refused(lambda t: t["parts"]["mascot"].append("Bandit"), "'Bandit' is in roughNouns")
+        refused(lambda t: t.update({"minCurated": 10 ** 6}), "fewer than minCurated")
+        refused(lambda t: t["styles"].append({"id": "x", "pattern": "{noun}_{country}"}), "puts {country} next to {noun}")
+        refused(lambda t: t["styles"].append({"id": "x", "pattern": "{adj}{mascot}_{country}"}), "puts {country} next to {adj}")
+        refused(lambda t: t.update({"curatedFile": "../x.txt"}), "curatedFile")
+
+    def test_names_refuse_bad_curated_names(self):
+        cat, collector = self.collector_inputs()
+        tuning = self.names_tuning()
+        tuning["minCurated"] = 2
+        tuning["curatedNear"] = []      # the shipped pairs are not in this list (a stale pair is refused, below)
+
+        def refused(curated, text):
+            with self.assertRaises(cg.ContentError) as e:
+                cg.build_names(cat, tuning, collector, curated)
+            self.assertIn(text, str(e.exception))
+
+        good = ["Flank Sinatra", "Pão de Queijo", "[LAG] Pingu", "It'sa Me, Ammo", "o7", "Q*bert", "...Whatever", "Miracle-"]
+        self.assertEqual(cg.build_names(cat, tuning, collector, good)["curated"], good)
+        refused(good + ["dev:Fox"], "the character ':'")          # the bot's credential dev:<name>
+        refused(good + ["{0} Fox"], "the character '{'")          # the localization formatter's placeholders
+        refused(good + ["A<b>c"], "the character '<'")            # markup
+        refused(good + ["Fox/Co"], "the character '/'")
+        refused(good + ["Fox\u0100"], "the character")             # outside Latin-1
+        refused(good + ["-Fox"], "CRM cell operator")
+        refused(good + ["NaN"], "reads as a number")
+        refused(good + ["1e5"], "reads as a number")
+        refused(good + ["1337"], "no letter")
+        refused(good + [" Fox"], "a space at an end")
+        refused(good + ["Fox  Co"], "two in a row")
+        refused(good + ["ThisNameIsWayTooLong"], "length")
+        refused(good + ["x"], "length")
+        refused(good + ["Nazi Pingu"], "refused by the blocklist")
+        refused(good + ["White Power"], "refused by the blocklist")
+        refused(good + ["Fox 88"], "refused by the blocklist")
+        refused(good + ["flank sinatra"], "read alike")
+        refused(good + ["FlankSinatra"], "read alike")
+        refused(good + ["Pao de Queijo"], "read alike")             # accents ignored
+        refused(["Solo"], "fewer than minCurated")
+        # Two skeletons of 5 letters or more one letter apart: one joke written twice, unless curatedNear lists the pair.
+        refused(good + ["Sheesh", "Sheeesh"], "one letter apart")
+        refused(good + ["Scooby Snacks", "Scooby Snack"], "one letter apart")
+        refused(good + ["Hummus Among Us", "humus among us"], "one letter apart")
+        refused(good + ["Flank Sinatro"], "one letter apart")              # one letter changed
+        tuning["curatedNear"] = [["Master Chief", "Master Chef"]]
+        both = good + ["Master Chief", "Master Chef"]
+        self.assertEqual(cg.build_names(cat, tuning, collector, both)["curated"], both)
+        refused(good + ["Master Chief"], "curatedNear lists Master Chef / Master Chief")   # a pair no longer in the list
+        tuning["curatedNear"] = [["Master Chief"]]
+        refused(both, "curatedNear must be a list")
+        tuning["curatedNear"] = []
+        self.assertEqual(cg.build_names(cat, tuning, collector, good + ["Bonk", "Bork"])["curated"], good + ["Bonk", "Bork"])
+
+    def test_curated_helpers(self):
+        self.assertEqual(cg.name_skeleton("Pika Pew"), cg.name_skeleton("PikaPew"))
+        self.assertEqual(cg.name_skeleton("Crème Brûlée"), "cremebrulee")
+        self.assertEqual(cg.name_skeleton("Frost27"), "frost")
+        self.assertEqual(cg.name_skeleton("7ac7icalLeop4rd"), "tacticalleopard")
+        self.assertEqual(cg.name_skeleton("agent-123456789"), "agent123456789")
+        self.assertEqual(cg.curated_words("PepeHands"), ["Pepe", "Hands"])
+        self.assertEqual(cg.curated_words("SSSniperWolf"), ["SS", "Sniper", "Wolf"])
+        self.assertEqual(cg.curated_words("[LAG] Pingu"), ["LAG", "Pingu"])
+        self.assertEqual(cg.curated_words("Pay2Lose"), ["Pay2", "Lose"])
+        block = cg.NameBlocklist(self.names_tuning()["blocklist"])
+        for bad in ("Ur A Retard", "f4gg0t lol", "Sh1t Happens", "xX_Nazi_Xx", "Kill Your Self", "WhitePower", "Nazì", "Fuçk",
+                    "Opium Den", "ISIS Fan", "Trump 2024", "Ranger1488", "Kuy", "KUY Gang", "Khuy"):
+            self.assertIsNotNone(block.curated_problem(bad), bad)
+        for good in ("Spooky Scary", "Obi Wan Kenoodle", "WaitItsAllOhio", "Copium", "Knife Crisis", "Shroud's Mouse", "Ninja",
+                     "Master Chief", "Prophet Margin", "Agent 47"):
+            self.assertIsNone(block.curated_problem(good), good)
+        self.assertEqual(cg.near_skeleton_pairs(["Sheesh", "Bonk", "Sheeesh", "Sheeeesh", "Bork", "skrt", "Skrrt"]),
+                         [("Sheesh", "Sheeesh"), ("Sheeesh", "Sheeeesh")])
+        self.assertEqual(cg.near_skeleton_pairs(["Master Chief", "Master Chef", "Pika Pew", "Pika Pow", "Rip and Tear"]),
+                         [("Master Chief", "Master Chef"), ("Pika Pew", "Pika Pow")])
+        path = os.path.join(self.tmp, "curated.txt")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("# a comment\n\nZoë\nPika Pew\n#another\n")
+        self.assertEqual(cg.load_curated(path), ["Zoë", "Pika Pew"])
+
+    def test_names_blocklist_and_shape(self):
+        block = cg.NameBlocklist(self.names_tuning()["blocklist"])
+        for pieces in (["Sh1tStorm"], ["N_A_Z_I"], ["Wolf", "455"], ["Atlas", "Sniper"], ["Fox", "88"], ["Ranger", "14"],
+                       # a hate symbol and slang made of two harmless words
+                       ["Iron", "Cross"], ["Red", "Rocket"]):
+            self.assertIsNotNone(block.problem(pieces), pieces)
+        # Build 29, the owner's rule: brands, streamers and other games' characters are allowed.
+        for pieces in (["Silent", "Fox"], ["Ranger", "1448"], ["Glass", "Cannon"], ["Ninja", "07"], ["Sniper", "Wolf"],
+                       ["Blue", "Yeti"], ["Hollow", "Knight"], ["Soldier", "76"], ["Batman"]):
+            self.assertIsNone(block.problem(pieces), pieces)
+        limits = {"min": 3, "max": 16}
+        for bad in ("1337", "1e5", "NaN", "_Fox", "Fo__x", "A<b", "Fox Co", "ThisNameIsWayTooLong", "ab"):
+            self.assertIsNotNone(cg.name_shape_problem(bad, limits), bad)
+        for good in ("SilentFox", "silent_fox", "xXRavenXx", "agent-123456789", "fox.ace"):
+            self.assertIsNone(cg.name_shape_problem(good, limits), good)
+
+    def test_names_never_repeat_a_word_or_put_a_rough_noun_next_to_a_country(self):
+        tuning = self.names_tuning()
+        names = self.outputs()["names.json"]
+        self.assertGreater(names["summary"]["repeatedCombinations"], 0)  # nounNoun Wolf+Wolf: skipped, as the server does
+        self.assertFalse(set(w.lower() for w in tuning["parts"]["adj"]) & set(w.lower() for w in tuning["parts"]["noun"]))
+        for style in names["styles"]:
+            if "{country}" in style["pattern"]:
+                self.assertFalse(re.findall(r"\{(noun|adj|handle|short|prefix|suffix)\}", style["pattern"]), style)
+        pairs = cg.name_pairs(tuning)
+        self.assertNotIn("wolfwolf", pairs)
+        self.assertNotIn("ironcross", pairs)
+        self.assertIn("sniperwolf", pairs)   # a streamer's handle: allowed since build 29
+        self.assertIn("silentfox", pairs)
 
     def test_check_mode_reports_stale_files(self):
         out_dir = os.path.join(self.tmp, "out")
@@ -1018,6 +1196,106 @@ class RealDataTests(unittest.TestCase):
         self.assertEqual(block["since"], "2026-11-09T00:00:00Z")
         self.assertEqual(len(block["weeklyMilestones"]), 3)
         self.assertEqual(self.out["liveops.json"]["revision"], 1)
+
+    def test_arena_modes_from_the_data_pack(self):
+        """The Special Event modes (docs/LIVEOPS.md §8a): every Arena rule table and titled variant of 1.17.32 is used,
+        the playable maps leave out the three MapsList rows without a level, every mode allows the 21 agents."""
+        arena = self.out["liveops.json"]["arena"]
+        self.assertEqual(arena["maps"], ["Snow", "Desert", "Favelas", "Rooftop", "DogDays", "Port", "Stadium", "Stadium2"])
+        self.assertEqual(len(arena["modes"]), 23)
+        self.assertEqual([m["id"] for m in arena["modes"] if not m["rotate"]], ["tripleElixir"])
+        used = set(t for m in arena["modes"] for t in m["parameterSets"])
+        self.assertEqual(used, {"ArenaHavoc", "ArenaOverride", "ArenaAmbush", "ArenaGrandBounty", "ArenaBountiful", "ArenaBlitz",
+                                "ArenaScorechargeTDM", "ArenaScorechargeZoneControl", "ArenaScorechargeWarzone",
+                                "ArenaScorechargeBounty", "Arena3RoundSystem", "ArenaTripleElixir"})
+        for m in arena["modes"]:
+            self.assertEqual(m["agents"], ["Merc_%d" % i for i in range(1, 22)])
+            self.assertTrue(m["img"].startswith("Menus/assets/png/tournament/mode_"), m["id"])
+            self.assertEqual(m["map"], "Random")
+            self.assertEqual(sorted(m["multipliers"]), sorted(cg.ARENA_MULTIPLIERS))
+            self.assertEqual(m["allowDuplicates"], not m["id"].startswith("competitive"), m["id"])
+
+
+class ArenaTests(unittest.TestCase):
+    """build_liveops_arena on a synthetic catalogue: what it expands and what it refuses."""
+
+    class Cat:
+        def __init__(self):
+            self.merc_ids = [1, 2, 3]
+            self.files = {"Levels/A/A.level", "Levels/B/B.level", "img/tdm.png", "img/rnd.png"}
+            self.asset_files = set(["marker"])
+            self.tables = {"Design/MCVS_Gameplay.xlsx": {"ArenaFast": {"fields": ["Index", "X"]}, "ArenaSlow": {"fields": ["Index"]},
+                                                         "ArenaNoIndex": {"fields": ["X"]}, "MapsList": {"fields": []}}}
+
+        def asset_exists(self, path):
+            return path in self.files
+
+        def table_fields(self, db, table):
+            t = self.tables.get("Design/%s.xlsx" % db, {}).get(table)
+            return t["fields"] if t else None
+
+    MAPS = {"Fields": ["Index", "MapPath", "AvailableInGameModes"],
+            "Rows": [["A", "Levels/A/A.level", "PVP,Tournament"], ["B", "Levels/B/B.level", "Tournament"],
+                     ["C", "Levels/C/C.level", "PVP"], ["random", None, None]]}
+    LOC = {"Arena": {"Fast", "FastDesc", "Slow", "SlowDesc", "Lonely", "LonelyDesc", "Other"}, "HUD": {"TDM", "Any"}}
+
+    def block(self):
+        return {"agents": "all", "multipliers": {"creditsVictory": 1.25},
+                "matchTypes": {"TeamDeathMatch": {"text": "HUD.TDM", "img": "img/tdm.png"},
+                               "None": {"text": "HUD.Any", "img": "img/rnd.png"}},
+                "modes": [{"id": "fast", "name": "Arena.Fast", "rule": "Arena.FastDesc", "matchType": "TeamDeathMatch",
+                           "parameterSets": ["ArenaFast"]},
+                          {"id": "slow", "name": "Arena.Slow", "rule": "Arena.SlowDesc", "matchType": "None", "parameterSets": ["ArenaSlow"],
+                           "allowDuplicates": False, "map": "A", "multipliers": {"versusCoinsMvp": 2}}],
+                "unusedTables": {"ArenaNoIndex": "test"}, "unusedTexts": {"Arena.Lonely": "test"}}
+
+    def build(self, block=None):
+        return cg.build_liveops_arena(self.Cat(), block or self.block(), self.LOC, self.MAPS)
+
+    def refused(self, change, text):
+        block = self.block()
+        change(block)
+        with self.assertRaises(cg.ContentError) as raised:
+            self.build(block)
+        self.assertIn(text, str(raised.exception))
+
+    def test_expands_every_field(self):
+        out = self.build()
+        self.assertEqual(out["maps"], ["A"])          # B is not PVP, C has no level, random has no path
+        fast, slow = out["modes"]
+        self.assertEqual(fast, {"id": "fast", "eventName": "Arena.Fast", "rule": "Arena.FastDesc", "matchTypeText": "HUD.TDM",
+                                "matchType": "TeamDeathMatch", "parameterSets": ["ArenaFast"], "map": "Random", "allowDuplicates": True,
+                                "img": "img/tdm.png", "agents": ["Merc_1", "Merc_2", "Merc_3"],
+                                "multipliers": {"creditsVictory": 1.25, "creditsDefeat": 1, "creditsMvp": 1, "versusCoinsVictory": 1,
+                                                "versusCoinsDefeat": 1, "versusCoinsMvp": 1}, "rotate": True})
+        self.assertEqual((slow["map"], slow["allowDuplicates"], slow["matchTypeText"], slow["img"]), ("A", False, "HUD.Any", "img/rnd.png"))
+        self.assertEqual(slow["multipliers"]["versusCoinsMvp"], 2)
+        self.assertEqual(slow["multipliers"]["creditsVictory"], 1.25)
+        self.assertEqual(out["priority"], 3)
+
+    def test_refuses_what_the_client_cannot_use(self):
+        self.refused(lambda b: b.update(agents=["Merc_1"]), "agents must be")
+        self.refused(lambda b: b["modes"][0].update(map="C"), "not playable")
+        self.refused(lambda b: b["modes"][0].update(map="B"), "not playable")
+        self.refused(lambda b: b["modes"][0].update(id="with_underscore"), "letters or digits")
+        self.refused(lambda b: b["modes"][1].update(id="fast"), "duplicate")
+        self.refused(lambda b: b["modes"][0].update(matchType="Uphold"), "no matchTypes entry")
+        self.refused(lambda b: b["matchTypes"].update(CaptureFlag={"text": "HUD.TDM", "img": "img/tdm.png"}), "CaptureFlag")
+        self.refused(lambda b: b["matchTypes"]["None"].update(img="img/missing.png"), "not in the data pack")
+        self.refused(lambda b: b["modes"][0].update(img="img/missing.png"), "not in the data pack")
+        self.refused(lambda b: b["modes"][0].update(name="Arena.Nope"), "does not exist")
+        self.refused(lambda b: b["modes"][0].update(parameterSets=["ArenaMissing"]), "no MCVS_Gameplay table")
+        self.refused(lambda b: b["modes"][0].update(parameterSets=["ArenaNoIndex"]), "no Index")
+        self.refused(lambda b: b["modes"][0].update(multipliers={"creditsVictory": 0}), "0.1 to 10")
+        self.refused(lambda b: b["modes"][0].update(multipliers={"bogus": 1}), "unknown multiplier")
+        self.refused(lambda b: b["modes"][0].update(allowDuplicates="no"), "true or false")
+        self.refused(lambda b: [m.update(rotate=False) for m in b["modes"]], "no mode in the rotation")
+
+    def test_every_variant_is_used_or_named(self):
+        self.refused(lambda b: b.pop("unusedTables"), "ArenaNoIndex is used by no mode")
+        self.refused(lambda b: b.pop("unusedTexts"), "Arena.Lonely")
+        self.refused(lambda b: b["unusedTables"].update(ArenaFast="x"), "listed in unusedTables")
+        self.refused(lambda b: b["modes"].pop(1), "ArenaSlow is used by no mode")
 
 
 if __name__ == "__main__":

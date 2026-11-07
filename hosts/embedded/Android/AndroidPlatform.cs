@@ -1,6 +1,6 @@
 // Host: embedded - owner group: EMBED (hosts/embedded, patcher/)
-// Android only: compiled into the embedded DLL (MCVS_EMBEDDED), never into the net8 build.
-#if MCVS_EMBEDDED
+// Android only: compiled into the embedded DLL (MCVS_ANDROID), never into the net8 build.
+#if MCVS_ANDROID
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -47,6 +47,19 @@ namespace McvsOffline.Embedded.Android
         private const string AndroidUtilsClass = "com/gameloft/android/PackageUtils/AndroidUtils";
 
         public string Name { get { return "android"; } }
+
+        public string EntryPoint { get { return "NicePlaySDKDLL.OnInitialize"; } }
+
+        public string ArgsReader { get { return "JNIBridge.NativeInit"; } }
+
+        public string PortInUseHint
+        {
+            get
+            {
+                return "Another app holds the port (a frozen earlier copy of the game?); a phone restart frees it. With embedded.portFallback " +
+                       "true (the default) the server moves to a free port by itself.";
+            }
+        }
 
         public string ResolveGameRoot(Log log)
         {
@@ -144,7 +157,7 @@ namespace McvsOffline.Embedded.Android
         public string ApplyGameLog(Settings settings, SafeLogFile gameLog)
         {
             return GameLogBridge.Apply(settings.GetString("gameLog.levels", "error warning"), settings.GetString("gameLog.mute", "profile:debug"), gameLog,
-                                       (int)settings.GetLong("gameLog.maxMessageChars", 8192));
+                                       (int)settings.GetLong("gameLog.maxMessageChars", 8192), false);
         }
 
         public string JavaStacks(string gameThreadComm)
@@ -174,7 +187,7 @@ namespace McvsOffline.Embedded.Android
             try
             {
                 if (iapState == 1) return "native IAP library initialized: yes";
-                Type app = Type.GetType("Gameloft.Engine.GameApplication, Gameloft.Engine", false);
+                Type app = LoadedTypes.EngineType("Gameloft.Engine.GameApplication");
                 object instance = app == null ? null : app.GetProperty("Instance").GetValue(null, null);
                 if (instance == null) return null;
                 EmbeddedHost current = EmbeddedHost.Current;
@@ -208,6 +221,9 @@ namespace McvsOffline.Embedded.Android
             Log log = host.Logger.For("diag");
             adminLog = host.Logger.For("android");
             if (host.Paths != null) ledger = new MediaStoreLedger(host.Paths.DataDir);
+            // The kept starts (settings logging.keepStarts): the Downloads copies and the exit traces follow the logs/ rule.
+            LogRetention retention = host.Retention;
+            DateTime? cutoff = retention == null ? null : retention.CutoffUtc;
             if (host.Settings.GetBool("diagnostics.publicLogCopy", true))
             {
                 try
@@ -217,7 +233,11 @@ namespace McvsOffline.Embedded.Android
                         SdkInt = AndroidDiagnostics.SdkInt,
                         DownloadsDir = AndroidDiagnostics.DownloadsDir,
                         Scan = ScanFiles,
+                        DiagnosticsBeforeUtc = cutoff,
+                        // Session names are local times: after the clock went back their order says nothing; keep them all.
+                        KeepAllSessions = retention != null && retention.ClockWentBackNow,
                     };
+                    if (retention != null) mirror.KeepSessions = retention.KeepStarts + 1;
                     host.MirrorStatus = mirror.Describe;
                     mirror.Start();
                     CrashReporter.Mirror = mirror.CopyCrashFile;
@@ -236,7 +256,7 @@ namespace McvsOffline.Embedded.Android
                 try
                 {
                     Thread.Sleep(3000);   // out of the start-up path
-                    string text = ExitReasons.Describe(5, host.Paths.LogsDir);
+                    string text = ExitReasons.Describe(5, host.Paths.LogsDir, retention == null ? null : retention.TraceCutoffUtc);
                     if (!string.IsNullOrEmpty(text)) log.Info(text);
                 }
                 catch (Exception ex)
@@ -279,6 +299,11 @@ namespace McvsOffline.Embedded.Android
         public List<string> MissingJniMembers()
         {
             return AndroidJni.Resolve();
+        }
+
+        public AdminPlatformCapabilities Capabilities()
+        {
+            return AndroidCapabilities.From(SdkInt, MissingJniMembers());
         }
 
         public bool OpenInGameBrowserJni(string url)

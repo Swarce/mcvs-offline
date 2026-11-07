@@ -171,6 +171,31 @@ namespace McvsOffline.Server.Services.Social
             }
         }
 
+        /// <summary>
+        /// Hand-written Special Events (ArenaModeEvent) get the per-event checks (<see cref="TleTemplateValidator"/>: img,
+        /// agents, ...) but not the CRM's chain check: whether they are listed, and when, is up to <c>crm.eventIds</c>, and
+        /// nothing lists a successor for them. Once the last one ends while the game runs, the client keeps it (trap 3,
+        /// docs/LIVEOPS.md §8a.3), the TS has none for the room and the GS throws on the missing <c>_arenaParams</c>
+        /// (unless the generated Special Events, §8a.1, are in progress). So the log says where their chain ends, and
+        /// warns about a gap or an overlap.
+        /// </summary>
+        private void NoteArenaChain(Dictionary<string, Dictionary<string, object>> events)
+        {
+            var arena = new List<Dictionary<string, object>>();
+            foreach (var kv in events)
+            {
+                Dictionary<string, object> e = Normalize(kv.Key, kv.Value, null);
+                if (e != null && TleTemplateValidator.IsArenaEvent(e)) arena.Add(e);
+            }
+            bool broken;
+            string note = TleTemplateValidator.ArenaChainEnd(arena, out broken);
+            if (note == null) return;
+            string what = ContentName + ": " + arena.Count + " hand-written Special Event(s) (ArenaModeEvent), checked one by one, not as a chain: " + note;
+            const string trap = "; a match started in a gap or after the end, while the game still holds the ended event, fails on the game server (docs/LIVEOPS.md §8a.3)";
+            if (broken) log.Warn(what + trap);
+            else log.Info(what + trap);
+        }
+
         private Dictionary<string, Dictionary<string, object>> ParseContent(string text)
         {
             var events = new Dictionary<string, Dictionary<string, object>>(StringComparer.Ordinal);
@@ -199,6 +224,7 @@ namespace McvsOffline.Server.Services.Social
                 }
             }
             log.Info(ContentName + ": " + events.Count + " event definition(s)");
+            NoteArenaChain(events);
             return events;
         }
     }

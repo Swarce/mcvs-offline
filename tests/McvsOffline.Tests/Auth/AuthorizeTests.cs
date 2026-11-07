@@ -251,10 +251,12 @@ namespace McvsOffline.Tests.Auth
                 MiniJson.Parse(response.BodyText);
             }
 
-            // The 401 log line says why, for device testers.
+            // The 401 log line says why, for device testers; the token itself is redacted like every token in a log (WR2 F6).
             Assert.True(server.Logs.Contains("(no access_token)"));
-            Assert.True(server.Logs.Contains("token " + unknown + " is not known here"));
-            Assert.True(server.Logs.Contains("token " + foreign + " was issued by 'mcvs00000000', this server is '" + server.Context.InstanceId + "'"));
+            Assert.True(server.Logs.Contains("token mcvs…<redacted> is not known here"));
+            Assert.True(server.Logs.Contains("token mcvs…<redacted> was issued by 'mcvs00000000', this server is '" + server.Context.InstanceId + "'"));
+            Assert.False(server.Logs.Contains("0123456789abcdef0123456789abcdef"));
+            Assert.False(server.Logs.Contains(unknown));
         }
 
         [Fact]

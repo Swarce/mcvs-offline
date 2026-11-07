@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MCVS Offline</title>
+<link rel="icon" href="data:,">
 <!--
   The MCVS Offline settings and diagnostics page (docs/design/settings-page.md §2). Hand-written, not generated:
   one self-contained ES5 page for the game's own in-game browser (a WebView without localStorage, file chooser,
@@ -140,6 +141,7 @@ p { margin: 4px 0 8px; }
       <div id="banner-nosession" class="banner bad" style="display:none"><span id="banner-nosession-text" class="btext">Open this page from the game: Settings › Account › MCVS Offline, or the MCVS Offline message in the inbox.</span></div>
       <div id="banner-viewmode" class="banner info" style="display:none"><span id="banner-viewmode-text" class="btext">This view cannot change anything. Open MCVS Offline from the game: Settings › Account › MCVS Offline (or the inbox message in a build with the default patches).</span></div>
       <div id="banner-error" class="banner bad" style="display:none"><span id="banner-error-text" class="btext">The game is not answering. Go back to the game.</span></div>
+      <div id="banner-inactive" class="banner bad" style="display:none"><span id="banner-inactive-text" class="btext"></span></div>
       <div id="banner-staged" class="banner warn" style="display:none"><span id="banner-staged-text" class="btext"></span><button id="banner-staged-restart" type="button">Restart now</button><button id="banner-staged-cancel" type="button">Cancel</button><button id="banner-staged-x" class="x" type="button">×</button></div>
       <div id="banner-restart" class="banner warn" style="display:none"><span id="banner-restart-text" class="btext"></span><button id="banner-restart-now" type="button">Restart now</button><button id="banner-restart-x" class="x" type="button">×</button></div>
       <div id="banner-probation" class="banner info" style="display:none"><span id="banner-probation-text" class="btext"></span><button id="banner-probation-x" class="x" type="button">×</button></div>
@@ -177,7 +179,7 @@ p { margin: 4px 0 8px; }
           <div id="saves-current" class="card"><p class="muted">Loading…</p></div>
           <h3 id="saves-backups-title">Backups</h3>
           <div id="saves-backups"></div>
-          <h3>Other accounts on this phone</h3>
+          <h3 id="saves-accounts-title">Other accounts on this phone</h3>
           <div id="saves-accounts"></div>
         </div>
         <div id="saves-export" style="display:none">
@@ -237,8 +239,9 @@ p { margin: 4px 0 8px; }
       </div>
 
       <div id="screen-actions" style="display:none">
-        <div class="row"><div class="rl"><div class="lbl">Where are my files</div><div class="help">Folders, the import folder and the adb commands for a PC.</div></div><div class="rc"><button id="action-files" type="button">Show</button></div></div>
+        <div class="row"><div class="rl"><div class="lbl">Where are my files</div><div id="action-files-help" class="help">Folders, the import folder and the adb commands for a PC.</div></div><div class="rc"><button id="action-files" type="button">Show</button></div></div>
         <div id="action-files-body" class="card" style="display:none"></div>
+        <div id="action-browser-row" class="row" style="display:none"><div class="rl"><div class="lbl">Open in the system browser</div><div class="help">Opens this page in your usual web browser (for example when the Steam overlay shows nothing). This window stays open.</div></div><div class="rc"><button id="action-browser" type="button">Open</button></div></div>
         <div class="row"><div class="rl"><div class="lbl">Restart the game</div><div id="action-restart-help" class="help">The page closes, the game saves your progress and starts again.</div></div><div class="rc"><button id="action-restart" type="button">Restart</button></div></div>
         <div class="row"><div class="rl"><div class="lbl">Rebuild the CRM document</div><div class="help">Shop, events and game parameters; takes effect when you close this page.</div></div><div class="rc"><button id="action-crm-reload" type="button">Rebuild</button></div></div>
         <div id="action-hd-row" class="row" style="display:none"><div class="rl"><div class="lbl">Remove HD textures</div><div id="action-hd-help" class="help">Puts the game's original textures back at the next start (turns off HD textures).</div></div><div class="rc"><button id="action-hd-remove" type="button">Remove</button></div></div>
@@ -248,7 +251,7 @@ p { margin: 4px 0 8px; }
       <div id="screen-about" style="display:none">
         <h2>MCVS Offline</h2>
         <div class="kv"><span class="k">Version</span><span id="about-version" class="v">–</span></div>
-        <p>This page runs inside your game and talks only to the MCVS Offline server on this phone. Nothing leaves the phone unless you share it.</p>
+        <p id="about-local">This page runs inside your game and talks only to the MCVS Offline server on this phone. Nothing leaves the phone unless you share it.</p>
         <div class="kv"><span class="k">Browser</span><span id="about-ua" class="v mono"></span></div>
         <div id="page-errors" class="errt mono" style="display:none"></div>
         <div class="btnrow"><a class="btn" href="exit:">Close this page</a></div>
@@ -290,6 +293,8 @@ p { margin: 4px 0 8px; }
     game: 'by the game itself', session: "by the game's last login", device: "by this phone's device id",
     single: 'the only save on this phone'
   };
+  // Texts that name the device: the Windows host says "this PC" (applied by onDevice()).
+
   var LOG_KINDS = {
     server: 'server', bootstrap: 'start-up', game: 'game', rotated: 'older', crash: 'crash', exception: 'error',
     threaddump: 'thread dump', exit: 'exit record', 'unknown-endpoints': 'unknown requests', other: 'other'
@@ -452,6 +457,32 @@ p { margin: 4px 0 8px; }
   }
 
   function isStandalone() { return !!(S.status && S.status.host === null); }
+
+  // The Steam (PC) build: the host says "windows" (docs/design/pc-port.md §4.6).
+  function isWindows() { var h = host(); return !!(h && h.platform === 'windows'); }
+
+  // "this phone"/"the phone"/"This phone" of a text, read as "this PC" on the Windows host.
+  function onDevice(text) {
+    return isWindows() ? String(text).replace(/(this|the|This|other) phone/g, '$1 PC') : text;
+  }
+
+  // The static texts of the page that name the phone, Downloads or adb (Android wording in the HTML).
+  var PLATFORM_TEXTS = {
+    'saves-accounts-title': ['Other accounts on this phone', 'Other accounts on this PC'],
+    'export-downloads': ['Save to Downloads', 'Save to McvsOffline\\exports'],
+    'logs-downloads': ['Save to Downloads', 'Save to McvsOffline\\exports'],
+    'action-files-help': ['Folders, the import folder and the adb commands for a PC.', 'Folders and the import folder.'],
+    'about-local': ['This page runs inside your game and talks only to the MCVS Offline server on this phone. Nothing leaves the phone unless you share it.',
+                    'This page runs inside your game and talks only to the MCVS Offline server on this PC. Nothing leaves the PC unless you share it.']
+  };
+
+  function applyPlatformTexts() {
+    var w = isWindows() ? 1 : 0;
+    for (var id in PLATFORM_TEXTS) if (PLATFORM_TEXTS.hasOwnProperty(id) && $(id)) $(id).textContent = PLATFORM_TEXTS[id][w];
+  }
+
+  // Where the player starts the game again by hand.
+  function startAgainFrom() { return isWindows() ? 'from Steam' : 'from the home screen'; }
 
   // Android 13+: the restart alarm may not bring the game back (target-sdk.md §4.6), but no device has shown it yet
   // (STATUS device-test item 9), so the texts say "may close without coming back", never "will not come back".
@@ -821,6 +852,16 @@ p { margin: 4px 0 8px; }
     }
     banner('banner-probation', ptext && S.session && !S.dismissed[pkey], ptext || '');
     S.bannerKeys = { staged: key, restart: rkey, probation: pkey };
+
+    // PC (WR2 F2): the game did not run the patched files; not dismissible, it stays until a start that does. Without notActive
+    // (Android) the same banner says the Game.dll lacks the 'inbox' patch: a big redeem-code message then freezes the inbox.
+    var cl = S.status && S.status.client ? S.status.client : null;
+    var inactive = cl ? cl.notActive : null;
+    var noInbox = !inactive && !!cl && cl.inboxPatch === false;
+    banner('banner-inactive', !!inactive || noInbox, inactive ? 'MCVS Offline is installed, NOT ACTIVE (' + inactive + '): the game runs its own files, ' +
+           'so the offline fixes are missing. Close the game, run the kit\'s status, then install again.'
+           : noInbox ? 'The game was patched without MCVS Offline\'s \'inbox\' patch: opening the inbox freezes the game while a big ' +
+           'redeem-code message (UNLOCKALL and the like) is unclaimed. Patch the game again with the current patcher.' : '');
   }
 
   // The text with a full stop, unless it already ends a sentence (server messages usually do).
@@ -840,12 +881,12 @@ p { margin: 4px 0 8px; }
     var who = sum.alias || shortId(op.target);
     var lvl = typeof sum.level === 'number' ? ' (level ' + sum.level + ')' : '';
     if (op.kind === 'import') {
-      return 'import of ' + who + lvl + (op.plan === 'switch' ? ', played on this phone' : ' over the current progress');
+      return 'import of ' + who + lvl + (op.plan === 'switch' ? onDevice(', played on this phone') : ' over the current progress');
     }
     if (op.kind === 'restore') {
-      return 'restore of a backup of ' + who + lvl + (op.plan === 'switch' ? ', played on this phone' : '');
+      return 'restore of a backup of ' + who + lvl + (op.plan === 'switch' ? onDevice(', played on this phone') : '');
     }
-    if (op.kind === 'relink') return 'play ' + who + lvl + ' on this phone';
+    if (op.kind === 'relink') return 'play ' + who + lvl + onDevice(' on this phone');
     if (op.kind === 'undo') return 'undo of the last operation';
     return (op.kind || 'operation') + ' for ' + who;
   }
@@ -888,6 +929,7 @@ p { margin: 4px 0 8px; }
       if (st === 200) { sessionReady(d, h); return; }
       if (st === 401 && h.t) {
         api('POST', 'session', { ticket: h.t }, function (st2) {
+          if (st2 === 401) { staleTab(); return; }
           if (st2 !== 200) { noSession(); return; }
           api('GET', 'status', null, function (st3, d3) {
             if (st3 === 200) sessionReady(d3, h);
@@ -926,6 +968,13 @@ p { margin: 4px 0 8px; }
     banner('banner-nosession', true);
     lock(true);
     go('about');
+  }
+
+  // No cookie and the fragment's ticket refused: a tab the overlay or a browser kept or re-opened from an earlier start
+  // (tickets live in the game's memory and are used once), not a link the game just opened (WR2 F8).
+  function staleTab() {
+    noSession();
+    banner('banner-nosession', true, 'This tab is from an earlier start of the game: close it and open the page from the game again.');
   }
 
   function lostSession() {
@@ -974,15 +1023,17 @@ p { margin: 4px 0 8px; }
     var c = checkbox('Restart even if the game does not save (you may lose the progress since ' + when + ')');
     nodes.push(c.row);
     nodes.push(el('p', 'muted', relaunchUnconfirmed()
-      ? 'Android 13 and later may close the game without letting it come back by itself. If it has not come back after about 20 seconds, start it again from the home screen.'
-      : 'If the game does not come back by itself, start it again from the home screen.'));
+      ? (isWindows() ? 'On PC the game is started again through Steam, which may not bring it back by itself.'
+                     : 'Android 13 and later may close the game without letting it come back by itself.')
+        + ' If it has not come back after about 20 seconds, start it again ' + startAgainFrom() + '.'
+      : 'If the game does not come back by itself, start it again ' + startAgainFrom() + '.'));
     openDialog({
       title: 'Restart the game', nodes: nodes, ok: 'Restart', cancel: 'Not now',
       onOk: function () {
         api('POST', 'actions/restart', { confirm: true, reason: reason, restartWithoutSave: !!c.box.checked }, function (st, d) {
           if (st === 202 || st === 200) {
             S.restarting = true;
-            toast(relaunchUnconfirmed() ? 'Restarting: the page closes and the game saves. If it does not come back by itself, start it again from the home screen.'
+            toast(relaunchUnconfirmed() ? 'Restarting: the page closes and the game saves. If it does not come back by itself, start it again ' + startAgainFrom() + '.'
                                         : 'Restarting: the page closes, the game saves and starts again.', 9000);
             return;
           }
@@ -1024,6 +1075,7 @@ p { margin: 4px 0 8px; }
   function applyStatus(d) {
     S.status = d;
     if (d && d.exit && d.exit.state && d.exit.state !== 'idle') S.restarting = d.exit.state === 'restarting';
+    applyPlatformTexts();
     renderStatus();
     renderBanners();
     renderAbout();
@@ -1044,7 +1096,7 @@ p { margin: 4px 0 8px; }
       if (typeof p.level === 'number') kv(body, 'Level', String(p.level));
       if (typeof p.revision === 'number') kv(body, 'Save revision', String(p.revision));
       kv(body, 'Last save by the game', p.lastGameSave ? timeAgo(p.lastGameSave) : 'not since the game started' + (p.modified ? ' (file saved ' + timeAgo(p.modified) + ')' : ''));
-      kv(body, 'Identified', SOURCES[p.source] || p.source || 'unknown');
+      kv(body, 'Identified', onDevice(SOURCES[p.source] || p.source || 'unknown'));
       if (p.hasGameProfile === false) kv(body, 'Game progress', 'none stored yet', 'warnt');
     } else {
       para(body, 'The page does not know which account the game is playing yet.', 'muted');
@@ -1064,7 +1116,8 @@ p { margin: 4px 0 8px; }
     add(body, el('h3', null, 'Server'));
     var sv = d.server || {};
     kv(body, 'Started', sv.started ? fmtTime(sv.started) + ' (' + fmtDuration(sv.uptimeSeconds) + ' ago)' : '–');
-    kv(body, 'Address', (sv.bind || '?') + ':' + (sv.port || '?') + (sv.lanMode ? ' (LAN mode)' : ''));
+    kv(body, 'Address', (sv.bind || '?') + ':' + (sv.port || '?') + (sv.lanMode ? ' (LAN mode)' : '') +
+       (sv.portNote ? ' (' + sv.portNote + ')' : ''));
     kv(body, 'Host check', sv.hostCheck === false ? 'off' : 'on');
     kv(body, 'Data folder', sv.dataDir, 'mono');
     kv(body, 'Game data', sv.dataPack || 'not found', 'mono');
@@ -1080,7 +1133,13 @@ p { margin: 4px 0 8px; }
     if (!h) {
       para(body, 'Standalone server (no game on this machine): sharing, restart and save buttons are not available. Use the download links instead.', 'muted');
     } else {
-      kv(body, 'Platform', (h.platform || '?') + (h.sdkInt ? ', Android API ' + h.sdkInt : ''));
+      kv(body, 'Platform', h.platform === 'windows' ? 'windows (the Steam PC build)'
+                                                     : (h.platform || '?') + (h.sdkInt ? ', Android API ' + h.sdkInt : ''));
+      if (d.client && d.client.notActive) kv(body, 'Install', 'installed, NOT ACTIVE (' + d.client.notActive + ')', 'errt');
+      var missing = [];
+      if (d.client && !d.client.notActive && d.client.storePatch === false) missing.push('store (the cosmetic crate stays off)');
+      if (d.client && !d.client.notActive && d.client.inboxPatch === false) missing.push('inbox (big unlock codes freeze the inbox)');
+      if (missing.length) kv(body, 'Game patches', 'missing: ' + missing.join(', '), 'errt');
       kv(body, 'In-game browser', (h.browser || 'unknown') + (h.browserOpen ? ', open' : ''));
       kv(body, 'Watchdog', h.watchdog);
       kv(body, 'Log copies', h.mirror);
@@ -1091,7 +1150,9 @@ p { margin: 4px 0 8px; }
       for (var k in c) if (c.hasOwnProperty(k)) caps.push(k + (c[k] ? '' : ' (off)'));
       kv(body, 'Capabilities', caps.join(', '));
       if (h.missingJni && h.missingJni.length) kv(body, 'Missing JNI members', h.missingJni.join(', '), 'errt');
-      if (h.restartVia) kv(body, 'Restart via', h.restartVia + (h.relaunchUnconfirmed ? ' (Android 13+: may only close the game; then start it again yourself)' : ''));
+      if (h.restartVia) kv(body, 'Restart via', h.restartVia + (h.relaunchUnconfirmed
+        ? (h.platform === 'windows' ? ' (Steam may not start it again: then start it again yourself)'
+                                    : ' (Android 13+: may only close the game; then start it again yourself)') : ''));
       if (h.notifications) kv(body, 'Notifications', h.notifications);
       if (h.graphics) kv(body, 'Graphics', h.graphics.replace(/^graphics: /, ''));
       if (h.hdTextures) kv(body, 'HD textures', h.hdTextures.replace(/^hd textures: /, ''));
@@ -1343,7 +1404,11 @@ p { margin: 4px 0 8px; }
     var v = k.display !== undefined && k.display !== null ? String(k.display) : fmtValue(k, k.value);
     var span = add(row, el('span', 'v mono', v));
     span.setAttribute('id', idFor(k.key));
-    return row;
+    if (!k.help) return row;
+    var wrap = el('div');
+    add(wrap, row);
+    add(wrap, el('div', 'help', k.help));
+    return wrap;
   }
 
   function settingRow(k) {
@@ -1511,7 +1576,8 @@ p { margin: 4px 0 8px; }
       para(body, 'Loading…', 'muted');
       return;
     }
-    para(body, 'Type them in Settings › Account › Redeem code. Each code works once per save; codes marked "+ number" work again with a number added (UNLOCKALL2).', 'muted');
+    para(body, 'Type them in Settings › Account › Redeem code. Each code works once per save; codes marked "+ number" work again with a number added (UNLOCKALL2), but give only what an earlier code or unlockAll did not already give (items from play, crates, the store or an old coupon message count as new once).', 'muted');
+    para(body, 'Unlock codes do not use the inbox: the items arrive over a few minutes, in batches with a rewards popup each. Stay in the menus until the popups stop.', 'muted');
     if (c.enabled === false) para(body, 'Unlock codes are off: turn on "Unlock codes" above.', 'warnt');
     var codes = c.codes || [];
     for (var i = 0; i < codes.length; i++) add(body, codeRow(codes[i]));
@@ -1523,6 +1589,7 @@ p { margin: 4px 0 8px; }
     var left = add(row, el('div', 'il'));
     add(left, el('div', 'mono lbl', code.code + (code.numericSuffix ? ' (+ number)' : '')));
     if (code.description) add(left, el('div', 'help', code.description));
+    if (code.warning) add(left, el('div', 'warnt', code.warning));
     var right = add(row, el('div', 'ir'));
     add(right, btn('Copy', 'small', function () { copyText(code.code, 'MCVS Offline code'); }));
     return row;
@@ -1763,7 +1830,7 @@ p { margin: 4px 0 8px; }
       renderBackups();
       loadBackups();
     }));
-    if (a.hasGameProfile) add(right, btn('Play this account on this phone', 'small', function () { relinkDialog(a); }, 'relink-' + a.account));
+    if (a.hasGameProfile) add(right, btn(onDevice('Play this account on this phone'), 'small', function () { relinkDialog(a); }, 'relink-' + a.account));
     return row;
   }
 
@@ -1883,7 +1950,7 @@ p { margin: 4px 0 8px; }
       plan = el('select');
       var o1 = add(plan, el('option', null, 'Restore it for ' + accountName(acct) + ' (keep playing your current account)'));
       o1.value = 'restore-other';
-      var o2 = add(plan, el('option', null, 'Restore it and play it on this phone'));
+      var o2 = add(plan, el('option', null, onDevice('Restore it and play it on this phone')));
       o2.value = 'switch';
       plan.value = 'restore-other';
       nodes.push(plan);
@@ -1903,8 +1970,8 @@ p { margin: 4px 0 8px; }
   }
 
   function relinkDialog(a) {
-    confirmDialog('Play ' + accountName(a) + ' on this phone?',
-      'From the next start the game plays ' + accountName(a) + (typeof a.level === 'number' ? ' (level ' + a.level + ')' : '') + '. Your current save stays on the phone, and you can switch back the same way.',
+    confirmDialog('Play ' + accountName(a) + onDevice(' on this phone?'),
+      'From the next start the game plays ' + accountName(a) + (typeof a.level === 'number' ? ' (level ' + a.level + ')' : '') + onDevice('. Your current save stays on the phone, and you can switch back the same way.'),
       'Play it', function () { postRelink(a, false); });
   }
 
@@ -2011,7 +2078,7 @@ p { margin: 4px 0 8px; }
     }
     var info = fmtNum(e.chars) + ' characters in ' + plural(e.parts, 'part', 'parts') + ' (' + (PART_NAMES[e.size] || e.size) + ').';
     if (e.parts > 4) info += ' That is a lot of parts: Share as a file is easier.';
-    if (e.k >= e.texts.length) info += ' All parts copied: paste them in Saves › Import on the other phone.';
+    if (e.k >= e.texts.length) info += onDevice(' All parts copied: paste them in Saves › Import on the other phone.');
     else info += ' Paste each part where you keep it before copying the next.';
     $('export-info').textContent = info;
     var k = e.k < e.texts.length ? e.k : 0;
@@ -2187,11 +2254,11 @@ p { margin: 4px 0 8px; }
     kv(card, 'Saved', b.modified ? fmtTime(b.modified) : '–');
     kv(card, 'Game progress', b.hasGameProfile ? 'yes' : 'no', b.hasGameProfile ? null : 'errt');
     var loc = r.local;
-    if (loc && loc.exists) kv(card, 'This phone has', 'revision ' + loc.revision + (loc.isCurrent ? ' (the account you play)' : '') + ', saved ' + fmtTime(loc.modified));
+    if (loc && loc.exists) kv(card, onDevice('This phone has'), 'revision ' + loc.revision + (loc.isCurrent ? ' (the account you play)' : '') + ', saved ' + fmtTime(loc.modified));
     var plan = r.plan;
     var curName = r.current ? (r.current.alias || shortId(r.current.account)) : 'the current player';
     if (plan === 'replace') kv(card, 'Plan', 'replace the progress of ' + curName);
-    else if (plan === 'switch') kv(card, 'Plan', 'play this save on this phone; ' + curName + ' stays on the phone');
+    else if (plan === 'switch') kv(card, 'Plan', onDevice('play this save on this phone; ') + curName + onDevice(' stays on the phone'));
     var errs = r.errors || [];
     for (var i = 0; i < errs.length; i++) add(card, el('p', 'errt', errs[i]));
     var warns = r.warnings || [];
@@ -2200,7 +2267,7 @@ p { margin: 4px 0 8px; }
     show(confirmRow, can);
     if (!can) box.checked = false;
     $('import-confirm-text').textContent = plan === 'replace' ? 'Replace the progress of ' + curName + ' with this save'
-      : 'Play this save on this phone; your current save stays on the phone';
+      : onDevice('Play this save on this phone; your current save stays on the phone');
     $('import-stage').disabled = !(can && box.checked);
   }
 
@@ -2216,7 +2283,7 @@ p { margin: 4px 0 8px; }
         return;
       }
       if (st === 409 && d && d.error === 'newer_save') {
-        confirmDialog('This phone has a newer save', errText(st, d) + ' Stage the older save anyway?', 'Stage it anyway', function () { stageImport(true, replace); }, true);
+        confirmDialog(onDevice('This phone has a newer save'), errText(st, d) + ' Stage the older save anyway?', 'Stage it anyway', function () { stageImport(true, replace); }, true);
         return;
       }
       if (st === 409 && d && d.error === 'staged_exists') { stagedExistsDialog(function () { stageImport(allowOlder, true); }); return; }
@@ -2437,8 +2504,10 @@ p { margin: 4px 0 8px; }
     show($('action-restart'), cap('exit'));
     $('action-restart-help').textContent = cap('exit')
       ? 'The page closes, the game saves your progress (last save ' + lastSaveText() + ') and ' +
-        (relaunchUnconfirmed() ? 'starts again. On Android 13 and later it may only close: then start it again from the home screen.' : 'starts again.')
+        (relaunchUnconfirmed() ? 'starts again. ' + (isWindows() ? 'Steam may not start it again by itself' : 'On Android 13 and later it may only close')
+                                 + ': then start it again ' + startAgainFrom() + '.' : 'starts again.')
       : 'This build cannot restart the game: close it and start it again yourself.';
+    show($('action-browser-row'), cap('openInBrowser'));
     show($('action-unlock-row'), settingValue('unlockAll') === true);
     var hd = S.status && S.status.host;
     show($('action-hd-row'), !!(hd && hd.hdInstalled) && settingValue('hd.enabled') !== false);
@@ -2454,9 +2523,11 @@ p { margin: 4px 0 8px; }
     kv(box, 'Data folder', data, 'mono');
     kv(box, 'Logs', (h && h.logsDir) || (data ? data + '/logs' : ''), 'mono');
     if (h && h.fallbackLogsDir) kv(box, 'Logs (internal storage)', h.fallbackLogsDir, 'mono');
-    kv(box, 'Copies for sharing', (h && h.publicLogsDir) || 'Download/MCVS-Offline/', 'mono');
-    kv(box, 'Import folder', data ? data + '/import' : '', 'mono');
-    para(box, (S.importFiles && S.importFiles.writableBy) || 'On Android 10 and older any file manager can put files in the import folder; on Android 11 and later use a PC (USB file transfer or adb).', 'muted');
+    kv(box, 'Copies for sharing', (h && h.publicLogsDir) || (isWindows() ? 'McvsOffline\\exports' : 'Download/MCVS-Offline/'), 'mono');
+    kv(box, 'Import folder', data ? data + (isWindows() ? '\\import' : '/import') : '', 'mono');
+    para(box, (S.importFiles && S.importFiles.writableBy) || (isWindows()
+      ? 'Copy files into the import folder with Explorer. Uninstalling the game in Steam deletes the McvsOffline folder, saves included: export your save first.'
+      : 'On Android 10 and older any file manager can put files in the import folder; on Android 11 and later use a PC (USB file transfer or adb).'), 'muted');
     if (h && h.platform === 'android' && data) {
       add(box, el('h3', null, 'With a PC (adb)'));
       var cmds = [
@@ -2483,7 +2554,7 @@ p { margin: 4px 0 8px; }
     for (var i = 0; i < SCREENS.length; i++) on($('nav-' + SCREENS[i]), 'click', goTo(SCREENS[i]));
     on($('dialog-ok'), 'click', dialogOk);
     on($('dialog-cancel'), 'click', dialogCancel);
-    var banners = ['banner-nosession', 'banner-viewmode', 'banner-error', 'banner-staged', 'banner-restart', 'banner-probation'];
+    var banners = ['banner-nosession', 'banner-viewmode', 'banner-error', 'banner-inactive', 'banner-staged', 'banner-restart', 'banner-probation'];
     for (var j = 0; j < banners.length; j++) on($(banners[j] + '-text'), 'click', toggleOpen($(banners[j])));
     on($('banner-staged-restart'), 'click', function () { restartDialog('import'); });
     on($('banner-staged-cancel'), 'click', cancelStaged);
@@ -2552,6 +2623,12 @@ p { margin: 4px 0 8px; }
       if (S.filesOpen) renderFiles();
     });
     on($('action-restart'), 'click', function () { restartDialog('user'); });
+    on($('action-browser'), 'click', function () {
+      api('POST', 'actions/open-in-browser', { screen: 'actions' }, function (st, d) {
+        toast(st === 200 && d && d.ok ? 'Opening the page in the system browser.'
+                                      : st === 200 ? 'The system browser could not be started.' : errText(st, d), 6000);
+      });
+    });
     on($('action-crm-reload'), 'click', function () {
       api('POST', 'actions/crm-reload', {}, function (st, d) {
         toast(st === 200 ? 'Done: takes effect when you close this page.' : errText(st, d), 6000);

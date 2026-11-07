@@ -61,7 +61,17 @@ namespace McvsOffline.Server.Services.Crm
             return list;
         }
 
-        /// <summary>Our item, keys in the order of design §9.1 (no <c>end_date</c>: the client's 30-day expiry applies).</summary>
+        /// <summary>Days from the item's timestamp (a week start) to its <c>end_date</c>: always 30 or more days ahead.</summary>
+        public const int EndDateDays = 37;
+
+        /// <summary>
+        /// Our item, keys in the order of design §9.1, plus <c>end_date</c> = <paramref name="createdUtc"/> + 37 days
+        /// (ISO 8601). The PC client keeps every newsfeed item in the static <c>NewsFeedData.Newsfeeds</c> (keyed by
+        /// <c>asset</c>) and, when an inbox message's creation date differs from its item's (our timestamp moves every
+        /// Monday), sets the message's expiry to the item's <c>EndDate</c> (PC-GM/InboxComponent.cs:465-491): without an
+        /// <c>end_date</c> that is <c>default(DateTime)</c> and the message vanished at every week rollover
+        /// (docs/design/pc-port.md §4.3). On Android the expiry becomes this date instead of now + 30 days.
+        /// </summary>
         public static Dictionary<string, object> Item(string redirect, DateTime createdUtc)
         {
             var item = new Dictionary<string, object>(StringComparer.Ordinal);
@@ -72,6 +82,7 @@ namespace McvsOffline.Server.Services.Crm
             item["asset"] = "";
             item["youtube"] = "";
             item["timestamp"] = TimeFormat.ToUnixSeconds(createdUtc);
+            item["end_date"] = TimeFormat.Iso8601(createdUtc.AddDays(EndDateDays));
             return item;
         }
 

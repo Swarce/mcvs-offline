@@ -164,7 +164,10 @@ namespace McvsOffline.Tests.Misc
             Assert.Contains("mcvs_daily_2026102200", ids);
             Assert.Contains("mcvs_weekly_2026101900x7", ids);
             Assert.DoesNotContain("mcvs_weekly_2026102600x7", ids); // announced only on the last day
-            Assert.Equal(17 * 2 + 2 + 1, ids.Count);
+            // The Special Event of today's window and tomorrow's (LiveOpsArenaTests).
+            Assert.Equal(2, ids.Count(i => i.StartsWith("mcvs_arena_2026102100x24h_", StringComparison.Ordinal)
+                                           || i.StartsWith("mcvs_arena_2026102200x24h_", StringComparison.Ordinal)));
+            Assert.Equal(17 * 2 + 2 + 1 + 2, ids.Count);
             Assert.Equal("2026-10-22 00:00:00Z", doc["expiry"]);
 
             // Last day: next week's event is announced and the document expires with the season.
@@ -218,6 +221,7 @@ namespace McvsOffline.Tests.Misc
             s.Set("liveops.dailyQuests", false);
             s.Set("liveops.weeklyEvents", false);
             List<string> ids = Participation(MiscServer.Obj(s.Get("/configs/users/me?access_token=t")));
+            Assert.Equal(2, ids.RemoveAll(id => id.StartsWith(LiveOpsSchedule.ArenaPrefix, StringComparison.Ordinal)));   // Special Events stay
             Assert.Equal(34, ids.Count);
             Assert.All(ids, id => Assert.StartsWith("mcvs_season_", id));
         }
@@ -275,7 +279,8 @@ namespace McvsOffline.Tests.Misc
             for (int day = 0; day < 15; day++)
             {
                 List<string> ids = Participation(MiscServer.Obj(s.Get("/configs/users/me?access_token=t")));
-                Assert.Equal(17 * 2 + 2 + (seasonDays > 1 && clock.UtcNow.AddSeconds(2) >= LiveOpsSchedule.SeasonAt(Settings(seasonDays), clock.UtcNow.AddSeconds(2)).End.AddDays(-1) ? 2 : 1),
+                Assert.Equal(17 * 2 + 2 + (seasonDays > 1 && clock.UtcNow.AddSeconds(2) >= LiveOpsSchedule.SeasonAt(Settings(seasonDays), clock.UtcNow.AddSeconds(2)).End.AddDays(-1) ? 2 : 1)
+                             + 2,   // the Special Events of this window and the next
                              ids.Count);
                 // Every listed id has a definition (FindEvent), the division boards resolve to season boards.
                 foreach (string id in ids.Where(i => i.StartsWith(LiveOpsSchedule.SeasonPrefix, StringComparison.Ordinal)))
@@ -496,7 +501,7 @@ namespace McvsOffline.Tests.Misc
             Assert.Equal(true, page["enabled"]);
             Assert.Equal("mcvs_season_2026101900x7", JsonPath.Get(page, "season.id"));
             Assert.Equal("mcvs_daily_2026102100", JsonPath.Get(page, "day.id"));
-            Assert.Equal(37, ((List<object>)page["eventIds"]).Count);
+            Assert.Equal(39, ((List<object>)page["eventIds"]).Count);   // 37 and the two Special Events
             Assert.Equal(2, ((List<object>)page["achievementEvents"]).Count);
             Assert.NotNull(page["modifier"]);
         }
@@ -825,7 +830,7 @@ namespace McvsOffline.Tests.Misc
             OverrideContent(s, LiveOpsCatalog.ContentName, LiveOpsContent.WithCollector("{\"since\":\"soon\"}"));
             TestPlayer p = s.NewPlayer("broken-block");
             List<string> ids = Participation(MiscServer.Obj(s.Get("/configs/users/me?access_token=t")));
-            Assert.Equal(17 * 2 + 2 + 1, ids.Count);
+            Assert.Equal(17 * 2 + 2 + 1 + 2, ids.Count);
             string body = s.Get("/events?event_ids=" + string.Join(",", ids) + "&language=en", p.OnBehalfToken).BodyText;
             Assert.Equal(ids.Count, MiniJson.ParseArray(body).Count);
             Assert.DoesNotContain(CollectorGuard.CrateId, body);

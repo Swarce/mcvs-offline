@@ -15,7 +15,7 @@ verify-C6 §2.6, §5; report 04 §4-6, §10-11, §15; report 06 §4.5-4.8; repor
 | GET | `lobbyconfigs/{clientId}/{serverType}` | `matchmaker.lobbyconfigs` | 200 `{"game":{...,"cmd_args"},"automatchers":{...}}` | verify-C2 §1.3-1.4, report 06 §4.8 | implemented |
 | GET | `rooms/{clientId}` | `matchmaker.rooms.find` | 200 `[]` + warning (rooms live in the local Finder) | `EN/ClientLink.cs:377-440` | conservative |
 | POST | `rooms/{clientId}/quick_launch`, `rooms/{clientId}/automatch/{automatcher}` | `matchmaker.rooms.*` | 404 `{"error"}` + warning: only reached outside Embedded mode | `EN/ClientSettings.cs:341-351` OverrideAnubisHost | conservative |
-| GET | `coupons/{clientId}/{code}` | `assets.coupon` | 200 `[{"type":"<rewardId>","quantity":<int>}, ...]`; 404 = "coupon does not exist"; the page code (`admin.redeemCode`) is always 404 and may open the settings page (below) | verify-C5 (b), `EN/AssetsComponent.cs:180-210` | implemented |
+| GET | `coupons/{clientId}/{code}` | `assets.coupon` | an unlock code: 200 `[]`, its keys go into the player's inventory ledger (below); an inbox code: 200 `[{"type":"<rewardId>","quantity":<int>}, ...]` (at most 300); 404 = "coupon does not exist" (also every refusal); the page code (`admin.redeemCode`) is always 404 and may open the settings page (below) | verify-C5 (b), `EN/AssetsComponent.cs:180-210`, [research/inbox-freeze.md](../research/inbox-freeze.md) §3 F1 | implemented |
 | GET | `assets/{clientId}` | `assets.list` | 200 `[{name, hash (sha256), size}]` of `<data>/assets` (normally `[]`) | report 10 §5 | implemented |
 | GET | `assets/{clientId}/{name}` (+ `/metadata[/{attr}]`, `/url`) | `assets.get` | the local file (Range → 206/416), metadata JSON, URL text; 404 when not provided | report 04 §11 | implemented |
 | GET | `_mcvs/crm` / POST `_mcvs/crm/reload` | `crm.debug` / `crm.reload` | diagnostics: preconfiguration source, size, `_ServerConfig.default`, validation problems, the `collector` block (below) / rebuild | ours | implemented |
@@ -34,6 +34,12 @@ Built by `CrmDocumentBuilder`, layers in order (last wins):
    our server starts before the Java installer downloaded `Data/`) it is retried every 10 s; a corrupt file is ignored
    until restart. At load we drop the ~175 KB of empty `_OverrideTables` changers and the iap catalogues we do not use.
    Without it the document is built from our content alone and is still complete.
+   **PC (Steam).** The install's `Data\` is flat: the same crc32 in decimal, no directory (`Data\3186060502.f` for
+   `Config/crmpreconfiguration.json`, `187993782.f` for `Config/glue.json`, `462043511.f` for
+   `GameOptions_windows.json`; 15,922 entries), with `MCVS.game` and `Config/EngineConfig.json` under their own names.
+   `DataPack.Locate` tries the Android hex layout, then the decimal one (`DataPack.DecimalPath`), then the plain name, so
+   the same code reads both packs (docs/design/pc-port.md §4.5). On PC the host hands the server the game folder's
+   `Data\`, which makes the `<data>/../Data` fallback unnecessary there (it stays for the standalone host).
 2. **`crm_overlay.json`**: `13yolimitationpopup.enabled=false`, `ReviewPopupParams.Ignore=true`,
    `CrashlyticsParams.Enable=false`, `_OverrideTables.MCVS_System.GameFeatures["Id@Enabled"]["RedeemCoupons"]="1"`,
    `_ServerConfig.default` with `IsDevelopment:false`, `DisableServerTracking*:true`, `UnsupportedLinkFrom/To:[]`;
@@ -50,6 +56,10 @@ Built by `CrmDocumentBuilder`, layers in order (last wins):
    with `crm.matchmaking`; `game.AgeGateParams.Ignore = crm.skipAgeGate` (true: no age gate on first boot);
    `crm.redeemCoupons=false` removes the RedeemCoupons cell; economy multipliers become `_OverrideTables` MUL cells
    (`economy.json` targets, see ECONOMY.md); `crm.eventIds` → `groupware.events.participation`.
+   Nothing touches `MCVS_Meta.MainMenuElements`: the game's hidden SOLO/"PRACTICE" tile (row 13) stays hidden. Builds
+   15-20 had `crm.practiceTile` (off by default) for two SET cells there; the tile never showed even when on, and build
+   21 removed the setting (an old settings.json may keep the key; it is not read) and the `bottile` patch. The document
+   with the default settings is byte for byte build 20's (`Content/PracticeTileRemovedTests`).
 5b. **Live ops** ([../LIVEOPS.md](../LIVEOPS.md), from `LiveOpsService.Snapshot(now)`): the current and next season's 17
    division event ids, today's and tomorrow's daily missions, the season's weekly event (and the next one during the
    last day) appended to `groupware.events.participation` (after `crm.eventIds`); top-level **`expiry`** = the next
@@ -72,8 +82,15 @@ Built by `CrmDocumentBuilder`, layers in order (last wins):
 6. `crm.overlay` from settings.json, deep-merged.
 6b. **Inbox item** (`newsfeeds`, build 9; [../design/settings-page.md](../design/settings-page.md) §9.1): one entry
    `{"news_id": "mcvsoffline_FromMCVS", "title": "MCVS Offline", "body": ..., "redirect": "http://127.0.0.1:<port>/_mcvs/ui/#news",
-   "asset": "", "youtube": "", "timestamp": <Monday 00:00 UTC of this week>}` appended to an overlay's `newsfeeds`
-   (replacing an entry with the same `news_id`). The inbox shows it as the message "MCVS Offline" from "MCVS"; its button
+   "asset": "", "youtube": "", "timestamp": <Monday 00:00 UTC of this week>, "end_date": <that Monday + 37 days, ISO 8601>}`
+   appended to an overlay's `newsfeeds` (replacing an entry with the same `news_id`). `end_date` exists for the PC
+   client: its inbox gives a message whose creation date differs from its item's (ours moves every Monday) the item's
+   `EndDate` as expiry (`PC-GM/InboxComponent.cs:465-491`), and without `end_date` that is `default(DateTime)`, so the
+   message vanished at every week rollover; on Android it only replaces the inbox's own now + 30 days expiry
+   (docs/design/pc-port.md §4.3). On PC, overlay newsfeed items with the same `asset` share the first one's `EndDate`;
+   `CrmDocumentValidator` logs a WARN (and changes nothing) when an item shares its `asset` with an earlier one that has
+   no `end_date`.
+   The inbox shows it as the message "MCVS Offline" from "MCVS"; its button
    opens the page through the `adminlink` patch. `redirect` is a fixed marker, **never a secret**: `configs/users/me`
    answers anyone. With `crm.newsfeedLink` false, `admin.enabled` false or no admin module the list is `"newsfeeds": []`
    (never absent: the inbox removes an old message only when the key is there). `CrmDocumentValidator.Sanitize` keeps
@@ -81,6 +98,43 @@ Built by `CrmDocumentBuilder`, layers in order (last wins):
 7. `game._OverrideTables` is pruned (empty changers, keys without exactly one `@`, non-scalar cells) and **mirrored**
    into `_ServerConfig.default._OverrideTables`: the TS applies the former, the GS applies the latter and forwards it to
    clients in its handshake (report 04 §4.2, `GM/GameplayCRMComponent.cs:119-203`).
+7b. **Bot names** (`crm.botNames`, default true, build 28; `CrmBotNames`): not in the document itself. Only the answer
+   to `configs/users/me/game` (the game object every GS World fetches when it is created,
+   `EN/CRMServerSettingsComponent.cs:64-75,100-130`) gets one SET cell per renamed stock bot name in its mirror,
+   `_ServerConfig.default._OverrideTables.MCVS_AI.BotNames["Name@Name"][<stock name>] = <gamer tag>`
+   (`CrmDocumentCache.GameSelectorJson`, `CrmDocument.GameJsonWithBotNames`). The client names its bots from column 0
+   of the AI table `BotNames` (293 rows, 291 distinct in 1.17.32, the same on Android and Steam), read from the global
+   database every time a match level loads (`GM/MultiplayerComponent.cs:600-629` LoadBotNames/GetNextAvailableBotName,
+   drawn without replacement, two names per bot); the GS installs the mirror of the game object it fetched on that
+   global database before the match level loads (`GM/GameplayCRMComponent.cs` InitGameplayCrmSettingsAsync →
+   RefreshDatabases; `GM/GameServerComponent.cs:1191-1194` awaits it), so every Battle and automatch shows our names
+   from the first match on. A changer only edits rows it finds by value (`EN/Database.cs:143-195`), so one match never
+   has more names than the table has rows; the pool grows across matches instead. The keys are the player's own stock
+   names, read at run time from `Design/MCVS_AI.xlsx` of their data pack (host pack, `crm.dataPackDir`,
+   `<data>/../Data`; read when the document is built, retried every minute while missing) and never shipped.
+   **Window.** Every `CrmBotNames.WindowMinutes` (10) minutes, about one match, a new window keeps
+   `KeepStockPercent` (25 %) of the stock names, drawn per window, so the game's own names still come up, and renames
+   the rest with names from `GamerTags` (the names of the leaderboard rivals, [../LIVEOPS.md](../LIVEOPS.md) §5.1: since
+   build 29 the curated list, about 2,000 names, each slot its own hashed order through it), scope
+   `mcvs-offline/bot-name/v1`, id `<window>|<slot>` (slots = the stock names in ordinal order), the same on both
+   platforms: two hours of play meet more than a thousand of our names, a day nearly every curated one, and nearly all
+   291 stock names (build 28's first cut had
+   one set per UTC day: 291 names a day, the stock ones gone). The player's own document (`configs/users/me`) carries
+   no bot names and does not change with the window: the TS refetches it after every profile save, and a changed text
+   would make `CRMComponent.CrmConfig` reload its per-player databases (`StandardCrm.Data` compares the text). None of
+   ours equals a stock name ignoring case or by skeleton (a later cell of the same changer would rename a renamed row),
+   none repeats or reads like another (the client appends `(n)` to duplicates), none reads as a number or starts with
+   `+`, `-` or `*` (`CRMTableCell` turns such text into a double, which `array[0] as string` reads as null, or into an
+   ADD/MUL cell), none holds `:` (the bot's credential is `dev:<name>`, `MultiplayerComponent.CredentialFromBotName`,
+   and `Credential` throws on a second `:`): `GamerTags.ShapeProblem`. A stock name that is in the table twice
+   is always renamed (one key renames the first row only, the second keeps the stock name), so no window has a name
+   twice. An overlay cell on the same key wins (in `game._OverrideTables` or the explicit mirror). Without a data pack,
+   or with the setting off, nothing is sent and the bots keep the game's names; the game keeps the last renames it
+   installed until it restarts. Limits: an offline bot match in the client's own World (the hidden SOLO tile) before
+   the first GS match of the process still shows the game's names (only GS Worlds install the mirror); bot emblems were
+   already random per bot; bot levels and leagues come from the profile template and are not changed. Cost: the GS
+   reloads the 76 KB table when it installs a new window's changer (about once per match); the server builds one game
+   object per window (cached).
 8. Ad pointcut actions (`show_ad*`) of the preconfiguration are dropped (`crm.keepAdPointcuts`), `crm.pointcutActions`
    appended after validation.
 
@@ -140,6 +194,24 @@ Generated by `tools/content-gen` (`build_collector`, from `collector_tuning.json
 preview-safety rule (no sound row with weight; sounds only as bundles on random-background rows) switches the crate to
 the guard and is shown in `GET _mcvs/crm`. Schema: [../design/economy-collector.md](../design/economy-collector.md) §3.4.
 
+## `names.json`
+
+Generated by `tools/content-gen` (`build_names`, from `names_curated.txt`, `names_tuning.json` and
+`Design/MCVS_Meta.xlsx`), read by `GamerTags` for the leaderboard rivals and the bot names (overridable in
+`<data>/content/`; a broken override is logged and the built-in file used). `format`, `version` (2 since build 29; part
+of every hash: bumping it renames everyone), `limits` (3..16, the generated names), `years`, `defaultShare` (8 % of
+rivals keep emblem 1 and background 1), `curated` (build 29, optional: the curated names, one per line, used before the
+generator; each 2..16 characters the client takes and shows, through the blocklist, no two that read alike or one letter apart; see
+[../LIVEOPS.md](../LIVEOPS.md) §5.1), the word lists `parts` (`adj`, `noun`,
+`handle`, `short`, `foreign`, `prefix`, `suffix`, `mascot` (the only words a style puts next to a `country` code),
+`country`; our own words), `styles` (`id`, `pattern` with `{list}`
+and `{d2}` `{d3}` `{d4}` `{year}` `{alias}` tokens, `case` asis/lower/upper/camel, `leet`, `weight`), `leet`, the
+`blocklist` (`substrings`, `words`, `digits`, `digitRuns`), `emblems` (`avatars` 1-6,9-224 and `backgrounds` 1-35 as id
+ranges: the `KillsignatureAvatars` rows in `profile/avatars/` named `avatar<n>.png` with `Unlockable=true` whose image
+is in the pack and that the collector does not mark Kayac or reserved; every displayed background) and a `summary`
+(2,031 curated names; 171k generated word-only names, 916 refused and 215 one-word-twice two-part combinations). Ids
+only from the game's tables; no game text.
+
 ## Matchmaker lobbyconfigs
 
 `GameConfig.FindGame` (LocalAnubis Finder and Controller) reads this; the Controller swaps `GameApplication.Args` for the
@@ -167,7 +239,14 @@ gs: -ServerType gs -EnvironmentSwitcherUrl http://127.0.0.1:51780/ -DataCenter m
 
 ## Coupons
 
-| Code | Payload (claimed in this order) |
+Every built-in code is an **unlock code** (`"delivery": "ledger"` in coupons.json): the server answers `200 []` and
+writes the code's keys into the player's inventory ledger itself (`UnlockGranter.GrantKeys`, the `unlockAll` loop:
+[unlocks.md](unlocks.md)). Until build 16 the game got the payload below and put all of it into ONE inbox message;
+`InboxComponent.GetMessagesObject` rebuilds every reward of every unclaimed message on the game thread when the inbox
+opens and on every frame of every 10th second while it is open (`PCD/InboxComponent.cs:351-369, 465-505, 664-718`), so
+UNLOCKCAMOS (4,450) to UNLOCKALL (11,368) froze the inbox for minutes. The table is what each code grants, in order:
+
+| Code | Keys (granted in this order) |
 |---|---|
 | `UNLOCKALL` | the "mercs" group (`UnlockMerc_{2-21}`, then `ModTier_{1-21}_4`: every merc + every mod), weapons, gear slots, kill signatures, camos, accessories, skins (11,368 rewards; the groups of unlocks.json "order") |
 | `UNLOCKMERCS` | the "mercs" group |
@@ -177,13 +256,32 @@ gs: -ServerType gs -EnvironmentSwitcherUrl http://127.0.0.1:51780/ -DataCenter m
 | `UNLOCKUNRELEASED` | the "unreleased" group (`KillSignature_Avatar_{1513-1518}`); never in UNLOCKALL, `unlockAll` or the shop |
 
 * The game marks a code claimed for the profile before it parses the body, so every built-in code also accepts a
-  numeric suffix (`UNLOCKALL2`). Codes are case-insensitive.
-* Rewards go to one inbox message (7-day expiry) and are claimed sequentially; merc-dependent rewards of a locked merc
-  would turn into alternate rewards, hence the merc unlocks first (verify-C5 (b)). They are explicit per-merc rewards:
-  `UnlockMerc_ALL_MAX` claimed fine but crashed every reward display, which looks the merc up by id (device test 3).
-* `assets.coupons` in settings.json adds or replaces codes (`{"groups":[...],"rewards":[{"type","quantity"}]}`);
-  `assets.couponsEnabled=false` answers 404 to everything. Unknown reward types and `Reset*` are never sent; quantities
-  are JSON integers.
+  numeric suffix (`UNLOCKALL2`). Codes are case-insensitive. A repeat writes only keys the ledger lacks (usually none).
+* **What the game does with `[]`**: success whatever the body (`RedeemCouponRemote` checks only the error,
+  `PCD/PlayerProfileComponent.cs:3632-3667`; AS `MenuAccountSettings.checkRedeemResult` shows `crm.ReedeemSuccessful`),
+  then `PushCouponDataToInbox` adds a message with no rewards (`:3608-3630`). `InboxMessage.IsClaimable` is false
+  without rewards (`PCD/InboxMessage.cs:53-66`), so its Claim button stays disabled (AS `Inbox.as` setMsgInfo:430) and
+  the rewards panel is hidden (:429); it costs nothing to build and goes with its 7-day expiry
+  (`InboxComponent.CheckExpirationDates`). Android is the same (`AND/PlayerProfileComponent.cs:3524-3545`,
+  `AND/InboxMessage.cs`). Checked through the real Android and PC clients (EndToEndConformance step 13).
+* **Which account**: the request carries no token, so the current player (`CurrentPlayerResolver`: the game's
+  credential, the last own login, the device's only account, the only profile with a game profile). Refused with 404
+  and `coupon '<code>' (<CODE>) refused, nothing written: <reason>` when `lanMode` is on (a LAN guest's redemption runs
+  on the host's menu server), the player is unknown or ambiguous, the request is not the game's own (the page code's
+  checks: loopback, no browser header, the game's `User-Agent`), or it carries another account's token.
+* Logged: `coupon '<code>' (<CODE>): <n> unlock keys queued for <account> through the inventory ledger, at most <b>
+  batch(es) ...` per redeem, and `unlock code <CODE>: <account>: done, <n> keys written in <b> batch(es) (...)` per job.
+* Merc-dependent rewards of a locked merc turn into alternate rewards, hence the merc keys first, alone (verify-C5 (b)).
+  They are explicit per-merc keys: `UnlockMerc_ALL_MAX` claimed fine but crashed every reward display, which looks the
+  merc up by id (device test 3).
+* `assets.coupons` in settings.json adds or replaces codes (`{"groups":[...],"rewards":[{"type","quantity"}]}`, a
+  replaced built-in code takes the new definition whole); `assets.couponsEnabled=false` answers 404 to everything.
+  `"delivery": "ledger" | "inbox"` chooses the path; without it a code whose name starts with `UNLOCK` is ledger and any
+  other (`GIFT500`) inbox. A ledger code writes reward ids with count 1 (a quantity other than 1 is dropped with a
+  warning, and the page's code list warns about such a ledger code). An inbox code goes to the game as one message and may hold at most `CouponCatalog.MaxInboxRewards` (300)
+  rewards; a bigger one answers 404 with a WARN `refused: <n> rewards in one inbox message would freeze the game's inbox`
+  and the page's code list shows a warning. Unknown reward types and `Reset*` are never sent; quantities are JSON
+  integers.
 * The Redeem button needs `GameFeatures.RedeemCoupons`, forced on by the CRM `_OverrideTables` cell above.
 * **The page code** (`admin.redeemCode`, default `MCVSOFFLINE`; empty turns it off; checked before
   `assets.couponsEnabled`): always 404 "coupon does not exist" (a 200 would make the game mark it claimed and add an
@@ -229,7 +327,9 @@ listing in `GET assets/{cid}`. Names are sanitised (no `..`, no absolute paths).
 - [ ] Merc detail shows VersusCoins and HC buttons; buying works with VersusCoins.
 - [ ] Skins shop and signature screen list our entries; VersusCoins hub tab renders weapons, gear slots, mod tiers,
       crates, packs, VIP; packs grant 10 distinct items.
-- [ ] Redeem code button visible; `UNLOCKALL` inbox message (≈11k rewards) claims fully; else use the split codes.
+- [ ] Redeem code button visible; `UNLOCKALL` says redeemed and leaves one empty Coupon message; the keys arrive in
+      about 30 ledger batches with a popup each; an old full coupon message (build 16 or earlier) claims fully with
+      the `inbox` patch.
 - [ ] Economy multipliers (MUL cells) change match rewards on the GS (`*` on integer columns).
 - [ ] The preconfiguration is found in the embedded layout on first boot after the installer finished.
 - [ ] With live ops: the TS refetches `configs/users/me` once at each `expiry` (midnight UTC, Monday), not in a loop;

@@ -9,6 +9,7 @@ using McvsOffline.Server.Core.Accounts;
 using McvsOffline.Server.Core.Http;
 using McvsOffline.Server.Core.Json;
 using McvsOffline.Server.Services.Alerts;
+using McvsOffline.Server.Services.Assets;
 using McvsOffline.Server.Services.Storage;
 using McvsOffline.Server.Services.Unlocks;
 using McvsOffline.Tests.Storage;
@@ -16,18 +17,19 @@ using Xunit;
 
 namespace McvsOffline.Tests.Unlocks
 {
-    /// <summary>settings.unlockAll through the inventory ledger (verify-C5 (c)).</summary>
+    /// <summary>settings.unlockAll and the unlock codes through the inventory ledger (verify-C5 (c), inbox-freeze report §3 F1).</summary>
     public class UnlockGranterTests
     {
         private sealed class Harness : IDisposable
         {
-            private readonly TempDir dir = new TempDir();
+            private readonly TempDir dir; // null when the caller owns the data folder (restart tests)
 
-            public Harness(bool unlockAll, long batchSize = 5000)
+            public Harness(bool unlockAll, long batchSize = 5000, string dataDir = null, long batchDelaySeconds = 0)
             {
+                if (dataDir == null) dir = new TempDir();
                 var options = new ServerOptions
                 {
-                    DataDir = dir.Combine("data"), Port = 0, ConsoleLog = false, FileLog = false,
+                    DataDir = dataDir ?? dir.Combine("data"), Port = 0, ConsoleLog = false, FileLog = false,
                     RegisterServices = (router, context) =>
                     {
                         StorageService.Register(router, context);
@@ -38,7 +40,7 @@ namespace McvsOffline.Tests.Unlocks
                 Server.Context.Settings.Override("unlockAll", unlockAll);
                 Server.Context.Settings.Override("unlocks", new Dictionary<string, object>
                 {
-                    ["batchSize"] = batchSize, ["batchDelaySeconds"] = 0L, ["startDelaySeconds"] = 0L, ["streamWaitSeconds"] = 30L,
+                    ["batchSize"] = batchSize, ["batchDelaySeconds"] = batchDelaySeconds, ["startDelaySeconds"] = 0L, ["streamWaitSeconds"] = 30L,
                 });
                 Server.Context.Events.Subscribe(AlertHub.PushTopic, payload => { lock (Alerts) Alerts.Add((Dictionary<string, object>)payload); });
             }
@@ -55,12 +57,12 @@ namespace McvsOffline.Tests.Unlocks
             /// The TS loading a player and saving the game profile, with its for_username token: LoadSections creates
             /// the sections that are absent (R3, verify-C3 §2.3), then R4.
             /// </summary>
-            public string SaveGameProfile(string user)
+            public string SaveGameProfile(string user, string dump = null)
             {
                 Token(user, out string accountId);
                 foreach (string section in new[] { "_mcvs.matchers", "_mcvs.snapshot", "inventory", "_inventory" })
                     if (Profiles.Read(accountId, section) == null) Post(user, section, "{}");
-                return Post(user, "_mcvs.gameProfile", GameData.GameProfileDump);
+                return Post(user, "_mcvs.gameProfile", dump ?? GameData.GameProfileDump);
             }
 
             /// <summary>
@@ -109,10 +111,23 @@ namespace McvsOffline.Tests.Unlocks
                 throw new TimeoutException("unlock status of " + account + ": " + MiniJson.Serialize(Granter.Status()));
             }
 
+            public string WaitForCode(string account, string code, string prefix)
+            {
+                for (int i = 0; i < 400; i++)
+                {
+                    if (Granter.CodeStatus().TryGetValue(account, out object codes)
+                        && ((Dictionary<string, object>)codes).TryGetValue(code, out object s)
+                        && ((string)s).StartsWith(prefix, StringComparison.Ordinal))
+                        return (string)s;
+                    Thread.Sleep(50);
+                }
+                throw new TimeoutException(code + " of " + account + ": " + MiniJson.Serialize(Granter.CodeStatus()));
+            }
+
             public void Dispose()
             {
                 Server.Dispose();
-                dir.Dispose();
+                if (dir != null) dir.Dispose();
             }
         }
 
@@ -320,6 +335,157 @@ namespace McvsOffline.Tests.Unlocks
             h.Profiles.Set(account, "language", "en");
             Thread.Sleep(200);
             Assert.Empty(h.Granter.Status());
+        }
+
+        // ------------------------------------------------------------------ unlock codes (inbox-freeze report §3 F1)
+
+        /// <summary>The game profile after some play (a save that changes the stored profile, so it is an event).</summary>
+        private static readonly string Played = GameData.GameProfileDump.Replace("\"Trophies\":120", "\"Trophies\":121");
+
+        private static List<string> CodeKeys(Harness h, string code) =>
+            CouponCatalog.Load(h.Server.Context.Content, h.Server.Context.Settings, null).Match(code).Keys;
+
+        /// <summary>
+        /// GrantKeys for UNLOCKCAMOS: the 41 merc keys first and alone, then the 4,409 camos in batches of at most 400,
+        /// one set_profile alert each, a backup before the first write; a second run (UNLOCKCAMOS2) writes nothing.
+        /// </summary>
+        [Fact]
+        public void GrantKeysWritesTheMercKeysFirstAloneThenBatchesWithOneAlertEach()
+        {
+            using var h = new Harness(unlockAll: false, batchSize: 400);
+            string account = h.SaveGameProfile("camos1");
+            List<string> keys = CodeKeys(h, "UNLOCKCAMOS");
+            Assert.Equal(4450, keys.Count);
+            var sizes = new List<int>();
+            h.Server.Context.Events.Subscribe(AlertHub.PushTopic, payload =>
+                sizes.Add(((Dictionary<string, object>)h.Profiles.Read(account, "inventory")).Count)); // the ledger at each alert
+
+            Assert.Equal(4450, h.Granter.GrantKeys(account, keys, "UNLOCKCAMOS"));
+            Assert.Equal(1 + 12, h.Alerts.Count);
+            Assert.Equal(13, sizes.Count);
+            Assert.Equal(41, sizes[0]); // the merc unlocks and mods, alone
+            for (int i = 1; i < sizes.Count; i++) Assert.InRange(sizes[i] - sizes[i - 1], 1, 400);
+            Assert.All(h.Alerts, a => Assert.Equal(account, a["to"]));
+            var inventory = (Dictionary<string, object>)h.Profiles.Read(account, "inventory");
+            Assert.Equal(keys, inventory.Keys.ToList()); // claim order kept
+            Assert.Equal(McvsOffline.Tests.Content.AssetsTests.MercGroup, inventory.Keys.Take(41));
+            LocalProfileStore store = h.Server.Context.Features.Get<LocalProfileStore>();
+            Assert.Single(store.Backups.List(account), b => b.Reason == UnlockGranter.CodeBackupReason);
+
+            h.Alerts.Clear();
+            Assert.Equal(0, h.Granter.GrantKeys(account, keys, "UNLOCKCAMOS2")); // a numbered repeat: everything is owned
+            Assert.Empty(h.Alerts);
+            Assert.Single(store.Backups.List(account), b => b.Reason == UnlockGranter.CodeBackupReason);
+        }
+
+        /// <summary>A merc key removed from the ledger between two batches is written again first, alone.</summary>
+        [Fact]
+        public void GrantKeysPutsAMercKeyLostBetweenBatchesBackFirst()
+        {
+            using var h = new Harness(unlockAll: false, batchSize: 400);
+            string account = h.SaveGameProfile("camos2");
+            List<string> keys = CodeKeys(h, "UNLOCKCAMOS");
+            bool removed = false;
+            int sizeAfterRestore = -1;
+            h.Server.Context.Events.Subscribe(AlertHub.PushTopic, payload =>
+            {
+                var ledger = (Dictionary<string, object>)h.Profiles.Read(account, "inventory");
+                if (removed && sizeAfterRestore < 0) sizeAfterRestore = ledger.Count;
+                if (!removed && h.Alerts.Count == 3)
+                {
+                    removed = true;
+                    h.Profiles.Remove(account, "inventory.UnlockMerc_5"); // a hand edit after batch 2
+                }
+            });
+            Assert.Equal(4450 + 1, h.Granter.GrantKeys(account, keys, "UNLOCKCAMOS"));
+            Assert.True(removed);
+            Assert.Equal(1 + 12 + 1, h.Alerts.Count); // + the merc key again, alone
+            Assert.Equal(41 + 2 * 400, sizeAfterRestore); // the restore batch added only UnlockMerc_5
+            var inventory = (Dictionary<string, object>)h.Profiles.Read(account, "inventory");
+            Assert.Equal(new HashSet<string>(keys), new HashSet<string>(inventory.Keys));
+        }
+
+        /// <summary>
+        /// A redeemed code is a job per (account, code) on the worker; codes.json holds it until it is complete. A
+        /// second code of the same account is its own job, unlockAll keeps its own state.
+        /// </summary>
+        [Fact]
+        public void CodeJobsAreTrackedPerAccountAndCode()
+        {
+            using var h = new Harness(unlockAll: false, batchSize: 4000);
+            string account = h.SaveGameProfile("jobs1");
+            Assert.True(h.Granter.EnqueueCode(account, "UNLOCKSKINS", CodeKeys(h, "UNLOCKSKINS")));
+            Assert.True(h.Granter.EnqueueCode(account, "UNLOCKWEAPONS", CodeKeys(h, "UNLOCKWEAPONS")));
+            Assert.Equal("done (80 keys written)", h.WaitForCode(account, "UNLOCKSKINS", "done"));
+            Assert.Equal("done (13 keys written)", h.WaitForCode(account, "UNLOCKWEAPONS", "done")); // the mercs came with the skins
+            Assert.Empty(h.Granter.Status()); // unlockAll is off and untouched
+            Assert.Empty(h.Granter.PendingCodes());
+            var inventory = (Dictionary<string, object>)h.Profiles.Read(account, "inventory");
+            Assert.Equal(41 + 39 + 13, inventory.Count);
+            Assert.Equal(McvsOffline.Tests.Content.AssetsTests.MercGroup, inventory.Keys.Take(41));
+
+            var diagnostics = MiniJson.ParseObject(h.Server.Handle(HttpRequest.Create("GET", "/_mcvs/unlocks")).BodyText);
+            Assert.Equal("done (80 keys written)", JsonPath.Get(diagnostics, "codes." + account + ".UNLOCKSKINS"));
+            Assert.Empty((List<object>)diagnostics["pendingCodes"]);
+        }
+
+        /// <summary>
+        /// A code cut short by a stop carries on after the restart, at the account's next game-profile save, and writes
+        /// only what the ledger still lacks; codes.json is emptied once it is complete.
+        /// </summary>
+        [Fact]
+        public void AnUnfinishedCodeCarriesOnAfterARestart()
+        {
+            using var dir = new TempDir();
+            string account;
+            using (var first = new Harness(unlockAll: false, batchSize: 400, dataDir: dir.Combine("data"), batchDelaySeconds: 600))
+            {
+                account = first.SaveGameProfile("restart1");
+                Assert.True(first.Granter.EnqueueCode(account, "UNLOCKCAMOS", CodeKeys(first, "UNLOCKCAMOS")));
+                first.WaitForCode(account, "UNLOCKCAMOS", "granting 41/4450"); // the merc keys, then a 600 s pause
+                Assert.Single(first.Granter.PendingCodes());
+            }
+            Thread.Sleep(200); // the worker leaves its wait on the stop signal
+            Assert.Contains("UNLOCKCAMOS", File.ReadAllText(Path.Combine(dir.Combine("data"), "unlocks", "codes.json")));
+
+            using (var second = new Harness(unlockAll: false, batchSize: 400, dataDir: dir.Combine("data")))
+            {
+                Assert.Equal(41, ((Dictionary<string, object>)second.Profiles.Read(account, "inventory")).Count);
+                Assert.Single(second.Granter.PendingCodes());
+                Assert.Empty(second.Granter.CodeStatus()); // nothing runs before the player's game saves
+                second.SaveGameProfile("restart1", Played); // an unchanged dump is no change: no event
+                Assert.Equal("done (4409 keys written)", second.WaitForCode(account, "UNLOCKCAMOS", "done"));
+                Assert.Equal(4450, ((Dictionary<string, object>)second.Profiles.Read(account, "inventory")).Count);
+                Assert.Equal(12, second.Alerts.Count); // the merc keys were not written again
+                Assert.Empty(second.Granter.PendingCodes());
+            }
+        }
+
+        /// <summary>
+        /// settings.unlockAll carries on in the same way: its progress is the ledger itself, so after a restart the next
+        /// game-profile save queues it again and only the keys still missing are written.
+        /// </summary>
+        [Fact]
+        public void UnlockAllCarriesOnAfterARestartThroughTheLedgerDiff()
+        {
+            using var dir = new TempDir();
+            string account;
+            int total;
+            using (var first = new Harness(unlockAll: true, batchSize: 4000, dataDir: dir.Combine("data"), batchDelaySeconds: 600))
+            {
+                total = first.Granter.AllKeys().Count;
+                account = first.SaveGameProfile("restart2");
+                first.WaitForStatus(account, "granting 41/");
+            }
+            Thread.Sleep(200);
+            using (var second = new Harness(unlockAll: true, batchSize: 4000, dataDir: dir.Combine("data")))
+            {
+                Assert.Equal(41, ((Dictionary<string, object>)second.Profiles.Read(account, "inventory")).Count);
+                second.SaveGameProfile("restart2", Played); // an unchanged dump is no change: no event
+                second.WaitForStatus(account, "done (");
+                Assert.Equal("done (" + (total - 41) + " keys written)", (string)second.Granter.Status()[account]);
+                Assert.Equal(total, ((Dictionary<string, object>)second.Profiles.Read(account, "inventory")).Count);
+            }
         }
 
         [Fact]

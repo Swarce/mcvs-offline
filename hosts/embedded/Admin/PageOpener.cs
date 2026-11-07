@@ -20,14 +20,55 @@ namespace McvsOffline.Embedded.Admin
     /// </list>
     /// Every open starts the watchdog lease and logs <c>admin: page opened (trigger account, via game|jni|post)</c>; the URL
     /// (it carries the ticket) is never logged. Nothing here throws, and the game thread never waits.
+    /// <para>
+    /// A platform that opens the page itself (<see cref="IPagePlatform"/>, Windows: the Steam overlay or the system browser,
+    /// docs/design/pc-port.md §6.5) gets every <c>admin.openVia</c> but <c>game</c>, and the log says <c>via overlay|system</c>. The
+    /// overlay gives no success signal, so the page's own requests (<see cref="PageAlive"/>) are the proof: when the previous
+    /// open went to the overlay and no PageAlive came within <see cref="NoPageMs"/>, the next <c>auto</c> open takes the system
+    /// browser and the line adds <c>, overlay showed no page last time</c>. The trigger <c>browser</c> (the page's "Open in the
+    /// system browser") always takes it.
+    /// </para>
     /// </summary>
     internal sealed class PageOpener
     {
+        /// <summary>How long after an overlay open the page has to show it loaded (a PageAlive) before the next open avoids it.</summary>
+        public const int NoPageMs = 20000;
+
+        public const string BrowserTrigger = "browser";
+
         private readonly AdminHost host;
+        private readonly object gate = new object();
+        private bool overlayPending;    // the last open went to the overlay and no PageAlive came since (under gate)
+        private int overlayOpenedAt;    // Clock() of that open (under gate)
 
         public PageOpener(AdminHost host)
         {
             this.host = host;
+            Clock = () => Environment.TickCount;
+        }
+
+        /// <summary>Environment.TickCount (tests move it).</summary>
+        public Func<int> Clock { get; set; }
+
+        /// <summary>The page loaded with its session (any of its requests): the overlay did show it.</summary>
+        public void PageAlive()
+        {
+            lock (gate) overlayPending = false;
+        }
+
+        /// <summary>True when the previous open went to the overlay and no PageAlive came within <see cref="NoPageMs"/> of it.</summary>
+        private bool OverlayShowedNoPage()
+        {
+            lock (gate) return overlayPending && Clock() - overlayOpenedAt >= NoPageMs;
+        }
+
+        private void Opened(string route)
+        {
+            lock (gate)
+            {
+                overlayPending = route == "overlay";
+                if (overlayPending) overlayOpenedAt = Clock();
+            }
         }
 
         /// <summary>Server thread: open <paramref name="url"/> (a minted page URL) on the game thread. True once posted or opened.</summary>
@@ -90,9 +131,26 @@ namespace McvsOffline.Embedded.Admin
             // Lease first: the browser activity pauses the game loop as soon as it starts.
             host.Lease(AdminHost.PageLeaseMs, AdminHost.PageLeaseReason);
             string used = null;
+            string note = "";
+            var page = host.Platform as IPagePlatform;
             try
             {
-                switch (via)
+                if (page != null && (via != "game" || trigger == BrowserTrigger))
+                {
+                    string mode = via;
+                    if (trigger == BrowserTrigger)
+                    {
+                        mode = "system";
+                    }
+                    else if (via == "auto" && OverlayShowedNoPage())
+                    {
+                        mode = "system";
+                        note = ", overlay showed no page last time";
+                    }
+                    used = page.Open(url, mode);
+                    if (used != null) Opened(used);
+                }
+                else switch (via)
                 {
                     case "game":
                         if (OpenManaged(world, url)) used = "game";
@@ -121,7 +179,8 @@ namespace McvsOffline.Embedded.Admin
                 host.Log.Warn("admin: the page could not be opened (trigger " + trigger + ", openVia " + via + ")");
                 return false;
             }
-            host.Log.Info("admin: page opened (trigger " + trigger + ", via " + used + ")");
+            if (used == "game") Opened(used);
+            host.Log.Info("admin: page opened (trigger " + trigger + ", via " + used + note + ")");
             return true;
         }
 

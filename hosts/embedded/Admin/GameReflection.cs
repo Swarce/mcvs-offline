@@ -24,6 +24,12 @@ namespace McvsOffline.Embedded.Admin
     /// <item><c>World.EnumerateActiveComponents(Type, ComponentGroupOptions)</c> with <c>Game.PlayerProfileComponent</c>, its
     /// <c>FedId</c> and <c>ForceSaveProfile(CancellationToken)</c> (a <c>[Remote(Any, Any)]</c> RPC: on the client it sends the
     /// game's own request to the menu server, which saves the profile through the dump POST).</item>
+    /// <item><c>Game.UISceneExtentions.GetUI(World)</c> (the client World's <c>Game.UIComponent</c>, a
+    /// <c>Gameloft.Engine.MenuComponent</c>) and the engine's Flash interop the game itself uses
+    /// (OvertimeGaugeUIComponent.cs:81-87, 142-143): <c>MenuComponent.FindClass(string, string)</c> returning an
+    /// <c>ASClass</c>, <c>ASClass/ASCharacter.InvokeMethod(string, object[])</c> and <c>ASCharacter.GetMember(string)</c>
+    /// returning an <c>ASValue</c>, <c>ASCharacter.SetMember(string, object)</c>, <c>ASCharacter.Name</c>,
+    /// <c>ASValue.GetObject(Type)</c>, all three IDisposable (<see cref="AccountMenuLayout"/>).</item>
     /// </list>
     /// Instance members are looked up by name on the object's runtime type (cached), so the same code drives the real game
     /// and the tests' look-alikes; <see cref="Verify"/> checks every member against the real assemblies
@@ -32,42 +38,78 @@ namespace McvsOffline.Embedded.Admin
     /// </summary>
     internal sealed class GameReflection
     {
-        public const string GameApplicationTypeName = "Gameloft.Engine.GameApplication, Gameloft.Engine";
-        public const string PlayerProfileTypeName = "Game.PlayerProfileComponent, Game";
+        // Full type names only: their assemblies are found among the loaded ones (LoadedTypes), never bound by name here.
+        public const string GameApplicationTypeName = "Gameloft.Engine.GameApplication";
+        public const string PlayerProfileTypeName = "Game.PlayerProfileComponent";
+        public const string UiExtensionsTypeName = "Game.UISceneExtentions";
 
         private static readonly object cacheGate = new object();
         private static readonly Dictionary<Type, Dictionary<string, MemberInfo>> cache = new Dictionary<Type, Dictionary<string, MemberInfo>>();
 
-        private PropertyInfo instanceProperty;
-        private PropertyInfo worldProperty;
-        private PropertyInfo contextProperty;
-        private Type playerProfileType;
+        private readonly object bindGate = new object();
+        private volatile PropertyInfo instanceProperty;
+        private volatile PropertyInfo worldProperty;
+        private volatile PropertyInfo contextProperty;
+        private volatile Type playerProfileType;
+        private volatile Type uiExtensionsType;
+        private bool lazy;
+        private volatile bool complete;
 
-        /// <summary>Binds to the game's types in the running process (none in tests and on a PC: every member stays unbound).</summary>
+        /// <summary>
+        /// The game's types in the running process, bound lazily from the assemblies that are already loaded (none in tests):
+        /// what is loaded now binds here, the rest on a later use (<see cref="EnsureBound"/>). It never makes the runtime load an
+        /// assembly. On PC this runs at boot, before the engine loads Game by its full name through the .exe.config codeBase
+        /// (gameload, design §8.9); build 17's <c>Type.GetType("Game.PlayerProfileComponent, Game")</c> here was a partial-name
+        /// bind that loaded the stock Game.dll from the game folder first, so the engine got that one back. On Android Game is
+        /// loaded from the APK before the bootstrap, and Gameloft.Engine long before the page or the notification prompt use this.
+        /// </summary>
         public static GameReflection Load()
         {
-            var game = new GameReflection();
-            try
-            {
-                game.Bind(Type.GetType(GameApplicationTypeName, false), Type.GetType(PlayerProfileTypeName, false));
-            }
-            catch (Exception)
-            {
-            }
+            var game = new GameReflection { lazy = true };
+            game.EnsureBound();
             return game;
         }
 
-        /// <summary>Resolves the static side (tests pass look-alikes); false when GameApplication cannot be used.</summary>
-        public bool Bind(Type gameApplication, Type playerProfileComponent)
+        /// <summary>
+        /// <see cref="Load"/>'s binding, from the loaded assemblies only: what is still unbound is looked up again on every use
+        /// until GameApplication (with World and Context), PlayerProfileComponent and UISceneExtentions are all known; from then on
+        /// it costs a field read. Every public member that needs a bound type calls it. Never throws.
+        /// </summary>
+        private void EnsureBound()
+        {
+            if (!lazy || complete) return;
+            lock (bindGate)
+            {
+                if (!lazy || complete) return;
+                try
+                {
+                    if (!IsBoundNow)
+                    {
+                        Type app = LoadedTypes.Find(LoadedTypes.EngineAssembly, GameApplicationTypeName);
+                        if (app != null) BindApplication(app);
+                    }
+                    if (playerProfileType == null) playerProfileType = LoadedTypes.Find(LoadedTypes.GameAssembly, PlayerProfileTypeName);
+                    if (uiExtensionsType == null) uiExtensionsType = LoadedTypes.Find(LoadedTypes.GameAssembly, UiExtensionsTypeName);
+                    complete = IsBoundNow && worldProperty != null && playerProfileType != null && uiExtensionsType != null;
+                }
+                catch (Exception)
+                {
+                }
+            }
+        }
+
+        /// <summary>Resolves the static side (tests pass look-alikes); false when GameApplication cannot be used.
+        /// uiExtensions: Game.UISceneExtentions (its static GetUI(World)), may be null. The instance then stays as given (not lazy).</summary>
+        public bool Bind(Type gameApplication, Type playerProfileComponent, Type uiExtensions = null)
         {
             try
             {
+                lock (bindGate) lazy = false;
                 playerProfileType = playerProfileComponent;
+                uiExtensionsType = uiExtensions;
                 if (gameApplication == null) return false;
-                instanceProperty = FindProperty(gameApplication, "Instance", true);
-                worldProperty = FindProperty(gameApplication, "World", false);
-                contextProperty = FindProperty(gameApplication, "Context", false);
-                return IsBound;
+                BindApplication(gameApplication);
+                return IsBoundNow;
             }
             catch (Exception)
             {
@@ -75,8 +117,31 @@ namespace McvsOffline.Embedded.Admin
             }
         }
 
-        /// <summary>GameApplication and its game-thread context are known.</summary>
-        public bool IsBound { get { return instanceProperty != null && contextProperty != null; } }
+        /// <summary>World and Context first, Instance last: a reader on another thread that sees Instance sees the others.</summary>
+        private void BindApplication(Type gameApplication)
+        {
+            worldProperty = FindProperty(gameApplication, "World", false);
+            contextProperty = FindProperty(gameApplication, "Context", false);
+            instanceProperty = FindProperty(gameApplication, "Instance", true);
+        }
+
+        private bool IsBoundNow { get { return instanceProperty != null && contextProperty != null; } }
+
+        /// <summary>GameApplication and its game-thread context are known (after <see cref="Load"/>: once Gameloft.Engine is loaded).</summary>
+        public bool IsBound
+        {
+            get
+            {
+                EnsureBound();
+                return IsBoundNow;
+            }
+        }
+
+        /// <summary>Game.PlayerProfileComponent as bound so far, or null (tests).</summary>
+        internal Type PlayerProfileComponent { get { return playerProfileType; } }
+
+        /// <summary>Game.UISceneExtentions as bound so far, or null (tests).</summary>
+        internal Type UiExtensions { get { return uiExtensionsType; } }
 
         /// <summary><see cref="RequestSave"/> can work: the client World and PlayerProfileComponent are known.</summary>
         public bool CanSave { get { return IsBound && worldProperty != null && playerProfileType != null; } }
@@ -86,7 +151,9 @@ namespace McvsOffline.Embedded.Admin
         {
             try
             {
-                return instanceProperty == null ? null : instanceProperty.GetValue(null, null);
+                EnsureBound();
+                PropertyInfo instance = instanceProperty;
+                return instance == null ? null : instance.GetValue(null, null);
             }
             catch (Exception)
             {
@@ -101,6 +168,23 @@ namespace McvsOffline.Embedded.Admin
             {
                 object app = Application();
                 return app == null || worldProperty == null ? null : worldProperty.GetValue(app, null);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>Game.UISceneExtentions.GetUI(GameApplication.Instance.World): the client World's UIComponent (the Flash
+        /// menus), or null. Game thread.</summary>
+        public object ClientUi()
+        {
+            try
+            {
+                object world = ClientWorld();
+                if (world == null || uiExtensionsType == null) return null;
+                MethodInfo getUi = FindStaticMethod(uiExtensionsType, "GetUI", world.GetType());
+                return getUi == null ? null : getUi.Invoke(null, new[] { world });
             }
             catch (Exception)
             {
@@ -136,6 +220,50 @@ namespace McvsOffline.Embedded.Admin
                         }
                     }
                 }, null);
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Runs <paramref name="action"/> on the game thread one drain later than <see cref="Post"/> would: through the context's
+        /// <c>DelayedPost(SendOrPostCallback, object)</c> (GameSynchronizationContext.cs:215, PC the same), whose items join the queue
+        /// only when the current drain ends (<c>EnqueueDelayedItems</c>, :182). Called from a step that is itself being drained, it
+        /// runs at the start of the next frame; <see cref="Post"/> from there would run it in the same drain (<c>while
+        /// (HasWorkItems)</c>, :178). False when there is no game thread or the context has no such method. Exceptions are logged as
+        /// for <see cref="Post"/>.
+        /// </summary>
+        public bool PostNextFrame(Action action, Log log)
+        {
+            try
+            {
+                if (action == null) return false;
+                object app = Application();
+                var context = app == null || contextProperty == null ? null : contextProperty.GetValue(app, null) as SynchronizationContext;
+                if (context == null) return false;
+                MethodInfo delayed = FindPlainMethod(context.GetType(), "DelayedPost", typeof(SendOrPostCallback), typeof(object));
+                if (delayed == null) return false;
+                SendOrPostCallback callback = state =>
+                {
+                    try
+                    {
+                        action();
+                    }
+                    catch (Exception ex)
+                    {
+                        try
+                        {
+                            if (log != null) log.Warn("admin: a game-thread callback failed", ex);
+                        }
+                        catch (Exception)
+                        {
+                        }
+                    }
+                };
+                delayed.Invoke(context, new object[] { callback, null });
                 return true;
             }
             catch (Exception)
@@ -220,11 +348,13 @@ namespace McvsOffline.Embedded.Admin
         /// <summary>The World's own active PlayerProfileComponent (FedId equal to World.Authentication.FedId), else the first one, else null.</summary>
         public object FindPlayerProfile(object world)
         {
-            if (world == null || playerProfileType == null) return null;
+            EnsureBound();
+            Type profileType = playerProfileType;
+            if (world == null || profileType == null) return null;
             MethodInfo enumerate = FindEnumerate(world.GetType());
             if (enumerate == null) return null;
             Type optionsType = enumerate.GetParameters()[1].ParameterType;
-            var components = enumerate.Invoke(world, new object[] { playerProfileType, Enum.ToObject(optionsType, 0) }) as IEnumerable;
+            var components = enumerate.Invoke(world, new object[] { profileType, Enum.ToObject(optionsType, 0) }) as IEnumerable;
             if (components == null) return null;
             string me = null;
             try
@@ -364,6 +494,45 @@ namespace McvsOffline.Embedded.Admin
             return (MethodInfo)Cached(type, key.ToString(), () => type.GetMethod(name, BindingFlags.Public | BindingFlags.Instance, null, parameters, null));
         }
 
+        /// <summary>
+        /// A public instance method by name and exact parameter types that is not a generic method definition (the engine's
+        /// ASCharacter has both <c>InvokeMethod(string, object[])</c> and <c>InvokeMethod&lt;T&gt;(string, object[])</c>).
+        /// </summary>
+        public static MethodInfo FindPlainMethod(Type type, string name, params Type[] parameters)
+        {
+            var key = new System.Text.StringBuilder("pm:").Append(name);
+            foreach (Type p in parameters) key.Append(',').Append(p.FullName);
+            return (MethodInfo)Cached(type, key.ToString(), () =>
+            {
+                foreach (MethodInfo m in type.GetMethods(BindingFlags.Public | BindingFlags.Instance))
+                {
+                    if (m.Name != name || m.IsGenericMethodDefinition) continue;
+                    ParameterInfo[] p = m.GetParameters();
+                    if (p.Length != parameters.Length) continue;
+                    bool same = true;
+                    for (int i = 0; i < p.Length && same; i++) same = p[i].ParameterType == parameters[i];
+                    if (same) return m;
+                }
+                return null;
+            });
+        }
+
+        /// <summary>A public static, non-generic one-parameter method by name whose parameter accepts <paramref name="argument"/>.</summary>
+        public static MethodInfo FindStaticMethod(Type type, string name, Type argument)
+        {
+            if (argument == null) return null;
+            return (MethodInfo)Cached(type, "sm:" + name + "," + argument.AssemblyQualifiedName, () =>
+            {
+                foreach (MethodInfo m in type.GetMethods(BindingFlags.Public | BindingFlags.Static))
+                {
+                    if (m.Name != name || m.IsGenericMethodDefinition) continue;
+                    ParameterInfo[] p = m.GetParameters();
+                    if (p.Length == 1 && p[0].ParameterType.IsAssignableFrom(argument)) return m;
+                }
+                return null;
+            });
+        }
+
         /// <summary>World.EnumerateActiveComponents(Type, &lt;enum&gt; options).</summary>
         public static MethodInfo FindEnumerate(Type worldType)
         {
@@ -443,7 +612,14 @@ namespace McvsOffline.Embedded.Admin
             Type profile = resolve("Game.PlayerProfileComponent");
             Type clientComponent = resolve("Gameloft.Engine.ClientComponent");
             Type gameClient = resolve("Game.GameClientComponent");
-            foreach (var t in new[] { app, world, browser, component, authentication, options, credential, profile, clientComponent, gameClient })
+            Type uiExtensions = resolve("Game.UISceneExtentions");
+            Type uiComponent = resolve("Game.UIComponent");
+            Type menuComponent = resolve("Gameloft.Engine.MenuComponent");
+            Type asClass = resolve("Gameloft.Engine.ASClass");
+            Type asCharacter = resolve("Gameloft.Engine.ASCharacter");
+            Type asValue = resolve("Gameloft.Engine.ASValue");
+            foreach (var t in new[] { app, world, browser, component, authentication, options, credential, profile, clientComponent, gameClient,
+                                      uiExtensions, uiComponent, menuComponent, asClass, asCharacter, asValue })
             {
                 if (t == null) problems.Add("a game type is missing");
             }
@@ -479,7 +655,35 @@ namespace McvsOffline.Embedded.Admin
             if (force == null || force.ReturnType != typeof(Task)) problems.Add("PlayerProfileComponent.ForceSaveProfile(CancellationToken) : Task");
             if (!component.IsAssignableFrom(profile)) problems.Add("PlayerProfileComponent is not a Component");
             if (FindConversion(credential) == null) problems.Add("Credential has no implicit conversion to string");
+            VerifyFlash(problems, world, uiExtensions, uiComponent, menuComponent, asClass, asCharacter, asValue);
             return problems;
+        }
+
+        /// <summary>The Flash interop <see cref="AccountMenuLayout"/> drives, with the lookups it uses (and <see cref="ClientUi"/>'s).</summary>
+        private static void VerifyFlash(List<string> problems, Type world, Type uiExtensions, Type uiComponent, Type menuComponent,
+                                        Type asClass, Type asCharacter, Type asValue)
+        {
+            MethodInfo getUi = FindStaticMethod(uiExtensions, "GetUI", world);
+            if (getUi == null || getUi.ReturnType != uiComponent) problems.Add("UISceneExtentions.GetUI(World) : UIComponent");
+            if (!menuComponent.IsAssignableFrom(uiComponent)) problems.Add("UIComponent is not a MenuComponent");
+            MethodInfo findClass = FindPlainMethod(uiComponent, "FindClass", typeof(string), typeof(string));
+            if (findClass == null || findClass.ReturnType != asClass) problems.Add("MenuComponent.FindClass(string, string) : ASClass");
+            foreach (Type owner in new[] { asClass, asCharacter })
+            {
+                MethodInfo invoke = FindPlainMethod(owner, "InvokeMethod", typeof(string), typeof(object[]));
+                if (invoke == null || invoke.ReturnType != asValue) problems.Add(owner.Name + ".InvokeMethod(string, object[]) : ASValue");
+            }
+            MethodInfo getMember = FindPlainMethod(asCharacter, "GetMember", typeof(string));
+            if (getMember == null || getMember.ReturnType != asValue) problems.Add("ASCharacter.GetMember(string) : ASValue");
+            MethodInfo setMember = FindPlainMethod(asCharacter, "SetMember", typeof(string), typeof(object));
+            if (setMember == null || setMember.ReturnType != typeof(void)) problems.Add("ASCharacter.SetMember(string, object) : void");
+            ExpectProperty(problems, asCharacter, "Name", false, typeof(string));
+            MethodInfo getObject = FindPlainMethod(asValue, "GetObject", typeof(Type));
+            if (getObject == null || getObject.ReturnType != typeof(object)) problems.Add("ASValue.GetObject(Type) : object");
+            foreach (Type disposable in new[] { asClass, asCharacter, asValue })
+            {
+                if (!typeof(IDisposable).IsAssignableFrom(disposable)) problems.Add(disposable.Name + " is not IDisposable");
+            }
         }
 
         private static void ExpectProperty(List<string> problems, Type type, string name, bool isStatic, Type expected)

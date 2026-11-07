@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using McvsOffline.Embed.Tests.Support;
 using McvsOffline.Embedded;
+using McvsOffline.Server.Core;
 using Xunit;
 
 namespace McvsOffline.Embed.Tests.Embedded
@@ -174,15 +175,40 @@ namespace McvsOffline.Embed.Tests.Embedded
         [Fact]
         public void MissingEndMarkerRecoversOnlyManagedLines()
         {
-            string old = "-Offline\n" + ArgsFile.BeginMarker + " hint\n-ServerLocation Embedded\n-DeviceId mcvsold\n-DataCenter local\n";
+            string old = "-Offline\n" + ArgsFile.BeginMarker + " hint\n-ServerLocation Embedded\n-DeviceId mcvsold\n-Level mylevel\n";
 
             ArgsMergeResult result = ArgsFile.Merge(Bytes(old), Managed());
 
             string text = Text(result.Content);
             Assert.Contains(result.Warnings, w => w.Contains("without"));
             Assert.DoesNotContain("mcvsold", text);
-            Assert.Contains("-DataCenter local\n", text);
-            Assert.Equal("local", GameArgsSimulator.Parse(result.Content)["DataCenter"]);
+            Assert.Contains("-Level mylevel\n", text);
+            Assert.Equal("mylevel", GameArgsSimulator.Parse(result.Content)["Level"]);
+        }
+
+        [Fact]
+        public void MissingEndMarkerRecoversEveryLineManagedArgsWrites()
+        {
+            // WR2 F10: -DataCenter (written since build 5) was not a known key, so a block whose end marker the player
+            // deleted kept "-DataCenter mcvs" as a player line: it overrode settings.dataCenter and survived an uninstall.
+            var settings = new Settings();
+            settings.Set("lanMode", true);
+            List<ArgEntry> written = ManagedArgs.Build(settings, "mcvsold", 51780, null);
+            foreach (ArgEntry entry in written) Assert.Contains(entry.Key, ArgsFile.KnownManagedKeys);
+
+            var block = new StringBuilder(ArgsFile.BeginMarker + " hint\n");
+            foreach (ArgEntry entry in written) block.Append(entry).Append('\n');
+            string old = "-Offline\n" + block + "-Level mylevel\n";   // the end marker deleted by hand
+
+            ArgsMergeResult result = ArgsFile.Merge(Bytes(old), Managed());
+            string text = Text(result.Content);
+            Assert.Contains(result.Warnings, w => w.Contains("without"));
+            Assert.DoesNotContain("-DataCenter", text);
+            Assert.DoesNotContain("-LocalAnubisHost", text);
+            Assert.DoesNotContain("mcvsold", text);
+            Assert.StartsWith("-Offline\n", text);
+            Assert.Contains("-Level mylevel\n", text);
+            Assert.False(GameArgsSimulator.Parse(result.Content).ContainsKey("DataCenter"));
         }
 
         [Fact]

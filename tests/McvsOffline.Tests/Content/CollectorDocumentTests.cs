@@ -505,7 +505,7 @@ namespace McvsOffline.Tests.Content
                             Name = GoldenScenarios.NameOf(true, GoldenScenarios.FirstDay, GoldenScenarios.Player, GoldenScenarios.UnlockAll),
                             Kind = GoldenScenarios.Player,
                             Day = GoldenScenarios.FirstDay,
-                            Text = beforeRead,
+                            Text = GoldenScenarios.WithoutNewsfeedEndDate(beforeRead),
                         };
                         Assert.Empty(GoldenScenarios.Mismatches(new[] { golden }));
                     }

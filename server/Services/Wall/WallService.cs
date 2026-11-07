@@ -57,7 +57,7 @@ namespace McvsOffline.Server.Services.Wall
             post["actor"] = caller == null ? null : ChatUser(context, caller.AccountId);
             post["creation"] = TimeFormat.Iso8601Millis(context.Clock.UtcNow);
             post["target"] = Target(context, wallType, id, ownerId);
-            post["game"] = McvsConstants.ClientId;
+            post["game"] = Fed.GameClientId(context, request);
             post["language"] = request.Param("language") ?? "";
             post["votes"] = 0L;
 

@@ -2,22 +2,25 @@
 """MCVS Offline content generator (owner: CONTENT).
 
 Reads the player's own decoded data pack (``datapack-decoded/_catalog.json`` and ``_tables.json``, ``Design/MCVS_Meta.xlsx``
-for index columns and the collector's rules) plus our tuning in ``pricing.json``, ``liveops_tuning.json`` and
-``collector_tuning.json`` and writes the generated content that the server compiles into ``McvsOffline.Server.dll``
-(``server/Content/``):
+for index columns and the collector's rules) plus our tuning in ``pricing.json``, ``liveops_tuning.json``,
+``collector_tuning.json``, ``names_tuning.json`` and ``names_curated.txt`` and writes the generated content that the server compiles into
+``McvsOffline.Server.dll`` (``server/Content/``):
 
   offline_store.json  CRM ``offline_store`` priced in VersusCoins (merc/skin/kill-signature screens and the
                       generic ``#VersusCoins`` shop-hub tab), see docs/ECONOMY.md and verify-C5 (d)
   unlocks.json        reward-id groups (coupon payloads): the full unlock ("order"), the opt-in paid/unreleased sets, compressed as
                       ``Prefix_{2,4-231}`` ranges
-  coupons.json        built-in coupon codes (UNLOCKALL first claims every merc and its mods, verify-C5 (b))
+  coupons.json        built-in coupon codes (UNLOCKALL first claims every merc and its mods, verify-C5 (b)); all "delivery": "ledger"
   economy.json        ``_OverrideTables`` targets for the settings.json economy multipliers + a cost summary
   crm_overlay.json    static CRM overlay (game parameters we always send)
   liveops.json        live-ops catalogue (weekly division seasons, daily quests, weekly achievement events, weekly
-                      modifiers, the collector's crate rewards) from ``liveops_tuning.json``, validated against the
-                      catalogue (docs/LIVEOPS.md)
+                      modifiers, the collector's crate rewards, the Special Event modes) from ``liveops_tuning.json``,
+                      validated against the catalogue (docs/LIVEOPS.md)
   collector.json      the Cosmetic crate (economy collector): crate rows, item pools and season tables from
                       ``collector_tuning.json`` (ids only), see docs/design/economy-collector.md §3.4
+  names.json          the gamer tags of the leaderboard rivals and the in-match bots (our curated names from
+                      ``names_curated.txt``, used first; our parts, styles and blocklist from ``names_tuning.json``) and
+                      the rivals' emblem/background pools (ids only), see docs/LIVEOPS.md
   manifest.json       what was generated from what
 
 Only generated item ids, prices and our own tuning are written: no Gameloft text, no table values.
@@ -29,7 +32,9 @@ Usage (Python 3 standard library only; run isolated):
 """
 
 import argparse
+import copy
 import datetime
+import functools
 import json
 import os
 import re
@@ -668,7 +673,7 @@ def build_coupons(group_ids):
     codes = {
         "UNLOCKALL": {
             "groups": ["mercs", "weapons", "gearSlots", "signatures", "camos", "accessories", "skins"],
-            "description": "Full unlock in one inbox message (about 11k rewards, claimed in this order)",
+            "description": "Full unlock (about 11k items, granted in this order)",
         },
         "UNLOCKMERCS": {"groups": ["mercs"], "description": "Every merc and every mod"},
         "UNLOCKSIGNATURES": {"groups": ["signatures"], "description": "Every kill-signature avatar, background and sound"},
@@ -695,6 +700,10 @@ def build_coupons(group_ids):
         codes[names[g]] = {"groups": ["mercs", g], "description": "Every merc, then all %s" % g}
     for c in codes.values():
         c["allowNumericSuffix"] = True
+        # Granted through the inventory ledger, never as one inbox message: the game rebuilds every reward of every
+        # unclaimed message each time the inbox opens (UNLOCKCAMOS: 4,450 rewards froze it for minutes). The server
+        # answers [] and writes the keys itself (UnlockGranter.GrantKeys), merc unlocks first.
+        c["delivery"] = "ledger"
     ordered = {}
     for k in ["UNLOCKALL", "UNLOCKMERCS", "UNLOCKWEAPONS", "UNLOCKGEARSLOTS", "UNLOCKSIGNATURES", "UNLOCKCAMOS",
               "UNLOCKACCESSORIES", "UNLOCKSKINS", "UNLOCKPAID", "UNLOCKPAIDCAMOS", "UNLOCKPAIDACCESSORIES", "UNLOCKUNRELEASED"]:
@@ -811,9 +820,10 @@ def warn(message):
     print("content-gen: warning: %s" % message, file=sys.stderr)
 
 
-def build_liveops(cat, tuning, loc_tables, now=None):
+def build_liveops(cat, tuning, loc_tables, now=None, maps_list=None):
     """liveops.json: our live-ops tuning with every id validated and every id list expanded. ``now`` (UTC) only decides
-    whether the collector's ``since`` warning is printed; the output never depends on it."""
+    whether the collector's ``since`` warning is printed; the output never depends on it. ``maps_list`` is
+    Design/MCVS_Gameplay.xlsx ``MapsList`` (the Special Events' playable maps; needed with an ``arena`` block)."""
 
     def loc(locid, where):
         return check_loc_id(loc_tables, locid, "liveops: " + where)
@@ -962,6 +972,8 @@ def build_liveops(cat, tuning, loc_tables, now=None):
         "seasonRewards": {"database": "MCVS_Meta", "table": sr["table"], "index": sr["index"], "ids": ranks,
                           "fields": reward_fields},
     }
+    if "arena" in tuning:
+        out["arena"] = build_liveops_arena(cat, tuning["arena"], loc_tables, maps_list)
     if "collector" in tuning:
         today = {"dailyBonus": daily["bonus"]["rewards"],
                  "dailyMission": [(o["id"], o["daily"]["rewards"]) for o in daily_pool],
@@ -970,6 +982,141 @@ def build_liveops(cat, tuning, loc_tables, now=None):
                                                               if weekly["final"]["eventCrate"] else [])}
         out["collector"] = build_liveops_collector(tuning["collector"], today, rewards, now)
     return out
+
+
+# ----------------------------------------------------------------------------------------------- Special Events (Arena)
+
+# Game.MatchType names an ArenaModeEvent may name (GM/MatchType.cs; CaptureFlag is Active=NO in MatchTypeSpecs; "None"
+# lets the GS pick one per map). Kept equal to TleTemplateValidator.ArenaMatchTypes.
+ARENA_MATCH_TYPES = ("None", "TeamDeathMatch", "ControlPoint", "Uphold", "Dominion")
+# The six multipliers ArenaModeEvent.Initialize reads (liveops.json names), in output order.
+ARENA_MULTIPLIERS = ("creditsVictory", "creditsDefeat", "creditsMvp", "versusCoinsVictory", "versusCoinsDefeat", "versusCoinsMvp")
+ARENA_MODE_ID = re.compile(r"^[A-Za-z0-9]{1,40}$")
+
+
+def arena_maps(cat, maps_list):
+    """The maps a Special Event may name: MapsList rows available in PVP (AvailableInGameModes) whose level file is in
+    the data pack (when names.json is known). Barrage, Bridge and Downtown are listed without a level: the GS would
+    get no path from MapsComponent.GetMapPathFromIndex."""
+    if not maps_list or "Fields" not in maps_list:
+        raise ContentError("liveops: arena: Design/MCVS_Gameplay.xlsx has no MapsList")
+    fields = maps_list["Fields"]
+    for f in ("Index", "MapPath", "AvailableInGameModes"):
+        if f not in fields:
+            raise ContentError("liveops: arena: MapsList has no field %s" % f)
+    out = []
+    for row in maps_list["Rows"]:
+        index, path, modes = row[fields.index("Index")], row[fields.index("MapPath")], row[fields.index("AvailableInGameModes")]
+        if not isinstance(index, str) or not isinstance(path, str) or not isinstance(modes, str):
+            continue
+        if "PVP" not in [m.strip() for m in modes.split(",")]:
+            continue
+        if cat.asset_files is not None and not cat.asset_exists(path):
+            continue
+        out.append(index)
+    if not out:
+        raise ContentError("liveops: arena: no playable map in MapsList")
+    return out
+
+
+def build_liveops_arena(cat, block, loc_tables, maps_list):
+    """liveops.json ``arena`` (docs/LIVEOPS.md §8a): the Special Event modes with every field the server needs expanded
+    (agents, the six multipliers, the match-type text and image) and checked against the player's data: loc ids, the
+    MCVS_Gameplay rule tables (an Index column of map ids, GameMatch.ApplySettingTableForMap), the image, the map, the
+    agents. Every Arena* rule table and every Arena title with a description is used by a mode or named in
+    ``unusedTables``/``unusedTexts`` with a reason: a new data pack's variants show up here instead of silently missing."""
+    if not isinstance(block, dict):
+        raise ContentError("liveops: arena must be an object")
+
+    def loc(locid, where):
+        return check_loc_id(loc_tables, locid, "liveops: arena: " + where)
+
+    maps = arena_maps(cat, maps_list)
+    agents_rule = block.get("agents", "all")
+    if agents_rule != "all":
+        raise ContentError("liveops: arena: agents must be \"all\" (an explicit list of every agent: the client throws on "
+                           "an empty, \"Any\" or \"MercClass_\" list)")
+    agents = ["Merc_%d" % m for m in cat.merc_ids if m > 0]
+    if not agents:
+        raise ContentError("liveops: arena: no agents in the catalogue")
+
+    def multipliers(values, base, where):
+        out = dict(base)
+        for k, v in (values or {}).items():
+            if k not in ARENA_MULTIPLIERS:
+                raise ContentError("liveops: arena: %s: unknown multiplier %s" % (where, k))
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0.1 <= v <= 10:
+                raise ContentError("liveops: arena: %s: multiplier %s must be a number from 0.1 to 10" % (where, k))
+            out[k] = v
+        return {k: out[k] for k in ARENA_MULTIPLIERS}
+
+    base = multipliers(block.get("multipliers"), {k: 1 for k in ARENA_MULTIPLIERS}, "multipliers")
+    types = block.get("matchTypes") or {}
+    for t, spec in sorted(types.items()):
+        if t not in ARENA_MATCH_TYPES:
+            raise ContentError("liveops: arena: matchTypes: %s is not a Game.MatchType the client accepts" % t)
+        loc(spec["text"], "matchTypes.%s.text" % t)
+        check_image(cat, spec["img"], "liveops: arena: matchTypes.%s.img" % t)
+
+    used_tables, used_texts, modes, ids = set(), set(), [], set()
+    for m in block.get("modes", []):
+        mid = m.get("id")
+        if not isinstance(mid, str) or not ARENA_MODE_ID.match(mid):
+            raise ContentError("liveops: arena: mode id %r must be 1 to 40 letters or digits" % (mid,))
+        if mid in ids:
+            raise ContentError("liveops: arena: duplicate mode %s" % mid)
+        ids.add(mid)
+        mtype = m.get("matchType", "None")
+        if mtype not in types:
+            raise ContentError("liveops: arena: %s: matchType %s has no matchTypes entry" % (mid, mtype))
+        name, rule = loc(m["name"], mid + ".name"), loc(m["rule"], mid + ".rule")
+        used_texts.update([name, rule])
+        text = loc(m.get("matchTypeText", types[mtype]["text"]), mid + ".matchTypeText")
+        img = check_image(cat, m.get("img", types[mtype]["img"]), "liveops: arena: %s.img" % mid)
+        sets = list(m.get("parameterSets", []))
+        for t in sets:
+            have = cat.table_fields("MCVS_Gameplay", t)
+            if have is None:
+                raise ContentError("liveops: arena: %s: no MCVS_Gameplay table %s" % (mid, t))
+            if "Index" not in have:
+                raise ContentError("liveops: arena: %s: MCVS_Gameplay.%s has no Index (map) column" % (mid, t))
+            used_tables.add(t)
+        mp = m.get("map", "Random")
+        if mp != "Random" and mp not in maps:
+            raise ContentError("liveops: arena: %s: map %s is not playable (%s)" % (mid, mp, ", ".join(maps)))
+        dup = m.get("allowDuplicates", True)
+        if not isinstance(dup, bool):
+            raise ContentError("liveops: arena: %s: allowDuplicates must be true or false" % mid)
+        rotate = m.get("rotate", True)
+        if not isinstance(rotate, bool):
+            raise ContentError("liveops: arena: %s: rotate must be true or false" % mid)
+        modes.append({"id": mid, "eventName": name, "rule": rule, "matchTypeText": text, "matchType": mtype,
+                      "parameterSets": sets, "map": mp, "allowDuplicates": dup, "img": img, "agents": list(agents),
+                      "multipliers": multipliers(m.get("multipliers"), base, mid), "rotate": rotate})
+    if not any(m["rotate"] for m in modes):
+        raise ContentError("liveops: arena: no mode in the rotation")
+
+    arena_tables = sorted(t for t in (cat.tables.get("Design/MCVS_Gameplay.xlsx") or {}) if t.startswith("Arena"))
+    unused_tables = block.get("unusedTables") or {}
+    for t in arena_tables:
+        if t not in used_tables and t not in unused_tables:
+            raise ContentError("liveops: arena: the rule table MCVS_Gameplay.%s is used by no mode (add one, or name it in "
+                               "arena.unusedTables with the reason)" % t)
+    for t in unused_tables:
+        if t in used_tables:
+            raise ContentError("liveops: arena: %s is used by a mode and listed in unusedTables" % t)
+    if loc_tables is not None:
+        arena_ids = loc_tables.get("Arena", set())
+        titles = sorted("Arena." + i for i in arena_ids if i + "Desc" in arena_ids)
+        unused_texts = block.get("unusedTexts") or {}
+        for t in titles:
+            if t not in used_texts and t not in unused_texts:
+                raise ContentError("liveops: arena: the Arena variant %s (with %sDesc) is used by no mode (add one, or name it "
+                                   "in arena.unusedTexts with the reason)" % (t, t))
+    priority = block.get("priority", 3)
+    if isinstance(priority, bool) or not isinstance(priority, int) or not 1 <= priority <= 100:
+        raise ContentError("liveops: arena: priority must be an integer from 1 to 100")
+    return {"priority": priority, "maps": maps, "modes": modes}
 
 
 def one_crate_per_milestone(where, added, milestone, today):
@@ -1486,6 +1633,626 @@ def check_collector_rewards(liveops, collector):
         raise ContentError("liveops: the collector block hands out no %s" % collector["crate"]["id"])
 
 
+# ----------------------------------------------------------------------------------------------- names
+
+# names.json (docs/LIVEOPS.md "Rival names and emblems"): the gamer tags of the leaderboard rivals and the in-match bots.
+# The server (server/Core/Names/GamerTags.cs) applies the same rules to every name it makes; these constants mirror it.
+NAME_LISTS = ("adj", "noun", "handle", "short", "foreign", "prefix", "suffix", "mascot", "country")
+# The only lists a style may put next to a {country} token (names_tuning.json _roughNouns).
+NAME_COUNTRY_LISTS = ("mascot", "foreign", "country")
+# Number tokens: length in digits (the {year} token takes the tuning's years).
+NAME_NUMBERS = {"d2": 2, "d3": 3, "d4": 4, "year": 4, "alias": 9}
+NAME_CASES = ("asis", "lower", "upper", "camel")
+NAME_LEET = {"a": "4", "e": "3", "i": "1", "o": "0", "s": "5", "t": "7"}
+# How a name is read back before the blocklist: digits and signs as the letters they stand for ('1' both ways).
+NAME_UNLEET_I = {"0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t", "8": "b", "$": "s", "@": "a"}
+NAME_UNLEET_L = dict(NAME_UNLEET_I, **{"1": "l"})
+NAME_SEPARATORS = "_.-"
+NAME_CHARS = re.compile(r"^[A-Za-z0-9_.-]+$")
+NAME_PART = re.compile(r"^[A-Za-z][A-Za-z0-9]*$")
+NAME_TOKEN = re.compile(r"\{([A-Za-z0-9]+)\}")
+# The client's limits (popups/PopupChangeName.as maxChars 16; PlayerProfileComponent MinimalPlayerNameLength 2).
+NAME_MAX_LENGTH = 16
+NAME_MIN_LENGTH = 2
+# KillsignatureAvatars rows a rival may show: the plain profile avatars (folder and file name), Unlockable=true.
+RIVAL_AVATAR_FOLDER = "Menus/assets/png/profile/avatars/"
+RIVAL_AVATAR_FILE = re.compile(r"^avatar\d+\.png$", re.IGNORECASE)
+# The 1.17.32 pack has 222; the floor only refuses a pack (or a rule) that leaves the rivals almost no choice.
+RIVAL_AVATAR_MIN = 1
+
+
+@functools.lru_cache(maxsize=None)
+def name_forms(text):
+    """The blocklist readings of ``text``: lower case without separators, as written, and with digits read as letters."""
+    raw = text.lower().translate(_NAME_DROP_SEPARATORS)
+    return frozenset((raw, raw.translate(_NAME_READ_I), raw.translate(_NAME_READ_L)))
+
+
+_NAME_DROP_SEPARATORS = str.maketrans("", "", NAME_SEPARATORS)
+_NAME_READ_I = str.maketrans(NAME_UNLEET_I)
+_NAME_READ_L = str.maketrans(NAME_UNLEET_L)
+
+
+class NameBlocklist(object):
+    """The blocklist of names_tuning.json (see its _blocklist note); ``problem`` mirrors GamerTags.Blocked."""
+
+    def __init__(self, block):
+        self.substrings = list(block["substrings"])
+        self.words = set(block["words"])
+        self.digits = list(block["digits"])
+        self.digit_runs = set(block["digitRuns"])
+        self._sub = re.compile("|".join(re.escape(s) for s in sorted(self.substrings, key=len, reverse=True)))
+        self._exact = set(self.substrings) | self.words
+        self._lengths = sorted(set(len(w) for w in self.words))
+        self._spans = {}
+        self._problems = {}
+
+    def problem(self, pieces):
+        """Why the name made of ``pieces`` (its parts and literals in order, as written) is refused, or None."""
+        # Case and separators do not change the answer: styles that differ only there share one check.
+        key = tuple(k for k in (p.lower().translate(_NAME_DROP_SEPARATORS) for p in pieces) if k)
+        if key not in self._problems:
+            self._problems[key] = self._problem(pieces)
+        return self._problems[key]
+
+    def _problem(self, pieces):
+        name = "".join(pieces)
+        for form in name_forms(name):
+            m = self._sub.search(form)
+            if m:
+                return "contains '%s'" % m.group(0)
+            if form in self.words:
+                return "is '%s'" % form
+        normalized = [name_forms(p) for p in pieces]
+        for forms in normalized:
+            hit = forms & self.words
+            if hit:
+                return "has the part '%s'" % sorted(hit)[0]
+        joined = [p for p in pieces if p.translate(_NAME_DROP_SEPARATORS)]
+        for a, b in zip(joined, joined[1:]):
+            for fa in name_forms(a):
+                for fb in name_forms(b):
+                    w = self.spanning(fa, fb)
+                    if w:
+                        return "spells '%s' across a join" % w
+        return self._digit_problem(name)
+
+    def curated_problem(self, name):
+        """Why the curated ``name`` is refused, or None (GamerTags.CuratedBlockedReason). Its words (curated_words) are
+        read lower case, accents dropped, digits as letters: a substrings entry inside one word, a words entry as one
+        word, or either entry spelled exactly by a run of whole words (White Power, KillYourSelf), and the digit rules.
+        Never a match that starts or ends inside a word across a word break: the list is written by us, and Spooky Scary,
+        Obi Wan Kenoodle or WaitItsAllOhio hold no 'kys', 'wank' or 'tits'."""
+        plains = [_curated_plain(w) for w in curated_words(name)]
+        for p in plains:
+            for form in (p, p.translate(_NAME_READ_I), p.translate(_NAME_READ_L)):
+                m = self._sub.search(form)
+                if m:
+                    return "contains '%s'" % m.group(0)
+                if form in self.words:
+                    return "has the word '%s'" % form
+        exact = self._exact
+        for i in range(len(plains)):
+            joined = plains[i]
+            for j in range(i + 1, len(plains)):
+                joined += plains[j]
+                if len(joined) > NAME_MAX_LENGTH:
+                    break
+                for form in (joined, joined.translate(_NAME_READ_I), joined.translate(_NAME_READ_L)):
+                    if form in exact:
+                        return "spells '%s' across its words" % form
+        return self._digit_problem(name)
+
+    def _digit_problem(self, name):
+        for run in re.findall(r"[0-9]+", name):
+            if run in self.digit_runs:
+                return "has the number %s" % run
+            for d in self.digits:
+                if d in run:
+                    return "has the digits %s" % d
+        return None
+
+    def spanning(self, a, b):
+        key = (a, b)
+        if key not in self._spans:
+            self._spans[key] = self._spanning(a, b)
+        return self._spans[key]
+
+    def _spanning(self, a, b):
+        s = a + b
+        j = len(a)
+        for n in self._lengths:
+            for start in range(max(0, j - n + 1), j):
+                if start + n > len(s):
+                    break
+                w = s[start:start + n]
+                if start + n > j and w in self.words:
+                    return w
+        return None
+
+
+def name_shape_problem(name, limits):
+    """None when ``name`` fits the client (length, characters, separators, not a number), else why not."""
+    if not limits["min"] <= len(name) <= limits["max"]:
+        return "%d characters (%d..%d)" % (len(name), limits["min"], limits["max"])
+    if not NAME_CHARS.match(name):
+        return "characters outside A-Z a-z 0-9 _ . -"
+    if not name[0].isalnum() or not name[-1].isalnum():
+        return "starts or ends with a separator"
+    if any(a in NAME_SEPARATORS and b in NAME_SEPARATORS for a, b in zip(name, name[1:])):
+        return "two separators in a row"
+    if sum(ch.isalpha() for ch in name) < 2:
+        return "fewer than two letters"
+    rest = name[1:] if name[0] in "+-*" else name
+    if all(ch in "0123456789.,eE+-" for ch in rest) or rest.lower() in ("nan", "inf", "infinity"):
+        return "reads as a number (the bot name table needs text)"
+    return None
+
+
+# The curated names (names_tuning.json curatedFile, build 29) may hold more than the generated ones: what a player can type
+# into the rename popup (no `restrict` on its text field, popups/PopupChangeName.as) and every client screen shows. The
+# signs below, the space and the Latin-1 letters (the Latin font TCFNoli-Black.ttf has every glyph of U+0020-U+007E and of
+# U+00C0-U+00FF). Never '<', '>', '&' (FormatName/ApplyFontAsLengthEncode and gameswf read them as markup), ':' (a bot's
+# credential is "dev:<name>", MultiplayerComponent.CredentialFromBotName, and Credential splits on ':' and throws on a
+# second one), '{', '}' (LocalizationFormatterComponent.FormatString reads braces in a parameter as placeholders, and
+# int.Parse's the text before a '_' inside them), '/', '\\', '"' and '`' (not needed, and paths and quoting).
+NAME_CURATED_SIGNS = " !%'()*+,-.?@[]^_|~"
+# A leading '+', '-' or '*' makes the CRM cell an ADD or MUL (Gameloft.Engine CRMTableCell): never at the start of a bot name.
+NAME_CRM_OPERATORS = "+-*"
+# double.TryParse(NumberStyles.Float, InvariantCulture) as CRMTableCell reads a cell (a name it parses becomes a number).
+NAME_NUMBER = re.compile(r"^\s*[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?\s*$")
+# Latin-1 letters as a player reads them (Skeleton, blocklist): U+00C0..U+00DF; U+00E0..U+00FF are the same in lower case.
+_LATIN1_FOLD = "a|a|a|a|a|a|ae|c|e|e|e|e|i|i|i|i|d|n|o|o|o|o|o||o|u|u|u|u|y|th|ss".split("|")
+
+
+def name_is_curated_char(ch):
+    """True when the client shows and takes ``ch`` in a curated name (GamerTags.IsShownChar)."""
+    o = ord(ch)
+    return (ch.isascii() and ch.isalnum()) or ch in NAME_CURATED_SIGNS or (0xC0 <= o <= 0xFF and o not in (0xD7, 0xF7))
+
+
+def name_is_letter(ch):
+    o = ord(ch)
+    return ("a" <= ch <= "z") or ("A" <= ch <= "Z") or (0xC0 <= o <= 0xFF and o not in (0xD7, 0xF7))
+
+
+def name_fold(ch):
+    """``ch`` lower case, a Latin-1 letter without its accent (é e, Æ ae, ß ss); other characters as they are."""
+    o = ord(ch)
+    if 0xC0 <= o <= 0xFF and o not in (0xD7, 0xF7):
+        return "y" if o == 0xFF else _LATIN1_FOLD[(o - 0xC0) % 32]
+    return ch.lower() if ch.isascii() else ch
+
+
+def curated_shape_problem(name):
+    """None when the client shows and takes ``name`` (GamerTags.ShapeProblem), else why not."""
+    if not isinstance(name, str) or not NAME_MIN_LENGTH <= len(name) <= NAME_MAX_LENGTH:
+        return "length outside %d..%d" % (NAME_MIN_LENGTH, NAME_MAX_LENGTH)
+    if name[0] == " " or name[-1] == " " or "  " in name:
+        return "a space at an end or two in a row"
+    bad = [ch for ch in name if not name_is_curated_char(ch)]
+    if bad:
+        return "the character '%s' (the client cannot show or take it)" % bad[0]
+    if name[0] in NAME_CRM_OPERATORS:
+        return "starts with a CRM cell operator (+ - *)"
+    if not any(name_is_letter(ch) for ch in name):
+        return "no letter"
+    if NAME_NUMBER.match(name) or name.lower() in ("nan", "inf", "infinity"):
+        return "reads as a number (the bot name table needs text)"
+    return None
+
+
+def name_skeleton(name):
+    """GamerTags.Skeleton: the name as a player tells two names apart (lower case, accents dropped, only letters and
+    digits, a digit inside a word or a single digit at an end read as its letter, the number at either end left out;
+    agent-<digits> keeps its digits)."""
+    plain = _curated_plain(name)
+    if name.lower().startswith("agent-"):
+        return plain
+    out = []
+    for m in re.finditer(r"[0-9]+|[^0-9]+", plain):
+        run = m.group(0)
+        if not run.isdigit():
+            out.append(run)
+            continue
+        inside = m.start() > 0 and m.end() < len(plain)
+        single = len(run) == 1 and (m.start() > 0 or m.end() < len(plain))
+        if inside or single:
+            out.append(run.translate(_NAME_READ_I))
+    return "".join(out)
+
+
+def _curated_plain(text):
+    """``text`` lower case, accents dropped, only its letters and digits."""
+    return "".join(name_fold(ch) for ch in text if name_is_letter(ch) or (ch.isascii() and ch.isdigit()))
+
+
+def curated_words(name):
+    """The words of a curated name: split at everything but letters and digits and where lower case (or a digit) meets
+    upper case, or an upper-case run meets a capitalised word (GamerTags.Words)."""
+    words = []
+    cur = []
+    for i, ch in enumerate(name):
+        if not (name_is_letter(ch) or (ch.isascii() and ch.isdigit())):
+            if cur:
+                words.append("".join(cur))
+            cur = []
+            continue
+        if cur:
+            prev = name[i - 1]
+            nxt = name[i + 1] if i + 1 < len(name) else ""
+            upper = ch.isupper()
+            if upper and (prev.islower() or prev.isdigit()) or (upper and prev.isupper() and nxt.islower()):
+                words.append("".join(cur))
+                cur = []
+        cur.append(ch)
+    if cur:
+        words.append("".join(cur))
+    return words
+
+
+def load_curated(path):
+    """The names of a curated file: one per line (UTF-8), blank lines and lines starting with # left out."""
+    with open(path, "r", encoding="utf-8") as f:
+        lines = f.read().split("\n")
+    return [line for line in lines if line and not line.startswith("#")]
+
+
+def parse_name_style(style, where, lists):
+    if not isinstance(style, dict) or not isinstance(style.get("id"), str) or not isinstance(style.get("pattern"), str):
+        raise ContentError("%s: a style needs an id and a pattern" % where)
+    unknown = set(style) - {"id", "pattern", "case", "leet", "weight"}
+    if unknown:
+        raise ContentError("%s: unknown keys %s" % (where, sorted(unknown)))
+    pattern = style["pattern"]
+    pieces = []
+    pos = 0
+    for m in NAME_TOKEN.finditer(pattern):
+        if m.start() > pos:
+            pieces.append(("text", pattern[pos:m.start()]))
+        token = m.group(1)
+        if token not in lists and token not in NAME_NUMBERS:
+            raise ContentError("%s: unknown token {%s}" % (where, token))
+        pieces.append(("list" if token in lists else "number", token))
+        pos = m.end()
+    if pos < len(pattern):
+        pieces.append(("text", pattern[pos:]))
+    for kind, value in pieces:
+        if kind == "text" and ("{" in value or "}" in value or not NAME_CHARS.match(value)):
+            raise ContentError("%s: literal '%s' outside A-Z a-z 0-9 _ . -" % (where, value))
+    if not any(kind == "list" for kind, _ in pieces) and sum(ch.isalpha() for kind, v in pieces if kind == "text" for ch in v) < 2:
+        raise ContentError("%s: a style needs a word token or a literal with letters" % where)
+    case = style.get("case", "asis")
+    if case not in NAME_CASES:
+        raise ContentError("%s: case must be one of %s" % (where, ", ".join(NAME_CASES)))
+    leet = style.get("leet", False)
+    weight = style.get("weight", 1)
+    if not isinstance(leet, bool) or not isinstance(weight, int) or isinstance(weight, bool) or not 1 <= weight <= 100:
+        raise ContentError("%s: leet must be true/false and weight an integer 1..100" % where)
+    return {"id": style["id"], "pattern": pattern, "case": case, "leet": leet, "weight": weight}, pieces
+
+
+def apply_name_case(text, case):
+    if case == "lower":
+        return text.lower()
+    if case == "upper":
+        return text.upper()
+    if case == "camel":
+        return text[:1].lower() + text[1:]
+    return text
+
+
+def build_names(cat, tuning, collector, curated=None):
+    """names.json: our curated names (checked: the client's characters and limits, the blocklist, no two that read alike,
+    at least minCurated), our gamer-tag parts, styles and blocklist for the names a board needs beyond them (checked: every
+    part, every two-part combination, the number of distinct names) and the rivals' emblem and background pools (ids
+    only, from MCVS_Meta). ``curated`` defaults to the tuning's curatedFile next to this script."""
+    doc = copy.deepcopy(_checked_names(json.dumps(tuning, sort_keys=True)))
+    if curated is None:
+        curated = load_curated(os.path.join(os.path.dirname(os.path.abspath(__file__)), tuning["curatedFile"]))
+    doc["curated"] = _checked_curated(tuple(curated), json.dumps(tuning["blocklist"], sort_keys=True), tuning["minCurated"],
+                                      json.dumps(tuning.get("curatedNear", [])))
+    doc["summary"]["curated"] = len(doc["curated"])
+    avatars, backgrounds = rival_emblems(cat, collector)
+    doc["emblems"] = {"avatars": compress_ranges(avatars), "backgrounds": compress_ranges(backgrounds)}
+    doc["summary"].update({"avatars": len(avatars), "backgrounds": len(backgrounds)})
+    order = ["format", "version", "limits", "years", "defaultShare", "curated"]
+    return dict([(k, doc[k]) for k in order] + [(k, v) for k, v in doc.items() if k not in order])
+
+
+# Two curated skeletons this long or longer that are one letter apart (Sheesh / Sheeesh, Scooby Snack / Scooby Snacks) read
+# as one name copied when they share a board or a bot window; shorter handles one letter apart (Bonk / Bork) do not.
+NAME_NEAR_MIN_LENGTH = 5
+
+
+def near_skeleton_pairs(names):
+    """The pairs (in list order) of ``names`` whose skeletons, both NAME_NEAR_MIN_LENGTH long or longer, differ by one
+    letter changed, added or left out."""
+    skeletons = [name_skeleton(n) for n in names]
+    deleted = {}
+    for i, s in enumerate(skeletons):
+        if len(s) >= NAME_NEAR_MIN_LENGTH:
+            for k in range(len(s)):
+                deleted.setdefault(s[:k] + s[k + 1:], []).append((i, k))
+    pairs = set()
+    for hits in deleted.values():
+        # The same letter position left out of two skeletons of one length: one letter changed.
+        for a in range(len(hits)):
+            for b in range(a + 1, len(hits)):
+                (i, ki), (j, kj) = hits[a], hits[b]
+                if ki == kj and skeletons[i] != skeletons[j]:
+                    pairs.add((min(i, j), max(i, j)))
+    for j, s in enumerate(skeletons):
+        # One skeleton is another with one letter left out: one letter added.
+        if len(s) >= NAME_NEAR_MIN_LENGTH:
+            for i, _ in deleted.get(s, ()):
+                pairs.add((min(i, j), max(i, j)))
+    return [(names[i], names[j]) for i, j in sorted(pairs)]
+
+
+@functools.lru_cache(maxsize=4)
+def _checked_curated(names, block_text, minimum, near_text="[]"):
+    """The curated names, each checked as the server checks it (GamerTags.Load): the characters and limits of the client
+    (curated_shape_problem), the blocklist (NameBlocklist.curated_problem), never two that read alike (name_skeleton,
+    ignoring case: the second would never be shown beside the first), and never two whose skeletons are one letter apart
+    (near_skeleton_pairs) unless the tuning's curatedNear lists the pair as two different jokes."""
+    blocklist = NameBlocklist(json.loads(block_text))
+    seen = {}
+    for name in names:
+        problem = curated_shape_problem(name)
+        if problem:
+            raise ContentError("names: curated name '%s': %s" % (name, problem))
+        problem = blocklist.curated_problem(name)
+        if problem:
+            raise ContentError("names: curated name '%s' is refused by the blocklist (%s)" % (name, problem))
+        for key in (name.lower(), "\x01" + name_skeleton(name)):
+            if key == "\x01":
+                continue
+            if key in seen:
+                raise ContentError("names: curated names '%s' and '%s' read alike (keep one)" % (seen[key], name))
+            seen[key] = name
+    allowed = set()
+    for pair in json.loads(near_text):
+        if not (isinstance(pair, list) and len(pair) == 2 and all(isinstance(n, str) for n in pair)):
+            raise ContentError("names: curatedNear must be a list of [name, name] pairs")
+        allowed.add(frozenset(pair))
+    near = set()
+    for a, b in near_skeleton_pairs(names):
+        near.add(frozenset((a, b)))
+        if frozenset((a, b)) not in allowed:
+            raise ContentError("names: curated names '%s' and '%s' are one letter apart (keep one, or list the pair in "
+                               "curatedNear when they are two different jokes)" % (a, b))
+    stale = sorted(sorted(p) for p in allowed - near)
+    if stale:
+        raise ContentError("names: curatedNear lists %s, not two curated names one letter apart" % " / ".join(stale[0]))
+    if len(names) < minimum:
+        raise ContentError("names: %d curated names, fewer than minCurated %d" % (len(names), minimum))
+    return list(names)
+
+
+@functools.lru_cache(maxsize=4)
+def _checked_names(tuning_text):
+    """The tuning-only part of names.json (checking every combination takes seconds: once per tuning and process)."""
+    tuning = json.loads(tuning_text)
+    version = tuning.get("version")
+    if not isinstance(version, int) or isinstance(version, bool) or version < 1:
+        raise ContentError("names: version must be a positive integer")
+    limits = tuning.get("limits") or {}
+    if not (isinstance(limits.get("min"), int) and isinstance(limits.get("max"), int)
+            and NAME_MIN_LENGTH <= limits["min"] <= limits["max"] <= NAME_MAX_LENGTH):
+        raise ContentError("names: limits must be %d <= min <= max <= %d (the client's rename limits)" % (NAME_MIN_LENGTH, NAME_MAX_LENGTH))
+    years = tuning.get("years")
+    if not (isinstance(years, list) and len(years) == 2 and all(isinstance(y, int) for y in years) and 1950 <= years[0] <= years[1] <= 2030):
+        raise ContentError("names: years must be [first, last] within 1950..2030")
+    share = tuning.get("defaultShare")
+    if not isinstance(share, int) or not 0 <= share <= 50:
+        raise ContentError("names: defaultShare must be an integer 0..50 (per cent)")
+    minimum = tuning.get("minCombinations")
+    if not isinstance(minimum, int) or minimum < 1:
+        raise ContentError("names: minCombinations must be a positive integer")
+    curated_file = tuning.get("curatedFile")
+    if not isinstance(curated_file, str) or not re.match(r"^[A-Za-z0-9_.-]+$", curated_file):
+        raise ContentError("names: curatedFile must be a file name next to the tuning")
+    min_curated = tuning.get("minCurated")
+    if not isinstance(min_curated, int) or isinstance(min_curated, bool) or min_curated < 1:
+        raise ContentError("names: minCurated must be a positive integer")
+
+    block = tuning.get("blocklist") or {}
+    for key, pattern in (("substrings", r"^[a-z0-9]{3,}$"), ("words", r"^[a-z0-9]{2,}$"), ("digits", r"^[0-9]{2,}$"),
+                         ("digitRuns", r"^[0-9]{2,}$")):
+        values = block.get(key)
+        if not isinstance(values, list) or not values:
+            raise ContentError("names: blocklist.%s must be a non-empty list" % key)
+        bad = [v for v in values if not isinstance(v, str) or not re.match(pattern, v)]
+        if bad:
+            raise ContentError("names: blocklist.%s entries must match %s: %s" % (key, pattern, bad[:5]))
+        if len(set(values)) != len(values):
+            raise ContentError("names: blocklist.%s has duplicates" % key)
+    blocklist = NameBlocklist(block)
+
+    raw_parts = tuning.get("parts") or {}
+    if set(raw_parts) != set(NAME_LISTS):
+        raise ContentError("names: parts needs exactly the lists %s" % ", ".join(NAME_LISTS))
+    parts = {}
+    for key in NAME_LISTS:
+        words = raw_parts[key]
+        if not isinstance(words, list) or not words:
+            raise ContentError("names: parts.%s must be a non-empty list" % key)
+        seen = set()
+        for w in words:
+            if not isinstance(w, str) or not NAME_PART.match(w) or len(w) > 12:
+                raise ContentError("names: parts.%s: '%s' must be 1-12 ASCII letters or digits, starting with a letter" % (key, w))
+            if w.lower() in seen:
+                raise ContentError("names: parts.%s: '%s' twice" % (key, w))
+            seen.add(w.lower())
+            problem = blocklist.problem([w])
+            if problem:
+                raise ContentError("names: parts.%s: '%s' is refused by the blocklist (%s)" % (key, w, problem))
+        parts[key] = list(words)
+    # A word in both adj and noun makes names like ShadowShadow and twice the same skeleton; nounNoun already makes the pairs.
+    both = sorted(set(w.lower() for w in parts["adj"]) & set(w.lower() for w in parts["noun"]))
+    if both:
+        raise ContentError("names: parts.adj and parts.noun share %s (keep each word in one of them)" % ", ".join(both))
+    rough = tuning.get("roughNouns")
+    if not isinstance(rough, list) or not rough or not all(isinstance(w, str) and NAME_PART.match(w) for w in rough):
+        raise ContentError("names: roughNouns must be a non-empty list of words")
+    rough_set = set(w.lower() for w in rough)
+    for w in parts["mascot"]:
+        if w.lower() in rough_set:
+            raise ContentError("names: parts.mascot: '%s' is in roughNouns (a person, a weapon or a disaster next to a country code)" % w)
+
+    raw_styles = tuning.get("styles")
+    if not isinstance(raw_styles, list) or not raw_styles:
+        raise ContentError("names: styles must be a non-empty list")
+    styles = []
+    parsed = []
+    for i, s in enumerate(raw_styles):
+        style, pieces = parse_name_style(s, "names: styles[%d]" % i, parts)
+        used = set(v for kind, v in pieces if kind == "list")
+        if "country" in used and not used <= set(NAME_COUNTRY_LISTS):
+            raise ContentError("names: style %s puts {country} next to {%s} (only %s may stand next to a country code)"
+                               % (style["id"], ", ".join(sorted(used - set(NAME_COUNTRY_LISTS))), ", ".join(NAME_COUNTRY_LISTS[:2])))
+        if any(style["id"] == other["id"] for other in styles):
+            raise ContentError("names: style id %s twice" % style["id"])
+        styles.append(style)
+        parsed.append((style, pieces))
+
+    # Every combination of the word tokens of every style (numbers stand in at their length; leet only turns letters into
+    # the digits the blocklist reads back): length, characters and blocklist, as the server checks each name it makes.
+    distinct = set()
+    estimated = 0
+    blocked = 0
+    too_long = 0
+    repeated = 0
+    for style, pieces in parsed:
+        lists = [parts[v] for kind, v in pieces if kind == "list"]
+        numbers = 1
+        for kind, v in pieces:
+            if kind == "number":
+                numbers *= {"d2": 100, "d3": 900, "d4": 9000, "alias": 900000000}.get(v, years[1] - years[0] + 1)
+        valid = 0
+        checked_shape = False
+        for combo in _product(lists):
+            if len(combo) > 1 and len(set(w.lower() for w in combo)) < len(combo):
+                repeated += 1  # the server draws again (GamerTags.Name): PhantomPhantom, NovaNova
+                continue
+            words = iter(combo)
+            written = []
+            for kind, v in pieces:
+                if kind == "text":
+                    written.append(v)
+                elif kind == "list":
+                    written.append(next(words))
+                else:
+                    written.append("1" * NAME_NUMBERS[v])
+            written = _case_pieces(written, style["case"])
+            name = "".join(written)
+            if not limits["min"] <= len(name) <= limits["max"]:
+                too_long += 1
+                continue
+            if not checked_shape:
+                # Parts and literals are checked already: the rest of the shape (separators, letters) is the style's.
+                problem = name_shape_problem(name, limits)
+                if problem:
+                    raise ContentError("names: style %s makes names like %s: %s" % (style["id"], name, problem))
+                checked_shape = True
+            if blocklist.problem([p for (kind, _), p in zip(pieces, written) if kind != "number"]):
+                blocked += 1
+                continue
+            valid += 1
+            if numbers == 1:
+                distinct.add(name.lower())
+        if valid == 0:
+            raise ContentError("names: style %s makes no valid name" % style["id"])
+        estimated += valid * numbers
+    if len(distinct) < minimum:
+        raise ContentError("names: the styles without numbers make %d distinct names, fewer than minCombinations %d"
+                           % (len(distinct), minimum))
+
+    return {
+        "format": FORMAT,
+        "version": version,
+        "limits": {"min": limits["min"], "max": limits["max"]},
+        "years": years,
+        "defaultShare": share,
+        "parts": parts,
+        "styles": styles,
+        "leet": NAME_LEET,
+        "blocklist": {"substrings": blocklist.substrings, "words": sorted(blocklist.words), "digits": blocklist.digits,
+                      "digitRuns": sorted(blocklist.digit_runs)},
+        "emblems": None,
+        "summary": {"styles": len(styles), "wordNames": len(distinct), "estimatedNames": estimated,
+                    "blockedCombinations": blocked, "tooLongCombinations": too_long,
+                    "repeatedCombinations": repeated},
+    }
+
+
+def name_pairs(tuning):
+    """Every distinct word-only name of the styles that join two or more word lists (AdjNoun, NounNoun, ShortNoun...),
+    lower case without separators, after the blocklist: the list a person reads once for brands, characters and slang
+    the blocklist does not know yet (``--name-pairs``)."""
+    checked = _checked_names(json.dumps(tuning, sort_keys=True))
+    blocklist = NameBlocklist(tuning["blocklist"])
+    out = set()
+    for raw in tuning["styles"]:
+        style, pieces = parse_name_style(raw, "names: style", checked["parts"])
+        if sum(1 for kind, _ in pieces if kind == "list") < 2 or any(kind == "number" for kind, _ in pieces):
+            continue
+        lists = [checked["parts"][v] for kind, v in pieces if kind == "list"]
+        for combo in _product(lists):
+            if len(set(w.lower() for w in combo)) < len(combo) or blocklist.problem(list(combo)):
+                continue
+            out.add("".join(combo).lower())
+    return sorted(out)
+
+
+def _product(lists):
+    if not lists:
+        yield ()
+        return
+    for head in lists[0]:
+        for tail in _product(lists[1:]):
+            yield (head,) + tail
+
+
+def _case_pieces(pieces, case):
+    """The pieces as the style's case writes the whole name (camel lowers only the first letter)."""
+    if case == "camel":
+        return [apply_name_case(pieces[0], "camel")] + pieces[1:] if pieces else pieces
+    return [apply_name_case(p, case) for p in pieces]
+
+
+def rival_emblems(cat, collector):
+    """The emblem (KillsignatureAvatars) and background (KillsignatureBackgrounds) ids a rival may show: plain profile
+    avatars with Unlockable=true that the player's data pack has, never a Kayac (brand, collab) or reserved season emblem
+    (economy-collector.md §1.2-§1.3); every released, displayed background."""
+    _require_fields(cat, "KillsignatureAvatars", ("ID", "Asset", "Unlockable"))
+    released = set(a for a, _ in cat.avatars)
+    excluded = set(expand_ranges(collector["avatars"]["kayac"])) | set(expand_ranges(collector["avatars"]["reserved"]))
+    avatars = []
+    for r in _design_rows(cat, "KillsignatureAvatars"):
+        aid = int(r["ID"])
+        asset = str(r.get("Asset") or "")
+        if not asset.startswith(RIVAL_AVATAR_FOLDER) or not RIVAL_AVATAR_FILE.match(asset[len(RIVAL_AVATAR_FOLDER):]):
+            continue
+        if not _flag(r.get("Unlockable")) or aid not in released or aid in excluded:
+            continue
+        if cat.asset_files is not None and not cat.asset_exists(asset):
+            continue
+        avatars.append(aid)
+    if len(avatars) < RIVAL_AVATAR_MIN:
+        raise ContentError("names: only %d plain profile avatars for the rivals (at least %d)" % (len(avatars), RIVAL_AVATAR_MIN))
+    _require_fields(cat, "KillsignatureBackgrounds", ("ID", "Displayed"))
+    released_bg = set(b for b, _ in cat.backgrounds)
+    backgrounds = sorted(int(r["ID"]) for r in _design_rows(cat, "KillsignatureBackgrounds")
+                         if int(r["ID"]) in released_bg and _flag(r.get("Displayed")))
+    if not backgrounds:
+        raise ContentError("names: no displayed background for the rivals")
+    if 1 not in avatars or 1 not in backgrounds:
+        raise ContentError("names: the starting emblem and background (1) must be in the pools (defaultShare)")
+    return sorted(avatars), backgrounds
+
+
 # ----------------------------------------------------------------------------------------------- output
 
 def dumps(value):
@@ -1514,15 +2281,26 @@ def _write(value, out, depth):
             out.append(pad + "  " + json.dumps(v, separators=(",", ":"), ensure_ascii=True))
             out.append(",\n" if i < len(value) - 1 else "\n")
         out.append(pad + "]")
+    elif isinstance(value, list) and len(value) > LONG_STRING_LIST and all(isinstance(v, str) for v in value):
+        # names.json curated: one name per line, so a change to the list is a reviewable diff.
+        out.append("[\n")
+        for i, v in enumerate(value):
+            out.append(pad + "  " + json.dumps(v, ensure_ascii=True))
+            out.append(",\n" if i < len(value) - 1 else "\n")
+        out.append(pad + "]")
     else:
         out.append(json.dumps(value, separators=(",", ":"), ensure_ascii=True))
+
+
+# A list of more strings than this is written one string per line (dumps).
+LONG_STRING_LIST = 500
 
 
 def _big(items):
     return len(items) > 1 and len(json.dumps(items)) > 100
 
 
-def generate(decoded_dir, pricing_path, liveops_path=None, collector_path=None, now=None):
+def generate(decoded_dir, pricing_path, liveops_path=None, collector_path=None, now=None, names_path=None):
     """{file name: text} for server/Content. ``now`` (UTC, default the current time) only feeds warnings."""
     if now is None:
         now = datetime.datetime.now(datetime.timezone.utc)
@@ -1534,6 +2312,10 @@ def generate(decoded_dir, pricing_path, liveops_path=None, collector_path=None, 
         path = os.path.join(design_dir, db + ".xlsx")
         if os.path.exists(path):
             design[db] = load_json(path)
+    maps_list = None
+    gameplay_path = os.path.join(design_dir, "MCVS_Gameplay.xlsx")
+    if os.path.exists(gameplay_path):
+        maps_list = load_json(gameplay_path).get("MapsList")
     pricing = load_json(pricing_path)
     here = os.path.dirname(os.path.abspath(__file__))
     if liveops_path is None:
@@ -1542,6 +2324,9 @@ def generate(decoded_dir, pricing_path, liveops_path=None, collector_path=None, 
     if collector_path is None:
         collector_path = os.path.join(here, "collector_tuning.json")
     collector_tuning = load_json(collector_path)
+    if names_path is None:
+        names_path = os.path.join(here, "names_tuning.json")
+    names_tuning = load_json(names_path)
     loc_tables = _loc_tables(decoded_dir)
     inputs = ["_catalog.json", "_tables.json"]
     if loc_tables is not None:
@@ -1552,9 +2337,9 @@ def generate(decoded_dir, pricing_path, liveops_path=None, collector_path=None, 
         ecomm_ids = set(x["id"] for x in load_json(go_path))
         inputs.append("Config/game_object.json (ids only)")
     asset_files = None
-    names_path = os.path.join(decoded_dir, "names.json")
-    if os.path.exists(names_path):
-        asset_files = set(load_json(names_path).get("files", {}))
+    files_path = os.path.join(decoded_dir, "names.json")
+    if os.path.exists(files_path):
+        asset_files = set(load_json(files_path).get("files", {}))
         inputs.append("names.json (file list only)")
     cat = Catalog(catalog, tables, design, include_locked_skins=bool(pricing["skins"].get("includeLocked")),
                   ecomm_ids=ecomm_ids, asset_files=asset_files)
@@ -1564,9 +2349,11 @@ def generate(decoded_dir, pricing_path, liveops_path=None, collector_path=None, 
     coupons = build_coupons(set(g["id"] for g in unlocks["groups"]))
     economy = build_economy(cat, store_summary, unlock_counts)
     overlay = build_crm_overlay()
-    liveops = build_liveops(cat, liveops_tuning, loc_tables, now)
+    liveops = build_liveops(cat, liveops_tuning, loc_tables, now, maps_list)
     collector = build_collector(cat, collector_tuning, unlocks, loc_tables)
     check_collector_rewards(liveops, collector)
+    curated = load_curated(os.path.join(os.path.dirname(os.path.abspath(names_path)), names_tuning.get("curatedFile", "")))
+    names = build_names(cat, names_tuning, collector, curated)
 
     files = {
         "offline_store.json": store,
@@ -1576,14 +2363,17 @@ def generate(decoded_dir, pricing_path, liveops_path=None, collector_path=None, 
         "crm_overlay.json": overlay,
         "liveops.json": liveops,
         "collector.json": collector,
+        "names.json": names,
     }
     manifest = {
         "schema": FORMAT,
         "generator": GENERATOR,
         "source": {"game": "Modern Combat Versus", "version": cat.game_version,
-                   "inputs": inputs + (["Design/MCVS_Meta.xlsx (index columns; ids and flags for the collector)"] if design else []),
+                   "inputs": inputs + (["Design/MCVS_Meta.xlsx (index columns; ids and flags for the collector)"] if design else [])
+                   + (["Design/MCVS_Gameplay.xlsx (MapsList: map ids, level paths, game modes)"] if maps_list else []),
                    "pricing": "tools/content-gen/pricing.json", "liveops": "tools/content-gen/liveops_tuning.json",
-                   "collector": "tools/content-gen/collector_tuning.json"},
+                   "collector": "tools/content-gen/collector_tuning.json", "names": "tools/content-gen/names_tuning.json",
+                   "curatedNames": "tools/content-gen/" + names_tuning.get("curatedFile", "")},
         "files": [{"name": name, "entries": _entries(name, data)} for name, data in sorted(files.items())],
     }
     files["manifest.json"] = manifest
@@ -1601,6 +2391,8 @@ def _entries(name, data):
         return len(data["objectives"])
     if name == "collector.json":
         return len(data["rows"])
+    if name == "names.json":
+        return len(data["curated"]) + sum(len(v) for v in data["parts"].values())
     return None
 
 
@@ -1613,12 +2405,26 @@ def main(argv=None):
     parser.add_argument("--pricing", default=os.path.join(here, "pricing.json"))
     parser.add_argument("--liveops", default=os.path.join(here, "liveops_tuning.json"))
     parser.add_argument("--collector", default=os.path.join(here, "collector_tuning.json"))
+    parser.add_argument("--names", default=os.path.join(here, "names_tuning.json"))
     parser.add_argument("--out", default=os.path.join(repo, "server", "Content"))
     parser.add_argument("--check", action="store_true", help="only verify that --out is up to date")
+    parser.add_argument("--name-pairs", metavar="FILE",
+                        help="only write every two-word gamer tag (one per line) to FILE, for a person to read")
     args = parser.parse_args(argv)
 
+    if args.name_pairs:
+        try:
+            pairs = name_pairs(load_json(args.names))
+        except (ContentError, KeyError, ValueError, OSError) as e:
+            print("content-gen: error: %s" % e, file=sys.stderr)
+            return 2
+        with open(args.name_pairs, "w", encoding="utf-8", newline="\n") as f:
+            f.write("\n".join(pairs) + "\n")
+        print("content-gen: wrote %d two-word names to %s" % (len(pairs), args.name_pairs))
+        return 0
+
     try:
-        outputs = generate(args.decoded, args.pricing, args.liveops, args.collector)
+        outputs = generate(args.decoded, args.pricing, args.liveops, args.collector, names_path=args.names)
     except (ContentError, KeyError, ValueError, OSError) as e:
         print("content-gen: error: %s" % e, file=sys.stderr)
         return 2

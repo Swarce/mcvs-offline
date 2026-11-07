@@ -59,13 +59,13 @@ namespace McvsOffline.Server.Services.Clans
             if (!Fed.RequireCaller(context, request, log, out caller, out failure)) return failure;
             if (string.IsNullOrEmpty(request.Param("name"))) return Fed.BadRequest("a clan needs a name");
             Dictionary<string, object> clan = clans.Create(caller.AccountId, Properties(request), Custom(request));
-            return HttpResponse.Json(clans.Render(clan));
+            return HttpResponse.Json(clans.Render(clan, request));
         }
 
         private static HttpResponse Show(ClanStore clans, HttpRequest request)
         {
             Dictionary<string, object> clan = clans.Get(request.RouteValue("id"));
-            return clan == null ? NoClan(request) : HttpResponse.Json(clans.Render(clan));
+            return clan == null ? NoClan(request) : HttpResponse.Json(clans.Render(clan, request));
         }
 
         private static HttpResponse Update(ServerContext context, ClanStore clans, Log log, HttpRequest request)
@@ -76,7 +76,7 @@ namespace McvsOffline.Server.Services.Clans
                                                            Accounts(context, caller, request.Param("demote_owners")));
             if (clan == null) return NoClan(request);
             log.Info("clan " + request.RouteValue("id") + " updated");
-            return HttpResponse.Json(clans.Render(clan));
+            return HttpResponse.Json(clans.Render(clan, request));
         }
 
         private static HttpResponse Delete(ServerContext context, ClanStore clans, Log log, HttpRequest request)
@@ -92,7 +92,7 @@ namespace McvsOffline.Server.Services.Clans
             Dictionary<string, object> properties = Properties(request);
             properties["type"] = "clan";
             Dictionary<string, object> clan = clans.Update(request.RouteValue("id"), properties, null, null, null);
-            return clan == null ? NoClan(request) : HttpResponse.Json(clans.Render(clan));
+            return clan == null ? NoClan(request) : HttpResponse.Json(clans.Render(clan, request));
         }
 
         private static HttpResponse GetField(ClanStore clans, HttpRequest request)
@@ -125,7 +125,7 @@ namespace McvsOffline.Server.Services.Clans
             Dictionary<string, object> clan = clans.SetField(request.RouteValue("id"), field, value, delta);
             if (clan == null) return NoClan(request);
             log.Debug("clan " + request.RouteValue("id") + " field " + field + (delta.HasValue ? " += " + ClanStore.Format(delta.Value) : " = " + MiniJson.Serialize(value)));
-            return HttpResponse.Json(clans.Render(clan));
+            return HttpResponse.Json(clans.Render(clan, request));
         }
 
         private static HttpResponse Search(ClanStore clans, HttpRequest request, string category, string keywords)
@@ -134,7 +134,7 @@ namespace McvsOffline.Server.Services.Clans
             int limit = Fed.IntParam(request, "limit", 100, 1, 1000);
             var result = new List<object>();
             List<Dictionary<string, object>> found = clans.Search(category, keywords);
-            for (int i = offset; i < found.Count && result.Count < limit; i++) result.Add(clans.Render(found[i]));
+            for (int i = offset; i < found.Count && result.Count < limit; i++) result.Add(clans.Render(found[i], request));
             return HttpResponse.Json(result);
         }
 
@@ -154,7 +154,7 @@ namespace McvsOffline.Server.Services.Clans
                 if (ownersOnly && !ClanStore.IsOwner(clan, JsonValue.GetString(member, "account"))) continue;
                 if (index++ < offset) continue;
                 if (result.Count >= limit) break;
-                result.Add(clans.RenderMember(clan, member));
+                result.Add(clans.RenderMember(clan, member, request));
             }
             return HttpResponse.Json(result);
         }
@@ -165,7 +165,7 @@ namespace McvsOffline.Server.Services.Clans
             if (clan == null) return NoClan(request);
             string accountId = Fed.ResolveAccountId(context, Fed.TryGetCaller(context, request), request.RouteValue("credential"));
             Dictionary<string, object> member = accountId == null ? null : ClanStore.FindMember(clan, accountId);
-            return member == null ? Fed.NotFound("not a member") : HttpResponse.Json(clans.RenderMember(clan, member));
+            return member == null ? Fed.NotFound("not a member") : HttpResponse.Json(clans.RenderMember(clan, member, request));
         }
 
         private static HttpResponse AddMember(ServerContext context, ClanStore clans, Log log, HttpRequest request)
@@ -184,7 +184,7 @@ namespace McvsOffline.Server.Services.Clans
                 // An invitation: there is nobody to receive it offline. The client reads {"group": clan}.
                 log.Info("clan invitation of " + credential + " to " + request.RouteValue("id") + " accepted without effect");
                 var invite = Fed.Obj();
-                invite["group"] = clans.Render(clan);
+                invite["group"] = clans.Render(clan, request);
                 return HttpResponse.Json(invite);
             }
             long limit = JsonValue.GetLong(clan, "member_limit", 0);
@@ -192,7 +192,7 @@ namespace McvsOffline.Server.Services.Clans
                 return HttpResponse.Error(HttpStatus.Conflict, "the clan is full");
             // Joining is immediate (200): with nobody to approve, a 202 "waiting for approval" would never resolve.
             clan = clans.AddMember(request.RouteValue("id"), accountId);
-            return clan == null ? NoClan(request) : HttpResponse.Json(clans.Render(clan));
+            return clan == null ? NoClan(request) : HttpResponse.Json(clans.Render(clan, request));
         }
 
         private static HttpResponse RemoveMember(ServerContext context, ClanStore clans, Log log, HttpRequest request)
@@ -201,7 +201,7 @@ namespace McvsOffline.Server.Services.Clans
             string accountId = Fed.ResolveAccountId(context, caller, request.RouteValue("credential"));
             if (accountId == null) return Fed.NotFound("unknown credential '" + request.RouteValue("credential") + "'");
             Dictionary<string, object> clan = clans.RemoveMember(request.RouteValue("id"), accountId);
-            return clan == null ? NoClan(request) : HttpResponse.Json(clans.Render(clan));
+            return clan == null ? NoClan(request) : HttpResponse.Json(clans.Render(clan, request));
         }
 
         private static HttpResponse MemberFields(ServerContext context, ClanStore clans, Log log, HttpRequest request)

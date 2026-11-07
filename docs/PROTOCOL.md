@@ -78,10 +78,10 @@ keys, with defaults and meaning in each protocol note:
 |---|---|
 | pandora / auth | `pandora.urls.<service>`, `auth.requireSuperPassword`, `auth.transferCodeHours` |
 | storage | `storage.backups.keep`, `storage.backups.intervalMinutes`, `storage.autoRestoreCorrupt`, `storage.absentField`, `storage.cache` |
-| crm | `crm.usePreconfiguration`, `crm.dataPackDir`, `crm.overlay`, `crm.offlineStore`, `crm.iap`, `crm.iapLanguage`, `crm.matchmaking`, `crm.redeemCoupons`, `crm.skipAgeGate`, `crm.developerIpRange`, `crm.keepAdPointcuts`, `crm.dailyCapMultiplier`, `crm.documentWaitMs`, `crm.selectorWaitMs`, `crm.omitOwnedSignatures` |
+| crm | `crm.usePreconfiguration`, `crm.dataPackDir`, `crm.overlay`, `crm.offlineStore`, `crm.iap`, `crm.iapLanguage`, `crm.matchmaking`, `crm.redeemCoupons`, `crm.skipAgeGate`, `crm.developerIpRange`, `crm.keepAdPointcuts`, `crm.dailyCapMultiplier`, `crm.documentWaitMs`, `crm.selectorWaitMs`, `crm.omitOwnedSignatures`, `crm.botNames` |
 | matchmaker | `matchmaker.passDataCenter`, `matchmaker.tsArgs`, `matchmaker.gsArgs`, `matchmaker.tsRoomCapacity`, `matchmaker.gsRoomCapacity` |
 | assets | `assets.couponsEnabled`, `assets.coupons` |
 | misc | `alerts.streamSeconds`, `alerts.keepAliveSeconds`, `alerts.replaySeconds`, `chat.streamSeconds`, `chat.keepAliveSeconds`, `chat.historySize`, `messaging.maxMessagesPerMailbox`, `leaderboards.groupSize`, `leaderboards.virtualPlayers`, `leaderboards.virtualTopScore`, `wall.maxPostsPerWall`, `geo.country`, `tracking.disable` |
 | unlocks | `unlocks.batchSize`, `unlocks.batchDelaySeconds`, `unlocks.startDelaySeconds`, `unlocks.streamWaitSeconds` |
-| admin (settings page) | `admin.enabled`, `admin.redeemCode`, `admin.openVia`, `admin.restartVia`, `crm.newsfeedLink`, `security.hostCheck` ([design/settings-page.md](design/settings-page.md) §3) |
+| admin (settings page) | `admin.enabled`, `admin.redeemCode`, `admin.openVia`, `admin.restartVia`, `admin.accountMenu.hideDeadButtons`, `crm.newsfeedLink`, `security.hostCheck` ([design/settings-page.md](design/settings-page.md) §3) |
 | embedded host | `embedded.manageArgs`, `embedded.lanAdvertiseHost` ([PLAYER-SETUP.md](PLAYER-SETUP.md)) |

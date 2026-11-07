@@ -1,0 +1,211 @@
+{
+  "_comment": [
+    "MCVS Offline gamer tags: the names of the generated leaderboard rivals and of the in-match bots (docs/LIVEOPS.md section",
+    "5.1 'Rival names and emblems'). Since build 29 every name comes first from the curated list (curatedFile, one name per",
+    "line: puns, memes, other games' characters, brands, streamer handles, clan tags, words of many languages, written by us",
+    "after reading what players really pick; the sources are listed in its header). The server picks from it by a hash of the",
+    "rival's or bot slot's id; the word lists and styles below only make the names a board needs once the curated list is used",
+    "up (a board of more than about 2,000 players). tools/content-gen/content_gen.py build_names checks every curated name",
+    "(the characters the client shows and takes, 2..16 characters, the blocklist, no two that read alike or one letter apart), every part",
+    "(charset, length, blocklist, no duplicates), every two-part combination of every style, and writes",
+    "server/Content/names.json with the rivals' emblem and background pools (ids only, from Design/MCVS_Meta.xlsx).",
+    "Brands, other games' and films' characters, streamers and pro players are allowed (the owner's rule since build 29).",
+    "Never: slurs, hate terms and symbols, anything sexual, real tragedies, politics, religion, drugs, real private people.",
+    "A word goes in adj or in noun, never both (nounNoun makes ShadowWolf)."
+  ],
+  "_curatedFile": "the curated names, next to this file (UTF-8, one name per line, lines starting with # are comments)",
+  "curatedFile": "names_curated.txt",
+  "_minCurated": "build_names fails when the curated list has fewer names than this",
+  "minCurated": 1500,
+  "_curatedNear": [
+    "pairs of curated names allowed although their skeletons (both of 5 letters or more) are one letter apart: two different",
+    "jokes, never the same joke written twice (Sheesh / Sheeesh, Scooby Snack / Scooby Snacks). build_names refuses any",
+    "other such pair (they could share a board or a bot window and look like one name copied) and a pair here that is not one."
+  ],
+  "curatedNear": [["Master Chief", "Master Chef"], ["Rip and Tear", "Rip and Tea"], ["TrYhArD", "Fry Hard"],
+                  ["MrBeast", "Mr Feast"], ["Rayman", "DayMan"]],
+  "version": 2,
+  "_limits": "the game's own rename popup takes 16 characters (popups/PopupChangeName.as maxChars) and needs 2 (PlayerProfileComponent MinimalPlayerNameLength); the default name agent-<9 digits> has 15",
+  "limits": {"min": 3, "max": 16},
+  "_years": "the {year} token",
+  "years": [1990, 2012],
+  "_minCombinations": "build_names fails when the styles give fewer distinct names than this (word parts only, digits not counted)",
+  "minCombinations": 50000,
+  "_defaultShare": "per cent of rivals that keep the starting emblem and background (StartingKillSignature Avatar=1, Background=1), as an uncustomised player does",
+  "defaultShare": 8,
+  "_roughNouns": [
+    "parts.mascot is the only word list a style may put next to a country code ({country}): animals, sky and landscape words.",
+    "A criminal, a fighter, a weapon or a disaster next to a country reads as a national stereotype (Bandit_MX, Pirate_ID,",
+    "Tsunami_JP); build_names refuses these words in parts.mascot and refuses {country} with any list but mascot and foreign."
+  ],
+  "roughNouns": [
+    "Bandit", "Outlaw", "Pirate", "Raider", "Coyote", "Jackal", "Hyena", "Rogue", "Drifter", "Nomad", "Reaper", "Ghost",
+    "Specter", "Spectre", "Phantom", "Wraith", "Sniper", "Hunter", "Scout", "Striker", "Ranger", "Ronin", "Samurai",
+    "Shogun", "Knight", "Paladin", "Viking", "Spartan", "Warden", "Sentinel", "Guardian", "Jester", "Baron", "Titan",
+    "Warrior", "Soldier", "Commando", "Gunner", "Medic", "Pilot", "Runner", "Racer", "Wanderer", "Rebel", "Marshal",
+    "Sheriff", "Cowboy", "Legend", "Tank", "Blade", "Dagger", "Saber", "Katana", "Arrow", "Bullet", "Trigger", "Hammer",
+    "Spear", "Lance", "Rifle", "Mortar", "Bolt", "Talon", "Fang", "Claw", "Spike", "Cyclone", "Tornado", "Typhoon",
+    "Tsunami", "Inferno", "Volcano", "Blaze", "Smoke", "Plasma", "Laser"
+  ],
+  "parts": {
+    "adj": [
+      "Silent", "Swift", "Dark", "Grim", "Iron", "Steel", "Frozen", "Burning", "Rapid", "Lethal", "Savage",
+      "Crimson", "Scarlet", "Cobalt", "Golden", "Silver", "Onyx", "Jade", "Amber", "Ivory", "Neon", "Toxic", "Atomic",
+      "Cyber", "Hyper", "Ultra", "Turbo", "Nitro", "Static", "Primal", "Feral", "Wild", "Brave", "Bold", "Lucky",
+      "Sneaky", "Crazy", "Lazy", "Salty", "Spicy", "Chill", "Cold", "Frosty", "Stormy", "Mystic", "Cosmic", "Lunar",
+      "Solar", "Stellar", "Astral", "Hollow", "Broken", "Lost", "Lone", "Last", "Final", "Prime", "Alpha", "Omega",
+      "Sigma", "Elite", "Royal", "Noble", "Ancient", "Eternal", "Hidden", "Masked", "Quick", "Sharp", "Heavy", "Tiny",
+      "Little", "Mighty", "Fatal", "Deadly", "Vicious", "Furious", "Angry", "Happy", "Sleepy", "Hungry", "Rusty",
+      "Dusty", "Misty", "Smoky", "Blazing", "Electric", "Magnetic", "Quantum", "Digital", "Retro", "Tactical",
+      "Stealth", "Covert", "Red", "Blue", "Grey", "Green", "Purple", "Violet", "Arctic", "Polar", "Shady",
+      "Wicked", "Clever", "Humble", "Mad", "Odd", "Calm", "Fierce", "Glacial", "Radiant", "Spectral",
+      "Night", "Storm", "Fire"
+    ],
+    "noun": [
+      "Wolf", "Fox", "Hawk", "Falcon", "Eagle", "Raven", "Crow", "Owl", "Viper", "Cobra", "Python", "Mamba", "Adder",
+      "Lynx", "Panther", "Tiger", "Lion", "Leopard", "Cheetah", "Bear", "Grizzly", "Badger", "Jackal", "Hyena",
+      "Coyote", "Dingo", "Bison", "Rhino", "Shark", "Orca", "Kraken", "Piranha", "Scorpion", "Hornet", "Wasp",
+      "Mantis", "Raptor", "Otter", "Moose", "Stag", "Bull", "Boar", "Gecko", "Iguana", "Gator", "Dragon", "Wyvern",
+      "Gryphon", "Phoenix", "Golem", "Yeti", "Kitsune", "Ghost", "Specter", "Phantom", "Wraith", "Reaper", "Sniper",
+      "Ranger", "Hunter", "Scout", "Striker", "Raider", "Ronin", "Samurai", "Knight", "Paladin", "Viking", "Spartan",
+      "Warden", "Sentinel", "Guardian", "Nomad", "Drifter", "Outlaw", "Bandit", "Pirate", "Rogue", "Jester", "Rook",
+      "Baron", "Titan", "Atlas", "Goliath", "Cyclone", "Tornado", "Typhoon", "Tsunami", "Thunder", "Frost", "Blaze",
+      "Inferno", "Ember", "Cinder", "Smoke", "Mist", "Shade", "Shadow", "Eclipse", "Comet", "Meteor", "Nova", "Nebula",
+      "Quasar", "Pulsar", "Orbit", "Rocket", "Vector", "Cipher", "Pixel", "Glitch", "Byte", "Vertex", "Vortex", "Volt",
+      "Ion", "Plasma", "Laser", "Photon", "Neutron", "Zenith", "Echo", "Delta", "Bravo", "Tango", "Kilo", "Blade",
+      "Dagger", "Saber", "Katana", "Arrow", "Bullet", "Trigger", "Hammer", "Anvil", "Spear", "Lance", "Shield",
+      "Talon", "Fang", "Claw", "Spike", "Bolt", "Rifle", "Mortar", "Pilot", "Runner", "Racer", "Wanderer", "Rebel",
+      "Legend", "Shogun", "Warrior", "Soldier", "Commando", "Medic", "Gunner", "Tank", "Marshal", "Sheriff", "Cowboy",
+      "Wren", "Finch", "Heron", "Osprey", "Kestrel", "Condor", "Vulture", "Pelican", "Penguin", "Puffin", "Magpie",
+      "Panda", "Koala", "Lemur", "Sloth", "Llama", "Walrus", "Narwhal", "Squid", "Octopus", "Beetle", "Cricket",
+      "Lizard", "Komodo", "Turtle", "Lobster", "Crab", "Glacier", "Canyon", "Summit", "Volcano", "Reef", "Spectre",
+      "Cobweb", "Lantern", "Compass", "Anchor", "Beacon", "Rampart", "Bastion", "Citadel", "Outpost"
+    ],
+    "handle": [
+      "Kryptik", "Nocturne", "Frostbyte", "Shadowstep", "Wildfire", "Thunderclap", "Ironclad", "Blackout", "Overdrive",
+      "Afterburn", "Backfire", "Bulletproof", "Deadeye", "Headhunter", "Hailstorm", "Nightfall", "Sandstorm",
+      "Snowblind", "Starfall", "Sunburn", "Undertow", "Silverback", "Copperhead", "Razorback", "Blackthorn",
+      "Frostfang", "Ironside", "Steelrain", "Ashfall", "Cloudburst", "Dreadnought", "Nightowl", "Riptide", "Lagswitch",
+      "Noscope", "Quickscope", "Headshot", "Clutch", "Flanker", "Fragger", "Pwnage", "Rekt", "Tryhard", "Camper",
+      "Spawnkill", "Oneshot", "Wallbang", "Airstrike", "Ricochet", "Killstreak", "Payload", "Overtime", "Sidestep",
+      "Nightshift", "Skydive", "Zipline", "Firewall", "Mainframe", "Bytecode", "Overclock", "Gridlock", "Warpath",
+      "Stormchaser", "Wolfpack", "Ironwill", "Lowkey", "Highground", "Outrider", "Lockdown", "Checkmate", "Stalemate",
+      "Lastlight", "Coldfront", "Heatwave", "Sunspot", "Smokescreen", "Blindside", "Turncoat", "Wildcard", "Longshot",
+      "Moonlight", "Darkstar", "Northwind", "Westwind", "Driftwood"
+    ],
+    "short": [
+      "Vex", "Rift", "Nyx", "Hex", "Zap", "Rex", "Grim", "Bolt", "Flux", "Dex", "Ryn", "Tox", "Vyx", "Pyx", "Onyx",
+      "Echo", "Nova", "Zinc", "Volt", "Kilo", "Mako", "Noxx", "Rook", "Wisp", "Pike", "Lynx", "Fang", "Gale", "Haze",
+      "Kite", "Mist", "Rune", "Sage", "Tusk", "Vale", "Wren", "Zest", "Jolt", "Kuro", "Taka", "Kaze", "Orb", "Ion",
+      "Arc", "Ark", "Brix", "Crux", "Glyph", "Hask", "Jynk", "Krux", "Lyx", "Morx", "Nax", "Riv", "Ulk", "Vos", "Wyx",
+      "Xyl", "Zyx", "Zook", "Blip", "Byte", "Dusk", "Fuse", "Grit", "Husk", "Ink"
+    ],
+    "foreign": [
+      "Halcon", "Aguila", "Rayo", "Fuego", "Tormenta", "Noche", "Fantasma", "Tigre", "Oso", "Toro", "Acero", "Hielo",
+      "Nieve", "Trueno", "Viento", "Lince", "Raposa", "Trovao", "Gaviao", "Onca", "Coruja", "Ferro", "Volpe", "Orso",
+      "Fulmine", "Tempesta", "Ombra", "Aquila", "Notte", "Vento", "Loup", "Renard", "Faucon", "Orage", "Ombre",
+      "Fantome", "Corbeau", "Tonnerre", "Eclair", "Brume", "Givre", "Acier", "Fuchs", "Adler", "Sturm", "Blitz",
+      "Nebel", "Eisen", "Donner", "Schatten", "Rabe", "Luchs", "Geist", "Wilk", "Orzel", "Sokol", "Burza", "Grom",
+      "Kruk", "Kartal", "Simsek", "Gece", "Bora", "Susi", "Kettu", "Sisu", "Myrsky", "Kotka", "Ulv", "Ravn", "Isbjorn",
+      "Falk", "Ugle", "Torden", "Kaze", "Kuro", "Kitsune", "Tenshi", "Yami", "Kage", "Kumo", "Taka", "Kuma", "Hoshi",
+      "Tsuki", "Kaminari", "Horangi", "Byeol", "Baram", "Harimau", "Elang", "Petir", "Agila", "Kidlat", "Bagyo",
+      "Chui", "Burya", "Zima", "Baagh", "Toofan", "Bijli", "Sher", "Saqr", "Barq"
+    ],
+    "prefix": ["Mr", "Sir", "Lil", "Big", "Its", "iAm", "Not", "Just", "Agent", "Sgt", "Cpt", "Kid", "Old", "Pro", "Ez"],
+    "suffix": [
+      "GG", "Pro", "Prime", "Main", "Ace", "One", "X", "Z", "Jr", "EZ", "OP", "Zero", "Lol", "Six", "Two"
+    ],
+    "mascot": [
+      "Wolf", "Fox", "Hawk", "Falcon", "Eagle", "Raven", "Owl", "Lynx", "Tiger", "Lion", "Leopard", "Cheetah", "Bear",
+      "Badger", "Otter", "Moose", "Stag", "Bison", "Orca", "Shark", "Dragon", "Phoenix", "Gryphon", "Wyvern", "Yeti",
+      "Penguin", "Puffin", "Panda", "Koala", "Lemur", "Walrus", "Narwhal", "Turtle", "Gecko", "Heron", "Osprey", "Kestrel",
+      "Condor", "Wren", "Finch", "Magpie", "Comet", "Meteor", "Nova", "Nebula", "Quasar", "Pulsar", "Orbit", "Zenith",
+      "Eclipse", "Thunder", "Frost", "Ember", "Glacier", "Summit", "Canyon", "Reef", "Pixel", "Vector", "Echo", "Volt",
+      "Photon", "Lantern", "Compass", "Beacon"
+    ],
+    "country": [
+      "FR", "DE", "ES", "IT", "PT", "BR", "MX", "AR", "CL", "CO", "PE", "NL", "BE", "SE", "NO", "FI", "DK", "PL", "CZ",
+      "GR", "RO", "HU", "TR", "JP", "KR", "PH", "ID", "VN", "TH", "MY", "IN", "UK", "US", "CA", "AU", "NZ", "ZA", "NG",
+      "MA"
+    ]
+  },
+  "_styles": [
+    "pattern: literal text and {tokens}: the part lists above, d2 (00-99), d3 (100-999), d4 (1000-9999), year, alias (9 digits).",
+    "case: asis (the parts as written), lower, upper, camel (first letter lower). leet: 1-3 letters of the word parts (never a",
+    "country code) become digits (a4 e3 i1 o0 s5 t7).",
+    "weight: how often the style is drawn. A name the limits or the blocklist refuse is drawn again (the next attempt)."
+  ],
+  "styles": [
+    {"id": "adjNoun", "pattern": "{adj}{noun}", "weight": 16},
+    {"id": "adj_noun", "pattern": "{adj}_{noun}", "case": "lower", "weight": 6},
+    {"id": "adjNounCamel", "pattern": "{adj}{noun}", "case": "camel", "weight": 3},
+    {"id": "nounNoun", "pattern": "{noun}{noun}", "weight": 5},
+    {"id": "noun_d2", "pattern": "{noun}{d2}", "weight": 1},
+    {"id": "noun_d3", "pattern": "{noun}{d3}", "weight": 1},
+    {"id": "noun_d4", "pattern": "{noun}{d4}", "weight": 1},
+    {"id": "noun_year", "pattern": "{noun}{year}", "weight": 1},
+    {"id": "leetAdjNoun", "pattern": "{adj}{noun}", "leet": true, "weight": 2},
+    {"id": "handle", "pattern": "{handle}", "case": "lower", "weight": 1},
+    {"id": "Handle", "pattern": "{handle}", "weight": 1},
+    {"id": "handle_d2", "pattern": "{handle}{d2}", "weight": 1},
+    {"id": "handle__d3", "pattern": "{handle}_{d3}", "case": "lower", "weight": 1},
+    {"id": "SHORT_d2", "pattern": "{short}{d2}", "case": "upper", "weight": 1},
+    {"id": "shortNoun", "pattern": "{short}{noun}", "weight": 3},
+    {"id": "theNoun", "pattern": "The{noun}", "weight": 1},
+    {"id": "theAdjNoun", "pattern": "The{adj}{noun}", "weight": 2},
+    {"id": "prefixNoun", "pattern": "{prefix}{noun}", "weight": 3},
+    {"id": "nounSuffix", "pattern": "{noun}{suffix}", "weight": 3},
+    {"id": "mascot_country", "pattern": "{mascot}_{country}", "weight": 3},
+    {"id": "leetMascot_country", "pattern": "{mascot}_{country}", "leet": true, "weight": 1},
+    {"id": "foreign", "pattern": "{foreign}{d2}", "weight": 1},
+    {"id": "foreign_d3", "pattern": "{foreign}_{d3}", "case": "lower", "weight": 1},
+    {"id": "adjForeign", "pattern": "{adj}{foreign}", "weight": 2},
+    {"id": "foreignSuffix", "pattern": "{foreign}{suffix}", "weight": 1},
+    {"id": "foreign_country", "pattern": "{foreign}_{country}", "weight": 1},
+    {"id": "adj.noun", "pattern": "{adj}.{noun}", "case": "lower", "weight": 1},
+    {"id": "default", "pattern": "agent-{alias}", "weight": 2}
+  ],
+  "_blocklist": [
+    "Checked on every name the server makes, on every curated name and on every two-part combination by content-gen. A name",
+    "is normalised first: lower case, without _ . - (a curated name: without anything but letters and digits, accents",
+    "dropped), digits read as letters (0 o, 1 i or l, 3 e, 4 a, 5 s, 7 t, $ s, @ a).",
+    "substrings: refused anywhere in the normalised name (so only words that no harmless part contains).",
+    "words: refused as a whole part, as the whole name, or spanning the join of two parts (short words that harmless words",
+    "contain); in a curated name, as one of its words (split at spaces, signs and lower-to-upper case changes).",
+    "digits: refused inside any run of digits. digitRuns: refused as a whole run of digits.",
+    "Since build 29 brands, characters, streamers and celebrities are no longer listed (the owner allows them); slurs,",
+    "profanity, sexual words, hate terms, numbers and symbols, extremist groups, politicians and politics, religion, drugs",
+    "and real tragedies stay."
+  ],
+  "blocklist": {
+    "substrings": [
+      "fuck", "fuk", "fck", "shit", "bitch", "bastard", "whore", "slut", "cunt", "twat", "wank", "pussy", "penis",
+      "vagina", "dildo", "jizz", "semen", "orgasm", "boob", "tits", "titty", "nipple", "porn", "horny", "milf", "nude",
+      "naked", "sexy", "hentai", "rapist", "molest", "incest", "pedophil", "paedo", "faggot", "nigger", "nigga",
+      "negro", "retard", "tranny", "dyke", "spastic", "cripple", "midget", "chink", "gook", "kike", "wetback", "beaner",
+      "raghead", "towelhead", "gypsy", "piss", "poop", "turd", "anus", "butthole", "suicide", "kys", "killyourself",
+      "terrorist", "jihad", "daesh", "taliban", "alqaeda", "hamas", "hezbollah", "intifada", "nazi", "hitler",
+      "himmler", "goebbels", "mengele", "rommel", "reich", "fuhrer", "fuehrer", "heil", "swastika", "aryan",
+      "whitepower", "whitepride", "whitelives", "blacklives", "kkk", "klan", "stormfront", "waffen", "totenkopf",
+      "thule", "wolfsangel", "sonnenrad", "valknut", "ironcross", "ironguard", "ironmarch", "blacksun", "goldendawn",
+      "silverlegion", "greywolf", "graywolf", "proudboy", "boogaloo", "oathkeeper", "eaglesnest", "azov", "wagner",
+      "falange", "ustasha", "chetnik", "zion", "maga", "antifa", "trump", "biden", "obama", "putin", "stalin", "lenin",
+      "maozedong", "zelensk", "netanyahu", "xijinping", "kimjong", "erdogan", "clinton", "kamala", "brexit", "ukrain",
+      "russia", "israel", "palestin", "gaza", "taiwan", "tibet", "kashmir", "crimea", "communis", "fascis", "socialis",
+      "commie", "elonmusk", "bezos", "zuckerberg", "kanye", "jesus", "christ", "allah", "satan", "lucifer", "buddha",
+      "krishna", "muhammad", "mohammed", "bible", "quran", "church", "mosque", "cocaine", "heroin", "meth", "weed",
+      "stoner", "xanax", "kush", "redskull", "agentorange", "redrocket", "onlyfans", "puta", "merda", "cazzo",
+      "scheiss", "kurwa", "blyat", "blyad", "pendejo", "joder", "putain", "merde", "salope", "fotze", "arschloch",
+      "caralho", "chinga", "verga", "pinche", "cabron", "stronzo", "vaffanculo", "wichser", "pizda", "jebac", "orospu",
+      "siktir", "vittu", "helvete", "kanker"
+    ],
+    "words": [
+      "ass", "arse", "tit", "cum", "fag", "gay", "sex", "hoe", "cock", "dick", "rape", "anal", "pedo", "tard", "coon",
+      "jap", "spic", "nig", "homo", "fap", "god", "drug", "dope", "coke", "lsd", "jew", "varg", "volk", "kurt", "asad",
+      "suka", "culo", "figa", "hure", "kut", "lul", "sik", "amk", "faen", "chuj", "porra", "paska", "kuso", "tora",
+      "torah", "isis", "opium", "kuy", "khuy"
+    ],
+    "digits": ["88", "666", "420", "69", "187", "1312", "911", "1488", "2488"],
+    "digitRuns": ["14", "311"]
+  }
+}

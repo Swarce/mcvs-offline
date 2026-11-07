@@ -1,9 +1,9 @@
 // Host: embedded - owner group: EMBED (hosts/embedded, patcher/)
 // The table and the capability rules are platform-independent (compiled into the net8 tests: JniTableTests checks the table
-// against android.jar and the APK's dex); resolving and calling are Android only (MCVS_EMBEDDED).
+// against android.jar and the APK's dex); resolving and calling are Android only (MCVS_ANDROID).
 using System;
 using System.Collections.Generic;
-#if MCVS_EMBEDDED
+#if MCVS_ANDROID
 using System.Threading;
 using Android.Runtime;
 #endif
@@ -46,7 +46,7 @@ namespace McvsOffline.Embedded.Android
             get { return Class + "." + Name + (IsField ? ":" : "") + Descriptor; }
         }
 
-#if MCVS_EMBEDDED
+#if MCVS_ANDROID
         /// <summary>jmethodID / jfieldID once resolved (valid while the class's global reference is held).</summary>
         internal IntPtr Id;
 
@@ -266,7 +266,7 @@ namespace McvsOffline.Embedded.Android
             return new JniMember(cls, name, descriptor, false, isField, Tiramisu, Notify);
         }
 
-#if MCVS_EMBEDDED
+#if MCVS_ANDROID
         private static readonly object gate = new object();
         private static readonly Dictionary<string, IntPtr> classes = new Dictionary<string, IntPtr>(StringComparer.Ordinal);
         private static volatile List<string> missing;   // set last by Resolve: ids are complete once it is non-null
@@ -525,5 +525,34 @@ namespace McvsOffline.Embedded.Android
             }
         }
 #endif
+    }
+
+    /// <summary>
+    /// Android's capability rules for the settings page (moved unchanged from AdminHost.Describe, docs/design/pc-port.md §3.3):
+    /// each capability needs its JNI groups resolved (<see cref="AndroidJni.Available"/>) on this SDK level. Platform-neutral and
+    /// unguarded, so the net8 tests run it.
+    /// </summary>
+    public static class AndroidCapabilities
+    {
+        public static AdminPlatformCapabilities From(int sdk, List<string> missingJni)
+        {
+            List<string> missing = missingJni ?? new List<string>();
+            return new AdminPlatformCapabilities
+            {
+                OpenPage = AndroidJni.Available(sdk, missing, AndroidJni.Common, AndroidJni.Browser),
+                ShareFile = sdk >= 21 && AndroidJni.Available(sdk, missing, AndroidJni.ShareFileUses(sdk)),
+                SaveToDownloads = sdk >= 29 && AndroidJni.Available(sdk, missing, AndroidJni.Common, AndroidJni.Downloads),
+                ShareText = AndroidJni.Available(sdk, missing, AndroidJni.Common, AndroidJni.ShareTextUse),
+                Copy = AndroidJni.Available(sdk, missing, AndroidJni.Common, AndroidJni.Clipboard),
+                Toast = AndroidJni.Available(sdk, missing, AndroidJni.Toast),
+                ExitViaGame = AndroidJni.Available(sdk, missing, AndroidJni.Browser, AndroidJni.ExitGame),
+                ExitViaHost = AndroidJni.Available(sdk, missing, AndroidJni.Common, AndroidJni.ExitHost),
+                // From Android 13 AlarmManager is expected to start no activity for an alarm, whatever the target
+                // (target-sdk.md §4.6), but no device has shown it yet (STATUS device-test item 9; device test 8 passed
+                // checks 1-13 only as a whole). The page says the game may close without coming back, not that it will.
+                RelaunchUnconfirmed = sdk >= 33,
+                OpenInBrowser = false,
+            };
+        }
     }
 }

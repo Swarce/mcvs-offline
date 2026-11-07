@@ -43,6 +43,7 @@ namespace McvsOffline
             return FixtureCompiler.Compile("McvsOffline.Server",
                 bootstrap,
                 FixtureCompiler.RepoSource("hosts", "embedded", "LanSupport.cs"),
+                FixtureCompiler.RepoSource("hosts", "embedded", "PortHooks.cs"),
                 FixtureCompiler.RepoSource("server", "Core", "Num.cs"));
         }
 
@@ -54,42 +55,6 @@ namespace Gameloft.Util
         public string GeolocalizationFile => ""Config/EdgeList.txt"";
         public string GeolocalizationUrl => ""http://ip.ecomapis.gameloft.org/location/?ip="";
         public string EdgeListUrl => ""https://it.gameloft.org/dump/dump.edgelist"";
-    }
-}";
-
-        public const string Game = @"
-using System;
-using System.Threading;
-using System.Threading.Tasks;
-namespace Gameloft.Engine
-{
-    public class Component
-    {
-        public CancellationToken CancellationToken => CancellationToken.None;
-    }
-}
-namespace Game
-{
-    public class GameClientComponent : Gameloft.Engine.Component
-    {
-        public enum MatchConnectionType { Undefined, OnlineAndTutorial, OfflineMatchWithBots }
-        public MatchConnectionType Requested;
-        private void RunTask(Func<CancellationToken, Task> task, CancellationToken ct) { task(ct).Wait(); }
-        private void NativeStartMatchWithBots()
-        {
-            RunTask((CancellationToken ct) => StartAutoMatchAsync(base.CancellationToken, MatchConnectionType.OfflineMatchWithBots), base.CancellationToken);
-        }
-        private void StartAutoMatchSameAsPlayerLevel()
-        {
-            RunTask((CancellationToken ct) => StartAutoMatchAsync(base.CancellationToken, MatchConnectionType.OfflineMatchWithBots), base.CancellationToken);
-        }
-        private Task StartAutoMatchAsync(CancellationToken ct, MatchConnectionType matchConnection)
-        {
-            Requested = matchConnection;
-            return Task.CompletedTask;
-        }
-        public string BotTile() { NativeStartMatchWithBots(); return Requested.ToString(); }
-        public string SameLevel() { StartAutoMatchSameAsPlayerLevel(); return Requested.ToString(); }
     }
 }";
 

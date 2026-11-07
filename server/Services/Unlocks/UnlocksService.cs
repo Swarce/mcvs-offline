@@ -1,7 +1,7 @@
 // Module: Unlocks - owner: core (lead). Glue between STORAGE (inventory ledger), CONTENT (unlocks.json groups) and
-// MISC (set_profile alerts) for settings.unlockAll.
+// MISC (set_profile alerts) for settings.unlockAll and the unlock codes (AssetsService queues a redeemed UNLOCK* code here).
 // Protocol: verify-C5 (c) and "Recommended design"; docs/protocol/unlocks.md
-//   GET  _mcvs/unlocks                  diagnostics: enabled, key count, per-account state (loopback only)
+//   GET  _mcvs/unlocks                  diagnostics: enabled, key count, per-account state, unlock codes (loopback only)
 //   POST _mcvs/unlocks/grant?account=   queue a grant now for an account id or fed_id (loopback only, needs unlockAll)
 // Conventions and core APIs: docs/MODULES.md.
 
@@ -15,7 +15,7 @@ using McvsOffline.Server.Services.Storage;
 
 namespace McvsOffline.Server.Services.Unlocks
 {
-    /// <summary>settings.unlockAll through the IAP inventory ledger; see <see cref="UnlockGranter"/>.</summary>
+    /// <summary>settings.unlockAll and the unlock codes through the IAP inventory ledger; see <see cref="UnlockGranter"/>.</summary>
     public static class UnlocksService
     {
         /// <summary>Registers this module. Called by <see cref="ServiceRegistry"/> after storage, assets and alerts.</summary>
@@ -35,6 +35,8 @@ namespace McvsOffline.Server.Services.Unlocks
                 body["enabled"] = granter.Enabled;
                 body["keys"] = (long)granter.AllKeys().Count;
                 body["accounts"] = granter.Status();
+                body["codes"] = granter.CodeStatus();     // this run: {account: {code: state}}
+                body["pendingCodes"] = granter.PendingCodes(); // not granted completely yet (survive a restart)
                 return HttpResponse.Json(body);
             });
 

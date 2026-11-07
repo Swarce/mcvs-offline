@@ -38,11 +38,12 @@ namespace McvsOffline.Server.Services.Pandora
 
         /// <summary>
         /// Service names only the native Gaia layer knows (libnativeengine.so strings next to "pandora"/"eveConfig");
-        /// it may locate them through pandora. Answered like the others.
+        /// it may locate them through pandora. Answered like the others. <c>online_connectivity</c> is the native
+        /// connectivity tracker's (Misc <c>ConnectivityTracker</c>; located by the PC client in every session).
         /// </summary>
         public static readonly string[] NativeServices =
         {
-            "feeds", "lottery", "voice", "schedule", "globalidservice", "transaction",
+            "feeds", "lottery", "voice", "schedule", "globalidservice", "transaction", "online_connectivity",
         };
 
         /// <summary>Every service name we know, in a stable order (fed, eve, native).</summary>

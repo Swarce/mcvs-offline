@@ -112,14 +112,14 @@ namespace McvsOffline.PcSpike
 
         private readonly string folder;
         private readonly TimeSpan interval;
-        private readonly SpikeLog log;
+        private readonly IToolLog log;
         private readonly object noteGate = new object();
         private readonly CancellationTokenSource stop = new CancellationTokenSource();
         private readonly HashSet<string> socketLines = new HashSet<string>(StringComparer.Ordinal);
         private Thread thread;
         private string pendingNote;
 
-        public TelemetrySampler(string dataDir, TimeSpan interval, SpikeLog log)
+        public TelemetrySampler(string dataDir, TimeSpan interval, IToolLog log)
         {
             folder = Path.Combine(dataDir, FolderName);
             this.interval = interval;

@@ -3,63 +3,75 @@
   "codes": {
     "UNLOCKALL": {
       "groups": ["mercs","weapons","gearSlots","signatures","camos","accessories","skins"],
-      "description": "Full unlock in one inbox message (about 11k rewards, claimed in this order)",
-      "allowNumericSuffix": true
+      "description": "Full unlock (about 11k items, granted in this order)",
+      "allowNumericSuffix": true,
+      "delivery": "ledger"
     },
     "UNLOCKMERCS": {
       "groups": ["mercs"],
       "description": "Every merc and every mod",
-      "allowNumericSuffix": true
+      "allowNumericSuffix": true,
+      "delivery": "ledger"
     },
     "UNLOCKWEAPONS": {
       "groups": ["mercs","weapons"],
       "description": "Every merc, then all weapons",
-      "allowNumericSuffix": true
+      "allowNumericSuffix": true,
+      "delivery": "ledger"
     },
     "UNLOCKGEARSLOTS": {
       "groups": ["mercs","gearSlots"],
       "description": "Every merc, then all gearSlots",
-      "allowNumericSuffix": true
+      "allowNumericSuffix": true,
+      "delivery": "ledger"
     },
     "UNLOCKSIGNATURES": {
       "groups": ["signatures"],
       "description": "Every kill-signature avatar, background and sound",
-      "allowNumericSuffix": true
+      "allowNumericSuffix": true,
+      "delivery": "ledger"
     },
     "UNLOCKCAMOS": {
       "groups": ["mercs","camos"],
       "description": "Every merc, then all camos",
-      "allowNumericSuffix": true
+      "allowNumericSuffix": true,
+      "delivery": "ledger"
     },
     "UNLOCKACCESSORIES": {
       "groups": ["mercs","accessories"],
       "description": "Every merc, then all accessories",
-      "allowNumericSuffix": true
+      "allowNumericSuffix": true,
+      "delivery": "ledger"
     },
     "UNLOCKSKINS": {
       "groups": ["mercs","skins"],
       "description": "Every merc, then all skins",
-      "allowNumericSuffix": true
+      "allowNumericSuffix": true,
+      "delivery": "ledger"
     },
     "UNLOCKPAID": {
       "groups": ["mercUnlocks","paidCamos","paidAccessories"],
       "description": "Every item whose only source in the original game was real money (VIP pool camos and jerseys, IAP-only items)",
-      "allowNumericSuffix": true
+      "allowNumericSuffix": true,
+      "delivery": "ledger"
     },
     "UNLOCKPAIDCAMOS": {
       "groups": ["mercUnlocks","paidCamos"],
       "description": "UNLOCKPAID, camos only",
-      "allowNumericSuffix": true
+      "allowNumericSuffix": true,
+      "delivery": "ledger"
     },
     "UNLOCKPAIDACCESSORIES": {
       "groups": ["mercUnlocks","paidAccessories"],
       "description": "UNLOCKPAID, jerseys only",
-      "allowNumericSuffix": true
+      "allowNumericSuffix": true,
+      "delivery": "ledger"
     },
     "UNLOCKUNRELEASED": {
       "groups": ["unreleased"],
       "description": "Items defined in the data but never released (opt-in; not in UNLOCKALL or the shop)",
-      "allowNumericSuffix": true
+      "allowNumericSuffix": true,
+      "delivery": "ledger"
     }
   }
 }

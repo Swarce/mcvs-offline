@@ -133,15 +133,67 @@ namespace McvsOffline.Embed.Tests.Patcher
         [Fact]
         public void GeoPointsTheUrlAtTheEmbeddedServer()
         {
-            byte[] patched = Patch(FixtureCompiler.Compile("Gameloft.Util", Fixtures.GameloftUtil), new GeoPatch(), port: 52001);
+            byte[] server = Fixtures.Server();
+            byte[] patched = Patch(FixtureCompiler.Compile("Gameloft.Util", Fixtures.GameloftUtil), new GeoPatch(), server, port: 52001);
 
-            using (var sandbox = new FixtureCompiler.Sandbox().With("Gameloft.Util", patched))
+            using (var sandbox = new FixtureCompiler.Sandbox().With("Gameloft.Util", patched).With("McvsOffline.Server", server))
             {
                 Assembly util = sandbox.Get("Gameloft.Util");
                 object geo = Activator.CreateInstance(util.GetType("Gameloft.Util.Geolocalization"));
+                // Nothing decided yet (or the host never ran): the port baked at patch time.
                 Assert.Equal("http://127.0.0.1:52001/location/?ip=", Call(util, "Gameloft.Util.Geolocalization", "get_GeolocalizationUrl", geo));
                 Assert.Equal("https://it.gameloft.org/dump/dump.edgelist", Call(util, "Gameloft.Util.Geolocalization", "get_EdgeListUrl", geo));
+
+                // Build 26: the port the host bound at this start (a port fallback), read at every call.
+                Call(sandbox.Get("McvsOffline.Server"), "McvsOffline.PortHooks", "Configure", null, 51783, 0);
+                Assert.Equal("http://127.0.0.1:51783/location/?ip=", Call(util, "Gameloft.Util.Geolocalization", "get_GeolocalizationUrl", geo));
+                Call(sandbox.Get("McvsOffline.Server"), "McvsOffline.PortHooks", "Configure", null, 0, 0);
+                Assert.Equal("http://127.0.0.1:52001/location/?ip=", Call(util, "Gameloft.Util.Geolocalization", "get_GeolocalizationUrl", geo));
             }
+        }
+
+        [Fact]
+        public void GeoNeedsTheHookInTheServer()
+        {
+            byte[] noHooks = FixtureCompiler.Compile("McvsOffline.Server", "namespace McvsOffline { public static class Bootstrap { public static void Init() { } } }");
+            PatchException ex = Assert.Throws<PatchException>(() => Patch(FixtureCompiler.Compile("Gameloft.Util", Fixtures.GameloftUtil), new GeoPatch(), noHooks));
+            Assert.Contains("McvsOffline.PortHooks", ex.Message);
+        }
+
+        // ------------------------------------------------------------------ finderport
+
+        [Fact]
+        public void FinderPortFollowsThePortTheHostChose()
+        {
+            byte[] server = Fixtures.Server();
+            byte[] patched = Patch(FixtureCompiler.Compile("Gameloft.Engine", Fixtures.GameloftEngine), new List<IlPatch> { new FinderPortPatch(), new LanPatch() },
+                                   server, 51780, out List<string> notes);
+            Assert.Contains(notes, n => n.Contains("LocalAnubisFinderPort = McvsOffline.PortHooks.LocalAnubisFinderPort(51750)"));
+
+            using (var sandbox = new FixtureCompiler.Sandbox().With("Gameloft.Engine", patched).With("McvsOffline.Server", server))
+            {
+                Assembly engine = sandbox.Get("Gameloft.Engine");
+                Type appType = engine.GetType("Gameloft.Engine.GameApplication");
+                object app = Activator.CreateInstance(appType);
+                appType.GetProperty("Args").SetValue(app, Activator.CreateInstance(engine.GetType("Gameloft.Engine.GameApplication+Arguments")));
+                appType.GetProperty("Instance").SetValue(null, app);
+                Type settings = engine.GetType("Gameloft.Engine.ClientSettings");
+                int FinderPort() => (int)settings.GetProperty("LocalAnubisFinderPort").GetValue(Activator.CreateInstance(settings));
+
+                Assert.Equal(51750, FinderPort());
+                Call(sandbox.Get("McvsOffline.Server"), "McvsOffline.PortHooks", "Configure", null, 51780, 51752);
+                Assert.Equal(51752, FinderPort());
+                // The 'lan' P3 site of the same constructor still works next to it.
+                Assert.Equal("localhost", (string)settings.GetProperty("LocalAnubisFinderHost").GetValue(Activator.CreateInstance(settings)));
+            }
+        }
+
+        [Fact]
+        public void FinderPortRefusesAnotherConstant()
+        {
+            string changed = Fixtures.GameloftEngine.Replace("LocalAnubisFinderPort { get; set; } = 51750;", "LocalAnubisFinderPort { get; set; } = 51751;");
+            Assert.NotEqual(Fixtures.GameloftEngine, changed);
+            Assert.Throws<PatchException>(() => Patch(FixtureCompiler.Compile("Gameloft.Engine", changed), new FinderPortPatch()));
         }
 
         [Fact]
@@ -149,47 +201,6 @@ namespace McvsOffline.Embed.Tests.Patcher
         {
             byte[] other = FixtureCompiler.Compile("Gameloft.Util", Fixtures.GameloftUtil.Replace("ip.ecomapis.gameloft.org", "geo.example"));
             Assert.Throws<PatchException>(() => Patch(other, new GeoPatch()));
-        }
-
-        // ------------------------------------------------------------------ bottile
-
-        [Fact]
-        public void BotTileStartsTheGsFlowAndLeavesOtherCallersAlone()
-        {
-            byte[] original = FixtureCompiler.Compile("Game", Fixtures.Game);
-            using (var sandbox = new FixtureCompiler.Sandbox().With("Game", original))
-            {
-                object component = Activator.CreateInstance(sandbox.Get("Game").GetType("Game.GameClientComponent"));
-                Assert.Equal("OfflineMatchWithBots", Call(sandbox.Get("Game"), "Game.GameClientComponent", "BotTile", component));
-            }
-
-            byte[] patched = Patch(original, new List<IlPatch> { new BotTilePatch() }, null, 51780, out List<string> notes);
-            Assert.Contains(notes, n => n.Contains("IL_0007 ldc.i4.2"));
-            using (var sandbox = new FixtureCompiler.Sandbox().With("Game", patched))
-            {
-                Assembly game = sandbox.Get("Game");
-                object component = Activator.CreateInstance(game.GetType("Game.GameClientComponent"));
-                Assert.Equal("OnlineAndTutorial", Call(game, "Game.GameClientComponent", "BotTile", component));
-                Assert.Equal("OfflineMatchWithBots", Call(game, "Game.GameClientComponent", "SameLevel", component));
-            }
-        }
-
-        [Fact]
-        public void BotTileRefusesADifferentLambda()
-        {
-            string changed = Fixtures.Game.Replace(
-                "RunTask((CancellationToken ct) => StartAutoMatchAsync(base.CancellationToken, MatchConnectionType.OfflineMatchWithBots), base.CancellationToken);\n        }\n        private void StartAutoMatchSameAsPlayerLevel",
-                "RunTask((CancellationToken ct) => StartAutoMatchAsync(ct, MatchConnectionType.OfflineMatchWithBots), base.CancellationToken);\n        }\n        private void StartAutoMatchSameAsPlayerLevel");
-            Assert.NotEqual(Fixtures.Game, changed);
-            var ex = Assert.Throws<PatchException>(() => Patch(FixtureCompiler.Compile("Game", changed), new BotTilePatch()));
-            Assert.Contains("does not match", ex.Message);
-        }
-
-        [Fact]
-        public void BotTileRefusesDifferentEnumValues()
-        {
-            string changed = Fixtures.Game.Replace("{ Undefined, OnlineAndTutorial, OfflineMatchWithBots }", "{ OnlineAndTutorial, OfflineMatchWithBots, Undefined }");
-            Assert.Throws<PatchException>(() => Patch(FixtureCompiler.Compile("Game", changed), new BotTilePatch()));
         }
 
         // ------------------------------------------------------------------ finder + lan
@@ -276,37 +287,44 @@ namespace McvsOffline.Embed.Tests.Patcher
         [Fact]
         public void LanImpliesFinderAndHookIsAlwaysFirst()
         {
-            Assert.Equal(new[] { "hook", "headless", "headless-engine", "physics", "finder", "lan" }, ApkPatcher.SelectPatches(new[] { "lan" }).Select(p => p.Id));
-            Assert.Equal(new[] { "hook", "headless", "headless-engine", "physics" }, ApkPatcher.SelectPatches(new string[0]).Select(p => p.Id));
+            Assert.Equal(new[] { "hook", "headless", "headless-engine", "physics", "finderport", "finder", "lan" }, ApkPatcher.SelectPatches(new[] { "lan" }).Select(p => p.Id));
+            Assert.Equal(new[] { "hook", "headless", "headless-engine", "physics", "finderport" }, ApkPatcher.SelectPatches(new string[0]).Select(p => p.Id));
             Assert.Equal(new[] { "hook" }, ApkPatcher.SelectPatches(new string[0], headless: false).Select(p => p.Id));
             Assert.Equal(new[]
                          {
-                             "hook", "headless", "headless-engine", "physics", "nativeonline", "waits", "geo", "bottile", "finder", "store", "signatures", "adminpage",
+                             "hook", "headless", "headless-engine", "physics", "finderport", "nativeonline", "waits", "geo", "finder", "store", "signatures", "inbox", "adminpage",
                              "debloat", "adminlink", "graphics",
                          },
                          ApkPatcher.SelectPatches(PatcherOptions.ParsePatchList("default")).Select(p => p.Id));
             Assert.Equal(new[] { "finder", "lan" }, PatcherOptions.ParsePatchList("lan"));
             Assert.Empty(PatcherOptions.ParsePatchList("none"));
-            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "forum", "geo", "graphics", "lan", "nativeonline", "signatures", "store", "targetsdk", "waits" },
+            Assert.Equal(new[] { "adminlink", "adminpage", "botmove", "debloat", "finder", "forum", "game", "geo", "graphics", "inbox", "lan", "nativeonline", "signatures", "store", "targetsdk", "waits" },
                          PatcherOptions.ParsePatchList("all"));
-            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "geo", "graphics", "nativeonline", "signatures", "store", "targetsdk", "waits" },
+            Assert.Equal(new[] { "adminlink", "adminpage", "debloat", "finder", "game", "geo", "graphics", "inbox", "nativeonline", "signatures", "store", "targetsdk", "waits" },
                          PatcherOptions.ParsePatchList("default"));
             Assert.Equal(new[] { "targetsdk" }, PatcherOptions.ParsePatchList("targetsdk"));
+            Assert.Equal(new[] { "game" }, PatcherOptions.ParsePatchList("game"));
+            Assert.Equal(new[] { "hook", "headless", "headless-engine", "physics", "finderport" }, ApkPatcher.SelectPatches(new[] { "game" }).Select(p => p.Id));   // no IL
             Assert.Equal(new[] { "signatures" }, PatcherOptions.ParsePatchList("signatures"));
             Assert.Equal(new[] { "debloat" }, PatcherOptions.ParsePatchList("debloat"));
             Assert.Throws<ArgumentException>(() => PatcherOptions.ParsePatchList("geo,unlockall"));
 
             // The settings-page triggers: adminpage and adminlink by default, forum only on request (--patch default,forum).
-            Assert.Equal(new[] { "adminlink", "adminpage", "bottile", "debloat", "finder", "forum", "geo", "graphics", "nativeonline", "signatures", "store", "targetsdk", "waits" },
+            Assert.Equal(new[] { "adminlink", "adminpage", "debloat", "finder", "forum", "game", "geo", "graphics", "inbox", "nativeonline", "signatures", "store", "targetsdk", "waits" },
                          PatcherOptions.ParsePatchList("default,forum"));
             Assert.Equal(new[] { "graphics" }, PatcherOptions.ParsePatchList("graphics"));
-            Assert.Equal(new[] { "hook", "headless", "headless-engine", "physics", "graphics" }, ApkPatcher.SelectPatches(new[] { "graphics" }).Select(p => p.Id));
+            Assert.Equal(new[] { "hook", "headless", "headless-engine", "physics", "finderport", "graphics" }, ApkPatcher.SelectPatches(new[] { "graphics" }).Select(p => p.Id));
             Assert.Equal(new[] { "forum" }, PatcherOptions.ParsePatchList("FORUM"));
             Assert.DoesNotContain("forum", PatcherOptions.DefaultPatches);
-            Assert.Equal(new[] { "lan", "forum" }, PatcherOptions.OptionalPatches.Except(PatcherOptions.DefaultPatches));
-            Assert.Equal(new[] { "hook", "headless", "headless-engine", "physics", "adminpage", "forum" },
+            Assert.Equal(new[] { "lan", "forum", "botmove" }, PatcherOptions.OptionalPatches.Except(PatcherOptions.DefaultPatches));
+            // Build 27: 'botmove' only on request (the default APK's Game.dll is unchanged), after every other IL patch.
+            Assert.DoesNotContain("botmove", PatcherOptions.DefaultPatches);
+            Assert.Equal(new[] { "botmove" }, PatcherOptions.ParsePatchList("BotMove"));
+            Assert.Equal(new[] { "hook", "headless", "headless-engine", "physics", "finderport", "graphics", "botmove" },
+                         ApkPatcher.SelectPatches(new[] { "botmove", "graphics" }).Select(p => p.Id));
+            Assert.Equal(new[] { "hook", "headless", "headless-engine", "physics", "finderport", "adminpage", "forum" },
                          ApkPatcher.SelectPatches(new[] { "forum", "adminpage" }).Select(p => p.Id));
-            Assert.Equal(new[] { "hook", "headless", "headless-engine", "physics", "adminlink" }, ApkPatcher.SelectPatches(new[] { "adminlink" }).Select(p => p.Id));
+            Assert.Equal(new[] { "hook", "headless", "headless-engine", "physics", "finderport", "adminlink" }, ApkPatcher.SelectPatches(new[] { "adminlink" }).Select(p => p.Id));
         }
 
         [Fact]
@@ -326,15 +344,21 @@ namespace McvsOffline.Embed.Tests.Patcher
         public void EveryOptionalPatchIdHasItsPatchAndEveryPatchIdIsUnique()
         {
             Assert.Equal(ApkPatcher.AllPatches.Length, ApkPatcher.AllPatches.Select(p => p.Id).Distinct().Count());
-            // "targetsdk" edits the manifest, two layouts and classes.dex (ManifestTargetSdk, BrowserLayoutInsets, DexTargetSdkEdits): no IL patch.
-            foreach (string id in PatcherOptions.OptionalPatches.Concat(PatcherOptions.MandatoryPatches).Where(id => id != ManifestTargetSdk.PatchId))
+            // "targetsdk" edits the manifest, two layouts and classes.dex (ManifestTargetSdk, BrowserLayoutInsets, DexTargetSdkEdits)
+            // and "game" only the manifest (ManifestGame): no IL patch.
+            string[] notIl = { ManifestTargetSdk.PatchId, ManifestGame.PatchId };
+            foreach (string id in PatcherOptions.OptionalPatches.Concat(PatcherOptions.MandatoryPatches).Where(id => !notIl.Contains(id)))
                 Assert.Contains(ApkPatcher.AllPatches, p => p.Id == id);
-            Assert.Contains(ManifestTargetSdk.PatchId, PatcherOptions.DefaultPatches);
-            Assert.DoesNotContain(ApkPatcher.AllPatches, p => p.Id == ManifestTargetSdk.PatchId);
+            foreach (string id in notIl)
+            {
+                Assert.Contains(id, PatcherOptions.DefaultPatches);
+                Assert.DoesNotContain(ApkPatcher.AllPatches, p => p.Id == id);
+            }
             Assert.Equal("Game.dll", Assert.Single(ApkPatcher.AllPatches, p => p.Id == "adminpage").AssemblyFile);
             Assert.Equal("Gameloft.Engine.dll", Assert.Single(ApkPatcher.AllPatches, p => p.Id == "adminlink").AssemblyFile);
             Assert.Equal("Game.dll", Assert.Single(ApkPatcher.AllPatches, p => p.Id == "forum").AssemblyFile);
             Assert.Equal("Gameloft.Engine.dll", Assert.Single(ApkPatcher.AllPatches, p => p.Id == "graphics").AssemblyFile);
+            Assert.Equal("Game.dll", Assert.Single(ApkPatcher.AllPatches, p => p.Id == "botmove").AssemblyFile);
         }
 
         [Fact]

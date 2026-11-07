@@ -51,6 +51,24 @@ namespace McvsOffline.Tests.Admin
         }
 
         [Fact]
+        public void GameLogInUtcAsBuild14WritesIt()
+        {
+            // GameLogFormat.Line: the server.log time stamp, then the game's level and category names (not server.log's
+            // padded upper-case levels, so the server-line parser must not take them).
+            var entries = LogTail.Parse("2026-10-28T17:53:25.781Z Debug [Online] {Session.cs}.GetAccessToken:384 | ok\n" +
+                                        "2026-10-28T17:53:26.000Z Error [Crm] parse failed\n    stack line\n" +
+                                        "2026-10-28T17:53:27.000Z Fatal [Engine] crash\n" +
+                                        "2026-10-28T17:53:28.000Z Warning [Network] retry 1\n" +
+                                        "2026-10-28T17:53:29.000Z Info [Profile] loaded\n");
+            Assert.Equal(new[] { "DEBUG", "ERROR", "ERROR", "WARN", "INFO" }, entries.Select(e => e.Level));
+            Assert.Equal("2026-10-28T17:53:26.000Z", entries[1].Time);
+            Assert.Equal("Crm", entries[1].Category);
+            Assert.Equal("parse failed\n    stack line", entries[1].Message);
+            Assert.Equal("Online", entries[0].Category);
+            Assert.Equal("{Session.cs}.GetAccessToken:384 | ok", entries[0].Message);
+        }
+
+        [Fact]
         public void LinesBeforeTheFirstEntryAreOneUnknownEntry()
         {
             var entries = LogTail.Parse("tail of something\nmore\n" + ServerLog);

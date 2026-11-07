@@ -77,17 +77,73 @@ namespace McvsOffline.Server.Services.Admin.Saves
         }
 
         /// <summary>
+        /// How the readers open files: <c>FileShare.ReadWrite | FileShare.Delete</c>, so the logger can keep writing and,
+        /// on Windows, rotate (rename) a log while the page reads its tail (docs/design/pc-port.md §4.6).
+        /// </summary>
+        public const FileShare ReaderShare = FileShare.ReadWrite | FileShare.Delete;
+
+        /// <summary>
         /// The plain file <paramref name="name"/> directly inside <paramref name="folder"/>, or null when the name is not a
-        /// plain file name, the file does not exist, is a link or a folder, or resolves outside the folder.
+        /// plain file name (also a Windows reserved name, <see cref="IsWindowsReservedName"/>), the file does not exist,
+        /// is a link or a folder, or resolves outside the folder. Names are compared ignoring case on every platform, as
+        /// NTFS does (docs/design/pc-port.md §4.6): without an exact match, the one file whose name equals
+        /// <paramref name="name"/> ignoring case is the file (several such files on a case-sensitive disk: none is).
         /// </summary>
         public static string FileIn(string folder, string name)
         {
             if (string.IsNullOrEmpty(name) || name == "." || name == ".." || name.IndexOf('/') >= 0 || name.IndexOf('\\') >= 0
-                || name.IndexOf('\0') >= 0)
+                || name.IndexOf('\0') >= 0 || IsWindowsReservedName(name))
                 return null;
             string path = Path.Combine(folder, name);
-            if (!IsDirectlyInside(folder, path) || !IsPlainFile(path)) return null;
-            return path;
+            if (!IsDirectlyInside(folder, path)) return null;
+            if (IsPlainFile(path)) return path;
+            if (File.Exists(path) || Directory.Exists(path)) return null; // a link or a folder under the exact name
+            string match = null;
+            foreach (FileInfo f in PlainFiles(folder))
+            {
+                if (!string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase)) continue;
+                if (match != null) return null;
+                match = f.FullName;
+            }
+            return match != null && IsDirectlyInside(folder, match) ? match : null;
+        }
+
+        /// <summary>
+        /// The file of <paramref name="files"/> named <paramref name="name"/>: the exact name, else the only one whose name
+        /// equals it ignoring case (NTFS folds case, so on PC both spellings are one file; docs/design/pc-port.md §4.6).
+        /// Null when there is none, or several that differ only in case and none matches exactly.
+        /// </summary>
+        public static FileInfo FindByName(IEnumerable<FileInfo> files, string name)
+        {
+            if (files == null || string.IsNullOrEmpty(name)) return null;
+            FileInfo folded = null;
+            int foldedCount = 0;
+            foreach (FileInfo f in files)
+            {
+                if (string.Equals(f.Name, name, StringComparison.Ordinal)) return f;
+                if (!string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase)) continue;
+                folded = f;
+                foldedCount++;
+            }
+            return foldedCount == 1 ? folded : null;
+        }
+
+        /// <summary>
+        /// True for a name Windows cannot use for a file in any folder: a DOS device name (<c>CON</c>, <c>PRN</c>,
+        /// <c>AUX</c>, <c>NUL</c>, <c>COM1</c>-<c>COM9</c>, <c>LPT1</c>-<c>LPT9</c>, any case, with or without an
+        /// extension: <c>nul.txt</c> is the device too), or a name ending in '.' or a space (Windows strips them, so
+        /// the file would get another name). Refused on every platform, so a name that works on Android works on PC.
+        /// </summary>
+        public static bool IsWindowsReservedName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            char last = name[name.Length - 1];
+            if (last == '.' || last == ' ') return true;
+            int dot = name.IndexOf('.');
+            string stem = (dot < 0 ? name : name.Substring(0, dot)).TrimEnd(' ').ToUpperInvariant();
+            if (stem == "CON" || stem == "PRN" || stem == "AUX" || stem == "NUL") return true;
+            return stem.Length == 4 && (stem.StartsWith("COM", StringComparison.Ordinal) || stem.StartsWith("LPT", StringComparison.Ordinal))
+                   && stem[3] >= '1' && stem[3] <= '9';
         }
 
         /// <summary>The plain files of a folder (no links, no folders), or an empty list.</summary>
@@ -124,7 +180,7 @@ namespace McvsOffline.Server.Services.Admin.Saves
         {
             long length = new FileInfo(path).Length;
             if (length > maxBytes) return null;
-            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, ReaderShare))
             {
                 var buffer = new byte[(int)length];
                 int read = 0;
@@ -146,14 +202,14 @@ namespace McvsOffline.Server.Services.Admin.Saves
         }
 
         /// <summary>
-        /// The last <paramref name="maxBytes"/> bytes of a file that may be written to at the same time (FileShare.ReadWrite).
+        /// The last <paramref name="maxBytes"/> bytes of a file that may be written to at the same time (<see cref="ReaderShare"/>).
         /// <paramref name="size"/> is the file's length when it was opened.
         /// </summary>
         public static byte[] ReadTail(string path, long maxBytes, out long size)
         {
             size = new FileInfo(path).Length;
             long start = size > maxBytes ? size - maxBytes : 0;
-            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, ReaderShare))
             {
                 if (start > 0) stream.Seek(start, SeekOrigin.Begin);
                 var buffer = new byte[(int)(size - start)];
@@ -174,7 +230,7 @@ namespace McvsOffline.Server.Services.Admin.Saves
         /// <summary>The first <paramref name="maxBytes"/> bytes of a file (or all of a smaller one).</summary>
         public static byte[] ReadHead(string path, int maxBytes)
         {
-            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, ReaderShare))
             {
                 var buffer = new byte[maxBytes];
                 int read = 0;
