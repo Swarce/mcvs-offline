@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Json;
+using McvsOffline.Server.Core.Names;
 using McvsOffline.Server.Services.Admin;
 using McvsOffline.Server.Services.Crm.Collector;
 using McvsOffline.Server.Services.Social.LiveOps;
@@ -19,6 +20,8 @@ namespace McvsOffline.Server.Services.Crm
         private readonly object gate = new object();
         private readonly Dictionary<string, string> selectorJson = new Dictionary<string, string>(StringComparer.Ordinal);
         private Dictionary<string, object> layerValues;
+        private string botNamesKey;
+        private string botNamesJson;
 
         public CrmDocument(Dictionary<string, object> root, bool hasPreconfiguration, List<string> problems, DateTime builtUtc)
             : this(root, hasPreconfiguration, problems, builtUtc, null)
@@ -96,6 +99,35 @@ namespace McvsOffline.Server.Services.Crm
                 if (selectorJson.Count < 64) selectorJson[path] = json;
                 return found;
             }
+        }
+
+        /// <summary>
+        /// The JSON of the game object with the bot renames (<see cref="CrmBotNames.Apply"/>) written into
+        /// <c>_ServerConfig.default._OverrideTables</c> after the mirror (a cell the mirror already has for the same stock
+        /// name, an overlay's, wins), or null when the document has no game object or no cell was written. The last answer is kept for
+        /// <paramref name="key"/> (one window). Dictionaries along the written path are copied: the cached tree is never changed.
+        /// </summary>
+        public string GameJsonWithBotNames(string key, IList<KeyValuePair<string, string>> renames)
+        {
+            lock (gate)
+            {
+                if (botNamesJson != null && botNamesKey == key) return botNamesJson;
+            }
+            var source = JsonValue.GetObject(Root, "game");
+            if (source == null) return null;
+            var game = new Dictionary<string, object>(source, StringComparer.Ordinal);
+            var tables = CopyChild(CopyChild(CopyChild(game, "_ServerConfig"), "default"), "_OverrideTables");
+            var ai = CopyChild(tables, CrmBotNames.Database);
+            var table = CopyChild(ai, CrmBotNames.Table);
+            CopyChild(table, CrmBotNames.Field + "@" + CrmBotNames.Field);
+            if (CrmBotNames.Apply(tables, renames) == 0) return null;
+            string json = MiniJson.Serialize(game);
+            lock (gate)
+            {
+                botNamesKey = key;
+                botNamesJson = json;
+            }
+            return json;
         }
 
         /// <summary>
@@ -324,6 +356,8 @@ namespace McvsOffline.Server.Services.Crm
         private bool retryRunning;
         private bool retried;
         private int lastRetryTick;
+        private string botNamesKey;
+        private List<KeyValuePair<string, string>> botNames;
 
         public CrmDocumentCache(ServerContext context, CrmPreconfiguration preconfiguration, Log log)
         {
@@ -454,6 +488,10 @@ namespace McvsOffline.Server.Services.Crm
             string collectorKey;
             CrmCollector collector = CollectorFor(liveOps, out collectorKey);
 
+            // The in-match bot names (CrmBotNames) are not in this document: only the "game" selector carries them
+            // (GameSelectorJson). The stock names are read here, off the request path of the TS's 1 s WaitForCRM.
+            WarmBotNames(o);
+
             lock (gate)
             {
                 string key = optionsFingerprint + "|" + (withPre ? "pre" : "nopre") + "|" + generation + "|" + (liveOps == null ? "-" : liveOps.Key)
@@ -479,6 +517,91 @@ namespace McvsOffline.Server.Services.Crm
                          + ", collector " + DescribeCollector(collector)
                          + ", " + cached.Json.Length + " chars" + (problems.Count > 0 ? ", " + problems.Count + " problem(s)" : ""));
                 return cached;
+            }
+        }
+
+        /// <summary>
+        /// The JSON of the <c>configs/users/me/game</c> answer: <paramref name="gameJson"/> (the document's game object) with
+        /// the current window's bot renames (<see cref="CrmBotNames"/>) in <c>_ServerConfig.default._OverrideTables</c>, which
+        /// every GS World fetches when it is created and installs before its match level loads. Unchanged when
+        /// <c>crm.botNames</c> is off, without a data pack, or on any failure (the bots then keep the game's names).
+        /// </summary>
+        public string GameSelectorJson(CrmDocument doc, string gameJson)
+        {
+            try
+            {
+                string key;
+                List<KeyValuePair<string, string>> renames = BotNamesFor(Options, out key);
+                if (renames.Count == 0) return gameJson;
+                return doc.GameJsonWithBotNames(key, renames) ?? gameJson;
+            }
+            catch (Exception ex)
+            {
+                log.Error("CRM: bot names left out of the game object", ex);
+                return gameJson;
+            }
+        }
+
+        private void WarmBotNames(CrmOptions o)
+        {
+            if (!o.BotNames) return;
+            try
+            {
+                string ignored;
+                CrmBotNames.For(context).StockNames(o, out ignored);
+            }
+            catch (Exception ex)
+            {
+                log.Error("CRM: bot names unavailable; the bots keep the game's names", ex);
+            }
+        }
+
+        /// <summary>
+        /// The bot renames of the current window and their cache key: "bots:off" (crm.botNames false), "bots:nopack" (no
+        /// stock names) or the window, the stock names' hash and names.json's hash. Never throws: a failure leaves the bots
+        /// their stock names.
+        /// </summary>
+        private List<KeyValuePair<string, string>> BotNamesFor(CrmOptions o, out string key)
+        {
+            var none = new List<KeyValuePair<string, string>>();
+            if (!o.BotNames)
+            {
+                key = "bots:off";
+                return none;
+            }
+            try
+            {
+                string stockHash;
+                HashSet<string> repeated;
+                List<string> stock = CrmBotNames.For(context).StockNames(o, out stockHash, out repeated);
+                if (stock == null)
+                {
+                    key = "bots:nopack";
+                    return none;
+                }
+                DateTime now = context.Clock.UtcNow;
+                GamerTags tags = GamerTags.For(context.Content, log);
+                long window = CrmBotNames.Window(now);
+                key = "bots:" + window.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" + stockHash + ":" + tags.Hash;
+                lock (gate)
+                {
+                    if (botNamesKey == key) return botNames;
+                }
+                List<KeyValuePair<string, string>> renames = CrmBotNames.Renames(stock, repeated, tags, now);
+                lock (gate)
+                {
+                    botNamesKey = key;
+                    botNames = renames;
+                }
+                log.Info("bot names: window " + window.ToString(System.Globalization.CultureInfo.InvariantCulture) + ", "
+                         + renames.Count + " of " + stock.Count + " stock names renamed (" + CrmBotNames.WindowMinutes + " min)");
+                return renames;
+            }
+            catch (Exception ex)
+            {
+                log.Error("CRM: bot names unavailable; the bots keep the game's names", ex);
+                key = "bots:error";
+                return none;
             }
         }
 

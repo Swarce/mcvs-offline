@@ -13,6 +13,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -272,7 +273,10 @@ class GeneratorTests(unittest.TestCase):
         with open(self.pricing_path, "w") as f:
             json.dump(sample_pricing(), f)
         files = {}
-        for asset in (b"Menus/x/emblem3.png", b"Menus/x/banner.png", b"Menus/x/crate.png"):
+        for asset in (b"Menus/x/emblem3.png", b"Menus/x/banner.png", b"Menus/x/crate.png",
+                      # the plain profile avatars the rivals may show (names.json emblems)
+                      b"Menus/assets/png/profile/avatars/avatar01.png", b"Menus/assets/png/profile/avatars/avatar05.png",
+                      b"Menus/assets/png/profile/avatars/avatar06.png"):
             h = "%x" % zlib.crc32(asset)
             files[h[0] + "/" + h[1:] + ".f"] = {}
         self.asset_files = set(files)
@@ -535,6 +539,84 @@ class GeneratorTests(unittest.TestCase):
         with self.assertRaises(cg.ContentError) as raised:
             self.outputs()
         self.assertIn("collector: crate.locId: localization id Crate.Cosmetic_Crate does not exist", str(raised.exception))
+
+    # ------------------------------------------------------------------------------------------- names
+
+    def names_tuning(self):
+        return cg.load_json(os.path.join(HERE, "names_tuning.json"))
+
+    def test_names_document(self):
+        names = self.outputs()["names.json"]
+        tuning = self.names_tuning()
+        self.assertEqual(list(names), ["format", "version", "limits", "years", "defaultShare", "parts", "styles", "leet",
+                                       "blocklist", "emblems", "summary"])
+        self.assertEqual(names["parts"], tuning["parts"])
+        self.assertEqual(names["limits"], {"min": 3, "max": 16})
+        # Plain profile avatars (folder and file name) with Unlockable=true whose image is in the pack: 1, 5, 6; never the
+        # Kayac emblem filed under avatars/ (10, 11), a season emblem or an avatar without its image (2, 3, 4).
+        self.assertEqual(names["emblems"], {"avatars": "1,5-6", "backgrounds": "1-5"})
+        self.assertGreaterEqual(names["summary"]["wordNames"], tuning["minCombinations"])
+        self.assertTrue(all(s["case"] in cg.NAME_CASES and isinstance(s["leet"], bool) for s in names["styles"]))
+        self.assertIn({"name": "names.json", "entries": sum(len(v) for v in tuning["parts"].values())},
+                      self.outputs()["manifest.json"]["files"])
+
+    def test_names_refuse_bad_tuning(self):
+        cat, collector = self.collector_inputs()
+
+        def refused(change, text):
+            tuning = self.names_tuning()
+            change(tuning)
+            with self.assertRaises(cg.ContentError) as e:
+                cg.build_names(cat, tuning, collector)
+            self.assertIn(text, str(e.exception))
+
+        refused(lambda t: t["parts"]["noun"].append("Nazi"), "refused by the blocklist")
+        refused(lambda t: t["parts"]["noun"].append("Wolf"), "'Wolf' twice")
+        refused(lambda t: t["parts"]["noun"].append("Zoë"), "ASCII letters")
+        refused(lambda t: t["parts"]["adj"].append("Way2Long4AName"), "1-12 ASCII")
+        refused(lambda t: t["styles"].append({"id": "x", "pattern": "{nouns}"}), "unknown token {nouns}")
+        refused(lambda t: t["styles"].append({"id": "x", "pattern": "{noun}<3"}), "literal")
+        refused(lambda t: t["styles"].append({"id": "x", "pattern": "_{noun}"}), "starts or ends with a separator")
+        refused(lambda t: t["styles"].append({"id": "x", "pattern": "{d3}"}), "word token")
+        refused(lambda t: t["limits"].update({"max": 17}), "limits")
+        refused(lambda t: t.update({"minCombinations": 10 ** 9}), "fewer than minCombinations")
+        refused(lambda t: t["blocklist"]["words"].append("Ass"), "blocklist.words")
+        # A word in both adj and noun (ShadowShadow); a person, weapon or disaster next to a country code (Bandit_MX).
+        refused(lambda t: t["parts"]["adj"].append("Shadow"), "parts.adj and parts.noun share shadow")
+        refused(lambda t: t["parts"]["mascot"].append("Bandit"), "'Bandit' is in roughNouns")
+        refused(lambda t: t["styles"].append({"id": "x", "pattern": "{noun}_{country}"}), "puts {country} next to {noun}")
+        refused(lambda t: t["styles"].append({"id": "x", "pattern": "{adj}{mascot}_{country}"}), "puts {country} next to {adj}")
+
+    def test_names_blocklist_and_shape(self):
+        block = cg.NameBlocklist(self.names_tuning()["blocklist"])
+        for pieces in (["Sh1tStorm"], ["N_A_Z_I"], ["Wolf", "455"], ["Atlas", "Sniper"], ["Fox", "88"], ["Ranger", "14"],
+                       ["Ninja", "07"],
+                       # brands, streamers, other games' characters and slang made of two harmless words
+                       ["Sniper", "Wolf"], ["Iron", "Wolf"], ["1r0n", "W0lf"], ["Blue", "Falcon"], ["Echo", "Fox"],
+                       ["Spartan", "117"], ["Blue", "Yeti"], ["blu3", "_", "y3t1"], ["Red", "Rocket"], ["Iron", "Golem"],
+                       ["Ghost", "Gaming"], ["Nova", "Gaming"], ["Steel", "Panther"], ["Night", "Ranger"],
+                       ["The", "Red", "Guardian"], ["Hollow", "Knight"], ["Soldier", "76"], ["Cpt", "Falcon"]):
+            self.assertIsNotNone(block.problem(pieces), pieces)
+        for pieces in (["Silent", "Fox"], ["Ranger", "1448"], ["Glass", "Cannon"]):
+            self.assertIsNone(block.problem(pieces), pieces)
+        limits = {"min": 3, "max": 16}
+        for bad in ("1337", "1e5", "NaN", "_Fox", "Fo__x", "A<b", "Fox Co", "ThisNameIsWayTooLong", "ab"):
+            self.assertIsNotNone(cg.name_shape_problem(bad, limits), bad)
+        for good in ("SilentFox", "silent_fox", "xXRavenXx", "agent-123456789", "fox.ace"):
+            self.assertIsNone(cg.name_shape_problem(good, limits), good)
+
+    def test_names_never_repeat_a_word_or_put_a_rough_noun_next_to_a_country(self):
+        tuning = self.names_tuning()
+        names = self.outputs()["names.json"]
+        self.assertGreater(names["summary"]["repeatedCombinations"], 0)  # nounNoun Wolf+Wolf: skipped, as the server does
+        self.assertFalse(set(w.lower() for w in tuning["parts"]["adj"]) & set(w.lower() for w in tuning["parts"]["noun"]))
+        for style in names["styles"]:
+            if "{country}" in style["pattern"]:
+                self.assertFalse(re.findall(r"\{(noun|adj|handle|short|prefix|suffix)\}", style["pattern"]), style)
+        pairs = cg.name_pairs(tuning)
+        self.assertNotIn("wolfwolf", pairs)
+        self.assertNotIn("sniperwolf", pairs)
+        self.assertIn("silentfox", pairs)
 
     def test_check_mode_reports_stale_files(self):
         out_dir = os.path.join(self.tmp, "out")

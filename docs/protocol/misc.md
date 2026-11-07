@@ -237,7 +237,11 @@ type=<auth|sp|gs|chat|shop|matchmaking|lobby|data|mpmatch>&status=<0|1>&timestam
    ~81 % the top 10 %; only a near-zero score is demoted. The game posts its season division trophies with
    `replace_score_if` absent (always replace). Rivals are derived from the board name (same board, same rivals),
    rank behind real players on ties, carry `_mcvs_bot: true`, and appear in Top/AroundMe lists so the UI shows a
-   populated board. Not completed: ascending boards, boards in `leaderboards.virtualExclude` (default `["global"]`,
+   populated board. A rival row is `display_name`, `credential` = `_fed_id` = `fed_id:<24 hex>`, `index`, `rank`,
+   `score`, `_level` (string), `_mcvs_bot` and, from build 28, `_killSignatureEmblem` and `_killSignatureBg` (ids as
+   strings): its name is a gamer tag and its emblem one of the plain profile avatars, both from the rival's id, unique on
+   the board and never a real player's name there (`RivalIdentity.cs`, `server/Core/Names/GamerTags.cs`,
+   `names.json`; [../LIVEOPS.md](../LIVEOPS.md) §5.1). Not completed: ascending boards, boards in `leaderboards.virtualExclude` (default `["global"]`,
    the TS's user registry board that `RegisterUser` posts epoch seconds to), or everything with
    `leaderboards.virtualPlayers=false`. A board's `POST …/settings group_size` overrides the group size.
    Division boards are named by the season event's `tournament.leaderboard.name`; because the TS sees a loopback

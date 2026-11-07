@@ -19,7 +19,7 @@ namespace McvsOffline.Tests.Admin
         private static readonly string[] EditableKeys =
         {
             "instantBots", "embedded.bots.moveFromRest", "admin.settingsMenu.trim", "admin.settingsMenu.sameFrame", "admin.settingsMenu.aboutCentre", "admin.settingsMenu.performance", "devMenu",
-            "leaderboards.virtualPlayers", "geo.country",
+            "leaderboards.virtualPlayers", "crm.botNames", "geo.country",
             "graphics.profile", "graphics.fullProfile", "graphics.pcFpsLimit", "graphics.msaa", "graphics.renderScale", "graphics.lowResMaps", "hd.enabled",
             "economy.versusCoinsMultiplier", "economy.creditsMultiplier", "economy.xpMultiplier", "economy.priceMultiplier", "crm.dailyCapMultiplier",
             "economy.collector.enabled", "economy.collector.itemsPerCrate",

@@ -785,6 +785,12 @@ namespace McvsOffline.Server.Services.Admin
                           "Cheats can damage your profile. A backup of your save is made now.", "enable", "enable"),
                 Bool("gameplay", "leaderboards.virtualPlayers", "Leaderboard opponents", true, Live,
                      "Division leaderboards are filled with generated players."),
+                // Read by the CRM game object (CrmBotNames, build 28); the GS installs the renames before each match.
+                Bool("gameplay", "crm.botNames", "Generated bot names", true, Restart,
+                     "On: the bots in a match carry gamer tags made by the server, a new set about every match mixed with some "
+                     + "of the game's own names (needs the game's data "
+                     + "files, which the server reads the game's bot list from). Off: the game's own bot names; the game keeps the "
+                     + "last names it got until it restarts."),
                 Text("gameplay", "geo.country", "Country", "US", Restart, "Two-letter country code reported to the game.",
                      "^[A-Z]{2}$", 2, IsCountry, "Two capital letters, for example US."),
 

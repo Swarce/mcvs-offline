@@ -4,6 +4,7 @@ using System.Globalization;
 using McvsOffline.Server.Core;
 using McvsOffline.Server.Core.Accounts;
 using McvsOffline.Server.Core.Json;
+using McvsOffline.Server.Core.Names;
 using McvsOffline.Server.Services.Misc;
 using McvsOffline.Server.Services.Social.LiveOps;
 
@@ -32,26 +33,42 @@ namespace McvsOffline.Server.Services.Leaderboards
     /// the next season start (SelfData on the old board, GM/DivisionsComponent.cs OnNewSeasonStartedServer), however
     /// late that is. Everything derives from the board name, the clock and the player's entry.
     /// </para>
+    /// <para>
+    /// <b>Names and emblems</b> (<see cref="RivalIdentity"/>, build 28): from rival i's id alone, unique on the board. The
+    /// board name holds the season, so a new season (a new league group) brings new rivals.
+    /// </para>
     /// </summary>
     public static class SeasonRivals
     {
         private const double TopCurve = 1.6;
 
-        /// <summary>The rivals (best final score first) as leaderboard entries at <paramref name="now"/>.</summary>
+        /// <summary>The rivals (best final score first) as leaderboard entries at <paramref name="now"/>, with the built-in names.</summary>
         public static List<Dictionary<string, object>> Generate(string boardKey, SeasonBoardInfo info, int count, int groupSize,
                                                                 int playerLevel, DateTime now)
+        {
+            return Generate(boardKey, info, count, groupSize, playerLevel, now, null, null);
+        }
+
+        /// <summary>
+        /// The rivals (best final score first) as leaderboard entries at <paramref name="now"/>. No rival takes a name of
+        /// <paramref name="realNames"/> (the real players on the board).
+        /// </summary>
+        public static List<Dictionary<string, object>> Generate(string boardKey, SeasonBoardInfo info, int count, int groupSize,
+                                                                int playerLevel, DateTime now, GamerTags tags, IEnumerable<string> realNames)
         {
             var result = new List<Dictionary<string, object>>();
             if (count <= 0) return result;
             double[] finals = FinalScores(boardKey, info, count, groupSize, playerLevel);
             double x = info.Season.Progress(now);
             ulong state = LiveOpsHash.Fnv64("mcvs-offline/season-rival/v1|" + boardKey);
+            HashSet<string> taken = RivalIdentity.Taken(realNames);
             for (int i = 0; i < count; i++)
             {
                 double pace = 0.8 + 0.45 * LiveOpsHash.Unit(ref state);
                 double shown = x >= 1 ? finals[i] : finals[i] * Math.Pow(x, pace);
                 string id = Ids.Sha1Hex("mcvs-offline/season-rival/v1|" + boardKey + "|" + i.ToString(CultureInfo.InvariantCulture)).Substring(0, 24);
-                string name = VirtualPlayers.Callsign(ref state);
+                string name = RivalIdentity.Name(tags, id, taken);
+                VirtualPlayers.SkipNameDraws(ref state); // pace and level draws stay where they were (build 27)
                 int level = (int)Num.Clamp(playerLevel + 4 - (i * 9 / Num.Max(1, count)) - LiveOpsHash.Below(ref state, 5), 1, 50);
                 var entry = Fed.Obj();
                 entry["credential"] = Fed.FedIdOf(id);
@@ -60,6 +77,7 @@ namespace McvsOffline.Server.Services.Leaderboards
                 entry["_fed_id"] = Fed.FedIdOf(id);
                 entry["_level"] = level.ToString(CultureInfo.InvariantCulture);
                 entry["_mcvs_bot"] = true;
+                RivalIdentity.SetEmblem(entry, tags, id);
                 result.Add(entry);
             }
             return result;
