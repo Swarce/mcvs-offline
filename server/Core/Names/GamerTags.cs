@@ -44,7 +44,10 @@ namespace McvsOffline.Server.Core.Names
 
         private const string Separators = "_.-";
 
-        private static readonly string[] ListNames = { "adj", "noun", "handle", "short", "foreign", "prefix", "suffix", "country" };
+        private static readonly string[] ListNames = { "adj", "noun", "handle", "short", "foreign", "prefix", "suffix", "mascot", "country" };
+
+        /// <summary>Prefix of the skeleton keys <see cref="Reserve"/> adds to a taken set (no name holds this character).</summary>
+        private const char SkeletonMark = '\u0001';
 
         private static readonly object Gate = new object();
         private static string cachedHash;
@@ -332,7 +335,7 @@ namespace McvsOffline.Server.Core.Names
 
         /// <summary>
         /// The name drawn for (<paramref name="scope"/>, <paramref name="id"/>, <paramref name="attempt"/>), or null when
-        /// the limits or the blocklist refuse that draw.
+        /// the limits or the blocklist refuse that draw, or when it draws one word twice (PhantomPhantom, NovaNova).
         /// </summary>
         public string Name(string scope, string id, int attempt)
         {
@@ -361,7 +364,10 @@ namespace McvsOffline.Server.Core.Names
                 else if (piece.Kind == PieceKind.List)
                 {
                     string[] list = parts[piece.Value];
-                    written.Add(list[Below(ref state, list.Length)]);
+                    string word = list[Below(ref state, list.Length)];
+                    for (int i = 0; i < written.Count; i++)
+                        if (kinds[i] == PieceKind.List && string.Equals(written[i], word, StringComparison.OrdinalIgnoreCase)) return null;
+                    written.Add(word);
                 }
                 else
                 {
@@ -369,7 +375,7 @@ namespace McvsOffline.Server.Core.Names
                 }
             }
             ApplyCase(written, style.Case);
-            if (style.Leet) ApplyLeet(written, kinds, ref state);
+            if (style.Leet) ApplyLeet(written, style, ref state);
 
             string name = string.Concat(written.ToArray());
             if (name.Length < MinLength || name.Length > MaxLength || ShapeProblem(name) != null) return null;
@@ -377,24 +383,74 @@ namespace McvsOffline.Server.Core.Names
         }
 
         /// <summary>
-        /// The first name for <paramref name="id"/> that <paramref name="taken"/> does not hold (compare it as the caller
-        /// wants, OrdinalIgnoreCase for names a player sees side by side), added to it. After <see cref="MaxAttempts"/>
-        /// refused or taken draws, the default style "agent-&lt;9 digits&gt;" from the same hash.
+        /// The first name for <paramref name="id"/> that <paramref name="taken"/> does not hold, by name or by
+        /// <see cref="Skeleton"/> (so a board never shows Frost27 beside frost-27, or blindside_563 beside blindside_386),
+        /// added to it with <see cref="Reserve"/>. Make the set with <see cref="StringComparer.OrdinalIgnoreCase"/> and fill
+        /// it with <see cref="Reserve"/>. After <see cref="MaxAttempts"/> refused or taken draws, the default style
+        /// "agent-&lt;9 digits&gt;" from the same hash.
         /// </summary>
         public string UniqueName(string scope, string id, HashSet<string> taken)
         {
             for (int attempt = 0; attempt < MaxAttempts; attempt++)
             {
                 string name = Name(scope, id, attempt);
-                if (name != null && (taken == null || taken.Add(name))) return name;
+                if (name != null && Reserve(taken, name)) return name;
             }
             for (int k = 0; ; k++)
             {
                 ulong state = Fnv64(scope + "|v" + Version.ToString(CultureInfo.InvariantCulture) + "|" + id + "|default|" + k.ToString(CultureInfo.InvariantCulture));
                 string name = "agent-" + (100000000 + Below(ref state, 900000000)).ToString(CultureInfo.InvariantCulture);
                 if (BlockedReason(new List<string> { "agent-", name.Substring(6) }) != null) continue;
-                if (taken == null || taken.Add(name)) return name;
+                if (Reserve(taken, name)) return name;
             }
+        }
+
+        /// <summary>
+        /// Adds <paramref name="name"/> and its <see cref="Skeleton"/> to <paramref name="taken"/>; false (and nothing added)
+        /// when the set already holds either. A null set takes every name.
+        /// </summary>
+        public static bool Reserve(HashSet<string> taken, string name)
+        {
+            if (taken == null) return true;
+            if (string.IsNullOrEmpty(name) || taken.Contains(name)) return false;
+            string skeleton = Skeleton(name);
+            string key = skeleton.Length == 0 ? null : SkeletonMark + skeleton;
+            if (key != null && taken.Contains(key)) return false;
+            taken.Add(name);
+            if (key != null) taken.Add(key);
+            return true;
+        }
+
+        /// <summary>
+        /// The name as a player tells two names apart: lower case, without separators, a digit inside a word or a single
+        /// digit at an end read as the letter it stands for (7ac7ical, Brav0), and the number at either end left out
+        /// (Frost27 and frost-27 are both "frost", blindside_563 and blindside_386 both "blindside"). The default form
+        /// "agent-&lt;9 digits&gt;" keeps its digits: uncustomised players differ only there.
+        /// </summary>
+        public static string Skeleton(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return "";
+            var plain = new StringBuilder(name.Length);
+            foreach (char ch in name)
+                if (!IsSeparator(ch)) plain.Append(ch >= 'A' && ch <= 'Z' ? (char)(ch + 32) : ch);
+            string text = plain.ToString();
+            if (name.StartsWith("agent-", StringComparison.OrdinalIgnoreCase)) return text;
+            var sb = new StringBuilder(text.Length);
+            int i = 0;
+            while (i < text.Length)
+            {
+                if (text[i] < '0' || text[i] > '9')
+                {
+                    sb.Append(text[i++]);
+                    continue;
+                }
+                int start = i;
+                while (i < text.Length && text[i] >= '0' && text[i] <= '9') i++;
+                bool inside = start > 0 && i < text.Length;
+                bool single = i - start == 1 && (start > 0 || i < text.Length);
+                if (inside || single) sb.Append(Unleet(text.Substring(start, i - start), 'i'));
+            }
+            return sb.ToString();
         }
 
         /// <summary>
@@ -560,12 +616,13 @@ namespace McvsOffline.Server.Core.Names
         }
 
         /// <summary>1-3 letters of the word parts become the digits of the leet map, at drawn positions.</summary>
-        private void ApplyLeet(List<string> written, List<PieceKind> kinds, ref ulong state)
+        /// <summary>Turns 1-3 letters of the word parts into digits; never a country code's (L30pard_R0 would read as noise).</summary>
+        private void ApplyLeet(List<string> written, Style style, ref ulong state)
         {
             var positions = new List<int[]>();
             for (int i = 0; i < written.Count; i++)
             {
-                if (kinds[i] != PieceKind.List) continue;
+                if (style.Pieces[i].Kind != PieceKind.List || style.Pieces[i].Value == "country") continue;
                 for (int j = 0; j < written[i].Length; j++)
                 {
                     char lower = char.ToLowerInvariant(written[i][j]);

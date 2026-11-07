@@ -168,8 +168,9 @@ own (`server/Services/Leaderboards/RivalIdentity.cs`, generator `server/Core/Nam
 
 - **Name.** One of 34 styles (word combinations such as `SilentFox` or `silent_fox`, word + 2-4 digits or a year,
   leetspeak `S1lentF0x`, single handles `Nightshift`, clan-like `xXRavenXx`, `The…`, `Mr…`/`iAm…`, `…GG`/`…Prime`,
-  country tags `Raven_FR`, romanised words of more than a dozen languages such as `Kaze`, `Sturm`, `Halcon`,
-  `Kartal`, and a few uncustomised `agent-<9 digits>` like the game's default name) filled from our own word lists: about 183,000
+  country tags `Raven_FR` (only animal, sky and landscape words stand next to a country code, never a person, a weapon
+  or a disaster: no `Bandit_MX`), romanised words of more than a dozen languages such as `Kaze`, `Sturm`, `Halcon`,
+  `Kartal`, and a few uncustomised `agent-<9 digits>` like the game's default name) filled from our own word lists: about 171,000
   distinct names without digits, hundreds of millions with them. No first names, surnames, real people, celebrities,
   streamers, brands or other games' and films' characters. Every name is 3..16 characters of `[A-Za-z0-9_.-]` (the
   game's rename popup takes 16, `popups/PopupChangeName.as` maxChars; the default `agent-<alias>` has 15), a letter or
@@ -180,16 +181,24 @@ own (`server/Services/Leaderboards/RivalIdentity.cs`, generator `server/Core/Nam
   (profanity, slurs, political and hate terms and symbols, celebrities, streamers, brands, franchises), when a part, the
   whole name or the join of two parts spells a `words` entry (short words that harmless words contain, so `Glass`
   stays but `Atlas`+`Sniper` does not), or when a run of digits holds 88, 666, 420, 69, 187, 1312, 911, 007, 1488 or
-  is 14 or 311. content-gen checks every part and every two-part combination of every style (2,147 combinations are
-  refused today); the server checks every name it makes again and draws the next attempt.
+  is 14 or 311. Two harmless words can make a brand, a streamer, a character or slang (`BlueYeti`, `IronWolf`,
+  `SniperWolf`, `HollowKnight`, `RedRocket`, `Spartan117`): those pairs are `substrings` entries too, found by reading
+  the list `content_gen.py --name-pairs FILE` writes (every two-word name, about 100,000). content-gen checks every part
+  and every two-part combination of every style (2,016 combinations are refused today); the server checks every name it
+  makes again and draws the next attempt. No name has one word twice (`PhantomPhantom`): `adj` and `noun` share no word
+  (content-gen refuses one in both) and a draw that repeats a word is drawn again.
 - **Deterministic per player id.** Name, emblem and background are a pure function of the rival's id (FNV-1a 64 over
   `"mcvs-offline/rival-name/v1|v<version>|<id>|<attempt>"` and `".../rival-emblem/v1|<id>"`, xorshift64*, integers
   only). The id is the one the board already gave the slot (`Sha1Hex("mcvs-offline/leaderboard-rival/v1|<board>|<k>")`,
   `season-rival/v1|<board>|<i>`), so the same rival keeps its name and emblem across sessions and on Android and PC,
   also when the number of real players on the board changes (up to build 27 the static rivals' names moved with it).
-- **Unique on a board.** Rivals are named in slot order; each takes the first draw for its id that no real player on
-  the board and no earlier rival has (ignoring case). Only a real player who takes a rival's exact name moves that
-  rival (and a later one that then collides) to another name.
+- **Unique on a board, as a player reads it.** Rivals are named in slot order; each takes the first draw for its id
+  that no real player on the board and no earlier rival has, compared ignoring case and by skeleton
+  (`GamerTags.Skeleton`: lower case, without `_ . -`, a digit inside a word read as its letter, the number at either
+  end left out), so a board never shows `Frost27` beside `frost-27`, `MagneticNova` beside `magnetic_nova` or
+  `blindside_563` beside `blindside_386`. `agent-<9 digits>` names keep their digits (uncustomised players differ only
+  there). Only a real player who takes a rival's name, or one that reads the same, moves that rival (and a later one
+  that then collides) to another name.
 - **Emblem** (`_killSignatureEmblem`) and **background** (`_killSignatureBg`), ids as strings like the game's own posts
   (`GM/LeaderboardsComponent.cs:138-161`): 8 % keep the starting pair (1, 1) as an uncustomised player does, the rest
   draw from the 222 plain profile avatars (`KillsignatureAvatars` rows in `profile/avatars/` with `Unlockable=true`:

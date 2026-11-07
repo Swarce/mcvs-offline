@@ -8,7 +8,10 @@
     "the player's id, so a rival keeps its name; it applies the same limits and blocklist to every name it makes.",
     "Rules for new words: generic gaming, military, animal, colour, weather and sci-fi words; no first names, no surnames, no",
     "real people, no celebrities, streamers or pro players, no brands, no other games' or films' characters, nothing sexual,",
-    "religious, political or about drugs, nothing that insults people. Non-English words romanised to plain ASCII letters."
+    "religious, political or about drugs, nothing that insults people. Non-English words romanised to plain ASCII letters.",
+    "A word goes in adj or in noun, never both (nounNoun makes ShadowWolf). Two harmless words can make a brand, a streamer,",
+    "a character or slang (BlueYeti, SniperWolf, HollowKnight): after adding words, read the list content_gen.py --name-pairs",
+    "writes and put what you find in blocklist.substrings."
   ],
   "version": 1,
   "_limits": "the game's own rename popup takes 16 characters (popups/PopupChangeName.as maxChars) and needs 2 (PlayerProfileComponent MinimalPlayerNameLength); the default name agent-<9 digits> has 15",
@@ -19,9 +22,23 @@
   "minCombinations": 50000,
   "_defaultShare": "per cent of rivals that keep the starting emblem and background (StartingKillSignature Avatar=1, Background=1), as an uncustomised player does",
   "defaultShare": 8,
+  "_roughNouns": [
+    "parts.mascot is the only word list a style may put next to a country code ({country}): animals, sky and landscape words.",
+    "A criminal, a fighter, a weapon or a disaster next to a country reads as a national stereotype (Bandit_MX, Pirate_ID,",
+    "Tsunami_JP); build_names refuses these words in parts.mascot and refuses {country} with any list but mascot and foreign."
+  ],
+  "roughNouns": [
+    "Bandit", "Outlaw", "Pirate", "Raider", "Coyote", "Jackal", "Hyena", "Rogue", "Drifter", "Nomad", "Reaper", "Ghost",
+    "Specter", "Spectre", "Phantom", "Wraith", "Sniper", "Hunter", "Scout", "Striker", "Ranger", "Ronin", "Samurai",
+    "Shogun", "Knight", "Paladin", "Viking", "Spartan", "Warden", "Sentinel", "Guardian", "Jester", "Baron", "Titan",
+    "Warrior", "Soldier", "Commando", "Gunner", "Medic", "Pilot", "Runner", "Racer", "Wanderer", "Rebel", "Marshal",
+    "Sheriff", "Cowboy", "Legend", "Tank", "Blade", "Dagger", "Saber", "Katana", "Arrow", "Bullet", "Trigger", "Hammer",
+    "Spear", "Lance", "Rifle", "Mortar", "Bolt", "Talon", "Fang", "Claw", "Spike", "Cyclone", "Tornado", "Typhoon",
+    "Tsunami", "Inferno", "Volcano", "Blaze", "Smoke", "Plasma", "Laser"
+  ],
   "parts": {
     "adj": [
-      "Silent", "Swift", "Dark", "Grim", "Iron", "Steel", "Frozen", "Burning", "Rapid", "Lethal", "Rogue", "Savage",
+      "Silent", "Swift", "Dark", "Grim", "Iron", "Steel", "Frozen", "Burning", "Rapid", "Lethal", "Savage",
       "Crimson", "Scarlet", "Cobalt", "Golden", "Silver", "Onyx", "Jade", "Amber", "Ivory", "Neon", "Toxic", "Atomic",
       "Cyber", "Hyper", "Ultra", "Turbo", "Nitro", "Static", "Primal", "Feral", "Wild", "Brave", "Bold", "Lucky",
       "Sneaky", "Crazy", "Lazy", "Salty", "Spicy", "Chill", "Cold", "Frosty", "Stormy", "Mystic", "Cosmic", "Lunar",
@@ -29,9 +46,9 @@
       "Sigma", "Elite", "Royal", "Noble", "Ancient", "Eternal", "Hidden", "Masked", "Quick", "Sharp", "Heavy", "Tiny",
       "Little", "Mighty", "Fatal", "Deadly", "Vicious", "Furious", "Angry", "Happy", "Sleepy", "Hungry", "Rusty",
       "Dusty", "Misty", "Smoky", "Blazing", "Electric", "Magnetic", "Quantum", "Digital", "Retro", "Tactical",
-      "Stealth", "Covert", "Rebel", "Red", "Blue", "Grey", "Green", "Purple", "Violet", "Arctic", "Polar", "Shady",
-      "Wicked", "Clever", "Humble", "Mad", "Odd", "Calm", "Fierce", "Glacial", "Radiant", "Phantom", "Spectral",
-      "Thunder", "Rocket", "Shadow", "Night", "Storm", "Fire", "Frost", "Ember", "Nova"
+      "Stealth", "Covert", "Red", "Blue", "Grey", "Green", "Purple", "Violet", "Arctic", "Polar", "Shady",
+      "Wicked", "Clever", "Humble", "Mad", "Odd", "Calm", "Fierce", "Glacial", "Radiant", "Spectral",
+      "Night", "Storm", "Fire"
     ],
     "noun": [
       "Wolf", "Fox", "Hawk", "Falcon", "Eagle", "Raven", "Crow", "Owl", "Viper", "Cobra", "Python", "Mamba", "Adder",
@@ -88,6 +105,14 @@
       "GG", "Pro", "Prime", "Main", "Ace", "One", "X", "Z", "Jr", "Wins", "Plays", "Gaming", "EZ", "OP", "Zero", "Lol",
       "Six", "Two"
     ],
+    "mascot": [
+      "Wolf", "Fox", "Hawk", "Falcon", "Eagle", "Raven", "Owl", "Lynx", "Tiger", "Lion", "Leopard", "Cheetah", "Bear",
+      "Badger", "Otter", "Moose", "Stag", "Bison", "Orca", "Shark", "Dragon", "Phoenix", "Gryphon", "Wyvern", "Yeti",
+      "Penguin", "Puffin", "Panda", "Koala", "Lemur", "Walrus", "Narwhal", "Turtle", "Gecko", "Heron", "Osprey", "Kestrel",
+      "Condor", "Wren", "Finch", "Magpie", "Comet", "Meteor", "Nova", "Nebula", "Quasar", "Pulsar", "Orbit", "Zenith",
+      "Eclipse", "Thunder", "Frost", "Ember", "Glacier", "Summit", "Canyon", "Reef", "Pixel", "Vector", "Echo", "Volt",
+      "Photon", "Lantern", "Compass", "Beacon"
+    ],
     "country": [
       "FR", "DE", "ES", "IT", "PT", "BR", "MX", "AR", "CL", "CO", "PE", "NL", "BE", "SE", "NO", "FI", "DK", "PL", "CZ",
       "GR", "RO", "HU", "TR", "JP", "KR", "PH", "ID", "VN", "TH", "MY", "IN", "UK", "US", "CA", "AU", "NZ", "ZA", "NG",
@@ -96,7 +121,8 @@
   },
   "_styles": [
     "pattern: literal text and {tokens}: the part lists above, d2 (00-99), d3 (100-999), d4 (1000-9999), year, alias (9 digits).",
-    "case: asis (the parts as written), lower, upper, camel (first letter lower). leet: 1-3 letters become digits (a4 e3 i1 o0 s5 t7).",
+    "case: asis (the parts as written), lower, upper, camel (first letter lower). leet: 1-3 letters of the word parts (never a",
+    "country code) become digits (a4 e3 i1 o0 s5 t7).",
     "weight: how often the style is drawn. A name the limits or the blocklist refuse is drawn again (the next attempt)."
   ],
   "styles": [
@@ -124,8 +150,8 @@
     {"id": "theAdjNoun", "pattern": "The{adj}{noun}", "weight": 2},
     {"id": "prefixNoun", "pattern": "{prefix}{noun}", "weight": 3},
     {"id": "nounSuffix", "pattern": "{noun}{suffix}", "weight": 3},
-    {"id": "noun_country", "pattern": "{noun}_{country}", "weight": 3},
-    {"id": "leetNoun_country", "pattern": "{noun}_{country}", "leet": true, "weight": 1},
+    {"id": "mascot_country", "pattern": "{mascot}_{country}", "weight": 3},
+    {"id": "leetMascot_country", "pattern": "{mascot}_{country}", "leet": true, "weight": 1},
     {"id": "foreign", "pattern": "{foreign}{d2}", "weight": 3},
     {"id": "foreign_d3", "pattern": "{foreign}_{d3}", "case": "lower", "weight": 2},
     {"id": "adjForeign", "pattern": "{adj}{foreign}", "weight": 2},
@@ -182,7 +208,13 @@
       "shadowfight", "thewasp", "rocketraccoon", "goldenbear", "smokybear", "smokeybear", "bluebeetle", "redarrow",
       "darkphoenix", "stormshadow", "loneranger", "redbaron", "greyfox", "grayfox", "firefox", "bladerunner", "mrfox",
       "mrwolf", "iamlegend", "therocket", "redranger", "blueranger", "greenranger", "purpleranger", "ravenclaw",
-      "sharktank", "racerx", "bigsmoke", "luckystrike", "blackbolt", "whitefang", "onlyfans", "puta", "merda", "cazzo",
+      "sharktank", "racerx", "bigsmoke", "luckystrike", "blackbolt", "whitefang",
+      "blueyeti", "ironwolf", "irongolem", "redrocket", "sniperwolf", "echofox", "ghostgaming", "novagaming",
+      "steelpanther", "nightranger", "redguardian", "bluefalcon", "spartan117", "reddragon", "nighthawk", "nightwolf",
+      "darkhawk", "silverfox", "crimsonviper", "hollowknight", "stellarblade", "lastguardian", "lastsamurai", "lastronin",
+      "lastknight", "silenthunter", "roguespear", "shadowwarrior", "goldenguardian", "mightyeagle", "angrydragon",
+      "angrypirate", "cptfalcon", "captainfalcon", "ironeagle", "ironbull", "ironpython", "redviper", "redcomet",
+      "madlion", "rocketracer", "soldier76", "kilo141", "onlyfans", "puta", "merda", "cazzo",
       "scheiss", "kurwa", "blyat", "blyad", "pendejo", "joder", "putain", "merde", "salope", "fotze", "arschloch",
       "caralho", "chinga", "verga", "pinche", "cabron", "stronzo", "vaffanculo", "wichser", "pizda", "jebac", "orospu",
       "siktir", "vittu", "helvete", "kanker"

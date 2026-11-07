@@ -18,13 +18,15 @@ namespace McvsOffline.Tests.Content
 {
     /// <summary>
     /// The in-match bot names (setting crm.botNames, <see cref="CrmBotNames"/>): rename cells for the AI table BotNames in
-    /// the CRM mirror the GS installs before each match, a new set of gamer tags each UTC day, from the stock names of the
-    /// player's own data pack.
+    /// the game object the GS fetches and installs before each match (configs/users/me/game), a new set of gamer tags every
+    /// <see cref="CrmBotNames.WindowMinutes"/> minutes that keeps a share of the stock names of the player's own data pack.
+    /// The player's own document carries none and does not change with the window.
     /// </summary>
     public class CrmBotNamesTests
     {
         private const string Mirror = "game._ServerConfig.default._OverrideTables";
         private static readonly DateTime Day1 = new DateTime(2026, 11, 2, 10, 0, 0, DateTimeKind.Utc);
+        private static readonly TimeSpan Window = TimeSpan.FromMinutes(CrmBotNames.WindowMinutes);
 
         private readonly ITestOutputHelper output;
 
@@ -62,62 +64,99 @@ namespace McvsOffline.Tests.Content
             return JsonValue.AsObject(JsonPath.Get(tables, "MCVS_AI.BotNames.Name@Name"));
         }
 
+        /// <summary>200 made-up stock names (no number, no skeleton twice).</summary>
+        private static readonly string[] ManyStock = Enumerable.Range(0, 200)
+            .Select(i => "Stock" + (char)('a' + i / 26 % 26) + (char)('a' + i % 26) + (char)('a' + i / 676)).ToArray();
+
         [Fact]
         public void StockNamesAreTheNameColumnAsStringsOnce()
         {
-            List<string> names = CrmBotNames.ParseStockNames(AiDatabase(new object[] { "Rocky", 1337L, "Rocky", "", null, "Ace" }));
+            List<string> names = CrmBotNames.ParseStockNames(AiDatabase(new object[] { "Rocky", 1337L, "Rocky", "", null, "Ace" }), out HashSet<string> repeated);
             Assert.Equal(new[] { "Rocky", "Ace" }, names);
+            Assert.Equal(new[] { "Rocky" }, repeated);
             Assert.Null(CrmBotNames.ParseStockNames("{\"Other\":{}}"));
             Assert.Null(CrmBotNames.ParseStockNames("not json"));
         }
 
         [Fact]
-        public void EachStockNameGetsADistinctGamerTagThatIsNoStockNameAndANewSetEachDay()
+        public void EachWindowRenamesMostStockNamesWithDistinctGamerTagsThatAreNoStockName()
         {
             GamerTags tags = GamerTags.BuiltIn;
-            var renames = CrmBotNames.Renames(Stock, tags, Day1);
+            var repeated = new HashSet<string> { "Bruno" };
+            var renames = CrmBotNames.Renames(Stock, repeated, tags, Day1);
             var distinctStock = Stock.Distinct(StringComparer.Ordinal).OrderBy(s => s, StringComparer.Ordinal).ToList();
-            Assert.Equal(distinctStock, renames.Select(r => r.Key));
+            // Ordinal order, a subset of the stock names; a name the table has twice is always renamed.
+            Assert.Equal(renames.Select(r => r.Key).OrderBy(k => k, StringComparer.Ordinal), renames.Select(r => r.Key));
+            Assert.All(renames, r => Assert.Contains(r.Key, distinctStock));
+            Assert.Contains(renames, r => r.Key == "Bruno");
             var ours = renames.Select(r => r.Value).ToList();
             Assert.Equal(ours.Count, ours.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+            Assert.Equal(ours.Count, ours.Select(GamerTags.Skeleton).Distinct().Count());
             foreach (string name in ours)
             {
                 Assert.DoesNotContain(name, Stock, StringComparer.OrdinalIgnoreCase);
+                Assert.DoesNotContain(GamerTags.Skeleton(name), Stock.Select(GamerTags.Skeleton));
                 Assert.Null(GamerTags.ShapeProblem(name));
                 Assert.Matches("^[A-Za-z0-9_.-]{3,16}$", name);
                 // CRMTableCell reads a value double.TryParse accepts as a number: the bot list would read null.
                 Assert.False(double.TryParse(name.TrimStart('+', '-', '*'), System.Globalization.NumberStyles.Float,
                                              System.Globalization.CultureInfo.InvariantCulture, out _), name);
             }
-            // The same day gives the same names (both platforms, every request), the next day others.
-            Assert.Equal(renames, CrmBotNames.Renames(Stock.Reverse().ToArray(), tags, Day1.AddHours(13)));
-            var next = CrmBotNames.Renames(Stock, tags, Day1.AddDays(1));
-            Assert.True(next.Zip(renames, (a, b) => a.Value != b.Value).Count(d => d) >= renames.Count - 1);
+            // The same window gives the same names (both platforms, every request), the next window others.
+            Assert.Equal(renames, CrmBotNames.Renames(Stock.Reverse().ToArray(), repeated, tags, Day1.AddMinutes(CrmBotNames.WindowMinutes - 1)));
+            var next = CrmBotNames.Renames(Stock, repeated, tags, Day1 + Window);
+            Assert.Empty(next.Select(r => r.Value).Intersect(ours, StringComparer.OrdinalIgnoreCase).Skip(1));
         }
 
         [Fact]
-        public void TheRenamesGoIntoTheMirrorOnlyAndAnOverlayCellWins()
+        public void APlayersDayMeetsTheStockNamesAndThousandsOfOursNotTheSame291()
         {
-            var content = new CrmContent { BotNames = CrmBotNames.Renames(Stock, GamerTags.BuiltIn, Day1) };
+            // Up to build 28's first cut the whole day had one set: as many names as the table has rows, the stock ones gone.
+            GamerTags tags = GamerTags.BuiltIn;
+            var ours = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var keptEver = new HashSet<string>(StringComparer.Ordinal);
+            int windows = 12;   // two hours of play
+            for (int w = 0; w < windows; w++)
+            {
+                var renames = CrmBotNames.Renames(ManyStock, null, tags, Day1 + TimeSpan.FromTicks(Window.Ticks * w));
+                int kept = ManyStock.Length - renames.Count;
+                Assert.InRange(kept, ManyStock.Length * CrmBotNames.KeepStockPercent / 100 - 25, ManyStock.Length * CrmBotNames.KeepStockPercent / 100 + 25);
+                var renamed = new HashSet<string>(renames.Select(r => r.Key));
+                foreach (string stock in ManyStock) if (!renamed.Contains(stock)) keptEver.Add(stock);
+                foreach (var r in renames) ours.Add(r.Value);
+            }
+            Assert.True(ours.Count >= windows * ManyStock.Length * 6 / 10, ours.Count + " of our names in " + windows + " windows");
+            Assert.True(keptEver.Count >= ManyStock.Length * 9 / 10, keptEver.Count + " stock names came up");
+        }
+
+        [Fact]
+        public void TheRenamesGoIntoTheGameObjectsMirrorOnlyAndAnOverlayCellWins()
+        {
+            var renames = CrmBotNames.Renames(Stock, new HashSet<string> { "Ace", "Bruno" }, GamerTags.BuiltIn, Day1);
             var options = new CrmOptions
             {
                 Overlay = MiniJson.ParseObject("{\"game\":{\"_OverrideTables\":{\"MCVS_AI\":{\"BotNames\":{\"Name@Name\":{\"Ace\":\"OverlayAce\"}}}}}}"),
             };
-            var doc = CrmDocumentBuilder.Build(null, content, options, Log.Null);
-            Assert.Empty(CrmDocumentValidator.Validate(doc));
-            var mirror = Cells(JsonValue.AsObject(JsonPath.Get(doc, Mirror)));
-            Assert.Equal(content.BotNames.Count, mirror.Count);
+            var root = CrmDocumentBuilder.Build(null, new CrmContent(), options, Log.Null);
+            Assert.Empty(CrmDocumentValidator.Validate(root));
+            var doc = new CrmDocument(root, false, null, Day1);
+            string plain = doc.Json;
+            var game = MiniJson.ParseObject(doc.GameJsonWithBotNames("w1", renames));
+            var mirror = Cells(JsonValue.AsObject(JsonPath.Get(game, "_ServerConfig.default._OverrideTables")));
+            Assert.Equal(renames.Count, mirror.Count);
             Assert.Equal("OverlayAce", mirror["Ace"]);
-            Assert.Equal(content.BotNames.First(r => r.Key == "Bruno").Value, mirror["Bruno"]);
+            Assert.Equal(renames.First(r => r.Key == "Bruno").Value, mirror["Bruno"]);
             // game._OverrideTables (the TS's per-player databases) gets only what the overlay put there.
-            Assert.Equal(new[] { "Ace" }, Cells(JsonValue.AsObject(JsonPath.Get(doc, "game._OverrideTables"))).Keys);
-
-            var off = CrmDocumentBuilder.Build(null, new CrmContent(), new CrmOptions(), Log.Null);
-            Assert.Null(Cells(JsonValue.AsObject(JsonPath.Get(off, Mirror))));
+            Assert.Equal(new[] { "Ace" }, Cells(JsonValue.AsObject(JsonPath.Get(game, "_OverrideTables"))).Keys);
+            // The document itself (the player's configs/users/me) is untouched: only the overlay's cell in its mirror.
+            Assert.Equal(plain, MiniJson.Serialize(doc.Root));
+            Assert.Equal(new[] { "Ace" }, Cells(JsonValue.AsObject(JsonPath.Get(doc.Root, Mirror))).Keys);
+            Assert.True(doc.TryGetSelectorJson("game", out string gameJson));
+            Assert.False(Cells(JsonValue.AsObject(JsonPath.Get(MiniJson.ParseObject(gameJson), "_ServerConfig.default._OverrideTables"))).ContainsKey("Bruno"));
         }
 
         [Fact]
-        public void TheServedGameObjectCarriesTodaysRenamesUnlessSwitchedOffOrWithoutADataPack()
+        public void TheServedGameObjectCarriesTheWindowsRenamesAndThePlayersDocumentNeverChanges()
         {
             using var dir = new TempDir();
             string pack = FakePack(dir.Combine("pack"), Stock);
@@ -132,15 +171,22 @@ namespace McvsOffline.Tests.Content
                 var game = ContentTestSupport.JsonObject(ContentTestSupport.Get(server, "/configs/users/me/game"));
                 var cells = Cells(JsonValue.AsObject(JsonPath.Get(game, "_ServerConfig.default._OverrideTables")));
                 Assert.NotNull(cells);
-                Assert.Equal(Stock.Distinct(StringComparer.Ordinal).Count(), cells.Count);
+                // Bruno is in the table twice: always renamed. The rest: about three in four.
+                Assert.Contains("Bruno", cells.Keys);
+                Assert.InRange(cells.Count, 1, Stock.Distinct(StringComparer.Ordinal).Count());
                 Assert.Null(JsonPath.Get(game, "_OverrideTables.MCVS_AI"));
                 var first = cells.ToDictionary(kv => kv.Key, kv => (string)kv.Value);
+                Assert.Equal(CrmBotNames.Renames(Stock, new HashSet<string> { "Bruno" }, GamerTags.BuiltIn, Day1).ToDictionary(r => r.Key, r => r.Value), first);
+                // The player's own document carries no bot names and stays the same text across windows: the TS never
+                // reloads its per-player databases (CRMComponent.CrmConfig compares the text) because of them.
+                string document = ContentTestSupport.Get(server, "/configs/users/me").BodyText;
+                Assert.Null(JsonPath.Get(MiniJson.ParseObject(document), Mirror + ".MCVS_AI"));
 
-                clock.Advance(TimeSpan.FromDays(1));
-                var tomorrow = Cells(JsonValue.AsObject(JsonPath.Get(
+                clock.Advance(Window);
+                var next = Cells(JsonValue.AsObject(JsonPath.Get(
                     ContentTestSupport.JsonObject(ContentTestSupport.Get(server, "/configs/users/me/game")), "_ServerConfig.default._OverrideTables")));
-                Assert.Equal(first.Keys, tomorrow.Keys);
-                Assert.NotEqual(first.Values, tomorrow.Values.Cast<string>());
+                Assert.Empty(next.Values.Cast<string>().Intersect(first.Values, StringComparer.OrdinalIgnoreCase));
+                Assert.Equal(document, ContentTestSupport.Get(server, "/configs/users/me").BodyText);
 
                 server.Context.Settings.Override("crm.botNames", false);
                 var off = ContentTestSupport.JsonObject(ContentTestSupport.Get(server, "/configs/users/me/game"));
@@ -160,11 +206,11 @@ namespace McvsOffline.Tests.Content
         /// <summary>
         /// The player's real data pack and client: the served game object's mirror, as the GS installs it
         /// (CRMComponent.GetChanger on <c>_ServerConfig.default</c>, then Table.ApplyCRMTableChanges on the shipped BotNames
-        /// table), leaves every row a string that <c>LoadBotNames</c> reads (<c>array[0] as string</c>), renames every stock
-        /// name but the second copy of the two duplicated ones, and gives no two rows the same name.
+        /// table), leaves every row a string that <c>LoadBotNames</c> reads (<c>array[0] as string</c>), renames about three
+        /// stock names in four (always the duplicated ones' first rows), and gives no two rows the same name.
         /// </summary>
         [Fact]
-        public void TheRealClientRenamesEveryRealBotName()
+        public void TheRealClientRenamesMostRealBotNamesAndNoRowRepeats()
         {
             RealTables real = RealTables.TryGet(output);
             if (real == null) return;
@@ -176,7 +222,8 @@ namespace McvsOffline.Tests.Content
             }
             using var dir = new TempDir();
             using var server = ContentTestSupport.CreateServer(dir.Combine("data"), packDir);
-            string documentText = ContentTestSupport.Get(server, "/configs/users/me").BodyText;
+            // The GS parses configs/users/me/game as the game object; StandardCrm.Data reads a whole document.
+            string documentText = "{\"game\":" + ContentTestSupport.Get(server, "/configs/users/me/game").BodyText + "}";
             var doc = MiniJson.ParseObject(documentText);
             var cells = Cells(JsonValue.AsObject(JsonPath.Get(doc, Mirror)));
             Assert.NotNull(cells);
@@ -184,7 +231,10 @@ namespace McvsOffline.Tests.Content
             object stockTable = real.NewTable(CrmBotNames.LogicalPath, CrmBotNames.Table);
             List<object> stockColumn = Column(stockTable);
             var stockNames = stockColumn.Cast<string>().ToList();
-            Assert.Equal(stockNames.Distinct(StringComparer.Ordinal).Count(), cells.Count);
+            int distinctStock = stockNames.Distinct(StringComparer.Ordinal).Count();
+            Assert.InRange(cells.Count, distinctStock * (100 - CrmBotNames.KeepStockPercent) / 100 - 30, distinctStock * (100 - CrmBotNames.KeepStockPercent) / 100 + 30);
+            foreach (string twice in stockNames.GroupBy(n => n, StringComparer.Ordinal).Where(g => g.Count() > 1).Select(g => g.Key))
+                Assert.Contains(twice, cells.Keys);
 
             object data = Activator.CreateInstance(real.Type("Gameloft.OnlinePlatform", "Gameloft.OnlinePlatform.StandardCrm+Data"), documentText);
             object game = GameClient.Get(data, "RawGameParameters");
@@ -199,13 +249,13 @@ namespace McvsOffline.Tests.Content
             Assert.All(renamed, n => Assert.IsType<string>(n));
             var ours = new HashSet<string>(cells.Values.Cast<string>(), StringComparer.Ordinal);
             int ourRows = renamed.Count(n => ours.Contains((string)n));
-            int duplicates = stockNames.Count - stockNames.Distinct(StringComparer.Ordinal).Count();
+            int duplicates = stockNames.Count - distinctStock;
             Assert.Equal(cells.Count, ourRows);
-            Assert.Equal(stockNames.Count - duplicates, ourRows);
-            // The rows that keep a stock name are the second copies of the duplicated names: each name is once in the list.
+            // The rows that keep a stock name are the kept ones and the second copies of the duplicated names: each name
+            // is once in the list.
             Assert.Equal(renamed.Count, renamed.Cast<string>().Distinct(StringComparer.OrdinalIgnoreCase).Count());
-            output.WriteLine(stockNames.Count + " rows, " + ourRows + " renamed, " + duplicates + " duplicated stock rows kept; e.g. "
-                             + string.Join(", ", renamed.Take(12)));
+            output.WriteLine(stockNames.Count + " rows, " + ourRows + " renamed, " + (stockNames.Count - ourRows) + " stock rows kept ("
+                             + duplicates + " second copies); e.g. " + string.Join(", ", renamed.Take(12)));
         }
 
         private static List<object> Column(object table)

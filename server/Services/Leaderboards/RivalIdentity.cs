@@ -9,8 +9,8 @@ namespace McvsOffline.Server.Services.Leaderboards
     /// The name, emblem and emblem background a generated rival shows (<see cref="VirtualPlayers"/>,
     /// <see cref="SeasonRivals"/>; docs/LIVEOPS.md "Rival names and emblems"). All three are a pure function of the rival's
     /// id (its board and slot), through <see cref="GamerTags"/>: the same rival keeps them across sessions and on both
-    /// platforms. Names are unique on a board: <see cref="Taken"/> starts with the real players' names, and rivals are named
-    /// in slot order, each taking the first free draw for its id.
+    /// platforms. Names are unique on a board, also as a player reads them (<see cref="GamerTags.Skeleton"/>): <see cref="Taken"/>
+    /// starts with the real players' names, and rivals are named in slot order, each taking the first free draw for its id.
     /// <para>
     /// The client builds a row's badge from <c>_killSignatureEmblem</c>, <c>_killSignatureBg</c> and <c>_level</c>, and falls
     /// back to the viewer's own emblem and background when the fields are missing (GM/LeaderboardsComponent.cs
@@ -27,13 +27,16 @@ namespace McvsOffline.Server.Services.Leaderboards
         /// <summary>Hash scope of rival emblems and backgrounds.</summary>
         public const string EmblemScope = "mcvs-offline/rival-emblem/v1";
 
-        /// <summary>The names already on a board (the real players'), compared as a player reads them (ignoring case).</summary>
+        /// <summary>
+        /// The names already on a board (the real players'), compared as a player reads them: ignoring case, and by
+        /// <see cref="GamerTags.Skeleton"/> (no rival is "Frost27" beside a player "frost-27").
+        /// </summary>
         public static HashSet<string> Taken(IEnumerable<string> realNames)
         {
             var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (realNames != null)
                 foreach (string name in realNames)
-                    if (!string.IsNullOrEmpty(name)) taken.Add(name);
+                    GamerTags.Reserve(taken, name);   // a second real player with the same skeleton is blocked by the first's
             return taken;
         }
 

@@ -13,6 +13,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -580,11 +581,21 @@ class GeneratorTests(unittest.TestCase):
         refused(lambda t: t["limits"].update({"max": 17}), "limits")
         refused(lambda t: t.update({"minCombinations": 10 ** 9}), "fewer than minCombinations")
         refused(lambda t: t["blocklist"]["words"].append("Ass"), "blocklist.words")
+        # A word in both adj and noun (ShadowShadow); a person, weapon or disaster next to a country code (Bandit_MX).
+        refused(lambda t: t["parts"]["adj"].append("Shadow"), "parts.adj and parts.noun share shadow")
+        refused(lambda t: t["parts"]["mascot"].append("Bandit"), "'Bandit' is in roughNouns")
+        refused(lambda t: t["styles"].append({"id": "x", "pattern": "{noun}_{country}"}), "puts {country} next to {noun}")
+        refused(lambda t: t["styles"].append({"id": "x", "pattern": "{adj}{mascot}_{country}"}), "puts {country} next to {adj}")
 
     def test_names_blocklist_and_shape(self):
         block = cg.NameBlocklist(self.names_tuning()["blocklist"])
         for pieces in (["Sh1tStorm"], ["N_A_Z_I"], ["Wolf", "455"], ["Atlas", "Sniper"], ["Fox", "88"], ["Ranger", "14"],
-                       ["Ninja", "07"]):
+                       ["Ninja", "07"],
+                       # brands, streamers, other games' characters and slang made of two harmless words
+                       ["Sniper", "Wolf"], ["Iron", "Wolf"], ["1r0n", "W0lf"], ["Blue", "Falcon"], ["Echo", "Fox"],
+                       ["Spartan", "117"], ["Blue", "Yeti"], ["blu3", "_", "y3t1"], ["Red", "Rocket"], ["Iron", "Golem"],
+                       ["Ghost", "Gaming"], ["Nova", "Gaming"], ["Steel", "Panther"], ["Night", "Ranger"],
+                       ["The", "Red", "Guardian"], ["Hollow", "Knight"], ["Soldier", "76"], ["Cpt", "Falcon"]):
             self.assertIsNotNone(block.problem(pieces), pieces)
         for pieces in (["Silent", "Fox"], ["Ranger", "1448"], ["Glass", "Cannon"]):
             self.assertIsNone(block.problem(pieces), pieces)
@@ -593,6 +604,19 @@ class GeneratorTests(unittest.TestCase):
             self.assertIsNotNone(cg.name_shape_problem(bad, limits), bad)
         for good in ("SilentFox", "silent_fox", "xXRavenXx", "agent-123456789", "fox.ace"):
             self.assertIsNone(cg.name_shape_problem(good, limits), good)
+
+    def test_names_never_repeat_a_word_or_put_a_rough_noun_next_to_a_country(self):
+        tuning = self.names_tuning()
+        names = self.outputs()["names.json"]
+        self.assertGreater(names["summary"]["repeatedCombinations"], 0)  # nounNoun Wolf+Wolf: skipped, as the server does
+        self.assertFalse(set(w.lower() for w in tuning["parts"]["adj"]) & set(w.lower() for w in tuning["parts"]["noun"]))
+        for style in names["styles"]:
+            if "{country}" in style["pattern"]:
+                self.assertFalse(re.findall(r"\{(noun|adj|handle|short|prefix|suffix)\}", style["pattern"]), style)
+        pairs = cg.name_pairs(tuning)
+        self.assertNotIn("wolfwolf", pairs)
+        self.assertNotIn("sniperwolf", pairs)
+        self.assertIn("silentfox", pairs)
 
     def test_check_mode_reports_stale_files(self):
         out_dir = os.path.join(self.tmp, "out")

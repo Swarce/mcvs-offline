@@ -1636,7 +1636,9 @@ def check_collector_rewards(liveops, collector):
 
 # names.json (docs/LIVEOPS.md "Rival names and emblems"): the gamer tags of the leaderboard rivals and the in-match bots.
 # The server (server/Core/Names/GamerTags.cs) applies the same rules to every name it makes; these constants mirror it.
-NAME_LISTS = ("adj", "noun", "handle", "short", "foreign", "prefix", "suffix", "country")
+NAME_LISTS = ("adj", "noun", "handle", "short", "foreign", "prefix", "suffix", "mascot", "country")
+# The only lists a style may put next to a {country} token (names_tuning.json _roughNouns).
+NAME_COUNTRY_LISTS = ("mascot", "foreign", "country")
 # Number tokens: length in digits (the {year} token takes the tuning's years).
 NAME_NUMBERS = {"d2": 2, "d3": 3, "d4": 4, "year": 4, "alias": 9}
 NAME_CASES = ("asis", "lower", "upper", "camel")
@@ -1863,6 +1865,17 @@ def _checked_names(tuning_text):
             if problem:
                 raise ContentError("names: parts.%s: '%s' is refused by the blocklist (%s)" % (key, w, problem))
         parts[key] = list(words)
+    # A word in both adj and noun makes names like ShadowShadow and twice the same skeleton; nounNoun already makes the pairs.
+    both = sorted(set(w.lower() for w in parts["adj"]) & set(w.lower() for w in parts["noun"]))
+    if both:
+        raise ContentError("names: parts.adj and parts.noun share %s (keep each word in one of them)" % ", ".join(both))
+    rough = tuning.get("roughNouns")
+    if not isinstance(rough, list) or not rough or not all(isinstance(w, str) and NAME_PART.match(w) for w in rough):
+        raise ContentError("names: roughNouns must be a non-empty list of words")
+    rough_set = set(w.lower() for w in rough)
+    for w in parts["mascot"]:
+        if w.lower() in rough_set:
+            raise ContentError("names: parts.mascot: '%s' is in roughNouns (a person, a weapon or a disaster next to a country code)" % w)
 
     raw_styles = tuning.get("styles")
     if not isinstance(raw_styles, list) or not raw_styles:
@@ -1871,6 +1884,10 @@ def _checked_names(tuning_text):
     parsed = []
     for i, s in enumerate(raw_styles):
         style, pieces = parse_name_style(s, "names: styles[%d]" % i, parts)
+        used = set(v for kind, v in pieces if kind == "list")
+        if "country" in used and not used <= set(NAME_COUNTRY_LISTS):
+            raise ContentError("names: style %s puts {country} next to {%s} (only %s may stand next to a country code)"
+                               % (style["id"], ", ".join(sorted(used - set(NAME_COUNTRY_LISTS))), ", ".join(NAME_COUNTRY_LISTS[:2])))
         if any(style["id"] == other["id"] for other in styles):
             raise ContentError("names: style id %s twice" % style["id"])
         styles.append(style)
@@ -1882,6 +1899,7 @@ def _checked_names(tuning_text):
     estimated = 0
     blocked = 0
     too_long = 0
+    repeated = 0
     for style, pieces in parsed:
         lists = [parts[v] for kind, v in pieces if kind == "list"]
         numbers = 1
@@ -1891,6 +1909,9 @@ def _checked_names(tuning_text):
         valid = 0
         checked_shape = False
         for combo in _product(lists):
+            if len(combo) > 1 and len(set(w.lower() for w in combo)) < len(combo):
+                repeated += 1  # the server draws again (GamerTags.Name): PhantomPhantom, NovaNova
+                continue
             words = iter(combo)
             written = []
             for kind, v in pieces:
@@ -1937,8 +1958,28 @@ def _checked_names(tuning_text):
                       "digitRuns": sorted(blocklist.digit_runs)},
         "emblems": None,
         "summary": {"styles": len(styles), "wordNames": len(distinct), "estimatedNames": estimated,
-                    "blockedCombinations": blocked, "tooLongCombinations": too_long},
+                    "blockedCombinations": blocked, "tooLongCombinations": too_long,
+                    "repeatedCombinations": repeated},
     }
+
+
+def name_pairs(tuning):
+    """Every distinct word-only name of the styles that join two or more word lists (AdjNoun, NounNoun, ShortNoun...),
+    lower case without separators, after the blocklist: the list a person reads once for brands, characters and slang
+    the blocklist does not know yet (``--name-pairs``)."""
+    checked = _checked_names(json.dumps(tuning, sort_keys=True))
+    blocklist = NameBlocklist(tuning["blocklist"])
+    out = set()
+    for raw in tuning["styles"]:
+        style, pieces = parse_name_style(raw, "names: style", checked["parts"])
+        if sum(1 for kind, _ in pieces if kind == "list") < 2 or any(kind == "number" for kind, _ in pieces):
+            continue
+        lists = [checked["parts"][v] for kind, v in pieces if kind == "list"]
+        for combo in _product(lists):
+            if len(set(w.lower() for w in combo)) < len(combo) or blocklist.problem(list(combo)):
+                continue
+            out.add("".join(combo).lower())
+    return sorted(out)
 
 
 def _product(lists):
@@ -2130,7 +2171,20 @@ def main(argv=None):
     parser.add_argument("--names", default=os.path.join(here, "names_tuning.json"))
     parser.add_argument("--out", default=os.path.join(repo, "server", "Content"))
     parser.add_argument("--check", action="store_true", help="only verify that --out is up to date")
+    parser.add_argument("--name-pairs", metavar="FILE",
+                        help="only write every two-word gamer tag (one per line) to FILE, for a person to read")
     args = parser.parse_args(argv)
+
+    if args.name_pairs:
+        try:
+            pairs = name_pairs(load_json(args.names))
+        except (ContentError, KeyError, ValueError, OSError) as e:
+            print("content-gen: error: %s" % e, file=sys.stderr)
+            return 2
+        with open(args.name_pairs, "w", encoding="utf-8", newline="\n") as f:
+            f.write("\n".join(pairs) + "\n")
+        print("content-gen: wrote %d two-word names to %s" % (len(pairs), args.name_pairs))
+        return 0
 
     try:
         outputs = generate(args.decoded, args.pricing, args.liveops, args.collector, names_path=args.names)

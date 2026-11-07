@@ -120,6 +120,14 @@ namespace McvsOffline.Tests.Misc
             List<Dictionary<string, object>> after = Rows(s, alice);
             Assert.Equal(after.Count, after.Select(r => (string)r["display_name"]).Distinct(StringComparer.OrdinalIgnoreCase).Count());
             Assert.Single(after, r => string.Equals((string)r["display_name"], taken, StringComparison.OrdinalIgnoreCase));
+
+            // A third takes a rival's name with a number after it: no rival keeps a name that reads the same (Frost27 / frost-27).
+            string plain = (string)rivals.Skip(40).First(r => !((string)r["display_name"]).Any(char.IsDigit))["display_name"];
+            TestPlayer carol = s.NewPlayer("carol");
+            PostScore(s, carol, 130, plain.ToLowerInvariant() + "77");
+            List<Dictionary<string, object>> third = Rows(s, alice);
+            Assert.Single(third, r => GamerTags.Skeleton((string)r["display_name"]) == GamerTags.Skeleton(plain));
+            Assert.Equal(third.Count, third.Select(r => GamerTags.Skeleton((string)r["display_name"])).Distinct().Count());
             // Rivals are named in slot order: the slots before the one that lost its name keep theirs.
             var names = after.Where(r => r.ContainsKey("_mcvs_bot")).ToDictionary(r => (string)r["credential"], r => (string)r["display_name"]);
             int kept = rivals.Count(r => names.TryGetValue((string)r["credential"], out string n) && n == (string)r["display_name"]);
@@ -196,6 +204,71 @@ namespace McvsOffline.Tests.Misc
         }
 
         [Fact]
+        public void NoBoardShowsTwoRivalsThatReadAsTheSamePlayer()
+        {
+            // Build 28's first cut: about one 99-row board in 16 had a pair like Frost27 / frost-27, MagneticNova /
+            // magnetic_nova or blindside_563 / blindside_386.
+            for (int b = 0; b < 300; b++)
+            {
+                var rivals = VirtualPlayers.Generate("desc/board-" + b.ToString(CultureInfo.InvariantCulture), 99, 400);
+                var skeletons = new Dictionary<string, string>();
+                foreach (var r in rivals)
+                {
+                    string name = (string)r["display_name"];
+                    string skeleton = GamerTags.Skeleton(name);
+                    Assert.False(skeletons.TryGetValue(skeleton, out string other), "board " + b + ": " + name + " beside " + other);
+                    skeletons[skeleton] = name;
+                }
+            }
+        }
+
+        [Fact]
+        public void ASkeletonIsTheNameAsAPlayerTellsTwoNamesApart()
+        {
+            Assert.Equal("frost", GamerTags.Skeleton("Frost27"));
+            Assert.Equal("frost", GamerTags.Skeleton("frost-27"));
+            Assert.Equal(GamerTags.Skeleton("blindside_563"), GamerTags.Skeleton("blindside_386"));
+            Assert.Equal(GamerTags.Skeleton("MagneticNova"), GamerTags.Skeleton("magnetic_nova"));
+            Assert.Equal(GamerTags.Skeleton("DarkStag"), GamerTags.Skeleton("dark.stag"));
+            Assert.Equal("tacticalleopard", GamerTags.Skeleton("7ac7icalLeop4rd"));
+            Assert.Equal("bravokr", GamerTags.Skeleton("Brav0_KR"));
+            Assert.Equal("lionca", GamerTags.Skeleton("L10n_CA"));
+            Assert.NotEqual(GamerTags.Skeleton("agent-123456789"), GamerTags.Skeleton("agent-987654321"));
+            Assert.NotEqual(GamerTags.Skeleton("FrostGG"), GamerTags.Skeleton("Frost27"));
+            var taken = RivalIdentity.Taken(new[] { "Frost27" });
+            Assert.False(GamerTags.Reserve(taken, "frost-99"));
+            Assert.False(GamerTags.Reserve(taken, "FROST27"));
+            Assert.True(GamerTags.Reserve(taken, "FrostByte"));
+            Assert.False(GamerTags.Reserve(taken, "frostbyte"));
+        }
+
+        [Fact]
+        public void NoNameDrawsOneWordTwiceOrPutsACriminalNextToACountry()
+        {
+            GamerTags tags = GamerTags.BuiltIn;
+            var doubled = new HashSet<string>(new[] { "adj", "noun", "handle", "short", "foreign", "mascot" }
+                .SelectMany(l => tags.Part(l)).Select(w => w.ToLowerInvariant() + w.ToLowerInvariant()));
+            // The adj and noun lists share no word (ShadowShadow came from both); nounNoun draws again on the same noun.
+            Assert.Empty(tags.Part("adj").Intersect(tags.Part("noun"), StringComparer.OrdinalIgnoreCase));
+            string[] rough = { "bandit", "outlaw", "pirate", "raider", "coyote", "jackal", "gunner", "commando", "sniper", "tsunami" };
+            Assert.Empty(tags.Part("mascot").Select(w => w.ToLowerInvariant()).Intersect(rough));
+            var country = new Regex("^(.+)_([A-Z][A-Z0-9]|[0-9][A-Z])$");
+            int countries = 0;
+            for (int i = 0; i < 100000; i++)
+            {
+                string name = tags.Name(RivalIdentity.NameScope, "pair-" + i.ToString(CultureInfo.InvariantCulture), 0);
+                if (name == null) continue;
+                Assert.DoesNotContain(Readable(name), doubled);
+                Match m = country.Match(name);
+                if (!m.Success) continue;
+                countries++;
+                Assert.DoesNotContain(Readable(m.Groups[1].Value), rough);
+                Assert.Matches("^[A-Z]{2}$", m.Groups[2].Value);   // leet never touches the code (no L30pard_R0)
+            }
+            Assert.True(countries > 1000, countries + " country tags");
+        }
+
+        [Fact]
         public void TheShapeRuleRefusesWhatTheClientCannotShowOrReadsAsANumber()
         {
             foreach (string bad in new[] { "1337", "-42", "+7", "*3", "1e5", "NaN", "Infinity", "_Fox", "Fox_", "Fo__x", "Fo.-x", "A<b>c", "Fox&Co",
@@ -216,6 +289,16 @@ namespace McvsOffline.Tests.Misc
             Assert.NotNull(tags.BlockedReason(new[] { "Fox", "88" }));
             Assert.NotNull(tags.BlockedReason(new[] { "Ranger", "14" }));
             Assert.NotNull(tags.BlockedReason(new[] { "Ninja", "07" }));     // a streamer's name
+            // Brands, streamers, other games' characters and slang that two harmless words make.
+            foreach (string[] pieces in new[]
+                     {
+                         new[] { "Sniper", "Wolf" }, new[] { "Iron", "Wolf" }, new[] { "1r0n", "W0lf" }, new[] { "Blue", "Falcon" },
+                         new[] { "Echo", "Fox" }, new[] { "Spartan", "117" }, new[] { "Blue", "Yeti" }, new[] { "blu3_", "y3t1" },
+                         new[] { "Red", "Rocket" }, new[] { "Iron", "Golem" }, new[] { "Ghost", "Gaming" }, new[] { "Nova", "Gaming" },
+                         new[] { "Steel", "Panther" }, new[] { "Night", "Ranger" }, new[] { "The", "Red", "Guardian" },
+                         new[] { "Hollow", "Knight" }, new[] { "Soldier", "76" }, new[] { "Cpt", "Falcon" }, new[] { "Stellar", "Blade" },
+                     })
+                Assert.NotNull(tags.BlockedReason(pieces));
             Assert.Null(tags.BlockedReason(new[] { "Silent", "Fox" }));
             Assert.Null(tags.BlockedReason(new[] { "Ranger", "1448" }));
             Assert.Null(tags.BlockedReason(new[] { "Glass", "Cannon" }));    // 'ass' inside one harmless part
@@ -258,17 +341,18 @@ namespace McvsOffline.Tests.Misc
 
             Assert.Same(GamerTags.BuiltIn, GamerTags.For(provider, logger.For("test")));
 
-            // A valid override with one style and two words: every name comes from it.
+            // A valid override with one style and a few words: every name comes from it (5 x 6 word pairs: names on a board
+            // also differ without their numbers).
             var doc = MiniJson.ParseObject(File.ReadAllText(Path.Combine(ContentTestSupport.RepoRoot, "server", "Content", "names.json")));
             var parts = (Dictionary<string, object>)doc["parts"];
-            parts["adj"] = new List<object> { "Plaid" };
-            parts["noun"] = new List<object> { "Walrus", "Narwhal" };
+            parts["adj"] = new List<object> { "Plaid", "Suede", "Velvet", "Denim", "Linen" };
+            parts["noun"] = new List<object> { "Walrus", "Narwhal", "Puffin", "Lemur", "Gecko", "Heron" };
             doc["styles"] = new List<object> { MiniJson.ParseObject("{\"id\":\"only\",\"pattern\":\"{adj}{noun}{d2}\",\"weight\":1}") };
             File.WriteAllText(Path.Combine(contentDir, GamerTags.FileName), MiniJson.Serialize(doc));
             GamerTags custom = GamerTags.For(provider, logger.For("test"));
             Assert.Equal(GamerTags.FileName, custom.Source);
             var rivals = VirtualPlayers.Generate("desc/custom", 20, 400, custom, null);
-            Assert.All(rivals, r => Assert.Matches("^Plaid(Walrus|Narwhal)[0-9]{2}$", (string)r["display_name"]));
+            Assert.All(rivals, r => Assert.Matches("^(Plaid|Suede|Velvet|Denim|Linen)(Walrus|Narwhal|Puffin|Lemur|Gecko|Heron)[0-9]{2}$", (string)r["display_name"]));
 
             // Emblem ids outside the client's tables: refused, logged, the built-in file used.
             doc["emblems"] = MiniJson.ParseObject("{\"avatars\":\"0-3\",\"backgrounds\":\"1-35\"}");

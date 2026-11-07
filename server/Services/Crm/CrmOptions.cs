@@ -106,8 +106,8 @@ namespace McvsOffline.Server.Services.Crm
         public bool OmitOwnedSignatures { get; set; }
 
         /// <summary>
-        /// Rename the in-match bots with our gamer tags (<c>crm.botNames</c>, <see cref="CrmBotNames"/>): the mirror carries
-        /// a rename cell per stock bot name. Off: no cell, the game's names (from the next start: the game keeps the last
+        /// Rename the in-match bots with our gamer tags (<c>crm.botNames</c>, <see cref="CrmBotNames"/>): the game object
+        /// the GS fetches (<c>configs/users/me/game</c>) carries a rename cell per renamed stock bot name. Off: no cell, the game's names (from the next start: the game keeps the last
         /// renames it installed until it restarts).
         /// </summary>
         public bool BotNames { get; set; }

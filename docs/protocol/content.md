@@ -98,27 +98,39 @@ Built by `CrmDocumentBuilder`, layers in order (last wins):
 7. `game._OverrideTables` is pruned (empty changers, keys without exactly one `@`, non-scalar cells) and **mirrored**
    into `_ServerConfig.default._OverrideTables`: the TS applies the former, the GS applies the latter and forwards it to
    clients in its handshake (report 04 §4.2, `GM/GameplayCRMComponent.cs:119-203`).
-7b. **Bot names** (`crm.botNames`, default true, build 28; `CrmBotNames`): the mirror only gets one SET cell per stock
-   bot name, `MCVS_AI.BotNames["Name@Name"][<stock name>] = <gamer tag>`. The client names its bots from column 0 of the
-   AI table `BotNames` (293 rows, 291 distinct in 1.17.32, the same on Android and Steam), read from the global database
-   every time a match level loads (`GM/MultiplayerComponent.cs:600-629` LoadBotNames/GetNextAvailableBotName, drawn
-   without replacement, two names per bot); the GS installs the mirror on that global database before the match level
-   loads (`GM/GameplayCRMComponent.cs` InitGameplayCrmSettingsAsync → RefreshDatabases), so every Battle and automatch
-   shows our names from the first match on. A changer only edits rows it finds by value (`EN/Database.cs:143-195`), so
-   the keys are the player's own stock names, read at run time from `Design/MCVS_AI.xlsx` of their data pack (host
-   pack, `crm.dataPackDir`, `<data>/../Data`; retried every minute while missing) and never shipped. The names come from
-   `GamerTags` (the generator of the leaderboard rivals, [../LIVEOPS.md](../LIVEOPS.md) §5.1) with scope
-   `mcvs-offline/bot-name/v1` and id `<UTC day>|<slot>` (slots = the stock names in ordinal order): a new set every UTC
-   day, the same on both platforms, so thousands of names appear over time. None equals a stock name ignoring case (a
-   later cell of the same changer would rename a renamed row), none repeats (the client appends `(n)` to duplicates),
-   none reads as a number (`CRMTableCell` turns such text into a double, which `array[0] as string` reads as null).
-   The second copy of the two duplicated stock names keeps its name (one key renames the first row only). An overlay
-   cell on the same key wins (in `game._OverrideTables` or the explicit mirror). Without a data pack, or with the setting
-   off, nothing is sent and the bots keep the game's names; the game keeps the last renames it installed until it
-   restarts. Limits: an offline bot match in the client's own World (the hidden SOLO tile) before the first GS match of
-   the process still shows the game's names (only GS Worlds install the mirror); bot emblems were already random per
-   bot; bot levels and leagues come from the profile template and are not changed. Cost: the GS reloads the 76 KB
-   table once per match when the day's changer is installed.
+7b. **Bot names** (`crm.botNames`, default true, build 28; `CrmBotNames`): not in the document itself. Only the answer
+   to `configs/users/me/game` (the game object every GS World fetches when it is created,
+   `EN/CRMServerSettingsComponent.cs:64-75,100-130`) gets one SET cell per renamed stock bot name in its mirror,
+   `_ServerConfig.default._OverrideTables.MCVS_AI.BotNames["Name@Name"][<stock name>] = <gamer tag>`
+   (`CrmDocumentCache.GameSelectorJson`, `CrmDocument.GameJsonWithBotNames`). The client names its bots from column 0
+   of the AI table `BotNames` (293 rows, 291 distinct in 1.17.32, the same on Android and Steam), read from the global
+   database every time a match level loads (`GM/MultiplayerComponent.cs:600-629` LoadBotNames/GetNextAvailableBotName,
+   drawn without replacement, two names per bot); the GS installs the mirror of the game object it fetched on that
+   global database before the match level loads (`GM/GameplayCRMComponent.cs` InitGameplayCrmSettingsAsync →
+   RefreshDatabases; `GM/GameServerComponent.cs:1191-1194` awaits it), so every Battle and automatch shows our names
+   from the first match on. A changer only edits rows it finds by value (`EN/Database.cs:143-195`), so one match never
+   has more names than the table has rows; the pool grows across matches instead. The keys are the player's own stock
+   names, read at run time from `Design/MCVS_AI.xlsx` of their data pack (host pack, `crm.dataPackDir`,
+   `<data>/../Data`; read when the document is built, retried every minute while missing) and never shipped.
+   **Window.** Every `CrmBotNames.WindowMinutes` (10) minutes, about one match, a new window keeps
+   `KeepStockPercent` (25 %) of the stock names, drawn per window, so the game's own names still come up, and renames
+   the rest with names from `GamerTags` (the generator of the leaderboard rivals, [../LIVEOPS.md](../LIVEOPS.md) §5.1),
+   scope `mcvs-offline/bot-name/v1`, id `<window>|<slot>` (slots = the stock names in ordinal order), the same on both
+   platforms: two hours of play meet about 2,600 of our names and nearly all 291 stock names (build 28's first cut had
+   one set per UTC day: 291 names a day, the stock ones gone). The player's own document (`configs/users/me`) carries
+   no bot names and does not change with the window: the TS refetches it after every profile save, and a changed text
+   would make `CRMComponent.CrmConfig` reload its per-player databases (`StandardCrm.Data` compares the text). None of
+   ours equals a stock name ignoring case or by skeleton (a later cell of the same changer would rename a renamed row),
+   none repeats or reads like another (the client appends `(n)` to duplicates), none reads as a number (`CRMTableCell`
+   turns such text into a double, which `array[0] as string` reads as null). A stock name that is in the table twice
+   is always renamed (one key renames the first row only, the second keeps the stock name), so no window has a name
+   twice. An overlay cell on the same key wins (in `game._OverrideTables` or the explicit mirror). Without a data pack,
+   or with the setting off, nothing is sent and the bots keep the game's names; the game keeps the last renames it
+   installed until it restarts. Limits: an offline bot match in the client's own World (the hidden SOLO tile) before
+   the first GS match of the process still shows the game's names (only GS Worlds install the mirror); bot emblems were
+   already random per bot; bot levels and leagues come from the profile template and are not changed. Cost: the GS
+   reloads the 76 KB table when it installs a new window's changer (about once per match); the server builds one game
+   object per window (cached).
 8. Ad pointcut actions (`show_ad*`) of the preconfiguration are dropped (`crm.keepAdPointcuts`), `crm.pointcutActions`
    appended after validation.
 
@@ -161,8 +173,7 @@ start), `source`, `dumpChars` (or `dump: "missing"`), `parts` (`avatars`, `backg
 
 **Cross-module.** `CrmDocumentCache` is registered in `context.Features` (other modules may read the current document;
 no events are published). The cache key includes `LiveOpsSnapshot.Key` (settings, content hash, season, day,
-announcement, modifier), the inbox item (week, marker URL, on/off) and the bot names (UTC day, stock names' hash,
-`names.json` hash, or off / no data pack), so the document is rebuilt once per schedule step
+announcement, modifier) and the inbox item (week, marker URL, on/off), so the document is rebuilt once per schedule step
 (or when the admin module's portal appears or the port changes), never per request. The admin module registers after
 the CRM module, so while `crm.newsfeedLink` is on the warm-up waits up to 2 s for `IAdminPortal` before it builds;
 requests never wait for it.
@@ -185,12 +196,13 @@ Generated by `tools/content-gen` (`build_names`, from `names_tuning.json` and `D
 `GamerTags` for the leaderboard rivals and the bot names (overridable in `<data>/content/`; a broken override is
 logged and the built-in file used). `format`, `version` (part of every hash: bumping it renames everyone), `limits`
 (3..16), `years`, `defaultShare` (8 % of rivals keep emblem 1 and background 1), the word lists `parts` (`adj`, `noun`,
-`handle`, `short`, `foreign`, `prefix`, `suffix`, `country`; our own words), `styles` (`id`, `pattern` with `{list}`
+`handle`, `short`, `foreign`, `prefix`, `suffix`, `mascot` (the only words a style puts next to a `country` code),
+`country`; our own words), `styles` (`id`, `pattern` with `{list}`
 and `{d2}` `{d3}` `{d4}` `{year}` `{alias}` tokens, `case` asis/lower/upper/camel, `leet`, `weight`), `leet`, the
 `blocklist` (`substrings`, `words`, `digits`, `digitRuns`), `emblems` (`avatars` 1-6,9-224 and `backgrounds` 1-35 as id
 ranges: the `KillsignatureAvatars` rows in `profile/avatars/` named `avatar<n>.png` with `Unlockable=true` whose image
 is in the pack and that the collector does not mark Kayac or reserved; every displayed background) and a `summary`
-(183k word-only names, 2,147 refused two-part combinations). Ids only from the game's tables; no game text.
+(171k word-only names, 2,016 refused and 215 one-word-twice two-part combinations). Ids only from the game's tables; no game text.
 
 ## Matchmaker lobbyconfigs
 
