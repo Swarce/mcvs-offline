@@ -337,6 +337,59 @@ namespace McvsOffline.Tests.Misc
         }
 
         [Fact]
+        public void NoTwoCuratedNamesAreOneLetterApartOrTheSameJokeTwice()
+        {
+            // Build 29's first list held Sheesh / Sheeesh / Sheeeesh, Scooby Snack / Scooby Snacks, Happy Accident /
+            // Happy Accidents and more: two of them in one bot window or board read as one name copied. Skeletons of 5
+            // letters or more one letter apart are only kept when names_tuning.json curatedNear lists them as two jokes.
+            GamerTags tags = GamerTags.BuiltIn;
+            var tuning = MiniJson.ParseObject(File.ReadAllText(Path.Combine(ContentTestSupport.RepoRoot, "tools", "content-gen", "names_tuning.json")));
+            var allowed = new HashSet<string>();
+            foreach (object pair in (List<object>)tuning["curatedNear"])
+            {
+                var two = ((List<object>)pair).Cast<string>().OrderBy(n => n, StringComparer.Ordinal).ToArray();
+                allowed.Add(two[0] + "|" + two[1]);
+            }
+            Assert.NotEmpty(allowed);
+            var near = new List<string>();
+            string[] curated = tags.Curated;
+            string[] skeletons = curated.Select(GamerTags.Skeleton).ToArray();
+            for (int i = 0; i < curated.Length; i++)
+            {
+                if (skeletons[i].Length < 5) continue;
+                for (int j = i + 1; j < curated.Length; j++)
+                {
+                    if (skeletons[j].Length < 5 || !OneLetterApart(skeletons[i], skeletons[j])) continue;
+                    var two = new[] { curated[i], curated[j] }.OrderBy(n => n, StringComparer.Ordinal).ToArray();
+                    if (!allowed.Contains(two[0] + "|" + two[1])) near.Add(curated[i] + " / " + curated[j]);
+                }
+            }
+            Assert.Empty(near);
+            // The review's list: a Thai obscenity, blocked words inside one word, innuendo, politics, people better known
+            // for a misconduct case, and one joke written twice.
+            foreach (string gone in new[] { "Kuy", "Kusoge", "Sextou", "Shiitake Happens", "Gherkin Jerkin", "Nagibator228", "Down Bad 0-7",
+                                            "Krispy Kremlin", "Elon Musgo", "Ich Bin Ein Bot", "Neuland", "DrDisrespect", "Dr Disrespawn",
+                                            "The Two Time", "Snipe Tyson", "Conor McGrenade", "xQc", "Clix", "Ali-A", "SurprisedPikachu",
+                                            "ZoroIsLost", "UnoReverseCard", "RGBForFPS", "RGB Gives FPS", "Press F to Pay", "F to Pay Respect",
+                                            "F in Chat", "Arrow to Knee", "CakeWasALie", "Half Life 3", "HalfLife3Soon", "I Am Inevitable",
+                                            "NarutoRunner", "HighNoon", "Nanomachines", "Is Mayo An Inst", "No This Is", "Peace Was Never",
+                                            "Hey Vsauce", "Ight Imma Head", "CJ Follow Train", "skrt", "skskskk" })
+                Assert.DoesNotContain(gone, curated);
+        }
+
+        /// <summary>True when <paramref name="a"/> and <paramref name="b"/> differ by one letter changed, added or left out.</summary>
+        private static bool OneLetterApart(string a, string b)
+        {
+            if (a == b || Math.Abs(a.Length - b.Length) > 1) return false;
+            if (a.Length > b.Length) { string t = a; a = b; b = t; }
+            int i = 0;
+            while (i < a.Length && a[i] == b[i]) i++;
+            return a.Length == b.Length
+                ? string.CompareOrdinal(a, i + 1, b, i + 1, a.Length) == 0
+                : string.CompareOrdinal(a, i, b, i + 1, b.Length) == 0;
+        }
+
+        [Fact]
         public void NoBoardShowsTwoRivalsThatReadAsTheSamePlayer()
         {
             // Build 28's first cut: about one 99-row board in 16 had a pair like Frost27 / frost-27, MagneticNova /
@@ -467,7 +520,8 @@ namespace McvsOffline.Tests.Misc
             foreach (string bad in new[] { "Ur A Retard", "f4gg0t lol", "N1GG4 PLS", "Sh1t Happens", "xX_Nazi_Xx", "[KKK] Clan", "Big D1ck Energy",
                                            "Porn Star", "Sexy Sniper", "Heil Me", "HitlerDidNothin", "Trump 2024", "Opium Den", "Weed Lord",
                                            "Suicide Squad", "KYS noob", "Jesus Saves", "Fox 88", "Ranger1488", "ISIS Fan", "Ass Hat",
-                                           "WhitePower", "Kill Your Self", "Iron Cross", "Nazì", "Gay Frog", "Sex", "Fuçk" })
+                                           "WhitePower", "Kill Your Self", "Iron Cross", "Nazì", "Gay Frog", "Sex", "Fuçk",
+                                           "Kuy", "KUY Gang", "Khuy" })
                 Assert.True(tags.CuratedBlockedReason(bad) != null, bad + " passed the blocklist");
             // The owner's rule: brands, other games' characters, streamers; and words that only hold a blocked word across
             // a space or a case change.

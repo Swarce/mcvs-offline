@@ -141,6 +141,7 @@ namespace McvsOffline.Tests.Content
                 foreach (var r in CrmBotNames.Renames(ManyStock, null, tags, Day1 + TimeSpan.FromTicks(Window.Ticks * w))) day.Add(r.Value);
             Assert.True(day.Count >= tags.Curated.Length * 95 / 100, day.Count + " of " + tags.Curated.Length + " curated names in a day");
             Assert.True(keptEver.Count >= ManyStock.Length * 9 / 10, keptEver.Count + " stock names came up");
+            output.WriteLine(string.Join(" | ", CrmBotNames.Renames(ManyStock, null, tags, Day1).Take(40).Select(r => r.Value)));
         }
 
         [Fact]

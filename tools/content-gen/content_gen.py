@@ -1950,7 +1950,8 @@ def build_names(cat, tuning, collector, curated=None):
     doc = copy.deepcopy(_checked_names(json.dumps(tuning, sort_keys=True)))
     if curated is None:
         curated = load_curated(os.path.join(os.path.dirname(os.path.abspath(__file__)), tuning["curatedFile"]))
-    doc["curated"] = _checked_curated(tuple(curated), json.dumps(tuning["blocklist"], sort_keys=True), tuning["minCurated"])
+    doc["curated"] = _checked_curated(tuple(curated), json.dumps(tuning["blocklist"], sort_keys=True), tuning["minCurated"],
+                                      json.dumps(tuning.get("curatedNear", [])))
     doc["summary"]["curated"] = len(doc["curated"])
     avatars, backgrounds = rival_emblems(cat, collector)
     doc["emblems"] = {"avatars": compress_ranges(avatars), "backgrounds": compress_ranges(backgrounds)}
@@ -1959,11 +1960,42 @@ def build_names(cat, tuning, collector, curated=None):
     return dict([(k, doc[k]) for k in order] + [(k, v) for k, v in doc.items() if k not in order])
 
 
+# Two curated skeletons this long or longer that are one letter apart (Sheesh / Sheeesh, Scooby Snack / Scooby Snacks) read
+# as one name copied when they share a board or a bot window; shorter handles one letter apart (Bonk / Bork) do not.
+NAME_NEAR_MIN_LENGTH = 5
+
+
+def near_skeleton_pairs(names):
+    """The pairs (in list order) of ``names`` whose skeletons, both NAME_NEAR_MIN_LENGTH long or longer, differ by one
+    letter changed, added or left out."""
+    skeletons = [name_skeleton(n) for n in names]
+    deleted = {}
+    for i, s in enumerate(skeletons):
+        if len(s) >= NAME_NEAR_MIN_LENGTH:
+            for k in range(len(s)):
+                deleted.setdefault(s[:k] + s[k + 1:], []).append((i, k))
+    pairs = set()
+    for hits in deleted.values():
+        # The same letter position left out of two skeletons of one length: one letter changed.
+        for a in range(len(hits)):
+            for b in range(a + 1, len(hits)):
+                (i, ki), (j, kj) = hits[a], hits[b]
+                if ki == kj and skeletons[i] != skeletons[j]:
+                    pairs.add((min(i, j), max(i, j)))
+    for j, s in enumerate(skeletons):
+        # One skeleton is another with one letter left out: one letter added.
+        if len(s) >= NAME_NEAR_MIN_LENGTH:
+            for i, _ in deleted.get(s, ()):
+                pairs.add((min(i, j), max(i, j)))
+    return [(names[i], names[j]) for i, j in sorted(pairs)]
+
+
 @functools.lru_cache(maxsize=4)
-def _checked_curated(names, block_text, minimum):
+def _checked_curated(names, block_text, minimum, near_text="[]"):
     """The curated names, each checked as the server checks it (GamerTags.Load): the characters and limits of the client
     (curated_shape_problem), the blocklist (NameBlocklist.curated_problem), never two that read alike (name_skeleton,
-    ignoring case: the second would never be shown beside the first)."""
+    ignoring case: the second would never be shown beside the first), and never two whose skeletons are one letter apart
+    (near_skeleton_pairs) unless the tuning's curatedNear lists the pair as two different jokes."""
     blocklist = NameBlocklist(json.loads(block_text))
     seen = {}
     for name in names:
@@ -1979,6 +2011,20 @@ def _checked_curated(names, block_text, minimum):
             if key in seen:
                 raise ContentError("names: curated names '%s' and '%s' read alike (keep one)" % (seen[key], name))
             seen[key] = name
+    allowed = set()
+    for pair in json.loads(near_text):
+        if not (isinstance(pair, list) and len(pair) == 2 and all(isinstance(n, str) for n in pair)):
+            raise ContentError("names: curatedNear must be a list of [name, name] pairs")
+        allowed.add(frozenset(pair))
+    near = set()
+    for a, b in near_skeleton_pairs(names):
+        near.add(frozenset((a, b)))
+        if frozenset((a, b)) not in allowed:
+            raise ContentError("names: curated names '%s' and '%s' are one letter apart (keep one, or list the pair in "
+                               "curatedNear when they are two different jokes)" % (a, b))
+    stale = sorted(sorted(p) for p in allowed - near)
+    if stale:
+        raise ContentError("names: curatedNear lists %s, not two curated names one letter apart" % " / ".join(stale[0]))
     if len(names) < minimum:
         raise ContentError("names: %d curated names, fewer than minCurated %d" % (len(names), minimum))
     return list(names)

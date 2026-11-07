@@ -6,7 +6,7 @@
     "after reading what players really pick; the sources are listed in its header). The server picks from it by a hash of the",
     "rival's or bot slot's id; the word lists and styles below only make the names a board needs once the curated list is used",
     "up (a board of more than about 2,000 players). tools/content-gen/content_gen.py build_names checks every curated name",
-    "(the characters the client shows and takes, 2..16 characters, the blocklist, no two that read alike), every part",
+    "(the characters the client shows and takes, 2..16 characters, the blocklist, no two that read alike or one letter apart), every part",
     "(charset, length, blocklist, no duplicates), every two-part combination of every style, and writes",
     "server/Content/names.json with the rivals' emblem and background pools (ids only, from Design/MCVS_Meta.xlsx).",
     "Brands, other games' and films' characters, streamers and pro players are allowed (the owner's rule since build 29).",
@@ -17,6 +17,13 @@
   "curatedFile": "names_curated.txt",
   "_minCurated": "build_names fails when the curated list has fewer names than this",
   "minCurated": 1500,
+  "_curatedNear": [
+    "pairs of curated names allowed although their skeletons (both of 5 letters or more) are one letter apart: two different",
+    "jokes, never the same joke written twice (Sheesh / Sheeesh, Scooby Snack / Scooby Snacks). build_names refuses any",
+    "other such pair (they could share a board or a bot window and look like one name copied) and a pair here that is not one."
+  ],
+  "curatedNear": [["Master Chief", "Master Chef"], ["Rip and Tear", "Rip and Tea"], ["TrYhArD", "Fry Hard"],
+                  ["MrBeast", "Mr Feast"], ["Rayman", "DayMan"]],
   "version": 2,
   "_limits": "the game's own rename popup takes 16 characters (popups/PopupChangeName.as maxChars) and needs 2 (PlayerProfileComponent MinimalPlayerNameLength); the default name agent-<9 digits> has 15",
   "limits": {"min": 3, "max": 16},
@@ -196,7 +203,7 @@
       "ass", "arse", "tit", "cum", "fag", "gay", "sex", "hoe", "cock", "dick", "rape", "anal", "pedo", "tard", "coon",
       "jap", "spic", "nig", "homo", "fap", "god", "drug", "dope", "coke", "lsd", "jew", "varg", "volk", "kurt", "asad",
       "suka", "culo", "figa", "hure", "kut", "lul", "sik", "amk", "faen", "chuj", "porra", "paska", "kuso", "tora",
-      "torah", "isis", "opium"
+      "torah", "isis", "opium", "kuy", "khuy"
     ],
     "digits": ["88", "666", "420", "69", "187", "1312", "911", "1488", "2488"],
     "digitRuns": ["14", "311"]

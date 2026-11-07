@@ -11,6 +11,15 @@
 #   - not + - * first (CRM cell operators), at least one letter, never text that reads as a number;
 #   - the blocklist of names_tuning.json (slurs, profanity, sexual words, hate, politics, religion, drugs, real tragedies);
 #   - no two names that read alike (GamerTags.Skeleton: case, accents, spaces, signs and end numbers ignored).
+#   - no two whose skeletons (5 letters or more) are one letter apart (Sheesh / Sheeesh) unless names_tuning.json curatedNear
+#     lists the pair as two different jokes (Master Chief / Master Chef); content-gen refuses any other such pair.
+# Rules no check can hold (a review keeps them):
+#   - one joke once (not F in Chat and Press F to Pay, not Half Life 3 and HL3Confirmed);
+#   - a short word means nothing rude in any language the game ships, Thai and Russian included (Kuy is crude in Thai);
+#   - no blocked word hidden inside a camel-case word or another language's word (Kusoge, Sextou), no pun on a phrase the
+#     blocklist refuses (Shiitake Happens), no innuendo, no one-letter dodge of a blocked name (Elon Musgo);
+#   - no politicians or governments, even in a pun (Krispy Kremlin); no handle or pun on a person better known today
+#     for a sexual-misconduct case or conviction.
 # Allowed since build 29 (the owner's rule): puns, memes, brands, other games' and films' characters, streamer and pro
 # handles, clan tags, words of any language. Never a real private person's name.
 #
@@ -93,7 +102,7 @@ Snaccident
 Ctrl Alt Defeat
 The PUNisher
 Pundamentalist
-Snipe Tyson
+Little Mac
 Keanu Reload
 Spray Charles
 Han Solo Queue
@@ -212,7 +221,6 @@ Oof Size Large
 IghtImmaRespawn
 Dew It
 Do a Barrel Roll
-Press F to Pay
 F in the Chat
 Snake? Snaaake!
 Would You Kindly
@@ -223,7 +231,6 @@ Fus Ro Nah
 Toasty!
 Praise the Sun
 Git Gud
-CJ Follow Train
 NoThisIsPatrick
 Pickle Rick
 Mr. Meeseeks
@@ -277,14 +284,14 @@ Beep Boop Human
 Big Brain Time
 Costco Hotdog
 Starbucks Lovers
-Krispy Kremlin
+Pizza the Hutt
 Pepsiman
 Capri Sun Tzu
 HotPocketRocket
 PopTartillery
 Shroud's Mouse
-The Two Time
-Dr Disrespawn
+LIRIK
+Dakotaz
 TimTheTaterMan
 Tofue
 Sodapoppin
@@ -305,7 +312,7 @@ Deja Boo
 Deja Vu Drift
 Schnitzel Blitz
 Wurst Case
-Ich Bin Ein Bot
+Zugzwang
 Que Sera Spray
 El Pollo Loco
 Nonna's Revenge
@@ -414,7 +421,7 @@ Kill Cam Newton
 LeBronze League
 Shaquille O'Kill
 Siuuu
-Conor McGrenade
+Sub-Zero Fridge
 The Overtaker
 U Cant See Me
 Tactical Snack
@@ -508,7 +515,6 @@ GalaxyBrain
 smooth brain
 ok boomer
 DatBoi
-SurprisedPikachu
 BongoCat
 catJAM
 LEEROYYY
@@ -544,7 +550,6 @@ HL3Confirmed
 GLaDOS
 Herobrine
 Cranking90s
-HighNoon
 INeedHealing
 RyuuGaWaga
 Pokimane
@@ -581,7 +586,6 @@ ImInDanger
 AyCaramba
 SpiderPig
 ItsOver9000
-NarutoRunner
 ItWasMeDio
 YourNextLineIs
 YamchaPose
@@ -672,7 +676,6 @@ RarePepe
 AndIOop
 sksksk
 Based
-RGBForFPS
 Henlo
 rsrsrs
 wkwkwk
@@ -870,13 +873,11 @@ Itadakimasu
 Porg
 CardboardBox
 DayMan
-HalfLife3Soon
 Rise and Shine
 Pick Up That Can
 G-Man
 Headcrab Hat
 Cave Johnson
-CakeWasALie
 Portal Potty
 Waluigi Time
 Wahoo!
@@ -918,7 +919,6 @@ Tails Doll
 YOU DIED
 Fort Night
 Elden Ringtone
-Arrow to Knee
 Sweetroll Thief
 Nazeem
 KhajiitHasWares
@@ -939,7 +939,6 @@ ShowMeDaMoney
 NoCowLevel
 Black Sheep Wall
 ReznovWasRight
-F to Pay Respect
 Hrrm
 Jeb_
 Mumbo Jumbo
@@ -1012,7 +1011,6 @@ Q*bert
 Wii Shop Music
 Kept You Waiting
 SNAAAAAKE
-Nanomachines
 Sen. Armstrong
 Rules of Nature
 Solid Snack
@@ -1055,7 +1053,6 @@ pashaBiceps
 TenZ
 Ogre2
 summit1g
-xQc
 Chocotaco
 Northernlion
 penguinz0
@@ -1080,7 +1077,6 @@ Clip That!
 Backseat Gamer
 Just Lurking
 [TTV] Nobody
-[BOT] Not A Bot
 [AFK] Mum Called
 [LAG] 999 ping
 [FaZe] Dad
@@ -1124,7 +1120,6 @@ Giant Enemy Crab
 Riiiidge Racer
 Naruto Run
 Ora Ora Ora
-Yare Yare
 Over 9000!
 Believe It!
 Plus Ultra
@@ -1141,7 +1136,7 @@ Lämp
 Some Oats Pls
 Rickroll'd
 Shooting Stars
-Sheesh
+Zoomies
 Nekomancer
 Neko Atsume
 Das Boot Camp
@@ -1204,7 +1199,7 @@ gouda nuff
 Feta Attraction
 Mac n Peace
 emotional pickle
-Gherkin Jerkin
+Pocky Balboa
 mayo clinic
 Oregano Trail
 Basil Faulty
@@ -1215,7 +1210,6 @@ Lettuce Pray
 romaine calm
 kernel panic
 bean water
-humus among us
 Tofu Delivery
 spaghetti code
 Gnocchi Gnocchi
@@ -1304,7 +1298,7 @@ Kitchen Witch
 Morel Support
 Fun Guy
 Truffle Shuffle
-Shiitake Happens
+Big Dill
 Lichen It
 Gnome Alone
 Gnome Chomsky
@@ -1315,7 +1309,6 @@ gremlin hours
 Awesome Possum
 play dead
 crime goose
-Peace Was Never
 duck tax
 Duck Duck Gray
 Pigeon Mafia
@@ -1383,7 +1376,6 @@ eepy goblin
 bean juice
 asdfjkl
 wasdwasd
-skskskk
 AAAAAAAAAAA
 hnnng
 brrrrrt
@@ -1398,25 +1390,19 @@ wot
 idk man
 ope
 Ope Lemme Sneak
-Yeetus
 yeehaw
 o_O
 plz no
 Swole Doge
 Shared Braincell
-Floppa
 Polite Cat
 Salad Cat
 Pingu
 The Muffin Man
 Bob Ross
-Happy Accident
 Mr Rogers
 Krabby Patty
 Goofy Goober
-Is Mayo An Inst
-No This Is
-Tom Nook
 K.K. Slider
 Captain Toad
 So I Herd U Liek
@@ -1443,7 +1429,6 @@ Lord Licorice
 Bingo Wings
 Pizza Rat
 Hamburglar
-Machine Broke
 Dino Nuggies
 Leggo My Eggo
 Once You Pop
@@ -1457,7 +1442,6 @@ CohhCarnage
 DrLupo
 Grian
 PBG
-Scooby Snack
 Jinkies
 Totoro
 Snorlax
@@ -1491,7 +1475,6 @@ Roomba Rampage
 [OSHT]Fumble
 [LAGG]Wifi
 [PZZA]Delivery
-[MOM]SaysLogOff
 (DAD)PaidForIt
 [BRB]Snacks
 [AFK]Forever
@@ -1509,7 +1492,6 @@ OpTic Gravy
 OpTic Green Wall
 TSM Fanfic
 NaVi Hopium
-C9 Copium
 [TTV]Unemployed
 TTV Mom's Wifi
 ttv_0viewers
@@ -1553,16 +1535,15 @@ Floss Boss
 Orange Justice
 Sweaty Default
 Shrek Is Love
-I Am Inevitable
 IDontFeelSoGood
-Sheeeesh
+Untitled Goose
 Pepega
 Scump
 Crimsix
 Nadeshot
 aceu
 Tfue
-DrDisrespect
+Myth
 HusKerrs
 NICKMERCS
 Ghost
@@ -1578,10 +1559,8 @@ Revolver Ocelot
 Genji Main
 Sova Lineups
 Gordon Freeman
-Big Smoke
 Grove Street 4L
 Arthur Morgan
-Shadow the Hedge
 Sephiroth
 Motivated Vergil
 Kirito
@@ -1595,7 +1574,6 @@ El Jefe
 Los Pollos
 Al Dente Aim
 Bort
-Rush B
 Davai Davai
 Nein Nein Nein
 Señor Sweat
@@ -1619,7 +1597,7 @@ nvm
 ok.
 k.
 gg
-skrt
+Sacriel
 borb
 G FUEL Addict
 Not Sponsored
@@ -1630,7 +1608,6 @@ Red Bull Wings
 Hot Pocket Hero
 SCUF Lord
 Razer Rat
-RGB Gives FPS
 60fps Peasant
 240Hz Snob
 Potato PC
@@ -1663,7 +1640,6 @@ Taco Bell Tank
 Hot Cheeto Hands
 4AM Sweat
 School Night
-Mom Said 1 More
 Hall Monitor
 Substitute Teach
 [PTA]President
@@ -1705,12 +1681,8 @@ VAC Free
 Overwatch Case
 POTG Thief
 MVP or Riot
-Half Life 3
 Sweet Baby Ray
-F in Chat
 Press X to Doubt
-Hey Vsauce
-Ight Imma Head
 Gamestonk
 Cringe.
 Main Character
@@ -1742,12 +1714,10 @@ FaZe Rug
 CouRageJD
 MrBeast
 Bugha
-Clix
-Ali-A
 SweatPants Inc
 [CLAN]Clan
 Solo Q Andy
-Down Bad 0-7
+Ranked Anxiety
 0-12 Hero
 0.4 KD Gang
 Exactly 1.00 KD
@@ -1777,7 +1747,6 @@ Mi Mama Llama
 DulceDeLetal
 EmpanadaTactica
 ModoSiesta
-NachoLibre
 ElChavoDel8
 FueSinQuerer
 Chipote Chillon
@@ -1813,17 +1782,15 @@ Krilin
 YamchaMuerto
 Piolin
 ElPajaroLoco
-Despacito
 Wepa
 Parce
 ReinaPepiada
-UnoReverseCard
 Era Mi Primo
 Su Hermanito
 MiGatoJuega
 Juan Tap
 Juan Direction
-Elon Musgo
+Lag Queen
 Taco Belle
 Tacocat
 Esnaiper
@@ -1831,7 +1798,6 @@ Jaquer
 Guasap
 LaPlei
 Geimer
-asdfghjkñ
 Ibai
 elrubius
 AuronPlay
@@ -1862,7 +1828,7 @@ Receba
 Oxe
 BahTche
 Uai
-Sextou
+Bom Dia Grupo
 BoraBill
 ZoeiraNeverEnds
 HUEHUEHUE
@@ -1928,7 +1894,6 @@ GGnocchi
 dolce far niente
 Favij
 St3pNy
-Waluigi
 Wurstfinger
 Kartoffelsalat
 Lauch
@@ -1941,7 +1906,7 @@ Steuererklarung
 Handyverbot
 Akku1Prozent
 Funkloch
-Neuland
+Schadenfreude
 Moin
 Jein
 Tja
@@ -1957,7 +1922,6 @@ Scheibenkleister
 Tschüssikowski
 Ciao Kakao
 Nein Lives
-qwertzuiop
 Glumanda
 Gronkh
 Papaplatte
@@ -1966,7 +1930,7 @@ NuPogodi
 Cheburashka
 KrokodilGena
 PrevedMedved
-Nagibator228
+Matryoshka
 TriPoloski
 LifeOfBoris
 LadaBaklazhan
@@ -1985,16 +1949,14 @@ Nu
 Papich
 YareYareDaze
 MudaMudaMuda
-Kamehameha
 Hadouken
 YogaFlame
 ShunGokuSatsu
 IsekaiTruck
-ZoroIsLost
 Mugiwara
 Hikikomori
 Chuunibyou
-Kusoge
+Megalovania
 Tatakae
 Zaku
 CharAznable
@@ -2099,7 +2061,7 @@ HPKentang
 SultanTopUp
 AyoMabar
 Cupu
-Kuy
+Mantul
 TahuBulat
 Beng-Beng
 Si Kancil

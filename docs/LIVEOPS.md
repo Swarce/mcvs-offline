@@ -172,7 +172,7 @@ their names from the same place (docs/protocol/content.md "Bot names").
   reading what players pick for themselves (the inspiration sources are listed in the header of `names_curated.txt`;
   read, never copied as lists): puns (`Flank Sinatra`, `Nacho Average`, `Lord of da Fries`), memes and Twitch emotes
   (`Big Chungus`, `PogChamp`, `This Is Fine`), other games', films' and series' characters and quotes (`Lara
-  Croissant`, `Would You Kindly`, `Get Over Here`), brand jokes (`Krispy Kremlin`, `Costco Hotdog`), streamer and pro
+  Croissant`, `Would You Kindly`, `Get Over Here`), brand jokes (`Capri Sun Tzu`, `Costco Hotdog`), streamer and pro
   handles (`Shroud's Mouse`, `TimTheTaterMan`, `s1mple Simon`), fake clan tags (`[LAG] Pingu`, `[BRB]Snacks`),
   lowercase and keyboard-smash (`smol bean`, `asdfjkl`), words and jokes of many languages (`Pão de Queijo`,
   `Ehrenmann`, `Sana All`), animals and food with a twist, very short handles (`Bonk`, `o7`). Each id walks its own
@@ -231,7 +231,10 @@ their names from the same place (docs/protocol/content.md "Bot names").
   (`GamerTags.Skeleton`: lower case, accents dropped, only letters and digits, a digit inside a word read as its letter,
   the number at either end left out), so a board never shows `Frost27` beside `frost-27`, `Pika Pew` beside `PikaPew`,
   `Mr. Saturn` beside `mr_saturn` or `blindside_563` beside `blindside_386`; the curated list holds no two names that
-  read alike. `agent-<9 digits>` names keep their digits (uncustomised players differ only
+  read alike, and no two whose skeletons (5 letters or more) are one letter apart (`Sheesh` / `Sheeesh`, `Scooby Snack`
+  / `Scooby Snacks`: content-gen refuses them) unless `names_tuning.json` `curatedNear` lists them as two different
+  jokes (`Master Chief` / `Master Chef`). Nor is one joke written twice (`F in Chat` / `Press F to Pay`): a review keeps
+  one. `agent-<9 digits>` names keep their digits (uncustomised players differ only
   there). Only a real player who takes a rival's name, or one that reads the same, moves that rival (and a later one
   that then collides) to another name.
 - **Emblem** (`_killSignatureEmblem`) and **background** (`_killSignatureBg`), ids as strings like the game's own posts

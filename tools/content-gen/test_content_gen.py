@@ -572,6 +572,12 @@ class GeneratorTests(unittest.TestCase):
         # One curated name per line in names.json, so a change to the list is a reviewable diff.
         text = self.generate()["names.json"]
         self.assertIn('\n    "Flank Sinatra",\n', text)
+        # Build-29 review: a Thai obscenity, blocked words inside a word, innuendo, politics, misconduct scandals and
+        # the same joke twice are out of the list.
+        for gone in ("Kuy", "Kusoge", "Sextou", "Shiitake Happens", "Gherkin Jerkin", "Nagibator228", "Down Bad 0-7",
+                     "Krispy Kremlin", "Elon Musgo", "Ich Bin Ein Bot", "Neuland", "DrDisrespect", "Dr Disrespawn",
+                     "The Two Time", "Snipe Tyson", "Conor McGrenade", "Sheesh", "xQc", "F in Chat", "HighNoon"):
+            self.assertNotIn(gone, curated)
 
     def test_names_refuse_bad_tuning(self):
         cat, collector = self.collector_inputs()
@@ -606,6 +612,7 @@ class GeneratorTests(unittest.TestCase):
         cat, collector = self.collector_inputs()
         tuning = self.names_tuning()
         tuning["minCurated"] = 2
+        tuning["curatedNear"] = []      # the shipped pairs are not in this list (a stale pair is refused, below)
 
         def refused(curated, text):
             with self.assertRaises(cg.ContentError) as e:
@@ -634,6 +641,19 @@ class GeneratorTests(unittest.TestCase):
         refused(good + ["FlankSinatra"], "read alike")
         refused(good + ["Pao de Queijo"], "read alike")             # accents ignored
         refused(["Solo"], "fewer than minCurated")
+        # Two skeletons of 5 letters or more one letter apart: one joke written twice, unless curatedNear lists the pair.
+        refused(good + ["Sheesh", "Sheeesh"], "one letter apart")
+        refused(good + ["Scooby Snacks", "Scooby Snack"], "one letter apart")
+        refused(good + ["Hummus Among Us", "humus among us"], "one letter apart")
+        refused(good + ["Flank Sinatro"], "one letter apart")              # one letter changed
+        tuning["curatedNear"] = [["Master Chief", "Master Chef"]]
+        both = good + ["Master Chief", "Master Chef"]
+        self.assertEqual(cg.build_names(cat, tuning, collector, both)["curated"], both)
+        refused(good + ["Master Chief"], "curatedNear lists Master Chef / Master Chief")   # a pair no longer in the list
+        tuning["curatedNear"] = [["Master Chief"]]
+        refused(both, "curatedNear must be a list")
+        tuning["curatedNear"] = []
+        self.assertEqual(cg.build_names(cat, tuning, collector, good + ["Bonk", "Bork"])["curated"], good + ["Bonk", "Bork"])
 
     def test_curated_helpers(self):
         self.assertEqual(cg.name_skeleton("Pika Pew"), cg.name_skeleton("PikaPew"))
@@ -647,11 +667,15 @@ class GeneratorTests(unittest.TestCase):
         self.assertEqual(cg.curated_words("Pay2Lose"), ["Pay2", "Lose"])
         block = cg.NameBlocklist(self.names_tuning()["blocklist"])
         for bad in ("Ur A Retard", "f4gg0t lol", "Sh1t Happens", "xX_Nazi_Xx", "Kill Your Self", "WhitePower", "Nazì", "Fuçk",
-                    "Opium Den", "ISIS Fan", "Trump 2024", "Ranger1488"):
+                    "Opium Den", "ISIS Fan", "Trump 2024", "Ranger1488", "Kuy", "KUY Gang", "Khuy"):
             self.assertIsNotNone(block.curated_problem(bad), bad)
         for good in ("Spooky Scary", "Obi Wan Kenoodle", "WaitItsAllOhio", "Copium", "Knife Crisis", "Shroud's Mouse", "Ninja",
                      "Master Chief", "Prophet Margin", "Agent 47"):
             self.assertIsNone(block.curated_problem(good), good)
+        self.assertEqual(cg.near_skeleton_pairs(["Sheesh", "Bonk", "Sheeesh", "Sheeeesh", "Bork", "skrt", "Skrrt"]),
+                         [("Sheesh", "Sheeesh"), ("Sheeesh", "Sheeeesh")])
+        self.assertEqual(cg.near_skeleton_pairs(["Master Chief", "Master Chef", "Pika Pew", "Pika Pow", "Rip and Tear"]),
+                         [("Master Chief", "Master Chef"), ("Pika Pew", "Pika Pow")])
         path = os.path.join(self.tmp, "curated.txt")
         with open(path, "w", encoding="utf-8") as f:
             f.write("# a comment\n\nZoë\nPika Pew\n#another\n")
