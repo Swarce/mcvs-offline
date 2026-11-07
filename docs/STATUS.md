@@ -1,7 +1,7 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-Last updated for build 27 (November 2026, on `wip/pc-port`; APK and PC kit): build 27 fixes the Steam bots (a resting bot could not start on frames shorter than 1/60 s) and adds a Steam frame rate setting up to unlimited; see "Build 27". Build 26 starts normally when another program holds the server's port (it moves to a free one and everything follows); see "Build 26". Build 25 brings the project's own launcher icon (the owner's art), a dark red launch screen and a new background for the game's data installer (kept outside the repository); see "Build 25". Build 24 keeps ABOUT centred on the return from a tab (the owner's build-23 log: the tile just tapped was still in its pressed animation and our width check refused it); see "Build 24". Build 23 fixes what the owner saw on the phone in build 22 (the PERFORMANCE title drawn over its icon, ABOUT right of centre, a small stutter on the gear tap) and adds timings to the `settings menu:` log lines; Steam is unchanged apart from log text; not yet tested on a phone or on Windows; see "Build 23". The Steam bots' report (they idle at spawn and sometimes stop moving) is open: its investigation was stopped before any result, see "Build 23". Build 22: on the owner's phone build 21 still flashed
+Last updated for build 28 (November 2026, on `wip/pc-port`; APK and PC kit): build 28 gives the leaderboard rivals gamer-tag names and their own emblems, and the in-match bots thousands of names; see "Build 28". The owner confirmed build 27's bot fix on Steam. Build 27 fixes the Steam bots (a resting bot could not start on frames shorter than 1/60 s) and adds a Steam frame rate setting up to unlimited; see "Build 27". Build 26 starts normally when another program holds the server's port (it moves to a free one and everything follows); see "Build 26". Build 25 brings the project's own launcher icon (the owner's art), a dark red launch screen and a new background for the game's data installer (kept outside the repository); see "Build 25". Build 24 keeps ABOUT centred on the return from a tab (the owner's build-23 log: the tile just tapped was still in its pressed animation and our width check refused it); see "Build 24". Build 23 fixes what the owner saw on the phone in build 22 (the PERFORMANCE title drawn over its icon, ABOUT right of centre, a small stutter on the gear tap) and adds timings to the `settings menu:` log lines; Steam is unchanged apart from log text; not yet tested on a phone or on Windows; see "Build 23". The Steam bots' report (they idle at spawn and sometimes stop moving) is open: its investigation was stopped before any result, see "Build 23". Build 22: on the owner's phone build 21 still flashed
 MORE GAMES and the FORUM tile on a return to Settings; build 22 no longer races the game's own `setup()`: on the phone
 its stock writes are made to draw nothing (the engine's text remap turns FORUM into PERFORMANCE, the icon is out of its
 reach, the removed tiles are off the panel, ABOUT stays at the game's own place on the bottom row), prepared before
@@ -65,6 +65,42 @@ HD texture probe and a Windows test kit for the Steam version. Build 11 installs
 version into the game's own data. Build 12 accepts a full ASTC data pack with 2,215 PC textures in it: **device test 9:
 the HD textures and the graphics profiles work, at the same frame rate as before**, and builds 10 to 12 (target Android
 15) installed and played fine.
+
+## Build 28 (November 2026): gamer-tag names and emblems for the rivals, more names for the bots
+
+`cce0971` on `wip/pc-port` (`McvsVersion.Build` is `28`; the code is the merge of `wip/b28-names`: `a6494dd` and the
+review fixes `b6f832d`). APK `mcvs-offline-cce0971.apk` (SHA-256
+`181200a5be7f051910adef0b89b65ed41536465a68ea0aff3feefdbc65bc223c`, with `--art-extra art/local`): against build 27 only
+the server DLL, the MVID spans and the signature files differ (server-only change, no new IL on either platform). PC kit
+SHA-256 `7fe66eeb79a5885be8f5989d5cf031185f94cf419f3a21df5a041545debe32f5` (two publishes, same bytes; build 27's kept as
+`McvsOffline.PcKit-251f8c9.exe`); PC end to end as before. Tests: 1607/1607, Embed 1365/1365, PcKit 63/63, PcSpike 62/62,
+content-gen 36/36.
+
+**The owner's confirmation (build 27, Steam):** the bot fix works.
+
+**The owner's request:** leaderboard rivals with names that feel like real players, random emblems, and more names for
+the bots in a match.
+
+* **Gamer tags** (`server/Content/names.json` from `tools/content-gen`, our own word lists; `GamerTags`): word combos,
+  leetspeak, clan-style and country tags, numbers and separators, a few non-English words and some default
+  `agent-<9 digits>` names; 2-16 characters of `[A-Za-z0-9_.-]` (the game's name limits; no `<`, `>`, `&`, which its
+  text formatter treats as markup). A blocklist (with leet, case and separator forms) refuses offensive words, brands,
+  other games' characters and streamer handles; no word twice in one name; no rough noun next to a country tag.
+  `content_gen.py --name-pairs FILE` writes every two-word name for a person to read (about 101,800; not yet read by a
+  person).
+* **Leaderboard rivals** (division season rivals and the other boards): the name and emblem now come from the rival's id
+  alone, so a rival keeps them for good, on both platforms (a byte-based hash, no runtime-dependent hashing). No two
+  rivals on a board read as the same player, and none reads like a real player's name on it. Each row now carries
+  `_killSignatureEmblem` and `_killSignatureBg` (230 unlockable profile emblems and the 35 backgrounds the client can
+  show; no season-placement, collab or agent emblems), so rivals no longer show the player's own emblem. Existing rivals
+  get the new names from this build on (scores and season progress unchanged).
+* **In-match bots:** the game reads its bot names from the data pack's `MCVS_AI.BotNames` table (291 names). The server
+  now sends rename cells for it in the CRM answer each match server fetches before its level loads: every 10 minutes a
+  new window renames about three quarters of the stock names, so a day of play meets the stock names and thousands of
+  ours, never a name twice in one window. Setting `crm.botNames` ("Generated bot names", Gameplay, default on).
+
+**Checklist:** a division leaderboard shows varied names and emblems (not your own emblem on every row), the same after a
+restart; a few bot matches: new names each time, some stock ones too; settings `crm.botNames` off: only the stock names.
 
 ## Build 27 (November 2026): the Steam bots, and the Steam frame rate
 
