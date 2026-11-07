@@ -1,6 +1,6 @@
 <div align="center">
 
-# MCVS Offline
+# MCVS Encore
 
 **Modern Combat Versus, playable offline, with your progress kept on your phone.**
 
