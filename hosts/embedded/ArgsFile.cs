@@ -86,7 +86,7 @@ namespace McvsOffline.Embedded
         /// None of these words may start with '-' (that would start a new argument).
         /// </summary>
         public const string BlockHint =
-            "lines up to McvsOfflineEnd are rewritten by MCVS Offline at every start; put your own arguments outside this block (they replace the managed ones)";
+            "lines up to McvsOfflineEnd are rewritten by MCVS Encore at every start; put your own arguments outside this block (they replace the managed ones)";
 
         /// <summary>Every key the managed block may contain (used to recover a block whose end marker was deleted).</summary>
         public static readonly string[] KnownManagedKeys =

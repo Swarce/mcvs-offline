@@ -81,7 +81,7 @@ Built by `CrmDocumentBuilder`, layers in order (last wins):
    `MinimalDocument` always carries the guard.
 6. `crm.overlay` from settings.json, deep-merged.
 6b. **Inbox item** (`newsfeeds`, build 9; [../design/settings-page.md](../design/settings-page.md) §9.1): one entry
-   `{"news_id": "mcvsoffline_FromMCVS", "title": "MCVS Offline", "body": ..., "redirect": "http://127.0.0.1:<port>/_mcvs/ui/#news",
+   `{"news_id": "mcvsoffline_FromMCVS", "title": "MCVS Encore", "body": ..., "redirect": "http://127.0.0.1:<port>/_mcvs/ui/#news",
    "asset": "", "youtube": "", "timestamp": <Monday 00:00 UTC of this week>, "end_date": <that Monday + 37 days, ISO 8601>}`
    appended to an overlay's `newsfeeds` (replacing an entry with the same `news_id`). `end_date` exists for the PC
    client: its inbox gives a message whose creation date differs from its item's (ours moves every Monday) the item's
@@ -90,7 +90,7 @@ Built by `CrmDocumentBuilder`, layers in order (last wins):
    (docs/design/pc-port.md §4.3). On PC, overlay newsfeed items with the same `asset` share the first one's `EndDate`;
    `CrmDocumentValidator` logs a WARN (and changes nothing) when an item shares its `asset` with an earlier one that has
    no `end_date`.
-   The inbox shows it as the message "MCVS Offline" from "MCVS"; its button
+   The inbox shows it as the message "MCVS Encore" from "MCVS"; its button
    opens the page through the `adminlink` patch. `redirect` is a fixed marker, **never a secret**: `configs/users/me`
    answers anyone. With `crm.newsfeedLink` false, `admin.enabled` false or no admin module the list is `"newsfeeds": []`
    (never absent: the inbox removes an old message only when the key is there). `CrmDocumentValidator.Sanitize` keeps
@@ -292,7 +292,7 @@ UNLOCKCAMOS (4,450) to UNLOCKALL (11,368) froze the inbox for minutes. The table
   `[<agent> ](<client id>; <datacenter>)` for it (any web page on the phone could otherwise send the GET, and picking
   the client id `Linux` would match every Android browser's User-Agent); an access token, if any, of the current
   player (the game's coupon request carries none); a host whose in-game browser is not open; at most once per 30 s.
-  Logged as `coupon '<code>': opens the MCVS Offline page (requested|ignored: <reason>)`.
+  Logged as `coupon '<code>': opens the MCVS Encore page (requested|ignored: <reason>)`.
 
 ## Iris assets
 
@@ -335,5 +335,5 @@ listing in `GET assets/{cid}`. Names are sanitised (no `..`, no absolute paths).
 - [ ] With live ops: the TS refetches `configs/users/me` once at each `expiry` (midnight UTC, Monday), not in a loop;
       the weekly modifier cells change the match rewards (and the division perks) after the Monday refresh.
 - [ ] Build 9: the Cosmetic crate (STATUS.md, build 9, checks 14–28).
-- [ ] Build 9: the "MCVS Offline" inbox message appears (and whether a new weekly timestamp marks it new again); its
+- [ ] Build 9: the "MCVS Encore" inbox message appears (and whether a new weekly timestamp marks it new again); its
       button opens the page; `MCVSOFFLINE` opens it with "code does not exist" behind (design §12 C1, C2, C7).

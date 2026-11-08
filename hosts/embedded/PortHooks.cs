@@ -32,7 +32,7 @@ namespace McvsOffline
 
         /// <summary>
         /// Set by the embedded host before args.txt is written: <paramref name="serverPort"/> is the port of the offline server the
-        /// game reaches on 127.0.0.1 this start (the bound one, or the configured one when another MCVS Offline server answers
+        /// game reaches on 127.0.0.1 this start (the bound one, or the configured one when another MCVS Encore server answers
         /// there), <paramref name="localAnubisFinderPort"/> the port the game's LocalAnubis Finder listens on. 0 (or out of range):
         /// unknown, the baked value stays.
         /// </summary>

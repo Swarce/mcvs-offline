@@ -454,7 +454,7 @@ namespace McvsOffline.Embedded
         {
             string reason = NotActive;
             if (reason == null || boot == null) return;
-            boot.Error("install: " + NotActiveText(reason) + ": the game runs its own files, so MCVS Offline's fixes are missing; run the kit's " +
+            boot.Error("install: " + NotActiveText(reason) + ": the game runs its own files, so MCVS Encore's fixes are missing; run the kit's " +
                        "status, then install again (docs/PLAYER-SETUP-PC.md)");
         }
 

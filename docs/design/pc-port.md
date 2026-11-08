@@ -437,7 +437,7 @@ works): the listing records its size and time without hashing it, and `collect` 
 | `[status] …; memory: private <n> MB, virtual <n> MB (<p> % of 2048 MB), GC heap <n> MB` | `WindowsPlatform.StatusExtras` (PC) | every status line (WR2 F9) |
 | `admin: page opened (trigger …, via overlay\|system\|game\|jni\|post)`; PC adds `, overlay showed no page last time` | `PageOpener` | §6.5 |
 | `connectivity: type=<t> status=<0\|1> details="<text>"` | WP1 route | each tracker post, INFO, never the `device_id` |
-| `[embedded] MCVS Offline <v> embedded host starting (platform windows, pid <n>)` | host (`HostProcess`, PC only) | once per start; bootstrap.log holds every start (WR2 F3) |
+| `[embedded] MCVS Encore <v> embedded host starting (platform windows, pid <n>)` | host (`HostProcess`, PC only) | once per start; bootstrap.log holds every start (WR2 F3) |
 | `[watchdog] STALL: no game-thread work item ran for <n> ms; frame clock …; suspendUpdateInBackground=…; pid <n>` | watchdog (pid on PC only) | at 5, 15, 60, 180 s of a stall; the kit's `watch` dumps the pid it names at 60 s (§9.2, WR2 F4) |
 | `[crash] hooks: AppDomain ok, unobserved-tasks ok (event), native filter ok (previous filter 0x…)` | host | once at start (PC: the native filter of §6.4) |
 
@@ -527,7 +527,7 @@ a 3 s timeout make it retry ([CN] §1.2, [CN-V] §3).
 
 PC's `NewsFeedData.Newsfeeds` dictionary makes the inbox message take the item's dates when they differ
 (`PC-GM/InboxComponent.cs:465-491`); our item's timestamp is Monday 00:00 UTC of the current week, so on PC the
-MCVS Offline inbox item expired at every week rollover ([CN-V] §8). `server/Services/Crm/CrmNewsfeed.Item` adds
+MCVS Encore inbox item expired at every week rollover ([CN-V] §8). `server/Services/Crm/CrmNewsfeed.Item` adds
 `"end_date": TimeFormat.Iso8601(WeekStart(now) + 37 days)` after `"timestamp"` (at least 30 days ahead; on Android the
 expiry becomes this date instead of now + 30 days, the same behaviour). Optional in the same package:
 `CrmDocumentValidator` warns when two newsfeed items share an `asset` and the first has no `end_date`. A missing
@@ -1089,12 +1089,12 @@ deterministic "this is our copy" marker, [PP] §2.1).
 and Windows semantics), log):
 1. The folder holds `ModernCombatVersus.exe`, the four DLLs and `Data\MCVS.game`; the game is not running
    (`Process.GetProcessesByName("ModernCombatVersus")`) → else exit 4. A file matching `*_args.txt` in the game folder
-   → exit 3, nothing written: "<name> is in the game folder; the game reads it instead of args.txt, so MCVS Offline would
+   → exit 3, nothing written: "<name> is in the game folder; the game reads it instead of args.txt, so MCVS Encore would
    be ignored and the game would go online. Move it away and run install again" ([CR] F9; `--force` does not skip it).
 2. Build identity: SHA-256 and MVID of the exe and the four DLLs (and the witnesses) equal the profile; otherwise exit 3,
    or a warning with `--force` (the site fingerprints still protect; Android parity). A changed game DLL whose SHA-256 is
    that of our copy (`install.json`'s record or the file in `McvsOffline\bin`) is a hand copy of bin, refused even with
-   `--force`: "<files> are MCVS Offline's own copies from McvsOffline\bin, not the game's: you copied MCVS Offline's DLLs
+   `--force`: "<files> are MCVS Encore's own copies from McvsOffline\bin, not the game's: you copied MCVS Encore's DLLs
    over the game's own files; Steam > Verify integrity of game files restores them, then run install".
 3. Config: absent → fine; ours → replaced at the end; the spike's → noted, `McvsOffline\spike\` removed when it holds only
    `EngineBridge.dll`, replaced; anything else → refused (exit 3) with "a ModernCombatVersus.exe.config that is not ours
@@ -1108,7 +1108,7 @@ and Windows semantics), log):
    patch that has one), and parse the config back (five `dependentAssembly`, hrefs exist and are the assembly they
    name, no `qualifyAssembly`). A write that fails before our config is in place (a first install, an upgrade from a
    build-14/15 config with `qualifyAssembly` entries, which most likely does not redirect, or the config write itself)
-   adds "The game will start WITHOUT MCVS Offline until install succeeds"; the kit's menu then prints
+   adds "The game will start WITHOUT MCVS Encore until install succeeds"; the kit's menu then prints
    `INSTALL FAILED (exit code n): see the error above, fix it and run install again`.
 7. `args.txt` is not written (the bootstrap writes it at the first start). A reinstall overwrites `bin\` files, then
    `install.json`, then the config (also a build-14/15 config with `qualifyAssembly` entries: it is ours).
@@ -1121,8 +1121,8 @@ nothing else touched) when it cannot be deleted, so it never redirects to delete
 `args.txt.mcvs-tmp`), deleting the file when nothing but whitespace is left (the depot has no `args.txt`, F9); delete
 every `*.mcvs-tmp` of §7.4; report anything left behind (a DLL that cannot be deleted: "quit the game and run uninstall again").
 Before anything is deleted, a game DLL that is byte for byte our bin copy (a hand copy, as for install step 2) refuses
-uninstall (exit 3, nothing removed: "<files> are MCVS Offline's own copies from McvsOffline\bin, not the game's: you
-copied MCVS Offline's DLLs over the game's own files; Steam > Verify integrity of game files restores them, then run
+uninstall (exit 3, nothing removed: "<files> are MCVS Encore's own copies from McvsOffline\bin, not the game's: you
+copied MCVS Encore's DLLs over the game's own files; Steam > Verify integrity of game files restores them, then run
 uninstall again"): deleting bin and `install.json` would remove the only proof and leave the game running our copies
 while status says "not installed". A `McvsOffline.Server.dll` next to the exe that is our copy (Verify keeps it) is
 removed with the rest. Uninstall works from every state
@@ -1143,7 +1143,7 @@ build-16 install lacks `inbox` and sends the unlock codes to the inbox; it appli
 `current`: DAMAGED, STALE, PARTIAL and NOT ACTIVE keep theirs and still get the problem line; verify fails on it with
 exit 1; a build that is not a number on either side, or no `serverBuild`, is not compared; the patcher CLI does not
 compare) | `installed, STALE` (originals differ from `install.json`: "Steam updated the game: run uninstall,
-wait for a kit that knows this build"; when a changed DLL is byte for byte our bin copy, "you copied MCVS Offline's DLLs
+wait for a kit that knows this build"; when a changed DLL is byte for byte our bin copy, "you copied MCVS Encore's DLLs
 over the game's own files; Steam > Verify integrity of game files restores them, then run install" and each such file
 named) | `DAMAGED` (a written file missing or changed, or a config with `<qualifyAssembly>`: "an old build-14/15 config:
 run install again", §7.4; a hand copy is checked here too and, when found, its files come first and the advice is the
@@ -1170,20 +1170,20 @@ fallback (`GameFolder.BootstrapLogs`, the list `watch` follows); the newer is ju
 the last record of our host. With none at or after `writtenUtc`:
 * hook-pc's marker `%TEMP%\McvsOffline\hook.txt` (§8.2) has a start since the install whose exe or `EngineBridge.dll`
   lies in this game folder (the file is shared by every copy of the game the user runs) → `installed, NOT ACTIVE (the
-  server did not start)`, `activation: NOT ACTIVE: MCVS Offline's EngineBridge ran at <t> but the server did not start:
+  server did not start)`, `activation: NOT ACTIVE: MCVS Encore's EngineBridge ran at <t> but the server did not start:
   <the exception line of the same pid, or "no exception recorded">`; while the game runs and that process recorded no
-  exception, only `activation: NOT VERIFIED: MCVS Offline's EngineBridge ran at <t>; the game is still running: run status
+  exception, only `activation: NOT VERIFIED: MCVS Encore's EngineBridge ran at <t>; the game is still running: run status
   after closing it` (the start line precedes McvsOfflineInit and the host's first line, so it may still be starting);
 * else a file the stock game writes in its folder (`GameFolder.GameWrittenNames`: `dr0.bin`..`dr3.bin`, `OF_PP.bin`,
   `GameVersion`, `core.dmp`) was written after the install and after our last record (whole seconds), and the game is
   not running now (a starting game may not have reached our first line yet) → `installed, NOT
-  ACTIVE (the game started without MCVS Offline)`, `activation: NOT ACTIVE: the game started without MCVS Offline;
+  ACTIVE (the game started without MCVS Encore)`, `activation: NOT ACTIVE: the game started without MCVS Encore;
   Windows did not use <game>\ModernCombatVersus.exe.config`, a `hook:` line (no marker: "our EngineBridge has never run as
   this user"; an older one: when it last ran from this folder), the file and its time as a problem, and an `ERROR:` line.
   Without a config of ours (PARTIAL: the install stopped before the config write, or a foreign one) the reason is the
-  config instead: `NOT ACTIVE: the game started without MCVS Offline: <config> is missing (install did not finish)` (or
+  config instead: `NOT ACTIVE: the game started without MCVS Encore: <config> is missing (install did not finish)` (or
   `is not ours`);
-* else `activation: NOT VERIFIED: no start of MCVS Offline since the install (start the game once, then run status)`; the
+* else `activation: NOT VERIFIED: no start of MCVS Encore since the install (start the game once, then run status)`; the
   state stays `installed, current`.
 The kit passes its own `%TEMP%` (`KitEnvironment.TempRoot`) to status and verify; the patcher CLI uses `Path.GetTempPath()`.
 
@@ -2145,7 +2145,7 @@ unlock-all grant come only after the bot match (step 8b), so a stall cannot hide
 | 3 | `install`, then **`verify`** (mandatory: WR2 skipped it), then `status` | notes; `status` says "installed, current"; the `written` SHA-256 values `verify` prints **equal** the expected values of §13.1 (build 14, recorded from the Linux run of §12.6). Any difference blocks WP5b until explained (the tested bytes must be the shipped bytes) | R9 | partial: install byte-exact against §13.1 of build 13; `verify` **not run**; "installed, current" was shown although Game was not active (F2) |
 | 4 | `watch` in a second window, then start the game from Steam; after the first start `status` | `[boot] runtime:` with the expected values: `process x86, LAA no`, `Release` ≥ 379893 (4.5.2; Windows 10/11 normally report 4.8.x, ≥ 528040); `[boot] assemblies:` every assembly from `McvsOffline\bin`, **`Game` included** (`Game …\McvsOffline\bin\Game.dll`); `[boot] patches:` every witness `yes` (`gameload yes`, `store yes`); no `NOT ACTIVE` in the `[status]` line, on the page or in the kit; `status`: `installed, current` and `activation: active at the last start`. If `Game` still comes from the game folder: stop, `collect`, and send it, with the `[boot] load stack: Game (GAME FOLDER)` lines under it (build 18: they name the loader; Q1, Q15). `assemblies: Game (no file) (elsewhere)` instead means the engine's `gameload` bind failed and `Gameloft.Sequences` loaded the stock file from bytes (§8.9): `collect` and send it too | **Q1**, Q7, **Q15**, F2 | runtime pass; **assemblies fail** (`Game` from the GAME FOLDER in 15/15 starts, F1); **patches fail** (`store NO`, a consequence) |
 | 5 | reach the main menu | `[pc] quicklaunch:` lines (LocalAnubis started, room, thread id equals the game thread), no `headless world:`/`server world:`/`component … not created` lines, `[boot] graphics:` (GPU and MEM profile, `MEM rule on, removed <n>` with the expected count, `excludedLoadingLayers` without `Physics`) | **Q4** (TS), Q6, **Q13** | quicklaunch and Q13 pass (15/15); 35 headless reports, all at the stock Game sites H1/H10 (blocked by F1); graphics pass (`removed 1`, no Physics) |
-| 6 | open the settings page: Settings › Account "MCVS Offline" (`auto`); then the inbox item; then the page's "Open in the system browser"; then set `admin.openVia` to `system`, then `game`, restart each time. Then with `auto`: once in fullscreen and once in windowed mode; once with Steam › Settings › In Game › "Enable the Steam Overlay while in-game" turned off (restart the game) | for each: the route in the `admin: page opened … via` line and whether the page appeared with its session (Status loads). Expected: overlay shows the page in both modes; with the overlay off, `via system` and the browser opens; `game` works after login. If `via overlay` is ever logged with nothing visible, the next click must log `via system … overlay showed no page last time`; if that happens in a normal setup, Q3's bad branch applies | **Q3**, **Q10**, R17 | inbox item pass (overlay, twice, also via the code `MCVSOFFLINE`); Account › MCVS Offline blocked (F1); the rest not tested |
+| 6 | open the settings page: Settings › Account "MCVS Encore" (`auto`); then the inbox item; then the page's "Open in the system browser"; then set `admin.openVia` to `system`, then `game`, restart each time. Then with `auto`: once in fullscreen and once in windowed mode; once with Steam › Settings › In Game › "Enable the Steam Overlay while in-game" turned off (restart the game) | for each: the route in the `admin: page opened … via` line and whether the page appeared with its session (Status loads). Expected: overlay shows the page in both modes; with the overlay off, `via system` and the browser opens; `game` works after login. If `via overlay` is ever logged with nothing visible, the next click must log `via system … overlay showed no page last time`; if that happens in a normal setup, Q3's bad branch applies | **Q3**, **Q10**, R17 | inbox item pass (overlay, twice, also via the code `MCVSOFFLINE`); Account › MCVS Encore blocked (F1); the rest not tested |
 | 7 | on the page: Save the game now; export a save (Explorer opens `McvsOffline\exports`); share logs; copy a text. Then once more with `admin.openVia=system` and the game **minimised** behind the browser: Save the game now | each works; whether Save now completes while minimised (the game thread keeps running, [CR] F3 [I]) | F3 | not tested |
 | 8 | one bot match to the end **through Battle › Classic multiplayer** (there is no visible bot-match tile: the PRACTICE tile is hidden in the shipped data), `watch` running, before any unlock code | match ran with bots and physics (no falling through floors), rewards saved, `headless world:` lines (none expected), the watchdog, `[pc] quicklaunch: automatch through the local Finder` (1 or more), the GS World and P3 lines | **Q4** (GS), **Q12** | not run (blocked by F1): two stock client-World matches ran, rewards saved; `automatch through the local Finder 0` |
 | 8a | after step 8, before any code: open the inbox; if WR2's old coupon messages are still there (UNLOCKPAID, UNLOCKCAMOS, UNLOCKPAIDCAMOS, 2026-10-29, kept 7 days), select one, stay 30 s, Claim | open time, rewards shown (30), any freeze while open or on Claim, the popup's count (30), afterwards every camo or jersey of that code owned and the message gone | the `inbox` patch's rescue on PC (its PC-only fingerprints: `RefreshUI`, the `ClaimRewardsForMessage` state machine); then 8b's code on items the claim gave (keys not in the ledger, written and claimed again: duplicate handling unverified, [protocol/unlocks.md](../protocol/unlocks.md)) | (WR2: the inbox froze for 180 s with these messages) |
@@ -2338,7 +2338,7 @@ user. Sketch, so WR2 can start it at once ([CR] Q2, [QL] §7.2 variant 2b):
   `OutputDebugString`); LAN is not supported on PC; the game itself keeps Gameloft device-id files in Documents
   (`GDID.bin`, `DC.bin`, `HDIDFV.bin`) and data under `%APPDATA%`/`%LOCALAPPDATA%\Gameloft` (stock behaviour, not ours:
   neither our `uninstall` nor Steam's removes them, §3.5); a `*_args.txt` in the game folder makes the game ignore
-  MCVS Offline (`install` refuses, §7.6).
+  MCVS Encore (`install` refuses, §7.6).
 * `docs/STATUS.md`: a PC section (build, what is implemented, the WR2 checklist §13 with a results column), the WP-G phone checks, and the side effects of the `game` flags listed in §10.
 * `README.md`: status row "PC (Steam)"; a quickstart line for the kit.
 * `docs/ARCHITECTURE.md`: §2 the PC mode (option A, `hook-pc`, the PC patch set), §2.1 the define scheme, the `game`

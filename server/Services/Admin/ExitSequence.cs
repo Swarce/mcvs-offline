@@ -68,10 +68,10 @@ namespace McvsOffline.Server.Services.Admin
         public const string Saving = "saving";
         public const string Restarting = "restarting";
 
-        public const string ToastSaving = "MCVS Offline: saving…";
-        public const string ToastRestarting = "MCVS Offline: saving, then restarting the game…";
-        public const string ToastNotSaved = "MCVS Offline: the game did not save, so it was not restarted.";
-        public const string ToastFailed = "MCVS Offline: restart failed. Close the game yourself.";
+        public const string ToastSaving = "MCVS Encore: saving…";
+        public const string ToastRestarting = "MCVS Encore: saving, then restarting the game…";
+        public const string ToastNotSaved = "MCVS Encore: the game did not save, so it was not restarted.";
+        public const string ToastFailed = "MCVS Encore: restart failed. Close the game yourself.";
 
         private readonly object gate = new object();
         private readonly Func<IAdminHost> host;

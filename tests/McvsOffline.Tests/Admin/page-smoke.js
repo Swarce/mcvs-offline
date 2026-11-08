@@ -1090,7 +1090,7 @@ async function windowsRun(fx) {
 async function clientRuns(fx) {
   fx.state.client = { storePatch: true, inboxPatch: false, notActive: null };
   const p = await new Page('run 4c (no inbox patch)', fx.origin, new CookieJar()).load(fx.origin + '/_mcvs/ui/#t=' + fx.mintTicket() + '&s=status');
-  check(p.isShown('banner-inactive') && /without MCVS Offline's 'inbox' patch: opening the inbox freezes the game/.test(p.text('banner-inactive-text')),
+  check(p.isShown('banner-inactive') && /without MCVS Encore's 'inbox' patch: opening the inbox freezes the game/.test(p.text('banner-inactive-text')),
         'run 4c: the missing inbox patch banner reads "' + p.text('banner-inactive-text') + '"');
   check(/Game patches\s*missing: inbox \(big unlock codes freeze the inbox\)/.test(p.text('status-body')), 'run 4c: no "Game patches" row');
   check(p.pageErrorsShown() === null, 'run 4c: page errors: ' + p.pageErrorsShown());
@@ -1098,7 +1098,7 @@ async function clientRuns(fx) {
   fx.state.platform = 'windows';
   fx.state.client = { storePatch: true, inboxPatch: false, notActive: "the 'inbox' patch is missing" };
   const pc = await new Page('run 4d (PC not active)', fx.origin, new CookieJar()).load(fx.origin + '/_mcvs/ui/#t=' + fx.mintTicket() + '&s=status');
-  check(pc.isShown('banner-inactive') && /^MCVS Offline is installed, NOT ACTIVE \(the 'inbox' patch is missing\)/.test(pc.text('banner-inactive-text')),
+  check(pc.isShown('banner-inactive') && /^MCVS Encore is installed, NOT ACTIVE \(the 'inbox' patch is missing\)/.test(pc.text('banner-inactive-text')),
         'run 4d: the NOT ACTIVE banner reads "' + pc.text('banner-inactive-text') + '"');
   check(/Install\s*installed, NOT ACTIVE/.test(pc.text('status-body')) && !/Game patches/.test(pc.text('status-body')),
         'run 4d: the status rows are wrong: ' + pc.text('status-body').slice(0, 300));
@@ -1436,7 +1436,7 @@ function startFixtures(html) {
         const s = state.sets[set] = state.sets[set] || { total: +mm[3], have: {} };
         s.have[+mm[2]] = data;
       }
-      if (!set) return error(res, 400, 'invalid', 'No MCVS Offline save found in the pasted text.');
+      if (!set) return error(res, 400, 'invalid', 'No MCVS Encore save found in the pasted text.');
       const s = state.sets[set];
       const have = Object.keys(s.have).map(Number).sort((a, b) => a - b);
       if (have.length < s.total) {

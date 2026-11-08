@@ -38,7 +38,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             var env = new Env();
             string source = Path.Combine(TestEnvironment.NewTempDir("winshare-src"), "x.json");
             File.WriteAllText(source, "{\"save\":1}");
-            AdminShareResult result = env.Share().ShareFile(source, "mcvs-save-1.json", "MCVS Offline save");
+            AdminShareResult result = env.Share().ShareFile(source, "mcvs-save-1.json", "MCVS Encore save");
             Assert.True(result.Ok);
             Assert.Equal("explorer", result.Method);
             Assert.Equal("McvsOffline\\exports\\mcvs-save-1.json", result.PublicPath);
@@ -72,7 +72,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             File.WriteAllText(Path.Combine(env.Exports, "mcvs-save (2).JSON"), "old");
             string source = Path.Combine(TestEnvironment.NewTempDir("winshare-src"), "x.json");
             File.WriteAllText(source, "new");
-            AdminShareResult result = env.Share().ShareFile(source, "mcvs-save.json", "MCVS Offline save");
+            AdminShareResult result = env.Share().ShareFile(source, "mcvs-save.json", "MCVS Encore save");
             Assert.Equal("McvsOffline\\exports\\mcvs-save (3).json", result.PublicPath);
             Assert.Equal("old", File.ReadAllText(Path.Combine(env.Exports, "MCVS-Save.json")));
             Assert.Equal("new", File.ReadAllText(Path.Combine(env.Exports, "mcvs-save (3).json")));
@@ -82,13 +82,13 @@ namespace McvsOffline.Embed.Tests.Embedded
         public void ATextBecomesASanitisedTxtFile()
         {
             var env = new Env();
-            AdminShareResult result = env.Share().ShareText("MCVS Offline: logs <today>?", "line 1\nline 2");
+            AdminShareResult result = env.Share().ShareText("MCVS Encore: logs <today>?", "line 1\nline 2");
             Assert.True(result.Ok);
-            Assert.Equal("McvsOffline\\exports\\MCVS Offline_ logs _today__.txt", result.PublicPath);
-            byte[] bytes = File.ReadAllBytes(Path.Combine(env.Exports, "MCVS Offline_ logs _today__.txt"));
+            Assert.Equal("McvsOffline\\exports\\MCVS Encore_ logs _today__.txt", result.PublicPath);
+            byte[] bytes = File.ReadAllBytes(Path.Combine(env.Exports, "MCVS Encore_ logs _today__.txt"));
             Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, new[] { bytes[0], bytes[1], bytes[2] });
             Assert.Equal("line 1\nline 2", Encoding.UTF8.GetString(bytes, 3, bytes.Length - 3));
-            Assert.Equal("McvsOffline\\exports\\MCVS Offline_ logs _today__ (2).txt", env.Share().ShareText("MCVS Offline: logs <today>?", "again").PublicPath);
+            Assert.Equal("McvsOffline\\exports\\MCVS Encore_ logs _today__ (2).txt", env.Share().ShareText("MCVS Encore: logs <today>?", "again").PublicPath);
         }
 
         [Fact]
@@ -121,8 +121,8 @@ namespace McvsOffline.Embed.Tests.Embedded
         [InlineData("console", "console.txt")]
         [InlineData("name. . ", "name.txt")]
         [InlineData("a/b\\c:d*e?f\"g<h>i|j", "a_b_c_d_e_f_g_h_i_j.txt")]
-        [InlineData("", "MCVS Offline.txt")]
-        [InlineData("...", "MCVS Offline.txt")]
+        [InlineData("", "MCVS Encore.txt")]
+        [InlineData("...", "MCVS Encore.txt")]
         [InlineData("report.TXT", "report.txt")]
         [InlineData("tab\there", "tab_here.txt")]
         public void TextNamesAreWindowsSafe(string subject, string expected)

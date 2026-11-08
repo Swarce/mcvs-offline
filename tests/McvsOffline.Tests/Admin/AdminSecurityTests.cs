@@ -383,7 +383,7 @@ namespace McvsOffline.Tests.Admin
                 Assert.Equal("DENY", page.Headers.Get("X-Frame-Options"));
                 Assert.Equal("no-referrer", page.Headers.Get("Referrer-Policy"));
                 Assert.Equal("no-store", page.Headers.Get("Cache-Control"));
-                Assert.Contains("<title>MCVS Offline</title>", page.BodyText);
+                Assert.Contains("<title>MCVS Encore</title>", page.BodyText);
             }
             // The page itself needs no session; a foreign Host still gets nothing.
             client.Host = "evil.example:51780";

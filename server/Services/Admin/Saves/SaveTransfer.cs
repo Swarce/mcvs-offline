@@ -185,7 +185,7 @@ namespace McvsOffline.Server.Services.Admin.Saves
             problem = null;
             try
             {
-                byte[] sample = Encoding.UTF8.GetBytes("MCVS Offline deflate probe, MCVS Offline deflate probe, 0123456789");
+                byte[] sample = Encoding.UTF8.GetBytes("MCVS Encore deflate probe, MCVS Encore deflate probe, 0123456789");
                 byte[] back = inflate(deflate(sample));
                 if (back.Length != sample.Length) problem = "round trip changed the length";
                 else
@@ -357,7 +357,7 @@ namespace McvsOffline.Server.Services.Admin.Saves
             if (!headerOk)
             {
                 if (fields[0] == "1" && numbers && k >= 1) Reject(rejected, AdminFiles.IsLowerHex(set, 8) ? set : null, k, Damaged);
-                else Reject(rejected, null, 0, fields[0] == "1" ? Damaged : "made by a newer version of MCVS Offline");
+                else Reject(rejected, null, 0, fields[0] == "1" ? Damaged : "made by a newer version of MCVS Encore");
                 return null;
             }
             TryLong(fields[4], out bytes);

@@ -103,7 +103,7 @@ namespace McvsOffline.Patcher.Pc
 
         /// <summary>
         /// The UTC time of the newest timestamped line of <paramref name="log"/> (only our host writes bootstrap.log, so any line of
-        /// it is a start of MCVS Offline that got that far), or null when there is none.
+        /// it is a start of MCVS Encore that got that far), or null when there is none.
         /// </summary>
         public static DateTime? LastLineUtc(string log)
         {

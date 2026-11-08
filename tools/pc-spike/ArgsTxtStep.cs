@@ -112,7 +112,7 @@ namespace McvsOffline.PcSpike
             {
                 bool ours = File.Exists(args) && ArgsFile.ReadManagedValue(File.ReadAllBytes(args), "ServerLocation") != null;
                 string message = ours
-                    ? "args.txt has an MCVS Offline block but no backup record was found; left as it is (delete " + args + " by hand if you want)"
+                    ? "args.txt has an MCVS Encore block but no backup record was found; left as it is (delete " + args + " by hand if you want)"
                     : "nothing to restore (no backup record)";
                 log.Info("stop: " + message);
                 return message;

@@ -6,7 +6,7 @@ Report security problems privately, not in a public issue:
 
 1. Open the repository's **Security** tab.
 2. Choose **Report a vulnerability** (GitHub private vulnerability reporting).
-3. Describe the problem: the player build (MCVS Offline page › Status) or the commit, what an attacker can do, and the
+3. Describe the problem: the player build (MCVS Encore page › Status) or the commit, what an attacker can do, and the
    steps to show it.
 
 If the Security tab has no **Report a vulnerability** button, open an issue (the feature request form, area
@@ -17,7 +17,7 @@ live ticket or session cookie.
 
 ## What the project exposes
 
-The MCVS Offline server runs inside the game process on the phone (or as the standalone host on a PC).
+The MCVS Encore server runs inside the game process on the phone (or as the standalone host on a PC).
 
 **Network.** By default the server listens on `127.0.0.1:51780` only (`bind` in `settings.json`, default
 `127.0.0.1`). Nothing outside the phone can reach it. `"lanMode": true` or a non-loopback `bind` makes it listen
@@ -32,7 +32,7 @@ on the network, so other devices can reach it; LAN mode is experimental and mean
   `same-origin` or `none` when one is sent. The one exception is the post-mode form POST to `/_mcvs/ui`, which carries
   the one-time ticket instead (§5.2).
 
-**The MCVS Offline page** (`/_mcvs/ui/`) can change settings and saves. Access works like this
+**The MCVS Encore page** (`/_mcvs/ui/`) can change settings and saves. Access works like this
 ([design/settings-page.md](docs/design/settings-page.md) §5):
 
 - When the game opens the page, the server mints a **one-time ticket** (32 hex characters, valid for 120 seconds,

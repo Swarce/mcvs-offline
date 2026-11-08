@@ -129,7 +129,7 @@ namespace McvsOffline.Patcher.Pc
         NotActive,
 
         /// <summary>
-        /// The files are as written, but by an older build of MCVS Offline than the kit's (install.json's <c>serverBuild</c>): the
+        /// The files are as written, but by an older build of MCVS Encore than the kit's (install.json's <c>serverBuild</c>): the
         /// witnesses of the patches that build did not have cannot be missing from its record, so only this says it lacks them
         /// (a build-16 install has no 'inbox' and delivers the unlock codes as one inbox message). Install updates it.
         /// </summary>
@@ -267,8 +267,8 @@ namespace McvsOffline.Patcher.Pc
 
         /// <summary>
         /// One line on whether the install ran at the last start: "active at …", "NOT ACTIVE at …: Game loaded from the game folder",
-        /// "unknown: …", "NOT VERIFIED: no start of MCVS Offline since the install …" or, with no start of ours since the install,
-        /// "NOT ACTIVE: the game started without MCVS Offline; …" / "NOT ACTIVE: MCVS Offline's EngineBridge ran at …" (§7.6);
+        /// "unknown: …", "NOT VERIFIED: no start of MCVS Encore since the install …" or, with no start of ours since the install,
+        /// "NOT ACTIVE: the game started without MCVS Encore; …" / "NOT ACTIVE: MCVS Encore's EngineBridge ran at …" (§7.6);
         /// null when nothing is installed, or install.json has no install time and there is no start to judge.
         /// </summary>
         public string Activation { get; set; }
@@ -307,13 +307,13 @@ namespace McvsOffline.Patcher.Pc
         public const string StaleAdvice = "Steam updated the game: run uninstall, wait for a kit that knows this build";
 
         /// <summary>A failed install whose config is not (or not yet) ours: the game runs the stock files.</summary>
-        public const string NoRedirectWarning = "The game will start WITHOUT MCVS Offline until install succeeds";
+        public const string NoRedirectWarning = "The game will start WITHOUT MCVS Encore until install succeeds";
 
         /// <summary>The last line of a successful install (§7.6): how the player checks that Windows uses the config.</summary>
         public const string StartThenStatus = "start the game once, then run status: it must say activation: active";
 
         /// <summary>How a hand copy of McvsOffline\bin over the game's own files is undone (<see cref="ManualCopyAdvice"/>, uninstall's refusal).</summary>
-        public const string ManualCopyUndo = "you copied MCVS Offline's DLLs over the game's own files; Steam > Verify integrity of game files restores them";
+        public const string ManualCopyUndo = "you copied MCVS Encore's DLLs over the game's own files; Steam > Verify integrity of game files restores them";
 
         /// <summary>
         /// STALE, DAMAGED and the build-identity refusal, when a changed game file is byte for byte one of our McvsOffline\bin copies.
@@ -328,7 +328,7 @@ namespace McvsOffline.Patcher.Pc
         /// <summary>A status problem: <paramref name="file"/> in the game folder is one of our McvsOffline\bin copies.</summary>
         private static string CopyProblem(string file)
         {
-            return file + " is MCVS Offline's copy from " + GameFolder.DataDirName + "\\" + GameFolder.BinDirName + " (copied over the game's own file)";
+            return file + " is MCVS Encore's copy from " + GameFolder.DataDirName + "\\" + GameFolder.BinDirName + " (copied over the game's own file)";
         }
 
         public static List<string> CopiesOfOurs(string game, InstallManifest manifest, IEnumerable<string> files)
@@ -380,7 +380,7 @@ namespace McvsOffline.Patcher.Pc
                 List<string> copied = CopiesOfOurs(game, TryReadManifest(game), unknown.Select(u => u.File).Where(f => GameFolder.PatchedFiles.Contains(f)));
                 if (copied.Count > 0)
                 {
-                    return Fail(report, PcExitCodes.Refused, string.Join(", ", copied) + (copied.Count == 1 ? " is" : " are") + " MCVS Offline's own " +
+                    return Fail(report, PcExitCodes.Refused, string.Join(", ", copied) + (copied.Count == 1 ? " is" : " are") + " MCVS Encore's own " +
                                                              (copied.Count == 1 ? "copy" : "copies") + " from " + GameFolder.DataDirName + "\\" + GameFolder.BinDirName +
                                                              ", not the game's: " + ManualCopyAdvice + ". Nothing was written");
                 }
@@ -769,7 +769,7 @@ namespace McvsOffline.Patcher.Pc
             List<string> copied = CopiesOfOurs(game, recorded, GameFolder.PatchedFiles);
             if (copied.Count > 0)
             {
-                return Fail(report, PcExitCodes.Refused, string.Join(", ", copied) + (copied.Count == 1 ? " is" : " are") + " MCVS Offline's own " +
+                return Fail(report, PcExitCodes.Refused, string.Join(", ", copied) + (copied.Count == 1 ? " is" : " are") + " MCVS Encore's own " +
                                                          (copied.Count == 1 ? "copy" : "copies") + " from " + GameFolder.DataDirName + "\\" + GameFolder.BinDirName +
                                                          ", not the game's: " + ManualCopyUndo + ", then run uninstall again. Nothing was removed");
             }
@@ -836,7 +836,7 @@ namespace McvsOffline.Patcher.Pc
                 }
                 catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
                 {
-                    report.LeftBehind.Add("args.txt still has the MCVS Offline block: " + ex.Message);
+                    report.LeftBehind.Add("args.txt still has the MCVS Encore block: " + ex.Message);
                 }
             }
 
@@ -1096,7 +1096,7 @@ namespace McvsOffline.Patcher.Pc
             {
                 byte[] bytes = ReadSharedBytes(args);
                 if (bytes != null && PcArgsBlock.HasBlock(bytes))
-                    r.Leftovers.Add("args.txt still has the MCVS Offline block while nothing is installed: run uninstall");
+                    r.Leftovers.Add("args.txt still has the MCVS Encore block while nothing is installed: run uninstall");
             }
             foreach (string folder in new[] { game, GameFolder.DataDir(game), bin })
             {
@@ -1164,7 +1164,7 @@ namespace McvsOffline.Patcher.Pc
         private static void OlderBuild(PcStatusReport r, string installsBuild)
         {
             if (r.Manifest == null || !IsOlderBuild(r.Manifest.ServerBuild, installsBuild)) return;
-            r.Problems.Add("installed by MCVS Offline build " + r.Manifest.ServerBuild + ", this kit is build " + installsBuild + ": " +
+            r.Problems.Add("installed by MCVS Encore build " + r.Manifest.ServerBuild + ", this kit is build " + installsBuild + ": " +
                            InstallManifest.FileName + " lists build " + r.Manifest.ServerBuild + "'s patches, so the newer ones are not checked");
             if (r.State != PcInstallState.Current) return;
             r.State = PcInstallState.Older;
@@ -1202,7 +1202,7 @@ namespace McvsOffline.Patcher.Pc
         }
 
         /// <summary>The activation line of a current install the game has not been started with since (§7.6).</summary>
-        public const string NotVerified = "NOT VERIFIED: no start of MCVS Offline since the install (start the game once, then run status)";
+        public const string NotVerified = "NOT VERIFIED: no start of MCVS Encore since the install (start the game once, then run status)";
 
         /// <summary>
         /// WR2 F2: the last start after the install must have loaded every redirected assembly from McvsOffline\bin with every
@@ -1232,14 +1232,14 @@ namespace McvsOffline.Patcher.Pc
             if (boot == null || (installed.HasValue && boot.StartedBefore(r.Manifest.WrittenUtc)))
             {
                 // Our host wrote to the log after the install, but not the lines of a start that loaded the game's assemblies.
-                r.Activation = "unknown: MCVS Offline started at " + Iso(lastRecord.Value) + " but logged no [boot] assemblies:/patches: lines " +
+                r.Activation = "unknown: MCVS Encore started at " + Iso(lastRecord.Value) + " but logged no [boot] assemblies:/patches: lines " +
                                "(still starting, or it stopped early): see " + (r.BootstrapLog ?? GameFolder.BootstrapLogName);
                 return;
             }
             r.LastBoot = boot;
             r.Activation = boot.Describe();
             if (!boot.NotActive) return;
-            r.Errors.Add("the last start did not run MCVS Offline's files (" + boot.Reason + "): see the [boot] assemblies: and patches: lines in " +
+            r.Errors.Add("the last start did not run MCVS Encore's files (" + boot.Reason + "): see the [boot] assemblies: and patches: lines in " +
                          GameFolder.DataDirName + "\\logs\\bootstrap.log, and send 'collect'");
             if (r.State != PcInstallState.Current) return;
             r.State = PcInstallState.NotActive;
@@ -1248,10 +1248,10 @@ namespace McvsOffline.Patcher.Pc
         }
 
         /// <summary>The start of the activation line when the game ran after the install and our host did not.</summary>
-        public const string StartedWithoutUs = "NOT ACTIVE: the game started without MCVS Offline; Windows did not use ";
+        public const string StartedWithoutUs = "NOT ACTIVE: the game started without MCVS Encore; Windows did not use ";
 
         /// <summary>The same when the config is not ours or missing (PARTIAL): the config's path and what is wrong with it follow.</summary>
-        public const string StartedWithoutUsNoConfig = "NOT ACTIVE: the game started without MCVS Offline: ";
+        public const string StartedWithoutUsNoConfig = "NOT ACTIVE: the game started without MCVS Encore: ";
 
         /// <summary>No line of our host since the install: NOT VERIFIED, or NOT ACTIVE with the game's own files or the marker as evidence.</summary>
         private static void NoStartSinceTheInstall(PcStatusReport r, string game, DateTime installed, DateTime? lastRecord)
@@ -1290,12 +1290,12 @@ namespace McvsOffline.Patcher.Pc
                 if (hookFailure == null && r.GameRunning)
                 {
                     // The start line comes before McvsOfflineInit, the host's first line after the server DLL loads: still starting.
-                    r.Activation = "NOT VERIFIED: MCVS Offline's EngineBridge ran at " + hookStart.Time + "; the game is still running: run status after closing it";
+                    r.Activation = "NOT VERIFIED: MCVS Encore's EngineBridge ran at " + hookStart.Time + "; the game is still running: run status after closing it";
                     return;
                 }
                 string why = hookFailure != null ? hookFailure.Text : "no exception recorded";
-                r.Activation = "NOT ACTIVE: MCVS Offline's EngineBridge ran at " + hookStart.Time + " but the server did not start: " + why;
-                MarkNotActive(r, "the server did not start", "MCVS Offline's EngineBridge ran (" + r.HookMarkerPath + ") but its server did not start (" + why +
+                r.Activation = "NOT ACTIVE: MCVS Encore's EngineBridge ran at " + hookStart.Time + " but the server did not start: " + why;
+                MarkNotActive(r, "the server did not start", "MCVS Encore's EngineBridge ran (" + r.HookMarkerPath + ") but its server did not start (" + why +
                                                               "): send 'collect'");
                 return;
             }
@@ -1311,19 +1311,19 @@ namespace McvsOffline.Patcher.Pc
             r.Activation = r.Config == "ours" ? StartedWithoutUs + config : StartedWithoutUsNoConfig + notUsed;
             if (r.HookMarkerPath == null)
             {
-                r.HookEvidence = "no " + EngineBridgeHookPatch.MarkerFile + " in %TEMP%\\" + GameFolder.DataDirName + ": MCVS Offline's EngineBridge has never run as this user";
+                r.HookEvidence = "no " + EngineBridgeHookPatch.MarkerFile + " in %TEMP%\\" + GameFolder.DataDirName + ": MCVS Encore's EngineBridge has never run as this user";
             }
             else
             {
                 PcHookEntry last = PcHookMarker.LastStart(r.HookMarker, DateTime.MinValue, game);
                 r.HookEvidence = EngineBridgeHookPatch.MarkerFile + ": " + (last == null
-                    ? "no start of MCVS Offline's EngineBridge from this game folder"
-                    : "the last start of MCVS Offline's EngineBridge was at " + last.Time + ", before the install: it has not run since");
+                    ? "no start of MCVS Encore's EngineBridge from this game folder"
+                    : "the last start of MCVS Encore's EngineBridge was at " + last.Time + ", before the install: it has not run since");
             }
-            MarkNotActive(r, "the game started without MCVS Offline",
+            MarkNotActive(r, "the game started without MCVS Encore",
                           "the game ran after the install (" + gameFile + " written " + Iso(gameTime) + ", the install " + r.Manifest.WrittenUtc +
-                          ") but MCVS Offline did not start: " + notUsed);
-            r.Problems.Add(gameFile + " written by the game at " + Iso(gameTime) + ", after the install (" + r.Manifest.WrittenUtc + "); no start of MCVS Offline since");
+                          ") but MCVS Encore did not start: " + notUsed);
+            r.Problems.Add(gameFile + " written by the game at " + Iso(gameTime) + ", after the install (" + r.Manifest.WrittenUtc + "); no start of MCVS Encore since");
         }
 
         private static void MarkNotActive(PcStatusReport r, string reason, string error)
@@ -1377,7 +1377,7 @@ namespace McvsOffline.Patcher.Pc
                     report.WrittenSha256[w.Path] = GameFolder.TrySha256(GameFolder.Resolve(status.GameFolder, w.Path)) ?? "missing";
                 }
             }
-            if (status.State == PcInstallState.NotInstalled) return Fail(report, PcExitCodes.Refused, "MCVS Offline is not installed in " + status.GameFolder);
+            if (status.State == PcInstallState.NotInstalled) return Fail(report, PcExitCodes.Refused, "MCVS Encore is not installed in " + status.GameFolder);
             if (status.State != PcInstallState.Current) return Fail(report, PcExitCodes.Io, status.StateDetail);
             List<string> problems = CheckWritten(status.GameFolder, status.Manifest, bclDirectory);
             if (problems.Count > 0) return Fail(report, PcExitCodes.Io, "the install does not read back as written: " + string.Join("; ", problems));
@@ -1509,7 +1509,7 @@ namespace McvsOffline.Patcher.Pc
 
         public static string PrefixedArgsMessage(string name)
         {
-            return name + " is in the game folder; the game reads it instead of args.txt, so MCVS Offline would be ignored and the game would go online";
+            return name + " is in the game folder; the game reads it instead of args.txt, so MCVS Encore would be ignored and the game would go online";
         }
 
         private static PcInstallReport Fail(PcInstallReport report, int code, string error)

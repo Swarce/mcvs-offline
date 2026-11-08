@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""MCVS Offline content generator (owner: CONTENT).
+"""MCVS Encore content generator (owner: CONTENT).
 
 Reads the player's own decoded data pack (``datapack-decoded/_catalog.json`` and ``_tables.json``, ``Design/MCVS_Meta.xlsx``
 for index columns and the collector's rules) plus our tuning in ``pricing.json``, ``liveops_tuning.json``,

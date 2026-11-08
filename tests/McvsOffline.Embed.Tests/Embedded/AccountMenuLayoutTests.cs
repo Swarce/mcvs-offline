@@ -189,7 +189,7 @@ namespace McvsOffline.Embed.Tests.Embedded
         {
             using (var env = new MenuEnvironment("acct-centre"))
             {
-                // What onPush built from [Redeem, MCVS Offline]: column 0, rows 0 and 1.
+                // What onPush built from [Redeem, MCVS Encore]: column 0, rows 0 and 1.
                 FakeAsCharacter b0 = env.Ui.Menu.AddButton("btnSocial_customAction0", 77, 320);
                 FakeAsCharacter b1 = env.Ui.Menu.AddButton("btnSocial_customAction1", 77, 497);
                 var game = new List<object> { Facebook(), Redeem(), Google(), Restore() };

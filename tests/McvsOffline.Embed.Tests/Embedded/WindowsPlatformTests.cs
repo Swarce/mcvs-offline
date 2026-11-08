@@ -327,11 +327,11 @@ namespace McvsOffline.Embed.Tests.Embedded
                 // The page's "Save" (no subject) only copies into exports; "Share" also opens Explorer.
                 string file = Path.Combine(TestEnvironment.NewTempDir("winplatform-share"), "logs.zip");
                 File.WriteAllText(file, "zip");
-                AdminShareResult saved = platform.ShareFile(file, "application/zip", "mcvs-logs.zip", null, "MCVS Offline logs");
+                AdminShareResult saved = platform.ShareFile(file, "application/zip", "mcvs-logs.zip", null, "MCVS Encore logs");
                 Assert.Equal("file", saved.Method);
                 Assert.True(File.Exists(Path.Combine(root, "McvsOffline", "exports", "mcvs-logs.zip")));
                 lock (started) Assert.Empty(started);
-                AdminShareResult shared = platform.ShareFile(file, "application/zip", "mcvs-logs.zip", "MCVS Offline logs", "MCVS Offline logs");
+                AdminShareResult shared = platform.ShareFile(file, "application/zip", "mcvs-logs.zip", "MCVS Encore logs", "MCVS Encore logs");
                 Assert.Equal("explorer", shared.Method);
                 Assert.Equal("McvsOffline\\exports\\mcvs-logs (2).zip", shared.PublicPath);
                 lock (started) Assert.Equal(new[] { "explorer.exe" }, started);

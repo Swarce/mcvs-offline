@@ -44,7 +44,7 @@ namespace McvsOffline.Embed.Tests.Embedded
 
                 string file = Path.Combine(TestEnvironment.NewTempDir("adminhost-file"), "mcvs-logs-x.zip");
                 File.WriteAllText(file, "zip");
-                AdminShareResult shared = host.ShareFile(file, "application/zip", "mcvs-logs-x.zip", "MCVS Offline logs", null);
+                AdminShareResult shared = host.ShareFile(file, "application/zip", "mcvs-logs-x.zip", "MCVS Encore logs", null);
                 Assert.False(shared.Ok);
                 Assert.Equal("none", shared.Method);
                 Assert.Equal("none", host.ShareText("s", "t").Method);
@@ -129,22 +129,22 @@ namespace McvsOffline.Embed.Tests.Embedded
                 host.PageAlive();
                 Assert.True(watchdog.IsPaused(out reason));
                 Assert.Equal(AdminHost.PageLeaseReason, reason);
-                Assert.Contains("paused: MCVS Offline page open", watchdog.Describe());
+                Assert.Contains("paused: MCVS Encore page open", watchdog.Describe());
 
                 string file = Path.Combine(TestEnvironment.NewTempDir("adminhost-share"), "mcvs-save-a.txt");
                 File.WriteAllText(file, "MCVS-SAVE");
-                AdminShareResult shared = host.ShareFile(file, "text/plain", "mcvs-save-a.txt", "MCVS Offline save", "text");
+                AdminShareResult shared = host.ShareFile(file, "text/plain", "mcvs-save-a.txt", "MCVS Encore save", "text");
                 Assert.True(shared.Ok);
                 Assert.True(watchdog.IsPaused(out reason));
                 Assert.Equal(AdminHost.ShareLeaseReason, reason);   // the share target may keep the game in the background for minutes
-                Assert.Contains("ShareFile:text/plain:mcvs-save-a.txt:MCVS Offline save", platform.Calls);
+                Assert.Contains("ShareFile:text/plain:mcvs-save-a.txt:MCVS Encore save", platform.Calls);
 
                 host.PageAlive();   // the player came back: 45 s again
                 Assert.True(watchdog.IsPaused(out reason));
                 Assert.Equal(AdminHost.PageLeaseReason, reason);
 
                 platform.ShareResult = new AdminShareResult { Ok = true, Method = "downloads", PublicPath = "Download/MCVS-Offline/mcvs-save-a.txt" };
-                host.ShareFile(file, "text/plain", "mcvs-save-a.txt", "MCVS Offline save", null);   // "Save to Downloads": no chooser
+                host.ShareFile(file, "text/plain", "mcvs-save-a.txt", "MCVS Encore save", null);   // "Save to Downloads": no chooser
                 Assert.True(watchdog.IsPaused(out reason));
                 Assert.Equal(AdminHost.PageLeaseReason, reason);
 
@@ -177,19 +177,19 @@ namespace McvsOffline.Embed.Tests.Embedded
                 string reason;
 
                 platform.TextResult = AndroidShare.TextShareResult(UiCall.Pending);
-                AdminShareResult result = host.ShareText("MCVS Offline report", "text");
+                AdminShareResult result = host.ShareText("MCVS Encore report", "text");
                 Assert.False(result.Ok);
                 Assert.Equal("text", result.Method);
                 Assert.True(watchdog.IsPaused(out reason));
                 Assert.Equal(AdminHost.ShareLeaseReason, reason);
 
                 platform.TextResult = AndroidShare.TextShareResult(UiCall.Withdrawn);
-                Assert.Equal("none", host.ShareText("MCVS Offline report", "text").Method);
+                Assert.Equal("none", host.ShareText("MCVS Encore report", "text").Method);
                 Assert.True(watchdog.IsPaused(out reason));
                 Assert.Equal(AdminHost.PageLeaseReason, reason);
 
                 platform.TextResult = AndroidShare.TextShareResult(UiCall.Done);
-                Assert.True(host.ShareText("MCVS Offline report", "text").Ok);
+                Assert.True(host.ShareText("MCVS Encore report", "text").Ok);
                 Assert.True(watchdog.IsPaused(out reason));
                 Assert.Equal(AdminHost.ShareLeaseReason, reason);
             }
@@ -223,7 +223,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.DoesNotContain(problems, p => p.Contains("paused: ") || p.Contains("resumed") || p.Contains("tid 4242"));
                 Assert.True(host.FlushLogs(10000));
                 string log = File.ReadAllText(host.Paths.BootstrapLog);
-                Assert.Contains("INFO  [watchdog] paused: MCVS Offline page open", log);
+                Assert.Contains("INFO  [watchdog] paused: MCVS Encore page open", log);
                 Assert.Contains("INFO  [watchdog] resumed", log);
                 Assert.Contains("INFO  [watchdog] game thread is tid 4242 'UnityMain'", log);
                 Assert.Equal("x", EmbeddedHost.WithoutTag("[watchdog] x", "[watchdog] "));

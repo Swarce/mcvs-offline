@@ -110,7 +110,7 @@ namespace McvsOffline.Tools.HdTextures
         public static string Write(string variant, string gameVersion, IEnumerable<Row> rows)
         {
             var sb = new StringBuilder();
-            sb.Append("# MCVS Offline: the files of this data pack that are not Gameloft's (PC textures re-encoded by tools/hd-textures astc-pack).\n");
+            sb.Append("# MCVS Encore: the files of this data pack that are not Gameloft's (PC textures re-encoded by tools/hd-textures astc-pack).\n");
             sb.Append("# <path> <size> <crc32> <Gameloft's size> <Gameloft's crc32>; the offline build recognises the pack by it (docs/INSTALL-OFFLINE.md).\n");
             sb.Append("mcvs-replaced\t1\t").Append(variant).Append('\t').Append(gameVersion).Append('\n');
             foreach (Row r in rows)

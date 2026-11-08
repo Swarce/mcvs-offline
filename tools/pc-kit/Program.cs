@@ -315,7 +315,7 @@ namespace McvsOffline.PcKit
 
         private static readonly string[] MenuLabels =
         {
-            "install         - install MCVS Offline into the game folder",
+            "install         - install MCVS Encore into the game folder",
             "uninstall       - remove it again (your saves stay)",
             "status          - show what is installed",
             "status listing  - the same, plus a listing of the game folder",
@@ -329,7 +329,7 @@ namespace McvsOffline.PcKit
         /// <summary>The double-click menu: a numbered list until 0 or the end of the input; <paramref name="run"/> runs a choice.</summary>
         public static int Menu(KitEnvironment env, KitOptions options, Func<KitOptions, int> run)
         {
-            env.Out.WriteLine("MCVS Offline - PC kit " + KitServer.Version());
+            env.Out.WriteLine("MCVS Encore - PC kit " + KitServer.Version());
             while (true)
             {
                 env.Out.WriteLine();
@@ -389,7 +389,7 @@ namespace McvsOffline.PcKit
         }
 
         public const string Usage =
-            "MCVS Offline - PC kit for the Steam build of Modern Combat Versus (6372049); no command: a menu\n\n" +
+            "MCVS Encore - PC kit for the Steam build of Modern Combat Versus (6372049); no command: a menu\n\n" +
             "Usage: McvsOffline.PcKit <command> [options]\n\n" +
             "Commands:\n" +
             "  install [--patch default|<ids>] [--port n] [--dry-run] [--force]\n" +

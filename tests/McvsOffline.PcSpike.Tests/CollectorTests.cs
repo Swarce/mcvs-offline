@@ -103,7 +103,7 @@ namespace McvsOffline.PcSpike.Tests
                     Assert.Contains("eve.config", summary);
                     Assert.Contains("MARKER WRITTEN", summary);
                     Assert.Contains("peak private 900 MB, peak virtual 1500 MB", summary);
-                    Assert.Contains("args.txt: present, with the MCVS Offline block", summary);
+                    Assert.Contains("args.txt: present, with the MCVS Encore block", summary);
                     Assert.Contains("RESULT install folder writable: yes", summary);
                 }
             }

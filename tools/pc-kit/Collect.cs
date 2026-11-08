@@ -39,7 +39,7 @@ namespace McvsOffline.PcKit
             string folder = FirstExisting(env.Desktop, env.Documents, env.TempRoot);
             string target = Path.Combine(folder, FilePrefix + KitServer.Stamp(now) + ".zip");
             var summary = new StringBuilder();
-            summary.Append("MCVS Offline PC collect, ").Append(now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture))
+            summary.Append("MCVS Encore PC collect, ").Append(now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture))
                    .Append(", ").Append(KitServer.Identity(env)).Append("\r\n");
             summary.Append("game folder: ").Append(game ?? "(not found)").Append("\r\n");
             using (FileStream file = File.Create(target))

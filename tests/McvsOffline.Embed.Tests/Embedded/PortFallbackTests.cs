@@ -185,7 +185,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.NotEqual(holder.Port, r.Port);
                 Assert.Equal(PortHolderKind.Silent, r.Holder.Kind);
                 Assert.Equal(SocketError.AddressAlreadyInUse, r.BindError.SocketErrorCode);
-                Assert.Contains("port " + holder.Port + " is held by another program that does not answer as MCVS Offline", r.Reason);
+                Assert.Contains("port " + holder.Port + " is held by another program that does not answer as MCVS Encore", r.Reason);
                 Assert.InRange(watch.ElapsedMilliseconds, 0, 2500);
             }
             finally
@@ -246,7 +246,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             {
                 tried.Add(p);
                 throw new SocketException((int)SocketError.AddressAlreadyInUse);
-            }, p => new PortHolder(PortHolderKind.Mcvs, "MCVS Offline 0.26 answers"));
+            }, p => new PortHolder(PortHolderKind.Mcvs, "MCVS Encore 0.26 answers"));
             Assert.Equal(PortOutcome.Deferred, r.Outcome);
             Assert.Equal(51780, r.Port);
             Assert.Null(r.Listener);
@@ -296,7 +296,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             {
                 tried.Add(p);
                 throw new SocketException((int)SocketError.AddressAlreadyInUse);
-            }, p => ++probes < 3 ? new PortHolder(PortHolderKind.Silent, "silent") : new PortHolder(PortHolderKind.Mcvs, "MCVS Offline 0.26 answers"),
+            }, p => ++probes < 3 ? new PortHolder(PortHolderKind.Silent, "silent") : new PortHolder(PortHolderKind.Mcvs, "MCVS Encore 0.26 answers"),
             null, p => { asked.Add(p); return true; });
             Assert.Equal(PortOutcome.Deferred, r.Outcome);
             Assert.Equal(51780, r.Port);
@@ -304,7 +304,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.Equal(3, probes);
             Assert.Equal(new[] { 51780 }, asked);
             Assert.Equal(new[] { 51780 }, tried);
-            Assert.Contains("is held by a working MCVS Offline server (MCVS Offline 0.26 answers), which was still starting", r.Reason);
+            Assert.Contains("is held by a working MCVS Encore server (MCVS Encore 0.26 answers), which was still starting", r.Reason);
         }
 
         [Fact]

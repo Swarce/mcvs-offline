@@ -200,7 +200,7 @@ namespace McvsOffline.PcKit.Tests
                 using (ZipArchive zip = ZipFile.OpenRead(Directory.GetFiles(box.Env.Desktop, "mcvs-offline-pc-*.zip").Single()))
                 {
                     string summary = Read(zip, "summary.txt");
-                    Assert.StartsWith("MCVS Offline PC collect, 2026-11-02 18:00:00, kit " + KitServer.Version() + ", sha256 " + KitSha() + "\r\n", summary);
+                    Assert.StartsWith("MCVS Encore PC collect, 2026-11-02 18:00:00, kit " + KitServer.Version() + ", sha256 " + KitSha() + "\r\n", summary);
                 }
                 box.Env.KitPath = () => Path.Combine(box.Root, "missing.exe");
                 Assert.EndsWith(", sha256 unknown", KitServer.Identity(box.Env));

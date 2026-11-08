@@ -15,10 +15,10 @@ namespace McvsOffline.Embedded
         /// <summary>The configured port is bound (the normal case).</summary>
         Configured,
 
-        /// <summary>The configured port is busy and its holder is not MCVS Offline: another port is bound for this start.</summary>
+        /// <summary>The configured port is busy and its holder is not MCVS Encore: another port is bound for this start.</summary>
         Fallback,
 
-        /// <summary>A working MCVS Offline server answers on the configured port (a standalone through adb reverse...): the game uses it.</summary>
+        /// <summary>A working MCVS Encore server answers on the configured port (a standalone through adb reverse...): the game uses it.</summary>
         Deferred,
 
         /// <summary>Nothing could be bound (or the fallback is off and the port is busy): the server thread retries the configured port.</summary>
@@ -30,7 +30,7 @@ namespace McvsOffline.Embedded
     /// is written, so every place that points the game at the server can use the port actually bound.
     /// <list type="number">
     /// <item>Bind the configured port (normal case: one bind, well under a millisecond).</item>
-    /// <item>Busy (EADDRINUSE): ask the holder what it is (<see cref="PortProbe"/>, at most about 0.75 s). A working MCVS Offline
+    /// <item>Busy (EADDRINUSE): ask the holder what it is (<see cref="PortProbe"/>, at most about 0.75 s). A working MCVS Encore
     /// server: use it (<see cref="PortOutcome.Deferred"/>, never two servers on one port or, for another copy of the game, on one
     /// data folder). A silent holder while <see cref="StartMarker"/> says a start of this game on the same folder claimed the
     /// port moments ago: probe again for up to <see cref="StartingWaitMs"/> (a second copy started at the same moment).
@@ -155,11 +155,11 @@ namespace McvsOffline.Embedded
                 if (holder.Kind == PortHolderKind.Mcvs)
                 {
                     r.Outcome = PortOutcome.Deferred;
-                    r.Reason = "port " + Num(configured) + " is held by a working MCVS Offline server (" + holder.Detail + ")" +
+                    r.Reason = "port " + Num(configured) + " is held by a working MCVS Encore server (" + holder.Detail + ")" +
                                (waited == null ? "" : ", which was still starting (it answered after " + waited + " ms)");
                     return r;
                 }
-                r.Reason = "port " + Num(configured) + " is held by another program that does not answer as MCVS Offline: " + holder.Detail +
+                r.Reason = "port " + Num(configured) + " is held by another program that does not answer as MCVS Encore: " + holder.Detail +
                            (waited == null ? "" : " (a start of this game on the same data folder claimed the port moments ago; waited " + waited +
                                                   " ms for its server to answer)");
                 for (int i = 0; i < Rebinds; i++)
@@ -222,7 +222,7 @@ namespace McvsOffline.Embedded
             }
         }
 
-        /// <summary>Probes again until the holder answers as MCVS Offline, stops being silent, or <see cref="StartingWaitMs"/> is over.</summary>
+        /// <summary>Probes again until the holder answers as MCVS Encore, stops being silent, or <see cref="StartingWaitMs"/> is over.</summary>
         private static PortHolder WaitForStartingServer(Func<int, PortHolder> probe, int port, PortHolder first)
         {
             int started = Environment.TickCount;

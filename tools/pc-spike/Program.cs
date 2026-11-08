@@ -104,7 +104,7 @@ namespace McvsOffline.PcSpike
             catch (Exception ex)
             {
                 log.Error("could not start the server on 127.0.0.1:" + options.Port + ": " + ex.Message +
-                          " (is another copy of this tool or the MCVS Offline server already running?)");
+                          " (is another copy of this tool or the MCVS Encore server already running?)");
                 return 1;
             }
             log.Result("server", "running at " + server.Context.BaseUrl);
@@ -366,7 +366,7 @@ namespace McvsOffline.PcSpike
                 "game folder    - give the folder that holds " + SteamLocator.ExeName + " (when it was not found)",
             };
             inMenu = true;
-            Console.WriteLine("MCVS Offline - PC spike kit (see PC-SPIKE.md)");
+            Console.WriteLine("MCVS Encore - PC spike kit (see PC-SPIKE.md)");
             string problem;
             if (SteamLocator.Locate(options.GameDir, out problem) == null)
                 AskGameFolder(options, problem, ConsoleLines.Stdin, Console.Out);
@@ -436,7 +436,7 @@ namespace McvsOffline.PcSpike
         private static void PrintUsage()
         {
             Console.WriteLine(
-                "MCVS Offline - PC spike kit (WP0); step by step: PC-SPIKE.md\n\n" +
+                "MCVS Encore - PC spike kit (WP0); step by step: PC-SPIKE.md\n\n" +
                 "Usage: McvsOffline.PcSpike <command> [options]   (no command: a menu)\n\n" +
                 "Commands:\n" +
                 "  start           run our server on 127.0.0.1:51780 (data in %LOCALAPPDATA%\\McvsOffline\\spike), write args.txt\n" +

@@ -23,7 +23,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             var watchdog = new GameThreadWatchdog(() => "server state", s => reports.Enqueue(s), comm => "    \"main\" RUNNABLE\n", 50,
                                                   new[] { 300, 600 }, (tid, comm) => dumps.Enqueue(tid));
             Assert.True(watchdog.Bind(typeof(PausedGame)));
-            watchdog.PauseFor(1200, "MCVS Offline page open");
+            watchdog.PauseFor(1200, "MCVS Encore page open");
             watchdog.Start();
             try
             {
@@ -31,10 +31,10 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Thread.Sleep(700);   // longer than both report thresholds
                 Assert.DoesNotContain(reports, r => r.Contains("STALL"));
                 Assert.Empty(dumps);
-                Assert.Contains("paused: MCVS Offline page open", watchdog.Describe());
+                Assert.Contains("paused: MCVS Encore page open", watchdog.Describe());
 
                 // A renewed lease (the page pings) keeps it paused without a second line.
-                watchdog.PauseFor(1000, "MCVS Offline page open");
+                watchdog.PauseFor(1000, "MCVS Encore page open");
                 Thread.Sleep(300);
                 Assert.DoesNotContain(reports, r => r.Contains("STALL"));
 
@@ -46,7 +46,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.True(all.FindIndex(r => r.Contains("STALL")) > resumed);
                 Assert.Equal(1, all.Count(r => r.StartsWith("[watchdog] paused:", StringComparison.Ordinal)));
                 Assert.Equal(1, all.Count(r => r == "[watchdog] resumed"));
-                Assert.Equal("[watchdog] paused: MCVS Offline page open", all.First(r => r.StartsWith("[watchdog] paused:", StringComparison.Ordinal)));
+                Assert.Equal("[watchdog] paused: MCVS Encore page open", all.First(r => r.StartsWith("[watchdog] paused:", StringComparison.Ordinal)));
                 Assert.DoesNotContain("paused:", watchdog.Describe());
             }
             finally
@@ -65,9 +65,9 @@ namespace McvsOffline.Embed.Tests.Embedded
             watchdog.PauseFor(600000, "share target");
             Assert.True(watchdog.IsPaused(out reason));
             Assert.Equal("share target", reason);
-            watchdog.PauseFor(45000, "MCVS Offline page open");   // the player came back: 45 s, not 10 minutes
+            watchdog.PauseFor(45000, "MCVS Encore page open");   // the player came back: 45 s, not 10 minutes
             Assert.True(watchdog.IsPaused(out reason));
-            Assert.Equal("MCVS Offline page open", reason);
+            Assert.Equal("MCVS Encore page open", reason);
             watchdog.PauseFor(0, null);
             Assert.False(watchdog.IsPaused(out reason));
             watchdog.PauseFor(30, "short");
@@ -117,13 +117,13 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Notice = s => notices.Enqueue(s),
             };
             Assert.True(watchdog.Bind(typeof(PausedGame3)));
-            watchdog.PauseFor(400, "MCVS Offline page open");
+            watchdog.PauseFor(400, "MCVS Encore page open");
             watchdog.Start();
             try
             {
                 Assert.True(SpinWait.SpinUntil(() => notices.Contains("[watchdog] resumed"), 5000));
                 Assert.True(SpinWait.SpinUntil(() => reports.Any(r => r.Contains("STALL")), 5000));
-                Assert.Equal(new[] { "[watchdog] paused: MCVS Offline page open", "[watchdog] resumed" }, notices.ToArray());
+                Assert.Equal(new[] { "[watchdog] paused: MCVS Encore page open", "[watchdog] resumed" }, notices.ToArray());
                 Assert.DoesNotContain(reports, r => r.Contains("paused") || r.Contains("resumed"));
             }
             finally

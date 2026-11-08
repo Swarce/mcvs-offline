@@ -830,8 +830,8 @@ namespace McvsOffline.Server.Services.Admin.Saves
                 try
                 {
                     share = host.ShareFile(path, export != null ? "text/plain" : "application/json", fileName,
-                                           target == "downloads" ? null : "MCVS Offline save",
-                                           "My MCVS Offline save (" + who + "). Import it in MCVS Offline › Saves › Import.");
+                                           target == "downloads" ? null : "MCVS Encore save",
+                                           "My MCVS Encore save (" + who + "). Import it in MCVS Encore › Saves › Import.");
                 }
                 catch (Exception ex)
                 {
@@ -953,10 +953,10 @@ namespace McvsOffline.Server.Services.Admin.Saves
             if (asOf != null && TimeFormat.TryParse(asOf, out modified))
                 asOf = modified.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) + " UTC";
             int parts = export.Parts.Count;
-            return "MCVS Offline save of " + who + " (level " + bundle.Level.ToString(CultureInfo.InvariantCulture) + ", revision "
+            return "MCVS Encore save of " + who + " (level " + bundle.Level.ToString(CultureInfo.InvariantCulture) + ", revision "
                    + bundle.Revision.ToString(CultureInfo.InvariantCulture) + "), as of the game's save of " + (asOf ?? "unknown") + ".\n"
                    + parts.ToString(CultureInfo.InvariantCulture) + (parts == 1 ? " part" : " parts")
-                   + ". To import it: in the game open Settings > Account > MCVS Offline > Saves > Import and paste the parts,\n"
+                   + ". To import it: in the game open Settings > Account > MCVS Encore > Saves > Import and paste the parts,\n"
                    + "in any order, one or several at a time (everything from MCVS-SAVE to ~).";
         }
 

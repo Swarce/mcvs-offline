@@ -1,4 +1,4 @@
-# Design: the "MCVS Offline" settings and diagnostics page
+# Design: the "MCVS Encore" settings and diagnostics page
 
 Status: **implemented in build 9, awaiting its device test** (§12). Designed as revision 2 (October 2026, after
 build 8 / device test 7 and two design reviews); the sections below are updated to what was built, and "As built" lists
@@ -76,7 +76,7 @@ Found while implementing and reviewing the packages and at the integration (WP8)
 | D2 | **Chrome is unsupported for writes.** The freezer suspends the game ~70 s after it leaves the foreground (Android 14+ also closes its sockets). | No ticket is ever handed to Chrome, so Chrome never gets a session. Read-only `_mcvs/*` diagnostics stay reachable from Chrome on the phone. |
 | D3 | URLs use **`127.0.0.1`**, never `localhost` (the game's `network_security_config` allows cleartext only to `127.0.0.1` and `gameloft.com`). | Every URL the server hands out for the page is `http://127.0.0.1:<port>/_mcvs/ui/...`. |
 | D4 | The WebView has JavaScript, **no file chooser, no downloads, no `localStorage`/`sessionStorage`, no JS bridge**, ignores the viewport meta tag (wide viewport off), shows a loading dialog per page load and has `setSupportZoom(true)` without `setTextZoom`. | One self-contained ES5 page, XHR only, all state in JS memory or on the server, no `<input type=file>`, no `download` links; files leave the phone through the Android share sheet driven by the host over JNI; files enter it as text (§6.2) or through `McvsOffline/import/`. |
-| D5 | Triggers: the CRM `newsfeeds` inbox item first, then a Settings › Account "MCVS Offline" button (two Game.dll hooks), optional Forum-button repoint and a hidden redeem code. | §9. Revision 2: the inbox item carries no secret; it opens the full page through the `adminlink` hook (Gameloft.Engine.dll) and a view-only page without it. |
+| D5 | Triggers: the CRM `newsfeeds` inbox item first, then a Settings › Account "MCVS Encore" button (two Game.dll hooks), optional Forum-button repoint and a hidden redeem code. | §9. Revision 2: the inbox item carries no secret; it opens the full page through the `adminlink` hook (Gameloft.Engine.dll) and a view-only page without it. |
 | D6 | Security: loopback + Host allowlist, one-time ticket in the URL **fragment** exchanged for an `HttpOnly; SameSite=Strict` cookie, writes need JSON + a custom header + an Origin check, a settings key allowlist, tickets are never logged, the Host check is added to the existing `_mcvs/*` routes. | §5. Revision 2 extends the Host check to every route while bound to loopback. |
 | D7 | Logs: the 0-byte uploads come from MediaStore rows left `IS_PENDING=1` / without `_size` (FUSE direct-path writes are never scanned; in-place `O_TRUNC` rewrites). Fix the mirror (temp file + rename + scan) and add "share logs" (zip in MediaStore Downloads + `ACTION_SEND` over JNI; text/clipboard fallback before Android 10). | §7, §8.6, §8.7. |
 | D8 | Saves: list/create/restore backups, export (share sheet), import by paste, from `McvsOffline/import/` or from backups; imports and restores are **staged and applied at the next start** (the running menu server holds the profile in memory and saves it back). Account id = SHA-1 of the native anonymous credential, so an import from another phone **relinks the current credential** to the imported account. | §6. Revision 2: paste carries the compact transfer text; relink and Undo are staged operations too; applied operations are on probation. |
@@ -172,7 +172,7 @@ Main flows:
   960+ px wide. The page is designed for **250–330 px of height**.
 * **Layout** (`html, body {height: 100%}`, flexbox only):
   * no page top bar (the native bar already has Close);
-  * a left navigation column `#nav` (112 px): `#nav-title` "MCVS Offline" (13 px) with the connection dot `#conn`, six
+  * a left navigation column `#nav` (112 px): `#nav-title` "MCVS Encore" (13 px) with the connection dot `#conn`, six
     buttons (`#nav-status`, `#nav-settings`, `#nav-saves`, `#nav-logs`, `#nav-actions`, `#nav-about`; labels ellipsized),
     and `#btn-close` (`<a href="exit:">`) at the bottom;
   * a content column: banners `#banners` (each banner one line, tap to expand), the scrolling pane `#pane`
@@ -191,7 +191,7 @@ Main flows:
   button row `#dialog-ok`, `#dialog-cancel` is always visible); never `alert/confirm/prompt` (the plain `WebChromeClient`
   makes them unreliable). Transient messages in `#toast`.
 * **Banners** (stacked, each dismissable except the first three): `#banner-nosession` (no or expired session: "Open this
-  page from the game: Settings › Account › MCVS Offline, or the MCVS Offline message in the inbox."; when the fragment's
+  page from the game: Settings › Account › MCVS Encore, or the MCVS Encore message in the inbox."; when the fragment's
   ticket was refused (§2.2 step 4), `#banner-nosession-text` says instead "This tab is from an earlier start of the game:
   close it and open the page from the game again." (WR2 F8)), `#banner-viewmode`
   (§2.4), `#banner-error` (server unreachable after 3 failed pings: "The game is not answering. Go back to the game."),
@@ -223,7 +223,7 @@ Main flows:
 ### 2.3 Page technology rules (checked by WP4's tests, §11 item 4)
 
 * One `index.html`, ≤ 200 KB, one inline `<style>`, one inline `<script>`; `<meta charset="utf-8">`,
-  `<title>MCVS Offline</title>`; no `src=`/`href=` to anything but `exit:` and `#`.
+  `<title>MCVS Encore</title>`; no `src=`/`href=` to anything but `exit:` and `#`.
 * **ES5 only**: no `let/const/class/=>/template literals/.../for-of/async/await/default parameters/shorthand
   methods`; no `Promise` construction, `fetch`, `Map/Set/Symbol`, `Object.assign/entries/values`, `Array.from`,
   `String.prototype.includes/startsWith/endsWith/repeat/padStart`, `Array.prototype.find/findIndex/includes/fill`,
@@ -248,8 +248,8 @@ Main flows:
 ### 2.4 View mode (no session possible)
 
 When the page loads with `#news` and no ticket (a build without `adminlink`, or the hook did not run), or with no
-fragment at all (Chrome, a bookmark), it shows `#banner-viewmode`: "This view cannot change anything. Open MCVS Offline
-from the game: Settings › Account › MCVS Offline (or the inbox message in a build with the default patches)." and the
+fragment at all (Chrome, a bookmark), it shows `#banner-viewmode`: "This view cannot change anything. Open MCVS Encore
+from the game: Settings › Account › MCVS Encore (or the inbox message in a build with the default patches)." and the
 About screen; every other screen is disabled. `GET ping` (no data) still runs, so the device test can prove that the
 browser loads our page, cleartext to 127.0.0.1 works and the script runs, without any patch (C2).
 
@@ -321,7 +321,7 @@ settings.json keeps the key; nothing reads it.)
 | Unlocks & codes | `unlockAll` | Unlock everything | bool | false | live | Grants what UNLOCKALL grants, through the inventory, at the game's next save (~11,400 rewards; the level jumps to ~46 and the game lags while it levels up). `confirmWhen: enable`, `backupBefore: enable`: "This cannot be undone: turning it off later removes nothing. A backup of your save is made now." |
 | Unlocks & codes | `assets.couponsEnabled` | Unlock codes | bool | true | live | Settings › Account › Redeem code accepts the codes listed below. |
 | Unlocks & codes | `crm.redeemCoupons` | Redeem-code button | bool | true | menu | Shows the Redeem code button in Settings › Account. |
-| Unlocks & codes | `admin.accountMenu.hideDeadButtons` | Only Redeem code and MCVS Offline in Settings > Account | bool | true | live | Hides the Facebook, Google Play Games and Restore buttons, which cannot work offline, and centres the buttons that are left. Applies the next time Settings > Account opens. Read by the embedded host (`AdminHost.HideDeadAccountButtons`) in `AdminHooks.AccountMenuButtons`, §9.2. Not shown on PC (no effect there, docs/design/pc-port.md §3.6). |
+| Unlocks & codes | `admin.accountMenu.hideDeadButtons` | Only Redeem code and MCVS Encore in Settings > Account | bool | true | live | Hides the Facebook, Google Play Games and Restore buttons, which cannot work offline, and centres the buttons that are left. Applies the next time Settings > Account opens. Read by the embedded host (`AdminHost.HideDeadAccountButtons`) in `AdminHooks.AccountMenuButtons`, §9.2. Not shown on PC (no effect there, docs/design/pc-port.md §3.6). |
 | Unlocks & codes | `unlocks.batchSize` | Rewards per batch | int 50–400, step 50 | 400 | live | Unlock-all rewards per batch; keep at most 400 (reward popups). |
 | Unlocks & codes | `admin.redeemCode` | Code that opens this page | string `^([A-Z0-9]{4,20})?$` | `MCVSOFFLINE` | live | Typing it in Redeem code opens this page (the game then says the code does not exist). Empty: off. |
 | Live ops | `liveops.enabled` | Live events | bool | true | menu | Division seasons, daily missions and weekly events. |
@@ -338,7 +338,7 @@ settings.json keeps the key; nothing reads it.)
 | Live ops | `liveops.arenaRotation` | Special Event mode | enum `rotate`, `off` and the 23 mode ids of `liveops.json` `arena.modes` (`SettingsSchema.ArenaRotationChoices`, kept equal by a test) | `rotate` | menu | A mode id pins it. |
 | Live ops | `liveops.arenaHours` | Special Event length (hours) | int 1–168 | 24 | menu | Windows run back to back from the daily reset hour; a divisor of 24 keeps them aligned to the reset. |
 | Live ops | `liveops.arenaMap` | Special Event map | enum `Random`, `Snow`, `Desert`, `Favelas`, `Rooftop`, `DogDays`, `Port`, `Stadium`, `Stadium2` | `Random` | menu | |
-| Live ops | `crm.newsfeedLink` | Inbox message for this page | bool | true | menu | The "MCVS Offline" inbox message (§9.1). Off removes it at the next CRM fetch. |
+| Live ops | `crm.newsfeedLink` | Inbox message for this page | bool | true | menu | The "MCVS Encore" inbox message (§9.1). Off removes it at the next CRM fetch. |
 | Diagnostics | `storage.backups.keep` | Automatic backups kept | int 0–200 | 20 | live | Per account. Counts only the automatic backups taken every N minutes; backups before imports, restores, risky settings and events, and your own backups are kept separately (§6.3). 0: no new automatic backups (existing ones stay). `confirmWhen: decrease`: "Older automatic backups beyond the new number are deleted at the next automatic backup." |
 | Diagnostics | `storage.backups.intervalMinutes` | Minutes between automatic backups | int 5–1440 | 30 | live | |
 | Diagnostics | `storage.autoRestoreCorrupt` | Repair unreadable saves | bool | true | live | An unreadable save file is replaced by its newest readable backup (the broken file is kept). |
@@ -613,7 +613,7 @@ plain kill therefore loses everything since the last save. Both actions below ru
 closes the page and lets the game save.
 
 `POST actions/save-now` `{"screen": "saves"}` → 501 unless `capabilities.save` and `capabilities.openPage`; 409
-`restarting`/`busy` while a sequence runs; else 202 `{"accepted": true}`. Sequence: toast "MCVS Offline: saving…" →
+`restarting`/`busy` while a sequence runs; else 202 `{"accepted": true}`. Sequence: toast "MCVS Encore: saving…" →
 close the browser → wait for the game loop → request the game's save → wait for it (≤ 15 s) → reopen the page with a
 fresh ticket on `screen` (`#…&s=saves`; with `&r=nosave` when no save arrived). The Saves screen uses it before an export
 or a manual backup ("Save the game now, then back up").
@@ -623,10 +623,10 @@ or a manual backup ("Save the game now, then back up").
 1. 501 `not_supported` unless `capabilities.exit`; 409 `restarting` if a sequence runs.
 2. Mark the module as restarting (every later admin write gets 409 `restarting`; `GET status`/`GET saves` take no
    account lock and omit levels), answer 202 `{"restarting": true}`.
-3. Background thread, after 300 ms (the response is on the wire): toast "MCVS Offline: saving, then restarting the
+3. Background thread, after 300 ms (the response is on the wire): toast "MCVS Encore: saving, then restarting the
    game…" → close the browser → wait for the game loop (≤ 8 s) → request the game's save → wait for a save of the current
    account with source `http` that starts after the request, then 1 s without another one (≤ 15 s).
-4. No save arrived and `restartWithoutSave` is false: toast "MCVS Offline: the game did not save, so it was not
+4. No save arrived and `restartWithoutSave` is false: toast "MCVS Encore: the game did not save, so it was not
    restarted.", `exit.last = {result: "cancelled"}`, clear the flag. Nothing else happens.
 5. Otherwise: take `LocalProfileStore.Locks.Acquire(account)` (no new save can start; an in-flight one finishes),
    `context.Logger.Flush(2000)`, `IAdminHost.Exit(reason, relaunch: true)` (§8.8). If `Exit` returns false: release the
@@ -686,7 +686,7 @@ an account that is not the current one and has a game profile (409 `no_game_prof
   (one of 60000, 3900, 1900);
 * `share`/`downloads`: writes `<data>/admin/exports/mcvs-save-<name>-<yyyyMMdd-HHmm>.txt` (transfer) or `.json` (the
   bundle; for PC tools) (newest 5 by write time kept, never the file just written), then `IAdminHost.ShareFile(path, "text/plain"|"application/json", fileName,
-  "MCVS Offline save", "My MCVS Offline save (" + alias + "). Import it in MCVS Offline › Saves › Import.")`;
+  "MCVS Encore save", "My MCVS Encore save (" + alias + "). Import it in MCVS Encore › Saves › Import.")`;
   `downloads` → the same call with `subject == null` ("copy only"; 501 unless `capabilities.saveToDownloads`);
 * `text`: no file; the parts are returned;
 * 200 `{"file": "mcvs-save-....txt"|null, "size": 107020, "asOf": "<profile modified>", "transfer": {"set": "1a2b3c4d",
@@ -784,7 +784,7 @@ into `<data>/admin/share/`; 200 `{"file": "mcvs-logs-20261026-101500.zip", "size
 "skipped": 3, "fits": {"discord": true, "gmail": true}}`. At most one build at a time (409 `busy`), 6 per minute
 (bucket `admin.zip`; `logs/share` and `logs/share-text` share `admin.share`, 6 per minute).
 `POST logs/share` `{"file": "<name from logs/zip>", "target": "share"|"downloads"}` →
-`IAdminHost.ShareFile(zip, "application/zip", name, "MCVS Offline logs", note)`; 200 `{"share": {...}}`.
+`IAdminHost.ShareFile(zip, "application/zip", name, "MCVS Encore logs", note)`; 200 `{"share": {...}}`.
 `GET logs/bundle?scope=` → a fresh zip as `application/zip` attachment. `POST logs/share-text` `{"note": "..."}` → a
 plain-text report (status summary, last 300 WARN+ entries of server.log, bootstrap.log and game.log, then of the
 previous start's last file of each as "previous start" (§7.7), the newest crash
@@ -984,10 +984,10 @@ GET: the browser's Refresh button reloads it with the cookie instead of re-POSTi
 
 | Check | Error message (for the player) |
 |---|---|
-| `format` is `mcvs-offline/save-bundle`, `version` is the integer 1 | "This is not an MCVS Offline save (or it comes from a newer version)." |
+| `format` is `mcvs-offline/save-bundle`, `version` is the integer 1 | "This is not an MCVS Encore save (or it comes from a newer version)." |
 | `account.id` matches `^[0-9a-f]{24}$` | "The save's account id is not valid." |
 | `profile` is a non-empty string ≤ 12 MiB; `profileLength` and `profileCrc32` match | "The save is incomplete (copied only in part?)." |
-| the profile text parses as a JSON object whose `format` is `mcvs-offline/seshat-profile` (`ProfileFile.Parse`'s "plain profile document" fallback is an **error** here), envelope `version` ≤ 1, envelope `account` equals `account.id` | "The save's profile is not an MCVS Offline profile." |
+| the profile text parses as a JSON object whose `format` is `mcvs-offline/seshat-profile` (`ProfileFile.Parse`'s "plain profile document" fallback is an **error** here), envelope `version` ≤ 1, envelope `account` equals `account.id` | "The save's profile is not an MCVS Encore profile." |
 | the parsed document has a non-empty game profile (`SeshatOperations.HasGameProfile`) | "The save holds no game progress." |
 | `messages` keys ⊆ {`inbox`, `secured`}; each value a string that parses to a JSON object, ≤ 4 MiB | "The save's inbox is damaged." |
 
@@ -1030,8 +1030,8 @@ their data are concatenated in order, decoded, checked against `bytes` and `crc`
 **Writing**: the `.txt` export wraps data at 76 characters per line and starts with instructions:
 
 ```
-MCVS Offline save of Player4711 (level 41, revision 900), as of the game's save of 2026-10-26 10:42 UTC.
-2 parts. To import it: in the game open Settings > Account > MCVS Offline > Saves > Import and paste the parts,
+MCVS Encore save of Player4711 (level 41, revision 900), as of the game's save of 2026-10-26 10:42 UTC.
+2 parts. To import it: in the game open Settings > Account > MCVS Encore > Saves > Import and paste the parts,
 in any order, one or several at a time (everything from MCVS-SAVE to ~).
 
 MCVS-SAVE:1:1a2b3c4d:1/2:d:80264:9f3e21aa:5c0ffee1:
@@ -1603,7 +1603,7 @@ namespace McvsOffline
     public static class AdminHooks
     {
         public const string ButtonAction = "mcvs_offline";
-        public const string ButtonLabel = "MCVS Offline";
+        public const string ButtonLabel = "MCVS Encore";
         public const string ButtonIcon = "Menus/assets/png/icons/Settings.png";
 
         /// <summary>Game thread (Flash native call). Returns a List&lt;object&gt; (ASValue.SetObject turns an IList into an
@@ -1737,7 +1737,7 @@ public void PauseFor(int ms, string reason);
 In `Run`, while `Environment.TickCount - pausedUntil < 0` the loop behaves as for `suspendUpdateInBackground` (sets
 `lastBeat = now`, no snapshot, no dump) and logs once `[watchdog] paused: <reason>` and once `[watchdog] resumed`, at
 INFO (the host logger's WARN lines are the Status screen's recent problems; stall snapshots stay WARN).
-`AdminHost` calls `PauseFor(45000, "MCVS Offline page open")` on every open and every `PageAlive()` (the page pings every
+`AdminHost` calls `PauseFor(45000, "MCVS Encore page open")` on every open and every `PageAlive()` (the page pings every
 10 s, at once when it becomes visible again, and every API call counts). Before starting a chooser it calls
 `PauseFor(600000, "share target")`: a share target in its own task sends the game to the background, where the game
 loop is paused anyway; the first `PageAlive` after the player returns brings the lease back to 45 s. `CloseBrowser`
@@ -1848,7 +1848,7 @@ unit-tested with a recording fake `IAdminHost`; timings in `ExitTimings`):
 
 | # | Step | save-now | restart |
 |---|---|---|---|
-| 1 | `ShowToast` ("MCVS Offline: saving…" / "…saving, then restarting the game…") | ✓ | ✓ |
+| 1 | `ShowToast` ("MCVS Encore: saving…" / "…saving, then restarting the game…") | ✓ | ✓ |
 | 2 | `CloseBrowser()` (QuitIGB; the page is gone from here on) | ✓ | ✓ |
 | 3 | `WaitForGameLoop(8000)`: `MainActivity` resumed, the game thread runs frames | ✓ | ✓ |
 | 4 | `t0 = now`; `RequestGameSave()` | ✓ | ✓ |
@@ -1927,7 +1927,7 @@ Document shape added at the top level of the CRM document:
 "newsfeeds": [
   {
     "news_id": "mcvsoffline_FromMCVS",
-    "title": "MCVS Offline",
+    "title": "MCVS Encore",
     "body": "Settings, saves and logs of your offline game. Tap the button to open them.",
     "redirect": "http://127.0.0.1:51780/_mcvs/ui/#news",
     "asset": "",
@@ -1960,7 +1960,7 @@ Document shape added at the top level of the CRM document:
   `CrmDocumentValidator.Sanitize` (which gains a `newsfeeds` check, §10.8); `CrmDocumentCache` passes it and adds the
   week number to its cache key. `CrmOptions` gains `NewsfeedLink` (`crm.newsfeedLink`, default true).
 
-### 9.2 Settings › Account "MCVS Offline" button (WP6: patch `adminpage`, default)
+### 9.2 Settings › Account "MCVS Encore" button (WP6: patch `adminpage`, default)
 
 Flash `MenuAccountSettings.doAction` handles `customAction == "showRedeem"` itself and forwards every other
 `customAction` to `Native.ProcessAccountMenuButtonAction(customAction)`; the list comes from
@@ -1971,7 +1971,7 @@ Flash `MenuAccountSettings.doAction` handles `customAction == "showRedeem"` itse
 
 ```
 Id "adminpage", AssemblyFile "Game.dll"
-Description "Settings > Account: an 'MCVS Offline' button that opens the offline settings page (Game.dll)"
+Description "Settings > Account: an 'MCVS Encore' button that opens the offline settings page (Game.dll)"
 ProfileType           = "Game.PlayerProfileComponent"
 ButtonListFingerprint = "5522a99141e39edccee31473340f733dbeaa8885316247f3349cd74d5238d5df"
 ButtonActionFingerprint = "6bb9a563929381d3a3e60c77378b758aa63604a1ee6933551b752ac67564c053"
@@ -2018,7 +2018,7 @@ notes. A second run on a patched assembly fails the fingerprint check ("is not t
 Registration (WP6): `new AdminPagePatch()` in `ApkPatcher.AllPatches` (after `SignaturesPatch`), `"adminpage"` in
 `PatcherOptions.DefaultPatches` and `OptionalPatches`; `--help` and PLAYER-SETUP list it (WP8 docs).
 
-**Build 13: only Redeem code and MCVS Offline, centred** (`hosts/embedded/Admin/AccountMenuLayout.cs`; setting
+**Build 13: only Redeem code and MCVS Encore, centred** (`hosts/embedded/Admin/AccountMenuLayout.cs`; setting
 `admin.accountMenu.hideDeadButtons`, bool, default true, `live`). No new IL: both steps run in the A1 hook.
 
 * *Filter.* With the server up and the setting on, `AccountMenuButtons` drops the entries with `snsId` 0 (Facebook) or
@@ -2032,7 +2032,7 @@ Registration (WP6): `new AdminPagePatch()` in `ApkPatcher.AllPatches` (after `Si
   as it was. Flash side effects: none beyond gameswf null-call lines the stock menu already logs
   (`removeButtonListeners` and `resultSNSConnect` look children up by `btnSocial_<k>` / `btnSocial_<sns>`).
 * *Centring.* `MenuAccountSettings.onPush` places list key k at `x = 77 + floor(k/2)·(w+50)`,
-  `y = 320 + (k%2)·(h+45)` (no centring, column-major, 2 rows), so [Redeem, MCVS Offline] would be stacked at the left
+  `y = 320 + (k%2)·(h+45)` (no centring, column-major, 2 rows), so [Redeem, MCVS Encore] would be stacked at the left
   edge. When the final list is 1 or 2 entries without `snsId` (Flash names them `btnSocial_customAction0/1`), the hook
   posts one work item to `GameApplication.Context`; `GameSynchronizationContext.Post` only enqueues, so it runs after
   `onPush`. It takes `UISceneExtentions.GetUI(World)`, `FindClass("gluic.components.menus", "MenusStack")
@@ -2058,7 +2058,7 @@ Registration (WP6): `new AdminPagePatch()` in `ApkPatcher.AllPatches` (after `Si
 
 ```
 Id "adminlink", AssemblyFile "Gameloft.Engine.dll"
-Description "the 'MCVS Offline' inbox message opens the offline settings page with a fresh one-time ticket (Gameloft.Engine.dll)"
+Description "the 'MCVS Encore' inbox message opens the offline settings page with a fresh one-time ticket (Gameloft.Engine.dll)"
 BrowserType           = "Gameloft.Engine.BrowserComponent"
 OpenUrlFingerprint    = "7585cdc7e72ffbe58c2a11dbc768aa94cfad044bea81a0330aaee6291db456cb"
 HooksType             = "McvsOffline.AdminHooks"
@@ -2126,7 +2126,7 @@ request carries **no** token (`AssetsApi` builds it without scopes and `FedReque
 requests), so none is required; `IAdminHost.Describe().BrowserOpen` is false; the last honoured trigger is more than
 30 s ago. Then `context.Features.Get<IAdminPortal>()?.OpenPage(AdminTriggers.Redeem, null)`. Either way the
 answer is **404** `coupon does not exist` (nothing is claimed; with 200 the game would mark the code claimed and add an
-empty inbox message) and the log says `coupon '<code>': opens the MCVS Offline page (requested|ignored: <reason>)`. The
+empty inbox message) and the log says `coupon '<code>': opens the MCVS Encore page (requested|ignored: <reason>)`. The
 game shows "code does not exist" behind the browser; acceptable for a power-user fallback. The request comes from the
 menu server's HTTP client on a connection thread; `IAdminHost.OpenPage` posts to the game thread. A match cannot run
 while the player is on the Redeem screen, so no further check is needed.
@@ -2506,18 +2506,18 @@ Record `adb logcat -s McvsOffline mono-stdout`, keep `server.log`, and screensho
 
 | # | Check | Expected / what to record |
 |---|---|---|
-| C1 | Inbox: a message "MCVS Offline" from "MCVS" appears after reaching the menu. | Button style and text for a link-only message; expiry text; whether it can be pinned/deleted; after a restart and after a CRM refresh (return from a match): is it flagged new again? (Also after the weekly timestamp change, if the test spans a Monday.) |
+| C1 | Inbox: a message "MCVS Encore" from "MCVS" appears after reaching the menu. | Button style and text for a link-only message; expiry text; whether it can be pinned/deleted; after a restart and after a CRM refresh (return from a match): is it flagged new again? (Also after the weekly timestamp change, if the test spans a Monday.) |
 | C2 | Tap its button (build with `adminlink`). | The in-game browser opens `http://127.0.0.1:51780/_mcvs/ui/` (cleartext to 127.0.0.1 works); `server.log`: `admin: page opened (trigger news, via …)` and `admin: session opened (trigger news, <User-Agent>)`. Record the WebView version (About screen). If a build without `adminlink` is at hand: the view-only page with `#banner-viewmode`. |
 | C3 | Fragment, cookie and the fallbacks. | The session works on the first load (the ticket survived the native `OpenURL` path) and after the toolbar Refresh (cookie kept). **Then deliberately** set `admin.openVia` to `jni`, restart, open, use, close, open again; the same with `post` (303 then the page; Refresh keeps working; "Save the game now" reopens on Saves, with "The game did not save" when it did not). For each: no native crash on close, the second open works (the `k` flag was reset), game sound state afterwards. Record in STATUS. |
 | C4 | `IsInGameBrowserInitialized` offline. | Status › host › browser = `initialized`; `server.log` shows `marketing_site/redir/ingamenews.php?action=checkNews` or not. |
 | C5 | Watchdog. | No `[watchdog] STALL` and no thread dump while the page is open (≥ 2 min), `[watchdog] paused`/`resumed` lines; time from Close to a responsive menu (GL context resume). |
-| C6 | Settings › Account. | The "MCVS Offline" button shows with the typed label (or a raw key?) and a sensible icon (`Settings.png`; alternatives `settings_gameplay.png`, `redeemCode.png`); tapping opens the page (`trigger account`). Facebook/Google/Redeem/Recover buttons unchanged. Status › player › source = `game`. |
-| C7 | Redeem code `MCVSOFFLINE`. | The page opens; the "code does not exist" popup behind it; nothing claimed; a second try within 30 s is ignored (logged). `server.log` shows `coupon 'MCVSOFFLINE': opens the MCVS Offline page (requested)` for the game's request (no token, the game's User-Agent); if it says `ignored: not the game's User-Agent` instead, record the request's `User-Agent` (DEBUG request line). The game's own login must not log `not taken as the player's login`. |
+| C6 | Settings › Account. | The "MCVS Encore" button shows with the typed label (or a raw key?) and a sensible icon (`Settings.png`; alternatives `settings_gameplay.png`, `redeemCode.png`); tapping opens the page (`trigger account`). Facebook/Google/Redeem/Recover buttons unchanged. Status › player › source = `game`. |
+| C7 | Redeem code `MCVSOFFLINE`. | The page opens; the "code does not exist" popup behind it; nothing claimed; a second try within 30 s is ignored (logged). `server.log` shows `coupon 'MCVSOFFLINE': opens the MCVS Encore page (requested)` for the game's request (no token, the game's User-Agent); if it says `ignored: not the game's User-Agent` instead, record the request's `User-Agent` (DEBUG request line). The game's own login must not log `not taken as the player's login`. |
 | C8 | Forum (if patched with `--patch default,forum`). | The page opens. |
 | C9 | Settings writes. | VersusCoins ×2: after the next match the win pays double; a `restart` key shows the banner; Restart applies it. Enabling `devMenu` creates a `presettings` backup (Saves). Edit `settings.json` to a syntax error, start: the repair panel (file text with `superPassword` masked); repair; restart: defaults plus host keys. |
 | C10 | Copy. | Which of `navigator.clipboard`, `execCommand`, host clipboard worked (shown in the toast); a 60,000-character part copies and pastes intact. |
 | C11 | Saves. | (a) Save the game now: the page closes, `server.log` shows the TS dump POST, the page reopens on Saves with a fresh "last saved" time. (b) Back up now, then delete that backup. (c) Export → Share as a file to Gmail, Telegram, Discord, Drive: the `.txt` arrives with its real size. (d) With an **unlock-all profile (~1.4 MB)**: record the transfer text size and the part counts for 60,000/3,900/1,900. (e) On a second phone (or after clear-data): open the `.txt`, copy and paste the parts (record which viewer allows selecting and copying a 60,000-character part), stage (`switch`), restart: the game shows the imported progress; Status shows the history `applied`; probation clears within seconds of reaching the menu; the previous account is listed with "Play this account on this phone"; Undo goes back. (f) Import from `McvsOffline/import/` with `adb push`. (g) **Samsung My Files on the S22 (Android 16)**: can it copy a file into `Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/import/`? (h) `server.log`: apply duration vs the first Federation request after the port opened. (i) Stay 2 min in the share target app, come back, play a match: no STALL dump, the game works. |
-| C12 | Restart. | From Actions: toast, browser closes, the TS save in `server.log`, the process ends, and does it relaunch by itself? Count processes and boots per restart (`adb shell pidof com.gameloft.android.ANMP.GloftMVHM` before/after, the number of `[boot] MCVS Offline host started` lines, `ApplyPending` attempts with a staged import). Next boot logs `previous exit: restart requested`. Repeat with `admin.restartVia=host`. Decide the default from the results. |
+| C12 | Restart. | From Actions: toast, browser closes, the TS save in `server.log`, the process ends, and does it relaunch by itself? Count processes and boots per restart (`adb shell pidof com.gameloft.android.ANMP.GloftMVHM` before/after, the number of `[boot] MCVS Encore host started` lines, `ApplyPending` attempts with a staged import). Next boot logs `previous exit: restart requested`. Repeat with `admin.restartVia=host`. Decide the default from the results. |
 | C13 | Logs share. | Build (scope Recent): the size shown, ≤ 8 MiB; the zip arrives non-empty in Gmail, Telegram and Discord; scope Everything: size and the page's warning. Files › Downloads › MCVS-Offline shows correct sizes for the current session's mirror files; `adb shell content query --uri content://media/external/file --projection _data:_size:is_pending --where "_data LIKE '%MCVS-Offline%'"` shows `is_pending=0` and real sizes (before the fix: `is_pending=1`, size 0/NULL); after 6 shares only the newest 5 zips remain. Which app/picker the tester uses. |
 | C14 | Chrome. | `http://127.0.0.1:51780/_mcvs/status` loads (Host check passes, `superPassword` masked); `/_mcvs/ui/` shows the view-only page. Freezer timing: `adb shell device_config get activity_manager_native_boot use_freezer`, `adb shell dumpsys activity | grep -A 20 'Apps frozen:'`, reload after 90 s in Chrome, `adb logcat | grep -i freecess`. |
 | C15 | Android 5–9 (if a phone is available). | Share via `file://` (StrictMode) reaches Gmail; otherwise the text report works; a file manager can write `McvsOffline/import/`. |

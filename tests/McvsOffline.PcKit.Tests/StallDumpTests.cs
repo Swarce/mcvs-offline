@@ -98,7 +98,7 @@ namespace McvsOffline.PcKit.Tests
                 Assert.Equal(StallDumps.MaxPerWatch, stalls.Written);
 
                 // The fourth: this watch has written its share.
-                stalls.Feed("2026-10-29T19:10:00.000Z INFO  [embedded] MCVS Offline 0.1.0 embedded host starting (platform windows, pid 999)", game);
+                stalls.Feed("2026-10-29T19:10:00.000Z INFO  [embedded] MCVS Encore 0.1.0 embedded host starting (platform windows, pid 999)", game);
                 stalls.Feed(Stall(65000, 14492), game);
                 Assert.Equal(3, dumps.Calls.Count);
                 Assert.Contains("this watch already wrote 3 dumps, no more", All(box));
@@ -189,7 +189,7 @@ namespace McvsOffline.PcKit.Tests
                 // The next start renames bootstrap.log to bootstrap.log.1 and begins a new file, here already longer than the
                 // old one was when last read: its first bytes differ, so it is read from its start.
                 File.Move(bootstrap, bootstrap + ".1");
-                File.WriteAllText(bootstrap, "2026-10-29T19:20:00.000Z INFO  [embedded] MCVS Offline 0.1.0 embedded host starting (platform windows, pid 2000)\n" +
+                File.WriteAllText(bootstrap, "2026-10-29T19:20:00.000Z INFO  [embedded] MCVS Encore 0.1.0 embedded host starting (platform windows, pid 2000)\n" +
                                              string.Concat(Enumerable.Repeat("2026-10-29T19:20:00.100Z INFO  [boot] +0.1 s a line of the start\n", 20)) +
                                              Stall(60000, 2000) + "\n");
                 Assert.True(new FileInfo(bootstrap).Length > new FileInfo(bootstrap + ".1").Length);

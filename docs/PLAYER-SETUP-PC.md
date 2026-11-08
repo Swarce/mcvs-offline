@@ -1,8 +1,8 @@
-# Player setup: MCVS Offline on the Steam (PC) version
+# Player setup: MCVS Encore on the Steam (PC) version
 
-**Status: draft for the third Windows round (WR3), build 22** (build 14's PC fixes; build 15 added only server features: the Special Events and an optional Practice tile (removed again in build 21); build 16 removes the config lines that most likely made Windows start the game without MCVS Offline in builds 14 and 15, and says when the game starts without it; build 17 delivers the unlock codes without the inbox and adds the `inbox` patch, which keeps a big redeem-code message from freezing the inbox; build 18 stops MCVS Offline itself from loading the game's own `Game.dll` at start, most likely the cause of build 17's `Game loaded from the game folder` and of WR2's; build 19 shortens the game's Settings menu, see section 4; build 20 keeps it short after a return from a submenu, where build 19 showed the stock menu again; build 21 lays it out in the same frame as the return, so the stock menu no longer flashes before it, and removes the Practice tile and its `bottile` patch; build 22 changes nothing you see on PC: it adds the switch **Lay out Settings before it is drawn**, which turns that step off, and turns it off by itself after a start that ended inside it). The second round (WR2, build 13) showed that the
+**Status: draft for the third Windows round (WR3), build 22** (build 14's PC fixes; build 15 added only server features: the Special Events and an optional Practice tile (removed again in build 21); build 16 removes the config lines that most likely made Windows start the game without MCVS Encore in builds 14 and 15, and says when the game starts without it; build 17 delivers the unlock codes without the inbox and adds the `inbox` patch, which keeps a big redeem-code message from freezing the inbox; build 18 stops MCVS Encore itself from loading the game's own `Game.dll` at start, most likely the cause of build 17's `Game loaded from the game folder` and of WR2's; build 19 shortens the game's Settings menu, see section 4; build 20 keeps it short after a return from a submenu, where build 19 showed the stock menu again; build 21 lays it out in the same frame as the return, so the stock menu no longer flashes before it, and removes the Practice tile and its `bottile` patch; build 22 changes nothing you see on PC: it adds the switch **Lay out Settings before it is drawn**, which turns that step off, and turns it off by itself after a start that ended inside it). The second round (WR2, build 13) showed that the
 install and the game start work, but the game kept loading its own `Game.dll` instead of our patched copy, so every
-fix in that file was missing: the two inbox crashes, the missing "MCVS Offline" button in Settings › Account, the bot
+fix in that file was missing: the two inbox crashes, the missing "MCVS Encore" button in Settings › Account, the bot
 match running the old way and probably the long freezes. Build 14 makes the game load our copy and says
 `installed, NOT ACTIVE` when it does not. It also records crashes and freezes much better. WR3 repeats most of WR2 with
 the fix in place, and tries what WR2 could not reach. Follow the steps in order, write down what the checklist in
@@ -53,7 +53,7 @@ Nothing that Steam owns is changed: every game file stays byte for byte as Steam
 ```
 <game folder>\
   ModernCombatVersus.exe.config        tells .NET to load the patched copies below (removed by uninstall)
-  args.txt                             written by MCVS Offline at every start (uninstall strips its block)
+  args.txt                             written by MCVS Encore at every start (uninstall strips its block)
   McvsOffline\
     bin\                               patched copies of 4 game DLLs + the offline server (made on your PC from your files)
     install.json                       what was installed
@@ -80,7 +80,7 @@ files in Documents (`GDID.bin`, `DC.bin`, `HDIDFV.bin`), and its options (`MyLoc
 3. `.\McvsOffline.PcKit.exe probe` (from the normal terminal; it checks the local ports, the folder and .NET).
 4. `.\McvsOffline.PcKit.exe install`, then `.\McvsOffline.PcKit.exe verify` (do not skip `verify`: its `written`
    lines are compared with section 7). `status` should now say `installed, current` and, until the game has been
-   started once, `activation: NOT VERIFIED: no start of MCVS Offline since the install (start the game once, then run
+   started once, `activation: NOT VERIFIED: no start of MCVS Encore since the install (start the game once, then run
    status)`. The end of `install` names the exe and the config Windows has to read (`exe …\ModernCombatVersus.exe`,
    `config …\ModernCombatVersus.exe.config`): they must be in the folder Steam starts the game from (Steam › Manage ›
    Browse local files). If build 13 is still installed from WR2, run `.\McvsOffline.PcKit.exe uninstall` first (your
@@ -97,19 +97,19 @@ files in Documents (`GDID.bin`, `DC.bin`, `HDIDFV.bin`), and its options (`MyLoc
 7. After the first start reaches the main menu, close the game and run `.\McvsOffline.PcKit.exe status`. It must say
    `installed, current` and `activation: active at the last start`. If it says `installed, NOT ACTIVE`, stop here, run
    `collect` and send the zip: the rest of the round would test the old files again. What the other answers mean:
-   * `activation: NOT VERIFIED: no start of MCVS Offline since the install`: the game has not been started since the
-     install (or it stopped before MCVS Offline wrote anything). Start it once from Steam, then run `status` again.
-   * `activation: NOT ACTIVE: the game started without MCVS Offline; Windows did not use …\ModernCombatVersus.exe.config`:
+   * `activation: NOT VERIFIED: no start of MCVS Encore since the install`: the game has not been started since the
+     install (or it stopped before MCVS Encore wrote anything). Start it once from Steam, then run `status` again.
+   * `activation: NOT ACTIVE: the game started without MCVS Encore; Windows did not use …\ModernCombatVersus.exe.config`:
      the game ran (it wrote its own `dr0.bin`/`OF_PP.bin`/`GameVersion`) but our files did not. The `hook:` line below it
      says whether our `EngineBridge.dll` ever ran (it leaves `%TEMP%\McvsOffline\hook.txt`). Run `collect` and send it.
-   * `activation: NOT ACTIVE: MCVS Offline's EngineBridge ran at … but the server did not start: …`: our files were
+   * `activation: NOT ACTIVE: MCVS Encore's EngineBridge ran at … but the server did not start: …`: our files were
      used, the offline server did not start; the text after it is the error. Run `collect` and send it. (While the game
-     is still running this reads `NOT VERIFIED: MCVS Offline's EngineBridge ran at …; the game is still running`: close
+     is still running this reads `NOT VERIFIED: MCVS Encore's EngineBridge ran at …; the game is still running`: close
      the game and run `status` again.)
-   * `activation: NOT ACTIVE: the game started without MCVS Offline: …\ModernCombatVersus.exe.config is missing (install
+   * `activation: NOT ACTIVE: the game started without MCVS Encore: …\ModernCombatVersus.exe.config is missing (install
      did not finish)`: the install stopped before it wrote the config (`status` says `PARTIAL`). Run `install` again.
 
-**The settings page.** Settings › Account › **MCVS Offline** (or the "MCVS Offline" message in the inbox) opens the
+**The settings page.** Settings › Account › **MCVS Encore** (or the "MCVS Encore" message in the inbox) opens the
 offline settings page: status, settings, saves (save now, export, import, backups), logs and restart. By default it
 opens in the **Steam overlay**; when the overlay is turned off it opens in your **web browser** instead. If a click
 showed nothing in the overlay, the next click opens the browser. The page also has **Open in the system browser**.
@@ -172,8 +172,8 @@ since build 27; `[boot] patches: … fpslimit yes`).
   for a kit that knows the new build.
 * **If you copied the files of `McvsOffline\bin` next to `ModernCombatVersus.exe`** (the work-around for build 14,
   whose config Windows most likely ignored): those copies replaced Steam's own files, and the kit cannot restore them.
-  `status` names each copy (`Game.dll is MCVS Offline's copy from McvsOffline\bin (copied over the game's own file)`)
-  and ends with `you copied MCVS Offline's DLLs over the game's own files; Steam > Verify integrity of game files
+  `status` names each copy (`Game.dll is MCVS Encore's copy from McvsOffline\bin (copied over the game's own file)`)
+  and ends with `you copied MCVS Encore's DLLs over the game's own files; Steam > Verify integrity of game files
   restores them, then run install`. Its state is `STALE (…)`, or `DAMAGED (…)` while the build-14/15 config is still in
   place (the copies are listed first, then the old config). `install` and `uninstall` refuse until then (uninstall
   would delete the only proof of the copy and leave the game running it). To undo it: Steam › right-click Modern Combat
@@ -184,14 +184,14 @@ since build 27; `[boot] patches: … fpslimit yes`).
 * A config from build 14 or 15 (it has `<qualifyAssembly>` lines) makes `status` say `DAMAGED: ModernCombatVersus.exe.config
   has <qualifyAssembly> entries, which most likely make .NET ignore the whole file (…): an old build-14/15 config: run
   install again`. `install` replaces it; if that install fails before it writes the new config, it says the game will
-  start WITHOUT MCVS Offline until install succeeds (the old config does not redirect it).
+  start WITHOUT MCVS Encore until install succeeds (the old config does not redirect it).
 * `status` also reads the last start in `McvsOffline\logs\bootstrap.log`. `installed, NOT ACTIVE (Game loaded from the
   game folder)` (or `… the 'store' patch is missing`) means the files are installed but the game did not run them, so
   the offline fixes were missing in that start: close the game, run `install` again, start once, and if `status` still
   says NOT ACTIVE send `collect`. The settings page shows the same as a red banner, and the `[status]` line in
   `bootstrap.log` ends with `install: installed, NOT ACTIVE (…)`. When a file came from the game folder, `bootstrap.log`
   also says who loaded it (`load stack: Game (GAME FOLDER) was loaded by …` and the `at …` lines under it); build 17's
-  was most likely MCVS Offline's own settings-page code, no longer done in build 18.
+  was most likely MCVS Encore's own settings-page code, no longer done in build 18.
 
 ## 6. When something goes wrong
 
@@ -209,10 +209,10 @@ since build 27; `[boot] patches: … fpslimit yes`).
 * If the game misbehaves, close capture and overlay tools and try again.
 * **The port is busy** (from build 26). When another program holds 127.0.0.1:51780 at start, or Windows reserves it
   (Hyper-V/WSL excluded port ranges: `netsh int ipv4 show excludedportrange protocol=tcp`), the game does not wait for it:
-  `bootstrap.log` has one WARN line such as `port 51780 is held by another program that does not answer as MCVS Offline:
+  `bootstrap.log` has one WARN line such as `port 51780 is held by another program that does not answer as MCVS Encore:
   …; this start uses port 51781: …`, and `args.txt`, the settings page and the match's geo lookup use the new port for
   that start. `McvsOffline\settings.json` keeps 51780 and the next start tries it first. If what answers on 51780 is a
-  working MCVS Offline server (a second copy of the game, or a developer's standalone server), the game uses that one
+  working MCVS Encore server (a second copy of the game, or a developer's standalone server), the game uses that one
   and its own server stays off (a WARN line says so when it is another copy on the same `McvsOffline` folder: quit it;
   when that copy's server stops, this game's own server takes 51780 over). Two copies started at the same moment do
   not both run a server: the second waits up to 2 s for the first one's server and uses it
@@ -283,7 +283,7 @@ the bot match: in WR2 they caused the long freezes, which would hide everything 
 | 3 | `install`, then `verify`, then `status` | the notes; the `written … sha256` lines of `verify` | `installed, current`; the six values in the table below, **exactly** |
 | 4 | `watch` in a second window, then start the game from Steam; afterwards `status` | in `McvsOffline\logs\bootstrap.log`: the `[boot] runtime:`, `[boot] assemblies:` and `[boot] patches:` lines; the `state:` and `activation:` lines of `status` | `process x86, LAA no`, `Release` 528040 or higher (4.5.2 at least: 379893); every assembly from `McvsOffline\bin`, **`Game` included** (`assemblies: Game …\McvsOffline\bin\Game.dll`); every patch `yes` (`gameload yes`, `store yes`, `inbox yes`, `botmove yes` and `fpslimit yes` from build 27); no `NOT ACTIVE` anywhere; `status`: `installed, current`, `activation: active at the last start`. If `Game` still comes from the game folder (`assemblies: Game …\Game.dll (GAME FOLDER)`), the WARN right under it, `load stack: Game (GAME FOLDER) was loaded by (innermost first):`, lists in its indented `at …` lines the code that loaded it: copy that line and all its `at` lines into your notes and send `bootstrap.log`. If instead it says `assemblies: Game (no file) (elsewhere)`, the game's own loader read its stock `Game.dll` because loading ours failed: send `collect` too |
 | 5 | reach the main menu | `[pc] quicklaunch:` lines; any `headless world:`, `server world:` or `component … not created` line; the `[boot] graphics:` line | LocalAnubis started and a room; the thread id equals the game thread; no headless/server-world lines; `MEM rule on, removed 1`; `excludedLoadingLayers` without `Physics` |
-| 6 | open the settings page: Settings › Account › MCVS Offline (WR2 could not show it); then the inbox message; then the page's "Open in the system browser"; then `admin.openVia` = `system`, then `game` (restart the game each time); back to `auto`: once fullscreen, once windowed, once with Steam › Settings › In Game › "Enable the Steam Overlay while in-game" off | for each: where the page appeared and whether Status loads; the `admin: page opened … via …` line in `server.log` | the overlay shows the page in both window modes; with the overlay off: `via system` and the browser opens; `game` works after login; if `via overlay` ever shows nothing, the next click logs `via system … overlay showed no page last time` |
+| 6 | open the settings page: Settings › Account › MCVS Encore (WR2 could not show it); then the inbox message; then the page's "Open in the system browser"; then `admin.openVia` = `system`, then `game` (restart the game each time); back to `auto`: once fullscreen, once windowed, once with Steam › Settings › In Game › "Enable the Steam Overlay while in-game" off | for each: where the page appeared and whether Status loads; the `admin: page opened … via …` line in `server.log` | the overlay shows the page in both window modes; with the overlay off: `via system` and the browser opens; `game` works after login; if `via overlay` ever shows nothing, the next click logs `via system … overlay showed no page last time` |
 | 7 | on the page: Saves › Save the game now; Saves › Export (Explorer opens `McvsOffline\exports`); Logs › share; copy a text. Then with `admin.openVia` = `system` and the game **minimised** behind the browser: Save the game now | whether each works; whether "Save now" finishes while the game is minimised | all work |
 | 8 | play one bot match to the end, started from **Battle › Classic multiplayer** (the game has no visible bot-match tile), with `watch` running, before any unlock code | bots and physics (nobody falls through the floor), rewards saved; `[pc] quicklaunch: automatch through the local Finder` | the match runs and ends normally; `automatch through the local Finder` appears (in WR2 it never did) |
 | 8a | after step 8, before any unlock code: open the inbox. If it still holds old WR2 coupon messages (UNLOCKPAID, UNLOCKCAMOS and UNLOCKPAIDCAMOS were redeemed on 2026-10-29 and are kept for 7 days; uninstall keeps them): select one, stay in the inbox for 30 s, then press **Claim** | how long the inbox takes to open; how many rewards the message shows; any freeze while it is open (every 10 s?) or on Claim; how many rewards the popup lists; afterwards, whether the message is gone and the camos and jerseys of every agent are owned (loadout); or that no old message was left | the inbox opens within seconds (WR2 froze and crashed there with these messages); the message shows 30 rewards; no freeze while it is open; the popup lists 30; afterwards the message is gone and every camo or jersey of that code is owned (the `inbox` patch caps the display, the claim gives everything) |

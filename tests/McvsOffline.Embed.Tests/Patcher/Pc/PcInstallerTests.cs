@@ -489,13 +489,13 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 PcStatusReport status = copy.Status();
                 Assert.Equal(PcInstallState.Stale, status.State);
                 Assert.EndsWith(PcInstaller.ManualCopyAdvice, status.StateDetail);
-                Assert.Contains("EngineBridge.dll is MCVS Offline's copy from McvsOffline\\bin (copied over the game's own file)", status.Problems);
+                Assert.Contains("EngineBridge.dll is MCVS Encore's copy from McvsOffline\\bin (copied over the game's own file)", status.Problems);
                 Assert.Contains(status.Leftovers, l => l.StartsWith("McvsOffline.Server.dll in the game folder is a hand copy of ours", StringComparison.Ordinal));
 
                 SortedDictionary<string, string> before = copy.Tree();
                 PcInstallReport refused = copy.Install();
                 Assert.Equal(PcExitCodes.Refused, refused.ExitCode);
-                Assert.Equal("EngineBridge.dll, Game.dll, Gameloft.Engine.dll, Gameloft.Util.dll are MCVS Offline's own copies from McvsOffline\\bin, not the game's: " +
+                Assert.Equal("EngineBridge.dll, Game.dll, Gameloft.Engine.dll, Gameloft.Util.dll are MCVS Encore's own copies from McvsOffline\\bin, not the game's: " +
                              PcInstaller.ManualCopyAdvice + ". Nothing was written", refused.Error);
                 Assert.Equal(before, copy.Tree());
 

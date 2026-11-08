@@ -1,4 +1,4 @@
-# MCVS Offline economy
+# MCVS Encore economy
 
 How every item of Modern Combat Versus 1.17.32 becomes obtainable offline, what it costs, and how to tune it.
 Owner: CONTENT (`tools/content-gen`, `server/Content`, `server/Services/Crm`, `server/Services/Assets`).

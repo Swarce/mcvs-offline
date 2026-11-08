@@ -114,7 +114,7 @@ namespace McvsOffline.Tests.Admin
             Assert.True(bytes <= 200 * 1024, "the page is " + bytes + " bytes; the limit is 200 KB (§2.3)");
             Assert.StartsWith("<!DOCTYPE html>", page);
             Assert.Contains("<meta charset=\"utf-8\">", page);
-            Assert.Contains("<title>MCVS Offline</title>", page);
+            Assert.Contains("<title>MCVS Encore</title>", page);
             // The one allowed <link>: an empty icon in the page itself (img-src data: of the CSP), so no browser asks for
             // /favicon.ico (WR2 F11: the Steam overlay did).
             Assert.Single(Regex.Matches(page, Regex.Escape(EmptyIcon)));

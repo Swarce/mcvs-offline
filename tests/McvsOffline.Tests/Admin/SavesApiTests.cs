@@ -420,12 +420,12 @@ namespace McvsOffline.Tests.Admin
                 Assert.Equal("sheet", At(r, "share.method"));
                 Assert.Null(At(r, "transfer.texts"));
                 string[] call = Assert.Single(s.Host.SharedFiles);
-                Assert.Equal(new[] { "text/plain", file, "MCVS Offline save" }, call.Skip(1).Take(3));
+                Assert.Equal(new[] { "text/plain", file, "MCVS Encore save" }, call.Skip(1).Take(3));
                 Assert.Contains("123456789", call[4]);
                 Assert.True(File.Exists(call[0]));
                 Assert.Equal(Path.Combine(s.DataDir, "admin", "exports", file), call[0]);
                 string text = File.ReadAllText(call[0]);
-                Assert.StartsWith("MCVS Offline save of 123456789 (level 37, revision 1)", text);
+                Assert.StartsWith("MCVS Encore save of 123456789 (level 37, revision 1)", text);
                 Assert.Equal((long)Encoding.UTF8.GetByteCount(text), J(r)["size"]);
                 var parts = SaveTransfer.Extract(text, null);
                 SaveBundle bundle = SaveBundle.Parse(Encoding.UTF8.GetString(SaveTransfer.Decode(parts)), SavesServer.T0);

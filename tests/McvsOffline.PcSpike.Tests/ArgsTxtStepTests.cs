@@ -46,7 +46,7 @@ namespace McvsOffline.PcSpike.Tests
                 Assert.DoesNotContain((byte)'\t', written);
                 Assert.Contains("RESULT install folder writable: yes", File.ReadAllText(log.FilePath));
                 // 'status' and 'collect' warn on the console while our block is there (review finding, build 10).
-                Assert.Equal(new[] { "args.txt still has the MCVS Offline block (the game would look for our server): run 'stop' to restore the original" },
+                Assert.Equal(new[] { "args.txt still has the MCVS Encore block (the game would look for our server): run 'stop' to restore the original" },
                              GameFolderState.Leftovers(game));
 
                 Assert.Equal("deleted our args.txt (there was none before)", ArgsTxtStep.Restore(game, data, log));

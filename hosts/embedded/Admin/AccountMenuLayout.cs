@@ -18,7 +18,7 @@ namespace McvsOffline.Embedded.Admin
     /// unknown), and so does an entry whose members cannot be read. The Steam build's Win32 list is [Redeem, GameCenter],
     /// so nothing is dropped or centred on PC.</item>
     /// <item>Centring: Flash (<c>MenuAccountSettings.onPush</c>) puts list key k at <c>x = 77 + floor(k/2)·(w+50)</c>,
-    /// <c>y = 320 + (k%2)·(h+45)</c>, so [Redeem, MCVS Offline] would be stacked at the left edge. After the hook returns,
+    /// <c>y = 320 + (k%2)·(h+45)</c>, so [Redeem, MCVS Encore] would be stacked at the left edge. After the hook returns,
     /// one work item on the game thread (it runs after <c>onPush</c>, when the buttons exist) finds the menu on top of
     /// <c>MenusStack</c> (named <c>menu_accounts</c>), its <c>btnSocial_customAction0/1</c> children and the viewport
     /// (<c>VPManager.getViewportBoundX/Width</c>), and puts the buttons side by side in the middle of the viewport, 50 apart,

@@ -186,7 +186,7 @@ namespace McvsOffline.Embedded.Android
                     DeleteLeftoverTemps(target);
                     // Probe: creating a file is the operation that MediaProvider may refuse.
                     WriteThroughTemp(Path.Combine(target, sessionPrefix + "session.txt"),
-                                     System.Text.Encoding.UTF8.GetBytes("MCVS Offline session " + sessionPrefix.TrimEnd('-') + "\n"));
+                                     System.Text.Encoding.UTF8.GetBytes("MCVS Encore session " + sessionPrefix.TrimEnd('-') + "\n"));
                     directory = target;
                     Prune();
                     FlushScan();

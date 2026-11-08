@@ -30,9 +30,9 @@ namespace McvsOffline.Tests.Content
         /// </summary>
         private static readonly Dictionary<string, KeyValuePair<string, int>> Build20 = new Dictionary<string, KeyValuePair<string, int>>
         {
-            ["nopre /configs/users/me"] = Pair("04b25b8e16039ddd18961cb7bf923e1b760961df533675593c9d9d68b8d5667b", 403512),
+            ["nopre /configs/users/me"] = Pair("972dd7661992faa963e1a341fc3c6c806554196afd07e1e599f8f2bfd62f3949", 403511),
             ["nopre /configs/users/me/game"] = Pair("e858e7b62289f535bf3781e245c2763ebbdd2162ae479743581f3c5b1d57e18b", 2426),
-            ["pre /configs/users/me"] = Pair("75de51da95d79763965c087adf2557bdb40fbc6b8a3cce10dac34733c761d18b", 403703),
+            ["pre /configs/users/me"] = Pair("c87042394c342a8c9d31a0ec17bbc7995bbf4885987305b757b84594085eb1cd", 403702),
             ["pre /configs/users/me/game"] = Pair("47fd2d8359ba4dde9ced85d360c5ee30e2397b2fed474c1e7c5b2c21a717b2b8", 2548),
         };
 

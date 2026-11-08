@@ -144,7 +144,7 @@ namespace McvsOffline.Server.Services.Admin
             string text = JsonValue.GetString(call.Body, "text");
             if (text == null) return AdminJson.Error(HttpStatus.BadRequest, "bad_request", "\"text\" is missing.");
             if (text.Length > MaxClipboardChars) return AdminJson.TooLarge(MaxClipboardChars);
-            string label = JsonValue.GetString(call.Body, "label") ?? "MCVS Offline";
+            string label = JsonValue.GetString(call.Body, "label") ?? "MCVS Encore";
             if (label.Length > 100) label = label.Substring(0, 100);
             AdminHostInfo info = api.DescribeHost();
             IAdminHost host = api.Host;

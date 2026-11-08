@@ -161,7 +161,7 @@ namespace McvsOffline.Server
             }
 
             Log log = logger.For("core");
-            log.Info("MCVS Offline server " + McvsVersion.Current + ", data directory " + dataDir);
+            log.Info("MCVS Encore server " + McvsVersion.Current + ", data directory " + dataDir);
 
             DataPack pack = null;
             if (!string.IsNullOrEmpty(options.DataPackDir))

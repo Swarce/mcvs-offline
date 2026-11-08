@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MCVS Offline</title>
+<title>MCVS Encore</title>
 <link rel="icon" href="data:,">
 <!--
-  The MCVS Offline settings and diagnostics page (docs/design/settings-page.md §2). Hand-written, not generated:
+  The MCVS Encore settings and diagnostics page (docs/design/settings-page.md §2). Hand-written, not generated:
   one self-contained ES5 page for the game's own in-game browser (a WebView without localStorage, file chooser,
   downloads or JS bridge, 250-330 CSS px high in landscape). Every rule it follows (§2.3) is checked by
   tests/McvsOffline.Tests/Admin/PageSmokeTests.cs; page-smoke.js runs it against a live server.
@@ -126,7 +126,7 @@ p { margin: 4px 0 8px; }
 <body>
 <div id="app">
   <div id="nav">
-    <div id="nav-title"><span id="conn"></span>MCVS Offline</div>
+    <div id="nav-title"><span id="conn"></span>MCVS Encore</div>
     <button id="nav-status" class="navbtn on" type="button">Status</button>
     <button id="nav-settings" class="navbtn" type="button" disabled>Settings</button>
     <button id="nav-saves" class="navbtn" type="button" disabled>Saves</button>
@@ -138,8 +138,8 @@ p { margin: 4px 0 8px; }
   </div>
   <div id="main">
     <div id="banners">
-      <div id="banner-nosession" class="banner bad" style="display:none"><span id="banner-nosession-text" class="btext">Open this page from the game: Settings › Account › MCVS Offline, or the MCVS Offline message in the inbox.</span></div>
-      <div id="banner-viewmode" class="banner info" style="display:none"><span id="banner-viewmode-text" class="btext">This view cannot change anything. Open MCVS Offline from the game: Settings › Account › MCVS Offline (or the inbox message in a build with the default patches).</span></div>
+      <div id="banner-nosession" class="banner bad" style="display:none"><span id="banner-nosession-text" class="btext">Open this page from the game: Settings › Account › MCVS Encore, or the MCVS Encore message in the inbox.</span></div>
+      <div id="banner-viewmode" class="banner info" style="display:none"><span id="banner-viewmode-text" class="btext">This view cannot change anything. Open MCVS Encore from the game: Settings › Account › MCVS Encore (or the inbox message in a build with the default patches).</span></div>
       <div id="banner-error" class="banner bad" style="display:none"><span id="banner-error-text" class="btext">The game is not answering. Go back to the game.</span></div>
       <div id="banner-inactive" class="banner bad" style="display:none"><span id="banner-inactive-text" class="btext"></span></div>
       <div id="banner-staged" class="banner warn" style="display:none"><span id="banner-staged-text" class="btext"></span><button id="banner-staged-restart" type="button">Restart now</button><button id="banner-staged-cancel" type="button">Cancel</button><button id="banner-staged-x" class="x" type="button">×</button></div>
@@ -249,9 +249,9 @@ p { margin: 4px 0 8px; }
       </div>
 
       <div id="screen-about" style="display:none">
-        <h2>MCVS Offline</h2>
+        <h2>MCVS Encore</h2>
         <div class="kv"><span class="k">Version</span><span id="about-version" class="v">–</span></div>
-        <p id="about-local">This page runs inside your game and talks only to the MCVS Offline server on this phone. Nothing leaves the phone unless you share it.</p>
+        <p id="about-local">This page runs inside your game and talks only to the MCVS Encore server on this phone. Nothing leaves the phone unless you share it.</p>
         <div class="kv"><span class="k">Browser</span><span id="about-ua" class="v mono"></span></div>
         <div id="page-errors" class="errt mono" style="display:none"></div>
         <div class="btnrow"><a class="btn" href="exit:">Close this page</a></div>
@@ -472,8 +472,8 @@ p { margin: 4px 0 8px; }
     'export-downloads': ['Save to Downloads', 'Save to McvsOffline\\exports'],
     'logs-downloads': ['Save to Downloads', 'Save to McvsOffline\\exports'],
     'action-files-help': ['Folders, the import folder and the adb commands for a PC.', 'Folders and the import folder.'],
-    'about-local': ['This page runs inside your game and talks only to the MCVS Offline server on this phone. Nothing leaves the phone unless you share it.',
-                    'This page runs inside your game and talks only to the MCVS Offline server on this PC. Nothing leaves the PC unless you share it.']
+    'about-local': ['This page runs inside your game and talks only to the MCVS Encore server on this phone. Nothing leaves the phone unless you share it.',
+                    'This page runs inside your game and talks only to the MCVS Encore server on this PC. Nothing leaves the PC unless you share it.']
   };
 
   function applyPlatformTexts() {
@@ -858,9 +858,9 @@ p { margin: 4px 0 8px; }
     var cl = S.status && S.status.client ? S.status.client : null;
     var inactive = cl ? cl.notActive : null;
     var noInbox = !inactive && !!cl && cl.inboxPatch === false;
-    banner('banner-inactive', !!inactive || noInbox, inactive ? 'MCVS Offline is installed, NOT ACTIVE (' + inactive + '): the game runs its own files, ' +
+    banner('banner-inactive', !!inactive || noInbox, inactive ? 'MCVS Encore is installed, NOT ACTIVE (' + inactive + '): the game runs its own files, ' +
            'so the offline fixes are missing. Close the game, run the kit\'s status, then install again.'
-           : noInbox ? 'The game was patched without MCVS Offline\'s \'inbox\' patch: opening the inbox freezes the game while a big ' +
+           : noInbox ? 'The game was patched without MCVS Encore\'s \'inbox\' patch: opening the inbox freezes the game while a big ' +
            'redeem-code message (UNLOCKALL and the like) is unclaimed. Patch the game again with the current patcher.' : '');
   }
 
@@ -1086,7 +1086,7 @@ p { margin: 4px 0 8px; }
     var d = S.status;
     var body = clear($('status-body'));
     if (!d) return;
-    add(body, el('h2', null, 'MCVS Offline ' + (d.version || '') + (d.build ? ' (build ' + d.build + ')' : '')));
+    add(body, el('h2', null, 'MCVS Encore ' + (d.version || '') + (d.build ? ' (build ' + d.build + ')' : '')));
 
     add(body, el('h3', null, 'Player'));
     var p = d.player;
@@ -1591,7 +1591,7 @@ p { margin: 4px 0 8px; }
     if (code.description) add(left, el('div', 'help', code.description));
     if (code.warning) add(left, el('div', 'warnt', code.warning));
     var right = add(row, el('div', 'ir'));
-    add(right, btn('Copy', 'small', function () { copyText(code.code, 'MCVS Offline code'); }));
+    add(right, btn('Copy', 'small', function () { copyText(code.code, 'MCVS Encore code'); }));
     return row;
   }
 
@@ -2135,7 +2135,7 @@ p { margin: 4px 0 8px; }
     if (!e) return;
     if (e.k >= e.texts.length) e.k = 0;
     var k = e.k;
-    copyText(e.texts[k], 'MCVS Offline save, part ' + (k + 1) + ' of ' + e.texts.length, function (ok) {
+    copyText(e.texts[k], 'MCVS Encore save, part ' + (k + 1) + ' of ' + e.texts.length, function (ok) {
       if (!ok || S.exp !== e) return;
       e.k = k + 1;
       renderExport();
@@ -2605,7 +2605,7 @@ p { margin: 4px 0 8px; }
     on($('logs-search'), 'click', function () { scrollToField($('logs-search')); });
     on($('logs-search-done'), 'click', function () { $('logs-search-done').focus(); loadLogTail(); });
     on($('logs-autorefresh'), 'change', updateLogsTimer);
-    on($('logs-copy'), 'click', function () { copyText(visibleLogText(), 'MCVS Offline log'); });
+    on($('logs-copy'), 'click', function () { copyText(visibleLogText(), 'MCVS Encore log'); });
     on($('logs-scope'), 'change', function () { S.logs.zip = null; $('logs-built').textContent = ''; renderLogShare(); });
     on($('logs-note'), 'click', function () { scrollToField($('logs-note')); });
     on($('logs-note-done'), 'click', function () { $('logs-note-done').focus(); });
@@ -2614,7 +2614,7 @@ p { margin: 4px 0 8px; }
     on($('logs-share'), 'click', function () { shareZip('share'); });
     on($('logs-downloads'), 'click', function () { shareZip('downloads'); });
     on($('logs-share-text'), 'click', shareTextReport);
-    on($('logs-text-copy'), 'click', function () { copyText($('logs-text').value, 'MCVS Offline report'); });
+    on($('logs-text-copy'), 'click', function () { copyText($('logs-text').value, 'MCVS Encore report'); });
 
     on($('action-files'), 'click', function () {
       S.filesOpen = !S.filesOpen;

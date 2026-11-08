@@ -123,7 +123,7 @@ namespace McvsOffline.Server.Services.Admin.Saves
                 return new PasteOutcome
                 {
                     NothingFound = true,
-                    Message = "No part of an MCVS Offline save was found in the pasted text (everything from MCVS-SAVE to ~).",
+                    Message = "No part of an MCVS Encore save was found in the pasted text (everything from MCVS-SAVE to ~).",
                 };
             }
 
@@ -190,7 +190,7 @@ namespace McvsOffline.Server.Services.Admin.Saves
                     return outcome;
                 }
                 outcome.NothingFound = rejected.Count == 0;
-                outcome.Message = rejected.Count == 0 ? "The file holds no MCVS Offline save." : "No usable part in the file." + RejectionText(rejected);
+                outcome.Message = rejected.Count == 0 ? "The file holds no MCVS Encore save." : "No usable part in the file." + RejectionText(rejected);
                 return outcome;
             }
             // The first export in the file; parts of another one are ignored.

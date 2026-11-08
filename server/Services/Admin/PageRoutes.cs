@@ -28,8 +28,8 @@ namespace McvsOffline.Server.Services.Admin
                                                     + "frame-ancestors 'none'";
 
         private const string Placeholder =
-            "<!doctype html><html><head><meta charset=\"utf-8\"><title>MCVS Offline</title></head><body>"
-            + "<p>MCVS Offline: this build has no settings page (server/Content/admin/index.html was missing when it was built).</p>"
+            "<!doctype html><html><head><meta charset=\"utf-8\"><title>MCVS Encore</title></head><body>"
+            + "<p>MCVS Encore: this build has no settings page (server/Content/admin/index.html was missing when it was built).</p>"
             + "</body></html>";
 
         private readonly AdminApi api;
@@ -61,7 +61,7 @@ namespace McvsOffline.Server.Services.Admin
         private HttpResponse Page(HttpRequest request)
         {
             if (!api.Enabled)
-                return PageHeaders(HttpResponse.Text("MCVS Offline: this page is turned off (admin.enabled is false in settings.json).",
+                return PageHeaders(HttpResponse.Text("MCVS Encore: this page is turned off (admin.enabled is false in settings.json).",
                                                      HttpStatus.ServiceUnavailable));
             byte[] page;
             if (!BuiltInContent.All.TryGetValue(PageContent, out page))
@@ -162,7 +162,7 @@ namespace McvsOffline.Server.Services.Admin
             if (!security.Limiter.Allow(AdminSecurity.TicketFailureBucket, AdminSecurity.TicketFailuresPerMinute))
                 return TicketsRateLimited();
             return AdminJson.Error(HttpStatus.Unauthorized, "ticket_invalid",
-                                   "This page link is no longer valid. Open MCVS Offline from the game again.");
+                                   "This page link is no longer valid. Open MCVS Encore from the game again.");
         }
 
         private HttpResponse CloseSession(AdminCall call)

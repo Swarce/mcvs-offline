@@ -182,7 +182,7 @@ namespace McvsOffline.Tests.Admin
             Status(200, share);
             Assert.Equal(true, AdminTestClient.At(share, "share.ok"));
             string[] call = Assert.Single(s.Host.SharedFiles);
-            Assert.Equal(new[] { path, "application/zip", file, "MCVS Offline logs" }, call.Take(4));
+            Assert.Equal(new[] { path, "application/zip", file, "MCVS Encore logs" }, call.Take(4));
             Assert.DoesNotContain(Ticket, call[4]);
             Assert.Contains("it froze", call[4]);
 
@@ -234,13 +234,13 @@ namespace McvsOffline.Tests.Admin
             using var s = Phone(out _, out _);
             HttpResponse shared = s.Client.Post("logs/share-text", new Dictionary<string, object> { ["note"] = "lag" });
             Status(200, shared);
-            Assert.Equal(new[] { "ShareText:MCVS Offline report" }, s.Host.Calls.Where(c => c.StartsWith("ShareText")));
+            Assert.Equal(new[] { "ShareText:MCVS Encore report" }, s.Host.Calls.Where(c => c.StartsWith("ShareText")));
 
             s.Host.Info.CanShareText = false;
             HttpResponse text = s.Client.Post("logs/share-text", new Dictionary<string, object> { ["note"] = "lag" });
             Assert.Equal(501, text.StatusCode);
             string report = (string)J(text)["text"];
-            Assert.StartsWith("MCVS Offline report", report);
+            Assert.StartsWith("MCVS Encore report", report);
             Assert.Contains("Note: lag", report);
             Assert.Contains("== Status ==", report);
             Assert.Contains("ERROR [storage] disk", report);

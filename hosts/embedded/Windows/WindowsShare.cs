@@ -47,7 +47,7 @@ namespace McvsOffline.Embedded.Windows
             try
             {
                 string dir = Folder();
-                if (dir == null) return AdminShareResult.None("The MCVS Offline folder is unknown; nothing was copied.");
+                if (dir == null) return AdminShareResult.None("The MCVS Encore folder is unknown; nothing was copied.");
                 if (string.IsNullOrEmpty(path) || !File.Exists(path)) return AdminShareResult.None("The file to share is missing.");
                 string name = UniqueName(dir, Sanitize(string.IsNullOrEmpty(displayName) ? Path.GetFileName(path) : displayName, ""));
                 string target = Path.Combine(dir, name);
@@ -68,7 +68,7 @@ namespace McvsOffline.Embedded.Windows
             try
             {
                 string dir = Folder();
-                if (dir == null) return AdminShareResult.None("The MCVS Offline folder is unknown; nothing was written.");
+                if (dir == null) return AdminShareResult.None("The MCVS Encore folder is unknown; nothing was written.");
                 string name = UniqueName(dir, Sanitize(subject, ".txt"));
                 string target = Path.Combine(dir, name);
                 using (var stream = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.Read))
@@ -125,7 +125,7 @@ namespace McvsOffline.Embedded.Windows
         /// A Windows-safe file name: the characters <c>\/:*?"&lt;&gt;|</c> and control characters become '_', trailing dots and spaces
         /// go, a reserved device name (CON, PRN, AUX, NUL, COM1-9, LPT1-9, with or without an extension) gets a leading '_', the
         /// stem is at most <see cref="MaxStemChars"/> characters; <paramref name="extension"/> is appended when the name lacks it.
-        /// Empty → "MCVS Offline".
+        /// Empty → "MCVS Encore".
         /// </summary>
         internal static string Sanitize(string name, string extension)
         {
@@ -150,7 +150,7 @@ namespace McvsOffline.Embedded.Windows
             }
             if (text.Length > MaxStemChars) text = text.Substring(0, MaxStemChars);
             text = text.TrimEnd('.', ' ');
-            if (text.Length == 0) text = "MCVS Offline";
+            if (text.Length == 0) text = "MCVS Encore";
             if (IsReservedName(text)) text = "_" + text;
             return text + ext;
         }

@@ -107,7 +107,7 @@ namespace McvsOffline.Tests.Content
             public int Opened => Host.Calls.Count(c => c == "OpenPage:redeem");
 
             public bool Logged(string code, string outcome) =>
-                Logs.Contains("coupon '" + code + "': opens the MCVS Offline page (" + outcome + ")");
+                Logs.Contains("coupon '" + code + "': opens the MCVS Encore page (" + outcome + ")");
 
             public void Dispose()
             {
@@ -304,7 +304,7 @@ namespace McvsOffline.Tests.Content
             AssertDoesNotExist(rig.Redeem("MCVSOFFLINE"));
             Assert.Equal(0, rig.Opened);
             Assert.True(rig.Logs.Contains("coupon 'MCVSOFFLINE' does not exist"));
-            Assert.False(rig.Logs.Contains("opens the MCVS Offline page"));
+            Assert.False(rig.Logs.Contains("opens the MCVS Encore page"));
 
             rig.Server.Context.Settings.Override("assets.coupons", MiniJson.ParseObject(@"{""GIFT5"":{""rewards"":[{""type"":""HardCurrency"",""quantity"":5}]}}"));
             HttpResponse coupon = rig.Redeem("GIFT5");
@@ -382,7 +382,7 @@ namespace McvsOffline.Tests.Content
 
             Assert.Equal(new[] { "OpenPage:redeem" }, host.Calls);
             Assert.Matches(new Regex("^http://127\\.0\\.0\\.1:" + server.Port + "/_mcvs/ui/#t=[0-9a-f]{32}$"), Assert.Single(host.OpenedUrls));
-            Assert.True(logs.Contains("coupon 'MCVSOFFLINE': opens the MCVS Offline page (requested)"));
+            Assert.True(logs.Contains("coupon 'MCVSOFFLINE': opens the MCVS Encore page (requested)"));
             List<string> requests = logs.Snapshot().Where(e => e.Category == "http" && e.Message != null && e.Message.Contains("/coupons/"))
                                         .Select(e => e.Message).ToList();
             Assert.NotEmpty(requests);

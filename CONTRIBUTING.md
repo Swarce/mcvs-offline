@@ -10,7 +10,7 @@ Android version and GPU is unknown ground. A report that says "it works on my ph
 - Open a [bug report](https://github.com/Swarce/mcvs-offline/issues/new/choose). The form asks for the player build,
   the phone, the Android version, where the game data came from, the HD pack and the logs.
 - Features marked "waiting for a phone test" in the [README](README.md#status) need exactly that.
-- The logs: MCVS Offline page › Logs › **Build**, then **Share**; or Files › Downloads › MCVS-Offline; or
+- The logs: MCVS Encore page › Logs › **Build**, then **Share**; or Files › Downloads › MCVS-Offline; or
   `adb logcat -s McvsOffline mono-stdout`. Details: [PLAYER-SETUP.md](docs/PLAYER-SETUP.md) section 6.
 
 Never attach your APK, game data, an HD pack or a signing key. See [Legal rules](#legal-rules).

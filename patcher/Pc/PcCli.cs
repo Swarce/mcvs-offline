@@ -195,7 +195,7 @@ namespace McvsOffline.Patcher.Pc
         }
 
         public const string Usage =
-            "MCVS Offline patcher, PC (Steam) mode: installs the offline mode into a Steam install of Modern Combat Versus\n" +
+            "MCVS Encore patcher, PC (Steam) mode: installs the offline mode into a Steam install of Modern Combat Versus\n" +
             "(build 6372049): patched copies in McvsOffline\\bin, install.json, ModernCombatVersus.exe.config. No Steam file changes.\n\n" +
             "Usage: McvsOffline.Patcher pc install|uninstall|status|verify --game <folder> [options]\n\n" +
             "  --server <dll>        the PC McvsOffline.Server.dll (artifacts/bin/McvsOffline.Server.Pc/release/), install only\n" +

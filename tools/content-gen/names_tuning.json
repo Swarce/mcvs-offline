@@ -1,6 +1,6 @@
 {
   "_comment": [
-    "MCVS Offline gamer tags: the names of the generated leaderboard rivals and of the in-match bots (docs/LIVEOPS.md section",
+    "MCVS Encore gamer tags: the names of the generated leaderboard rivals and of the in-match bots (docs/LIVEOPS.md section",
     "5.1 'Rival names and emblems'). Since build 29 every name comes first from the curated list (curatedFile, one name per",
     "line: puns, memes, other games' characters, brands, streamer handles, clan tags, words of many languages, written by us",
     "after reading what players really pick; the sources are listed in its header). The server picks from it by a hash of the",
