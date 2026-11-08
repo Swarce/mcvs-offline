@@ -217,7 +217,7 @@ namespace McvsOffline.Patcher.Pc
                 JsonElement f;
                 if (!root.TryGetProperty("format", out f) || f.ValueKind != JsonValueKind.Number || !f.TryGetInt32(out format) || format != CurrentFormat)
                     throw new FormatException("unknown install.json format");
-                if (Str(root, "kind") != KindValue) throw new FormatException("install.json is not an MCVS Offline install record (kind)");
+                if (Str(root, "kind") != KindValue) throw new FormatException("install.json is not an MCVS Encore install record (kind)");
                 var m = new InstallManifest();
                 JsonElement e;
                 if (root.TryGetProperty("installer", out e) && e.ValueKind == JsonValueKind.Object)

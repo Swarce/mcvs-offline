@@ -92,7 +92,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                 string log = File.ReadAllText(host.Paths.BootstrapLog);
                 Assert.DoesNotContain("replaces the in-game FPS LIMIT", log);   // the default: no settings line, only the hook's
                 Assert.Contains("graphics: frame rate limit 60, the in-game FPS LIMIT (settings graphics.pcFpsLimit game)", log);
-                Assert.Contains("MCVS Offline host started by the game (EngineBridge.Class1.Start)", log);
+                Assert.Contains("MCVS Encore host started by the game (EngineBridge.Class1.Start)", log);
                 Assert.Contains("args.txt updated: the native engine reads it at MainLoop_Start", log);
                 Assert.Contains("runtime: CLR ", log);
                 Assert.Contains("not needed on Windows: the logs are plain files in " + host.Paths.LogsDir, host.MirrorStatus());

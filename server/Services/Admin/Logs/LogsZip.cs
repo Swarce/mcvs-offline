@@ -110,7 +110,7 @@ namespace McvsOffline.Server.Services.Admin.Logs
                                           bool deflate, DateTime nowUtc)
         {
             var manifest = new StringBuilder();
-            manifest.Append("MCVS Offline logs, ").Append(all ? "everything" : "recent").Append(", built ")
+            manifest.Append("MCVS Encore logs, ").Append(all ? "everything" : "recent").Append(", built ")
                     .Append(nowUtc.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture)).Append('\n');
             manifest.Append("entry\toriginal bytes\tincluded bytes\tstate\n");
             var skipped = new List<string>();

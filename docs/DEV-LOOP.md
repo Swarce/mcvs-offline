@@ -64,7 +64,7 @@ adb reverse --list          # should list tcp:51780 tcp:51780
 `adb reverse` lasts until the USB connection or the adb server restarts; run it again after reconnecting.
 
 With the **patched** game (build 26 on) the same works: when the game starts, its host finds 127.0.0.1:51780 taken (adbd
-listens there for the reverse), asks `GET /_mcvs/status` and, when a working MCVS Offline server answers, uses it:
+listens there for the reverse), asks `GET /_mcvs/status` and, when a working MCVS Encore server answers, uses it:
 `args.txt` keeps 51780 and the game's own server stays off (`bootstrap.log`: "port 51780 is held by a working MCVS
 Offline server ...: the game uses it"). Start the standalone server **before** the game. If nothing answers behind the
 reverse (the server is not running, the cable is out) or something else holds the port, the patched game starts its own

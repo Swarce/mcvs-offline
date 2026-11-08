@@ -6,7 +6,7 @@ level; the problems it found are fixed in the current build, which also writes d
 (section 6). Expect rough edges, and keep your backups.
 
 This guide turns **your own** copy of Modern Combat Versus for Android (APK **1.17.32**, package
-`com.gameloft.android.ANMP.GloftMVHM`) into an offline build. The game keeps its own match servers; MCVS Offline adds
+`com.gameloft.android.ANMP.GloftMVHM`) into an offline build. The game keeps its own match servers; MCVS Encore adds
 the missing Gameloft backend ("Federation") inside the game process. Nothing from the game is downloaded from this
 project or redistributed: the patcher works on your APK, and the server reads your data pack on your phone.
 
@@ -78,7 +78,7 @@ The patcher prints every change it makes and finishes with a signature check. Us
 
 | Option | Meaning |
 |---|---|
-| `--patch nativeonline,waits,geo,finder,store,signatures,inbox,debloat,adminpage,adminlink,graphics,targetsdk,game` | The optional patches (this is the default set; `debloat` removes dead ad/analytics/social/push pieces, see ARCHITECTURE.md §2; `adminpage` and `adminlink` open the MCVS Offline page, section 7; `graphics` is needed for the graphics profile, section 7; `targetsdk` raises the app's target Android version, see `--target-sdk`; `game` marks the app as a game for Android's Game Mode, section 6). `none` keeps only the mandatory patches (the server hook, the headless-server fixes, the server physics and, from build 26, `finderport`: the game follows its LocalAnubis port when the host moves it), `all` adds `lan`, `forum` and `botmove`, `default,forum` adds only `forum`. An older list that still names `bottile` (removed in build 21) works: the patcher prints a warning and leaves it out. |
+| `--patch nativeonline,waits,geo,finder,store,signatures,inbox,debloat,adminpage,adminlink,graphics,targetsdk,game` | The optional patches (this is the default set; `debloat` removes dead ad/analytics/social/push pieces, see ARCHITECTURE.md §2; `adminpage` and `adminlink` open the MCVS Encore page, section 7; `graphics` is needed for the graphics profile, section 7; `targetsdk` raises the app's target Android version, see `--target-sdk`; `game` marks the app as a game for Android's Game Mode, section 6). `none` keeps only the mandatory patches (the server hook, the headless-server fixes, the server physics and, from build 26, `finderport`: the game follows its LocalAnubis port when the host moves it), `all` adds `lan`, `forum` and `botmove`, `default,forum` adds only `forum`. An older list that still names `bottile` (removed in build 21) works: the patcher prints a warning and leaves it out. |
 | `--target-sdk 29` | The Android version the app declares it was built for (`targetsdk` patch). The default, 35, avoids Play Protect's "built for an older version of Android" warning up to Android 17; 36 also covers Android 18. For both the patcher also fixes the game's own Java code (`classes.dex`) where a newer target would make Android refuse it. `--target-sdk 29` keeps the game's own value and files, exactly as builds 9 and earlier: the fallback if something misbehaves on 35. By Android's rules a 29 build installs over a 35 build signed with the same key, but this has not been tried on a phone yet. 35 and 36 need `debloat` (so `--patch` without `debloat` also needs `--target-sdk 29`), and 36 also needs `game`. |
 | `--game-log all` | The game's own log at every level in logcat (`mono-stdout`), for bug reports; this is the default while the offline build is being tested. `--game-log fatal` keeps the game's original setting (fatal errors only). |
 | `--keystore <file.p12>` | Your signing key. Without it a key is created once in `~/.config/McvsOffline/` (Windows: `%APPDATA%\McvsOffline\`) and reused. |
@@ -127,11 +127,11 @@ What the patches do:
 - **debloat**: removes the parts of Gameloft's SDKs that are dead offline (ad screens, push, install-referrer and boot
   receivers, Crashlytics and Facebook start-up, location and legacy permissions) from the manifest and drops the
   Crashlytics/Fabric files; see ARCHITECTURE.md §2.
-- **adminpage**: Settings › Account gets an **MCVS Offline** button that opens the MCVS Offline page (section 7), and
+- **adminpage**: Settings › Account gets an **MCVS Encore** button that opens the MCVS Encore page (section 7), and
   shows only the buttons that work offline (section 7, "Settings › Account").
-- **adminlink**: the button of the "MCVS Offline" inbox message opens the page with full access. Without this patch
+- **adminlink**: the button of the "MCVS Encore" inbox message opens the page with full access. Without this patch
   the message opens a view-only page.
-- **graphics**: the game reads its GPU profiles (`GameOptions_android.json`) through MCVS Offline, so the page's
+- **graphics**: the game reads its GPU profiles (`GameOptions_android.json`) through MCVS Encore, so the page's
   graphics profile (`graphics.profile`) can pick one. The start-up log gets a `[boot] graphics:` line with what the game
   really got. With `graphics.profile` `auto` nothing changes. Without this patch the setting does nothing, and Status ›
   Game host › Graphics says the game has not gone through patch 'graphics' (section 7). (The HD textures need no patch:
@@ -139,7 +139,7 @@ What the patches do:
 - **targetsdk**: the app declares Android 15 (`--target-sdk`, default 35) instead of Android 10 as its target, so Play
   Protect no longer warns that it was "built for an older version of Android". A newer target changes some of Android's
   rules for the app, so the patch also adapts what they touch: the manifest (exported components, the notification
-  permission, finding your browser for the page's links, native memory tagging off), the MCVS Offline page's layout (kept
+  permission, finding your browser for the page's links, native memory tagging off), the MCVS Encore page's layout (kept
   clear of the navigation bar), and the game's own Java code (alarms and notifications get the flag Android 12+
   requires, two receivers that are dead offline no longer listen, Google Analytics never starts). On Android 13 and
   later the game then asks once for the notification permission (section 7). Install it over your previous build as
@@ -345,26 +345,26 @@ Before installing, you can check the APK on the PC with the Android build-tools:
 grep application-isGame` prints `application-isGame`, and `aapt2 dump xmltree --file AndroidManifest.xml
 mcvs-offline.apk | grep -E 'isGame|appCategory'` shows `isGame(0x010103f4)=true` and `appCategory(0x01010545)=0`.
 
-## 7. The MCVS Offline page
+## 7. The MCVS Encore page
 
 The offline build has its own page for settings, saves and logs. It runs inside the game, in the game's own browser,
 and nothing on it leaves the phone unless you share it.
 
 **Opening it** (the game's own browser opens over the game; its Close button or Back takes you back):
 
-- Settings › Account › **MCVS Offline** (patch `adminpage`).
-- The **MCVS Offline** message in the inbox: tap its button (patch `adminlink`; without the patch the page opens view-only).
+- Settings › Account › **MCVS Encore** (patch `adminpage`).
+- The **MCVS Encore** message in the inbox: tap its button (patch `adminlink`; without the patch the page opens view-only).
 - Settings › Account › Redeem code: type `MCVSOFFLINE`. The page opens and the game then says the code does not exist;
   that is expected, nothing is claimed. `admin.redeemCode` in `settings.json` changes the code (empty turns it off).
   The code does nothing while `lanMode` is on.
 - The Forum button, if you patched with `--patch default,forum` and turned off the two Settings menu settings below.
 
-**Settings › Account** shows only **Redeem code** and **MCVS Offline**, side by side in the middle of the screen.
+**Settings › Account** shows only **Redeem code** and **MCVS Encore**, side by side in the middle of the screen.
 Facebook, Google Play Games and Restore are hidden: their login can never succeed offline, and Restore is the restore of
 in-app purchases, which do not exist offline (your progress moves through Saves › Export and Import instead). The page's
-setting **Only Redeem code and MCVS Offline in Settings › Account** (`admin.accountMenu.hideDeadButtons`, Settings ›
+setting **Only Redeem code and MCVS Encore in Settings › Account** (`admin.accountMenu.hideDeadButtons`, Settings ›
 Unlocks & codes, on by default) brings the game's own buttons back when turned off; it applies the next time you open
-Settings › Account. Without Redeem code (setting `crm.redeemCoupons` off) MCVS Offline is alone in the middle; with the
+Settings › Account. Without Redeem code (setting `crm.redeemCoupons` off) MCVS Encore is alone in the middle; with the
 page turned off (`admin.enabled`) Redeem code is. If the menu cannot be rearranged, the buttons stay where the game puts
 them (stacked on the left) and `server.log` says why in an `[admin] account menu:` line. On a PC the game's GameCenter
 button stays (the Steam build has no Facebook, Google or Restore button, so nothing changes there), and the setting is
@@ -490,11 +490,11 @@ adb push mcvs-hd-default.zip /sdcard/Android/data/com.gameloft.android.ANMP.Glof
 
 `McvsOffline/hd/` is only a drop folder: you may make it with adb (as above), Shizuku or any file manager. On Android 11
 and later a folder made that way belongs to that tool, and the game can read the pack in it but not write there, so
-MCVS Offline never writes in it: its own files (the list of installed files and the backups of the originals) go to
+MCVS Encore never writes in it: its own files (the list of installed files and the backups of the originals) go to
 `McvsOffline/hd-install/`, which the game makes itself (or, if even that cannot be written, to the game's internal
 storage; the log and Status say so). Do not make `McvsOffline/hd-install/` yourself.
 
-At the next start MCVS Offline checks every texture the pack replaces (it must be exactly the original the pack was made
+At the next start MCVS Encore checks every texture the pack replaces (it must be exactly the original the pack was made
 from), copies the original to `McvsOffline/hd-install/backup/`, writes the HD file in its place and updates the installer's list
 of the data (`pack.info`, the INSTALL-OFFLINE.md page explains it), so the game's installer accepts the new files at
 every start, without internet and without `qaTestingConfigs.txt`. Copying takes a few seconds; a start does at most
@@ -527,7 +527,7 @@ turns the question off; `notifications.requestedAt` records when it was asked.
 
 ## 8. Saves, settings and backups
 
-Most of this can be done on the phone with the MCVS Offline page (section 7). Everything MCVS Offline stores is in
+Most of this can be done on the phone with the MCVS Encore page (section 7). Everything MCVS Encore stores is in
 one folder:
 
 ```
@@ -557,10 +557,10 @@ in-game host:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `port` | `51780` | Port of the local backend. When another app holds it at start (a frozen earlier copy of the game, an `adb reverse`), the game does not wait: it uses the next free port (51781..51789, else any) for that start, and `args.txt`, the settings page and the `geo` lookup follow it (one WARN line in `bootstrap.log` says why). This file keeps its value and the next start tries it first. If a working MCVS Offline server answers there (the development loop's `adb reverse`), the game uses that one. `--port` only sets the fallback value baked into the `geo` patch. |
+| `port` | `51780` | Port of the local backend. When another app holds it at start (a frozen earlier copy of the game, an `adb reverse`), the game does not wait: it uses the next free port (51781..51789, else any) for that start, and `args.txt`, the settings page and the `geo` lookup follow it (one WARN line in `bootstrap.log` says why). This file keeps its value and the next start tries it first. If a working MCVS Encore server answers there (the development loop's `adb reverse`), the game uses that one. `--port` only sets the fallback value baked into the `geo` patch. |
 | `embedded.portFallback` | `true` | `false` pins `port`: when it is busy the server keeps trying it (as before build 26) instead of moving. |
 | `lanMode` | `false` | Experimental LAN host mode (see below). |
-| `embedded.manageArgs` | `true` | `false` stops MCVS Offline from touching `args.txt`. |
+| `embedded.manageArgs` | `true` | `false` stops MCVS Encore from touching `args.txt`. |
 | `embedded.lanAdvertiseHost` | `""` | LAN host mode: the IP address to announce to other devices (empty = detect). |
 | `embedded.nativeOnlineSdk` | `false` | `true` starts the game's native online library again (see the `nativeonline` patch). |
 | `gameLog.levels` | `"error warning"` | Levels of the game's own log (`error warning info debug`). A build patched with `--game-log all` logs every level anyway. |
@@ -577,7 +577,7 @@ in-game host:
 
 ### args.txt
 
-`.../files/args.txt` holds the game's launch arguments. MCVS Offline rewrites only the lines between
+`.../files/args.txt` holds the game's launch arguments. MCVS Encore rewrites only the lines between
 `-McvsOfflineBegin` and `-McvsOfflineEnd` (the file has no comment syntax, so the markers are arguments the game
 ignores). Add your own arguments **outside** that block; an argument you set there replaces the managed one. Rules
 the game imposes (verify-C1): separate words with spaces or new lines only (no tabs), save without a byte order mark,
@@ -641,7 +641,7 @@ For reviewers (details and evidence: `docs/research/verify-C7-integrity-patching
   `exported` on the three components that receive intents (the launcher activity, the cross-promotion screen and the
   local-reminder receiver), the notification permission, a declaration that lets the in-game browser find your browser,
   and heap-pointer tagging off; the two `res/layout-*/activity_in_game_browser.xml` files (the browser that shows the
-  MCVS Offline page) keep the page clear of the navigation bar. The patcher checks the shipped manifest and layouts
+  MCVS Encore page) keep the page clear of the navigation bar. The patcher checks the shipped manifest and layouts
   byte for byte first. With `game` (at any target) `<application>` gets `android:isGame="true"` and
   `android:appCategory="game"`, encoded as Android's own build tools write them; the patcher refuses a manifest that
   already sets either of them.

@@ -103,7 +103,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                         Assert.True(report.ExitCode == PcExitCodes.Io, what + ": " + report.ExitCode + " " + report.Error);
                         Assert.Contains(Steps[i], report.Error);
                         // A first install: no config of ours is in place, so the game runs the stock files.
-                        Assert.EndsWith(". The game will start WITHOUT MCVS Offline until install succeeds", report.Error);
+                        Assert.EndsWith(". The game will start WITHOUT MCVS Encore until install succeeds", report.Error);
                         Assert.Contains("error: could not write " + Steps[i], PcReportText.Install(report, false).Single());
 
                         PcStatusReport status = copy.Status();
@@ -133,7 +133,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 var files = new FaultyFileOps { FailRenameTo = copy.Path_("McvsOffline/bin/Game.dll") };
                 PcInstallReport failed = copy.Install(files);
                 Assert.Equal(PcExitCodes.Io, failed.ExitCode);
-                Assert.DoesNotContain("WITHOUT MCVS Offline", failed.Error);   // the earlier install's config still redirects
+                Assert.DoesNotContain("WITHOUT MCVS Encore", failed.Error);   // the earlier install's config still redirects
                 AssertNoConfigPointsAtAMissingFile(copy);
                 // A reinstall whose config write fails: the old config may be gone or old, and the player is told.
                 PcInstallReport configFailed = copy.Install(new FaultyFileOps { FailWriteOf = copy.Path_(PcExeConfig.FileName) + GameFolder.TempSuffix });
@@ -284,7 +284,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 var files = new FaultyFileOps { FailWriteOf = args + GameFolder.TempSuffix };
                 PcInstallReport report = copy.Uninstall(files: files);
                 Assert.Equal(PcExitCodes.Io, report.ExitCode);
-                Assert.Contains(report.LeftBehind, l => l.StartsWith("args.txt still has the MCVS Offline block", StringComparison.Ordinal));
+                Assert.Contains(report.LeftBehind, l => l.StartsWith("args.txt still has the MCVS Encore block", StringComparison.Ordinal));
                 Assert.Equal(withBlock, File.ReadAllBytes(args));
                 Assert.DoesNotContain("write " + args, files.Calls);
 

@@ -15,7 +15,7 @@ body:
     id: build
     attributes:
       label: Player build
-      description: On the MCVS Offline page, under Status (Settings › Account › MCVS Offline).
+      description: On the MCVS Encore page, under Status (Settings › Account › MCVS Encore).
       placeholder: "12"
     validations:
       required: true
@@ -90,7 +90,7 @@ body:
       label: Logs
       description: |
         Drag the files here. One of these, in this order:
-        - MCVS Offline page › Logs › **Build**, then **Share** (the "Recent" scope stays under 8 MB).
+        - MCVS Encore page › Logs › **Build**, then **Share** (the "Recent" scope stays under 8 MB).
         - Without the page: Files › Downloads › MCVS-Offline, the files of the newest start.
         - With a PC: `adb logcat -s McvsOffline mono-stdout`.
 

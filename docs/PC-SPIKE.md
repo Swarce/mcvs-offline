@@ -1,6 +1,6 @@
 # PC spike (WP0): test the Steam game on your Windows PC
 
-Before we port MCVS Offline to the Steam version of Modern Combat Versus, we need answers that only a real Windows PC
+Before we port MCVS Encore to the Steam version of Modern Combat Versus, we need answers that only a real Windows PC
 with Steam can give ([research/pc-port.md](research/pc-port.md) §5 WP0 and §8). One small program,
 `McvsOffline.PcSpike.exe`, runs every test and packs the results into one zip that you send back. It takes about an hour.
 

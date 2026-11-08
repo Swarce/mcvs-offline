@@ -125,7 +125,7 @@ Full guide for players: [docs/INSTALL-OFFLINE.md](../../docs/INSTALL-OFFLINE.md)
 * `mirror.py --out DIR --tex ASTC --extract` (or `--tex ETC`, whichever your phone uses) writes
   `DIR/1.17.32/<tex>/files/Data/...` **and** `files/McvsOffline/install/pack.info`, the archive's index.
 * Copy that `files/` folder to `/sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/` before the first
-  launch of the offline build. Its start-up code (MCVS Offline's Bootstrap, which runs before the game's installer)
+  launch of the offline build. Its start-up code (MCVS Encore's Bootstrap, which runs before the game's installer)
   checks every file against the index and hands the index to the installer together with the installer's other
   markers (`files/prefs/gl_ver`, the split-file journal, its preferences). The installer then starts the game
   without any network, and a background check compares every CRC32.

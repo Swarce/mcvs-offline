@@ -1,6 +1,8 @@
 <div align="center">
 
-# MCVS Offline
+<img src="art/branding/encore-logo.png" alt="MCVS Encore" width="460">
+
+# MCVS Encore
 
 **Modern Combat Versus, playable offline on Android and Steam, with your progress kept on your device.**
 
@@ -28,7 +30,7 @@ Modern Combat Versus needs Gameloft's online services to start, and those servic
 ships everything else: its own match and menu servers, the bots, the rules and the rewards. Only the backend it talks
 to, Gameloft's **Federation** service, is missing.
 
-MCVS Offline reimplements that backend as a small C# server that runs **inside the game process**. A patcher adds it to
+MCVS Encore reimplements that backend as a small C# server that runs **inside the game process**. A patcher adds it to
 **your own** copy of the game, on your own computer. The result is an APK that plays fully offline: bot matches with
 full rewards, progression saved on the device, and every item obtainable.
 
@@ -55,7 +57,7 @@ The repository contains no game files. You bring your own APK; the project bring
 
 - Progression, inventory and currencies saved on the device, with atomic writes, automatic backups and recovery from a
   corrupt file.
-- An in-game **MCVS Offline page** for settings, save backups, logs you can share, and save export and import between
+- An in-game **MCVS Encore page** for settings, save backups, logs you can share, and save export and import between
   phones without a PC.
 
 **Everything obtainable**
@@ -99,7 +101,7 @@ The repository contains no game files. You bring your own APK; the project bring
 ## Status
 
 Current player build: **12**. The game works offline on a Samsung Galaxy S22 (Android 16): boot, bot matches, saves,
-the shop, the MCVS Offline page and the HD textures. A few newer features are built and waiting for a phone test. Expect rough edges and keep your backups.
+the shop, the MCVS Encore page and the HD textures. A few newer features are built and waiting for a phone test. Expect rough edges and keep your backups.
 [docs/STATUS.md](docs/STATUS.md) has the detailed history of every build and device test.
 
 | Goal | Status |
@@ -110,7 +112,7 @@ the shop, the MCVS Offline page and the HD textures. A few newer features are bu
 | Shop and unlock codes | Works (tested on a phone) |
 | Offline data install from a backup or copied data | Works (tested on a phone) |
 | Live ops from the clock | Works (tested on a phone) |
-| MCVS Offline page: settings, saves, logs | Works (tested on a phone) |
+| MCVS Encore page: settings, saves, logs | Works (tested on a phone) |
 | Cosmetic crate | Built, waiting for a phone test (crates start on 2026-11-09) |
 | Target Android 15 | Works (builds 10 to 12 installed and played on a phone) |
 | Graphics profiles | Works (tested on a phone) |
@@ -140,7 +142,7 @@ flowchart LR
       ts["Menu server<br/>(Transaction Server)"]
       gs["Match server<br/>(Game Server)"]
     end
-    fed["MCVS Offline server<br/>(replaces Gameloft's Federation)"]
+    fed["MCVS Encore server<br/>(replaces Gameloft's Federation)"]
   end
   disk[("McvsOffline/ folder<br/>profile, settings, logs")]
 
@@ -205,8 +207,8 @@ no `HttpListener`, no Newtonsoft. The rules are in [docs/MODULES.md](docs/MODULE
 
 ## Configuration
 
-Most settings can be changed on the phone, on the **MCVS Offline page** (Settings › Account › MCVS Offline, or the
-MCVS Offline message in the inbox). Each setting there says when it applies.
+Most settings can be changed on the phone, on the **MCVS Encore page** (Settings › Account › MCVS Encore, or the
+MCVS Encore message in the inbox). Each setting there says when it applies.
 
 Underneath, everything lives in `settings.json` (in the game:
 `/sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/McvsOffline/`; standalone: `./data/`). A few keys:
@@ -258,8 +260,8 @@ docs/                architecture, status, guides, protocol notes, designs, rese
 |---|---|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | The design (normative) and the build constraints |
 | [STATUS.md](docs/STATUS.md) | What is implemented, how it was checked, every device test, the next checklist |
-| [PLAYER-SETUP.md](docs/PLAYER-SETUP.md) | Building and installing the offline APK; the MCVS Offline page; logs |
-| [PLAYER-SETUP-PC.md](docs/PLAYER-SETUP-PC.md) | Installing MCVS Offline into the Steam version with the PC kit; settings; logs |
+| [PLAYER-SETUP.md](docs/PLAYER-SETUP.md) | Building and installing the offline APK; the MCVS Encore page; logs |
+| [PLAYER-SETUP-PC.md](docs/PLAYER-SETUP-PC.md) | Installing MCVS Encore into the Steam version with the PC kit; settings; logs |
 | [INSTALL-OFFLINE.md](docs/INSTALL-OFFLINE.md) | Installing the game data without Gameloft's servers; the HD packs |
 | [DEV-LOOP.md](docs/DEV-LOOP.md) | The unmodified game against the standalone server |
 | [ECONOMY.md](docs/ECONOMY.md) | The offline economy, unlock codes, the Cosmetic crate, tuning |
@@ -286,10 +288,10 @@ Details: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 Bug reports from real devices are the most useful contribution. Please include:
 
-- the player build (on the MCVS Offline page, under Status), your phone model and Android version;
+- the player build (on the MCVS Encore page, under Status), your phone model and Android version;
 - what you did and what happened; for a hang, wait at least 60 seconds before closing the game, so the watchdog can log
   what it waits for;
-- the logs. On the phone: MCVS Offline page › Logs › **Build**, then **Share** (the "Recent" scope stays under 8 MB).
+- the logs. On the phone: MCVS Encore page › Logs › **Build**, then **Share** (the "Recent" scope stays under 8 MB).
   Without the page: Files › Downloads › MCVS-Offline, the files of the newest start. With a PC:
   `adb logcat -s McvsOffline mono-stdout`.
 

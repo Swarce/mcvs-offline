@@ -19,7 +19,7 @@ namespace McvsOffline
     public static class AdminHooks
     {
         public const string ButtonAction = "mcvs_offline";
-        public const string ButtonLabel = "MCVS Offline";
+        public const string ButtonLabel = "MCVS Encore";
         public const string ButtonIcon = "Menus/assets/png/icons/Settings.png";
 
         private static volatile AdminHost host;
@@ -35,7 +35,7 @@ namespace McvsOffline
         /// Game thread (Flash native call, inside <c>MenuAccountSettings.onPush</c>). With the server up and
         /// <c>admin.accountMenu.hideDeadButtons</c> on (default), drops Facebook, Google Play Games and the purchase restore
         /// (<see cref="AccountMenuLayout.IsDeadEntry"/>; never down to an empty menu) and posts the step that centres what is
-        /// left; with the page on, appends the MCVS Offline entry. Returns a List&lt;object&gt; (ASValue.SetObject turns an IList
+        /// left; with the page on, appends the MCVS Encore entry. Returns a List&lt;object&gt; (ASValue.SetObject turns an IList
         /// into an AS array; any other IEnumerable would become an opaque managed object), the game's own list when it is one.
         /// Unchanged when the server is not running. Never throws.
         /// </summary>

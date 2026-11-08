@@ -17,7 +17,7 @@ using Xunit;
 namespace McvsOffline.Tests.Content
 {
     /// <summary>
-    /// The "MCVS Offline" inbox item of the CRM document (design docs/design/settings-page.md §9.1, WP7): CrmNewsfeed,
+    /// The "MCVS Encore" inbox item of the CRM document (design docs/design/settings-page.md §9.1, WP7): CrmNewsfeed,
     /// the newsfeeds layer of CrmDocumentBuilder, the cache key, the newsfeeds checks of CrmDocumentValidator, and the
     /// document players get, compared byte for byte with the one before the item existed.
     /// </summary>
@@ -34,7 +34,7 @@ namespace McvsOffline.Tests.Content
 
         /// <summary>Our item as the document carries it on <see cref="Wednesday"/> (key order of design §9.1).</summary>
         internal const string ItemJson =
-            "{\"news_id\":\"mcvsoffline_FromMCVS\",\"title\":\"MCVS Offline\","
+            "{\"news_id\":\"mcvsoffline_FromMCVS\",\"title\":\"MCVS Encore\","
             + "\"body\":\"Settings, saves and logs of your offline game. Tap the button to open them.\","
             + "\"redirect\":\"http://127.0.0.1:51780/_mcvs/ui/#news\",\"asset\":\"\",\"youtube\":\"\",\"timestamp\":1792972800,"
             + "\"end_date\":\"2026-12-02T00:00:00Z\"}";

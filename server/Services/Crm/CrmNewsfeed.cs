@@ -6,7 +6,7 @@ using McvsOffline.Server.Services.Admin;
 namespace McvsOffline.Server.Services.Crm
 {
     /// <summary>
-    /// The CRM <c>newsfeeds</c> list: one inbox message "MCVS Offline" whose button opens the settings page (design
+    /// The CRM <c>newsfeeds</c> list: one inbox message "MCVS Encore" whose button opens the settings page (design
     /// docs/design/settings-page.md §9.1).
     /// <para>
     /// Client side: <c>StandardCrm.Data.DeserializeNewsFeed</c> reads <c>newsfeeds</c> when the key is present
@@ -34,7 +34,7 @@ namespace McvsOffline.Server.Services.Crm
         /// <summary>The inbox message id is "newsfeed_" + this; "FromMCVS" makes the sender "MCVS".</summary>
         public const string NewsId = "mcvsoffline_FromMCVS";
 
-        public const string Title = "MCVS Offline";
+        public const string Title = "MCVS Encore";
 
         public const string Body = "Settings, saves and logs of your offline game. Tap the button to open them.";
 

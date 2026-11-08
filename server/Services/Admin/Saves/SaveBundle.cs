@@ -35,10 +35,10 @@ namespace McvsOffline.Server.Services.Admin.Saves
         /// <summary>The Hermes transports a bundle carries (the two the TS reads at login).</summary>
         public static readonly string[] Transports = { "inbox", "secured" };
 
-        public const string ErrorNotASave = "This is not an MCVS Offline save (or it comes from a newer version).";
+        public const string ErrorNotASave = "This is not an MCVS Encore save (or it comes from a newer version).";
         public const string ErrorAccount = "The save's account id is not valid.";
         public const string ErrorIncomplete = "The save is incomplete (copied only in part?).";
-        public const string ErrorProfile = "The save's profile is not an MCVS Offline profile.";
+        public const string ErrorProfile = "The save's profile is not an MCVS Encore profile.";
         public const string ErrorNoProgress = "The save holds no game progress.";
         public const string ErrorInbox = "The save's inbox is damaged.";
 

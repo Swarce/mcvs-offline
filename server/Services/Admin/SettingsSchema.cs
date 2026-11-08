@@ -873,7 +873,7 @@ namespace McvsOffline.Server.Services.Admin
                      "Settings > Account > Redeem code accepts the codes listed below."),
                 Bool("unlocks", "crm.redeemCoupons", "Redeem-code button", true, Menu,
                      "Shows the Redeem code button in Settings > Account."),
-                Bool("unlocks", AccountMenuHideDeadButtonsKey, "Only Redeem code and MCVS Offline in Settings > Account", true, Live,
+                Bool("unlocks", AccountMenuHideDeadButtonsKey, "Only Redeem code and MCVS Encore in Settings > Account", true, Live,
                      "Hides the Facebook, Google Play Games and Restore buttons, which cannot work offline, and centres the "
                      + "buttons that are left. Applies the next time Settings > Account opens."),
                 Integer("unlocks", "unlocks.batchSize", "Rewards per batch", 400, 50, 400, 50, Live,
@@ -914,7 +914,7 @@ namespace McvsOffline.Server.Services.Admin
                        "Random: a random map each match. A map: every Special Event match there.",
                        "Random", "Snow", "Desert", "Favelas", "Rooftop", "DogDays", "Port", "Stadium", "Stadium2"),
                 Bool("liveops", "crm.newsfeedLink", "Inbox message for this page", true, Menu,
-                     "The \"MCVS Offline\" inbox message. Off removes it at the next CRM fetch."),
+                     "The \"MCVS Encore\" inbox message. Off removes it at the next CRM fetch."),
 
                 // Diagnostics
                 Confirmed(Integer("diagnostics", "storage.backups.keep", "Automatic backups kept", 20, 0, 200, 1, Live,

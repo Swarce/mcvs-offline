@@ -1,4 +1,4 @@
-# MCVS Offline: launcher icon and launch screen art
+# MCVS Encore: launcher icon and launch screen art
 
 This folder holds the project's own icon and launch-screen art for the offline Android build. It is empty on purpose
 until the art exists: while it holds no art files, the patcher keeps Gameloft's icon and the stock launch screen, byte
@@ -74,7 +74,7 @@ possible there. What you control:
 - `splash.iconPreferred`: also show the icon when the game is started by the settings page's Restart or a reminder
   (Android 13+). Recommended `true`.
 - `splash.windowBackground`: also paint the game's window with the splash colour. This changes the background of the
-  MCVS Offline page and the installer screens too; leave it `false` until it has been looked at on a phone.
+  MCVS Encore page and the installer screens too; leave it `false` until it has been looked at on a phone.
 
 Android 5-11 show a plain near-white window before the game; the art does not change that.
 

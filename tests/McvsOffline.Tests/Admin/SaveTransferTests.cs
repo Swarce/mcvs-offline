@@ -58,11 +58,11 @@ namespace McvsOffline.Tests.Admin
             Assert.Equal(bundle, SaveTransfer.Decode(parts));
 
             // The .txt file (wrapped at 76, instruction lines first) reads back the same.
-            string file = SaveTransfer.FileText(export, "MCVS Offline save of 123456789 (level 41, revision 900).\nTo import it...");
+            string file = SaveTransfer.FileText(export, "MCVS Encore save of 123456789 (level 41, revision 900).\nTo import it...");
             var dataLines = file.Split('\n').Where(l => l.Length > 0 && l.All(c => char.IsLetterOrDigit(c) || c == '+' || c == '/')).ToList();
             Assert.NotEmpty(dataLines);
             Assert.All(dataLines, line => Assert.True(line.Length <= 76, line));
-            Assert.StartsWith("MCVS Offline save of 123456789", file);
+            Assert.StartsWith("MCVS Encore save of 123456789", file);
             var fromFile = SaveTransfer.Extract(file, rejected);
             Assert.Empty(rejected);
             Assert.Equal(bundle, SaveTransfer.Decode(fromFile));

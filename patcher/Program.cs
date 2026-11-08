@@ -157,7 +157,7 @@ namespace McvsOffline.Patcher
         private static void PrintUsage()
         {
             Console.WriteLine(
-                "MCVS Offline patcher: turns your own Modern Combat Versus " + KnownBuild.Version + " APK into the offline APK.\n\n" +
+                "MCVS Encore patcher: turns your own Modern Combat Versus " + KnownBuild.Version + " APK into the offline APK.\n\n" +
                 "Usage: McvsOffline.Patcher --apk <original.apk> --server <McvsOffline.Server.dll> --out <mcvs-offline.apk> [options]\n\n" +
                 "  --patch <list>        optional patches, comma-separated (default: " + string.Join(",", PatcherOptions.DefaultPatches) + ")\n" +
                 "                          nativeonline  native online SDK (GaiaInit) only when settings.json embedded.nativeOnlineSdk\n" +
@@ -171,8 +171,8 @@ namespace McvsOffline.Patcher
                 "                          debloat  remove the manifest declarations of SDK parts dead offline (ad screens, GCM\n" +
                 "                                   push, install-referrer and boot receivers, Crashlytics/Facebook init providers,\n" +
                 "                                   location/legacy permissions) and drop the Crashlytics/Fabric files\n" +
-                "                          adminpage  Settings > Account: an 'MCVS Offline' button that opens the offline settings page\n" +
-                "                          adminlink  the 'MCVS Offline' inbox message opens the settings page (without it the\n" +
+                "                          adminpage  Settings > Account: an 'MCVS Encore' button that opens the offline settings page\n" +
+                "                          adminlink  the 'MCVS Encore' inbox message opens the settings page (without it the\n" +
                 "                                   message shows a view-only page)\n" +
                 "                          targetsdk  raise targetSdkVersion to --target-sdk (no Play Protect 'built for an older\n" +
                 "                                   version of Android' warning) with what that target needs in the manifest and\n" +

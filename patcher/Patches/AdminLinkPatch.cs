@@ -4,7 +4,7 @@ using Mono.Cecil.Cil;
 namespace McvsOffline.Patcher.Patches
 {
     /// <summary>
-    /// Default 'adminlink' patch of Gameloft.Engine.dll: the "MCVS Offline" inbox message opens the offline settings page
+    /// Default 'adminlink' patch of Gameloft.Engine.dll: the "MCVS Encore" inbox message opens the offline settings page
     /// with a fresh one-time ticket (docs/design/settings-page.md §9.3). The CRM <c>newsfeeds</c> item links to a fixed
     /// marker URL (<c>http://127.0.0.1:&lt;port&gt;/_mcvs/ui/#news</c>) that carries no secret; Flash <c>Inbox.gotoLink</c> opens
     /// it through <c>Native.OpenUrl</c> → <c>UIComponent.OpenUrl</c> or <c>MenuComponent.NativeOpenUrl</c> →
@@ -37,7 +37,7 @@ namespace McvsOffline.Patcher.Patches
 
         public override string AssemblyFile => "Gameloft.Engine.dll";
 
-        public override string Description => "the 'MCVS Offline' inbox message opens the offline settings page with a fresh one-time ticket (Gameloft.Engine.dll)";
+        public override string Description => "the 'MCVS Encore' inbox message opens the offline settings page with a fresh one-time ticket (Gameloft.Engine.dll)";
 
         public override void Apply(ModuleDefinition module, PatchContext context)
         {

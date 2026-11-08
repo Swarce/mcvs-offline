@@ -1,6 +1,6 @@
 {
   "_comment": [
-    "MCVS Offline Cosmetic crate (economy collector) tuning: the rule inputs of docs/design/economy-collector.md section 1.",
+    "MCVS Encore Cosmetic crate (economy collector) tuning: the rule inputs of docs/design/economy-collector.md section 1.",
     "tools/content-gen/content_gen.py validates it against the player's decoded data (design tables, catalogue, loc ids,",
     "assets) and writes server/Content/collector.json (ids only). Weights, items per crate and the other runtime knobs are",
     "settings (economy.collector.*), not content. The crate's live-ops rewards and their start date are the 'collector'",

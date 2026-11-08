@@ -19,7 +19,7 @@ namespace McvsOffline.PcSpike
             try
             {
                 if (File.Exists(args) && ArgsFile.ReadManagedValue(File.ReadAllBytes(args), "ServerLocation") != null)
-                    left.Add("args.txt still has the MCVS Offline block (the game would look for our server): run 'stop' to restore the original");
+                    left.Add("args.txt still has the MCVS Encore block (the game would look for our server): run 'stop' to restore the original");
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
             {

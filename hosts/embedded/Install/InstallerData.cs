@@ -1058,9 +1058,9 @@ namespace McvsOffline.Embedded.Install
                 AtomicFile.WriteAllText(loc.SavedIndexNote,
                     "Copy of the game installer's index of the data pack (Modern Combat Versus 1.17.32" + (variant == null ? "" : ", " + variant + " textures") +
                     (replacedFiles > 0 ? ", " + replacedFiles + " files replaced (McvsOffline/install/replaced.tsv)" : "") +
-                    ", " + index.LogicalFiles + " files, " + index.LogicalBytes.ToString(CultureInfo.InvariantCulture) + " bytes), saved by MCVS Offline on " +
+                    ", " + index.LogicalFiles + " files, " + index.LogicalBytes.ToString(CultureInfo.InvariantCulture) + " bytes), saved by MCVS Encore on " +
                     DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture) + ".\n" +
-                    "Keep it in your backup of the files folder. After a reinstall MCVS Offline gives it back to the installer, which then accepts\n" +
+                    "Keep it in your backup of the files folder. After a reinstall MCVS Encore gives it back to the installer, which then accepts\n" +
                     "the restored Data folder without internet. See docs/INSTALL-OFFLINE.md.\n");
                 log.Info("installer data: saved a copy of the installer's index to " + loc.SavedIndex + " (keep it in your backups)");
             }

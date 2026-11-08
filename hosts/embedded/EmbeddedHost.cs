@@ -71,6 +71,9 @@ namespace McvsOffline.Embedded
         /// </summary>
         public int PortWatchIntervalMs { get; set; }
 
+        /// <summary>Asks the program that holds a busy port what it is (tests: longer budgets on slow machines); null = <see cref="PortProbe"/>'s defaults.</summary>
+        public Func<int, PortHolder> ProbePort { get; set; }
+
         public LogLevel SystemLogLevel { get; set; }
 
         /// <summary>Replaces the service modules (tests).</summary>
@@ -86,7 +89,7 @@ namespace McvsOffline.Embedded
     /// <item>synchronously (milliseconds): resolve the game root, create McvsOffline/, load settings.json and
     /// write the managed block of args.txt, so it is in place whatever happens next;</item>
     /// <item>still synchronously, before args.txt: reserve the server's port, 127.0.0.1:51780 (all interfaces in LAN mode). When
-    /// it is busy, ask the holder (at most about 0.75 s): a working MCVS Offline server is used as it is (the dev loop's adb
+    /// it is busy, ask the holder (at most about 0.75 s): a working MCVS Encore server is used as it is (the dev loop's adb
     /// reverse), anything else makes this start listen on the next free port (51781..51789, then any), and args.txt, the eve
     /// URLs, the settings page and the 'geo' lookup follow it (docs/design/port-fallback.md). The LocalAnubis Finder's port
     /// (51750) is checked the same way;</item>
@@ -330,7 +333,7 @@ namespace McvsOffline.Embedded
             }
             catch (Exception ex)
             {
-                host.Log.Error("MCVS Offline could not prepare the offline backend; the game will start without it", ex);
+                host.Log.Error("MCVS Encore could not prepare the offline backend; the game will start without it", ex);
                 host.serverReady.Set();
             }
             return host;
@@ -344,7 +347,7 @@ namespace McvsOffline.Embedded
             // WARN/ERROR lines of this logger for the settings page's "recent problems" (IAdminHost.RecentProblems).
             problemSink = new MemoryLogSink(LogLevel.Warn, 100);
             Logger.AddSink(problemSink);
-            Log.Info("MCVS Offline " + McvsVersion.Current + " embedded host starting (platform " + platform.Name + HostProcess.Suffix(", ") + ")");
+            Log.Info("MCVS Encore " + McvsVersion.Current + " embedded host starting (platform " + platform.Name + HostProcess.Suffix(", ") + ")");
             platformName = platform.Name;
             argsReader = platform.ArgsReader;
             portInUseHint = platform.PortInUseHint;
@@ -353,7 +356,7 @@ namespace McvsOffline.Embedded
             extensions = platform as IHostExtensions;
             if (CrashReporter.Hooks != null) Logger.For("crash").Info("hooks: " + CrashReporter.Hooks);
             Boot = new BootTrace(Logger.For("boot"));
-            Boot.Mark("MCVS Offline host started by the game (" + platform.EntryPoint + ")");
+            Boot.Mark("MCVS Encore host started by the game (" + platform.EntryPoint + ")");
 
             string root = platform.ResolveGameRoot(Log);
             Paths = new EmbeddedPaths(root);
@@ -1230,7 +1233,7 @@ namespace McvsOffline.Embedded
                 IPAddress address = McvsServer.ParseBind(BindAddress(options) ?? Settings.Bind);
                 reservedAddress = address;
                 string marker = StartMarkerPath;
-                r = PortReservation.Reserve(address, port, fallback, options.Listen, null, m => Log.Warn(m),
+                r = PortReservation.Reserve(address, port, fallback, options.Listen, options.ProbePort, m => Log.Warn(m),
                                             p => StartMarker.IsStarting(marker, p, DateTime.UtcNow));
             }
             catch (Exception ex)
@@ -1256,7 +1259,7 @@ namespace McvsOffline.Embedded
                     {
                         Log.Info(line);
                     }
-                    Boot.Mark("offline server: the MCVS Offline server already answering on port " + port + " is used");
+                    Boot.Mark("offline server: the MCVS Encore server already answering on port " + port + " is used");
                     break;
                 case PortOutcome.Fallback:
                     Log.Warn(r.Reason + "; this start uses port " + r.Port + ": args.txt, the eve URLs, the settings page and the geo lookup follow it; " +
@@ -1337,7 +1340,7 @@ namespace McvsOffline.Embedded
                                 return;
                             }
                             reservation.TakeOver(socket);
-                            Log.Warn("the MCVS Offline server of the other copy of the game (port " + port + ", this game's data folder) has stopped; " +
+                            Log.Warn("the MCVS Encore server of the other copy of the game (port " + port + ", this game's data folder) has stopped; " +
                                      "this game's own server takes port " + port + " over, and the game's next requests reach it");
                             Boot.Mark("offline server: took port " + port + " over after the other copy's server stopped");
                             portWatching = false;

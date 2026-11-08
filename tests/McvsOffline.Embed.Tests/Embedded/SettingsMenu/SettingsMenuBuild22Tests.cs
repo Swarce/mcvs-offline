@@ -550,7 +550,7 @@ namespace McvsOffline.Embed.Tests.Embedded.SettingsMenu
         [InlineData(false)]
         public void PerformanceOffThenOnInTheSameSettings_TheTileIsDrawnAndTappableAgain(bool sameFrame)
         {
-            // The admin page sits inside Settings (ACCOUNT > MCVS Offline), so menu_settings and its instances stay while the owner
+            // The admin page sits inside Settings (ACCOUNT > MCVS Encore), so menu_settings and its instances stay while the owner
             // switches PERFORMANCE off and on again. 05a2028: btn_forum is kept again with only x and y written, so it stays
             // visible=false, alpha 0 and mouse off, is read back as in place, and R4 still hides the Gameplay rows.
             var rig = new Rig();

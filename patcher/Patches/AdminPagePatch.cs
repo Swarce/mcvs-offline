@@ -5,7 +5,7 @@ using Mono.Cecil.Cil;
 namespace McvsOffline.Patcher.Patches
 {
     /// <summary>
-    /// Default 'adminpage' patch of Game.dll: an "MCVS Offline" button in Settings › Account that opens the offline settings
+    /// Default 'adminpage' patch of Game.dll: an "MCVS Encore" button in Settings › Account that opens the offline settings
     /// page (docs/design/settings-page.md §9.2). Flash <c>MenuAccountSettings</c> builds the Account submenu from
     /// <c>Native.GetAccountMenuButtonList()</c>, handles <c>customAction == "showRedeem"</c> itself and forwards every other
     /// <c>customAction</c> to <c>Native.ProcessAccountMenuButtonAction(customAction)</c>; both natives are
@@ -51,7 +51,7 @@ namespace McvsOffline.Patcher.Patches
 
         public override string AssemblyFile => "Game.dll";
 
-        public override string Description => "Settings > Account: an 'MCVS Offline' button that opens the offline settings page (Game.dll)";
+        public override string Description => "Settings > Account: an 'MCVS Encore' button that opens the offline settings page (Game.dll)";
 
         public override void Apply(ModuleDefinition module, PatchContext context)
         {
@@ -101,7 +101,7 @@ namespace McvsOffline.Patcher.Patches
             // ---- change: A1
             ILProcessor il = list.Body.GetILProcessor();
             il.InsertBefore(ret, il.Create(OpCodes.Call, buttons));
-            context.Notes.Add(list.FullName + ": returns " + HooksType + ".AccountMenuButtons(list) (the 'MCVS Offline' button last; dead " +
+            context.Notes.Add(list.FullName + ": returns " + HooksType + ".AccountMenuButtons(list) (the 'MCVS Encore' button last; dead " +
                               "entries dropped by admin.accountMenu.hideDeadButtons)");
 
             // ---- change: A2 (brfalse.s jumps 17 bytes; the shipped body's own short branches keep their distances)

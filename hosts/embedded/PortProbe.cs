@@ -22,10 +22,10 @@ namespace McvsOffline.Embedded
         /// <summary>The holder accepted the connection (or let it wait) and never answered: e.g. a frozen earlier copy of the game.</summary>
         Silent,
 
-        /// <summary>The holder answered, but not as MCVS Offline.</summary>
+        /// <summary>The holder answered, but not as MCVS Encore.</summary>
         Foreign,
 
-        /// <summary>A working MCVS Offline server answered GET /_mcvs/status.</summary>
+        /// <summary>A working MCVS Encore server answered GET /_mcvs/status.</summary>
         Mcvs,
     }
 
@@ -43,7 +43,7 @@ namespace McvsOffline.Embedded
         /// <summary>What was seen, in a few words ("it accepted the connection but sent nothing in 500 ms").</summary>
         public string Detail { get; private set; }
 
-        /// <summary>MCVS Offline only: the server's version, data directory and instance id (null when it did not say).</summary>
+        /// <summary>MCVS Encore only: the server's version, data directory and instance id (null when it did not say).</summary>
         public string Version { get; internal set; }
 
         public string DataDir { get; internal set; }
@@ -72,7 +72,7 @@ namespace McvsOffline.Embedded
         public const int DefaultReadMs = 500;
         public const int MaxAnswerBytes = 16 * 1024;
 
-        /// <summary>The value of "server" in an MCVS Offline /_mcvs/status answer (CoreRoutes).</summary>
+        /// <summary>The value of "server" in an MCVS Encore /_mcvs/status answer (CoreRoutes).</summary>
         public const string ServerName = "mcvs-offline";
 
         public static PortHolder Probe(int port, int connectMs, int readMs)
@@ -180,7 +180,7 @@ namespace McvsOffline.Embedded
                 object server;
                 if (json != null && json.TryGetValue("server", out server) && string.Equals(server as string, ServerName, StringComparison.Ordinal))
                 {
-                    var holder = new PortHolder(PortHolderKind.Mcvs, "MCVS Offline " + (Text(json, "version") ?? "?") + " answers (data directory " +
+                    var holder = new PortHolder(PortHolderKind.Mcvs, "MCVS Encore " + (Text(json, "version") ?? "?") + " answers (data directory " +
                                                                      (Text(json, "dataDir") ?? "?") + ")");
                     holder.Version = Text(json, "version");
                     holder.DataDir = Text(json, "dataDir");
@@ -188,7 +188,7 @@ namespace McvsOffline.Embedded
                     return holder;
                 }
             }
-            return new PortHolder(PortHolderKind.Foreign, "it answered '" + status + "', not as MCVS Offline");
+            return new PortHolder(PortHolderKind.Foreign, "it answered '" + status + "', not as MCVS Encore");
         }
 
         private static string Text(Dictionary<string, object> json, string key)

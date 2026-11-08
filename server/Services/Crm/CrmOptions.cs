@@ -93,7 +93,7 @@ namespace McvsOffline.Server.Services.Crm
         public Dictionary<string, object> Overlay { get; set; }
 
         /// <summary>
-        /// The "MCVS Offline" inbox item that opens the settings page (<c>crm.newsfeedLink</c>; <see cref="CrmNewsfeed"/>,
+        /// The "MCVS Encore" inbox item that opens the settings page (<c>crm.newsfeedLink</c>; <see cref="CrmNewsfeed"/>,
         /// design docs/design/settings-page.md §9.1). Off: <c>"newsfeeds": []</c>, which removes the message.
         /// </summary>
         public bool NewsfeedLink { get; set; }

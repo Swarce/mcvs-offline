@@ -19,8 +19,8 @@
     <Features>strict</Features>
 
     <Version>0.1.0</Version>
-    <Product>MCVS Offline</Product>
-    <Company>MCVS Offline contributors</Company>
-    <Copyright>MCVS Offline contributors</Copyright>
+    <Product>MCVS Encore</Product>
+    <Company>MCVS Encore contributors</Company>
+    <Copyright>MCVS Encore contributors</Copyright>
   </PropertyGroup>
 </Project>

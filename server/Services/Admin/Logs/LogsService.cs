@@ -378,8 +378,8 @@ namespace McvsOffline.Server.Services.Admin.Logs
             AdminShareResult share;
             try
             {
-                share = host.ShareFile(path, "application/zip", file, target == "downloads" ? null : "MCVS Offline logs",
-                                       string.IsNullOrEmpty(note) ? "MCVS Offline logs" : LogRedaction.Redact(note));
+                share = host.ShareFile(path, "application/zip", file, target == "downloads" ? null : "MCVS Encore logs",
+                                       string.IsNullOrEmpty(note) ? "MCVS Encore logs" : LogRedaction.Redact(note));
             }
             catch (Exception ex)
             {
@@ -413,7 +413,7 @@ namespace McvsOffline.Server.Services.Admin.Logs
             AdminShareResult share;
             try
             {
-                share = host.ShareText("MCVS Offline report", text);
+                share = host.ShareText("MCVS Encore report", text);
             }
             catch (Exception ex)
             {
@@ -434,7 +434,7 @@ namespace McvsOffline.Server.Services.Admin.Logs
         private string Report(HttpRequest request, string note)
         {
             var sb = new StringBuilder();
-            sb.Append("MCVS Offline report, ").Append(TimeFormat.Iso8601(context.Clock.UtcNow)).Append('\n');
+            sb.Append("MCVS Encore report, ").Append(TimeFormat.Iso8601(context.Clock.UtcNow)).Append('\n');
             if (!string.IsNullOrEmpty(note)) sb.Append("Note: ").Append(note).Append('\n');
             sb.Append('\n').Append("== Status ==\n").Append(StatusSummary(request)).Append('\n');
 

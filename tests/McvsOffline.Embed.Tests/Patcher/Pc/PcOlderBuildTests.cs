@@ -43,7 +43,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 Assert.Equal("OLDER BUILD (16; this kit installs build 17): " + PcInstaller.OlderAdvice, status.StateDetail);
                 Assert.Contains("state:       installed, OLDER BUILD - OLDER BUILD (16; this kit installs build 17): run install to update it " +
                                 "(your saves and settings stay)", text);
-                Assert.Contains("installed by MCVS Offline build 16, this kit is build 17: install.json lists build 16's patches, so the newer ones are " +
+                Assert.Contains("installed by MCVS Encore build 16, this kit is build 17: install.json lists build 16's patches, so the newer ones are " +
                                 "not checked", status.Problems);
                 Assert.DoesNotContain(text, l => l.Contains("installed, current"));
 
@@ -89,7 +89,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 Print(damaged);
                 Assert.Equal(PcInstallState.Damaged, damaged.State);
                 Assert.StartsWith("DAMAGED: McvsOffline/bin/Game.dll changed", damaged.StateDetail);
-                Assert.Contains(damaged.Problems, p => p.StartsWith("installed by MCVS Offline build 16, this kit is build 17", StringComparison.Ordinal));
+                Assert.Contains(damaged.Problems, p => p.StartsWith("installed by MCVS Encore build 16, this kit is build 17", StringComparison.Ordinal));
             }
             using (var fake = new FakePcInstall())
             {
@@ -97,8 +97,8 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 PcStatusReport inactive = PcInstaller.Status(fake.Game, () => false, null, fake.Temp, "17");
                 Print(inactive);
                 Assert.Equal(PcInstallState.NotActive, inactive.State);
-                Assert.Equal("installed, NOT ACTIVE (the game started without MCVS Offline)", inactive.StateDetail);
-                Assert.Contains(inactive.Problems, p => p.StartsWith("installed by MCVS Offline build 16, this kit is build 17", StringComparison.Ordinal));
+                Assert.Equal("installed, NOT ACTIVE (the game started without MCVS Encore)", inactive.StateDetail);
+                Assert.Contains(inactive.Problems, p => p.StartsWith("installed by MCVS Encore build 16, this kit is build 17", StringComparison.Ordinal));
             }
         }
 

@@ -86,7 +86,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
 
         public static string Ours(string file)
         {
-            return "MCVS Offline's copy of " + file;
+            return "MCVS Encore's copy of " + file;
         }
 
         /// <summary>Writes a file relative to the game folder ('/'), returns its SHA-256.</summary>
@@ -192,7 +192,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 List<string> text = Print(status);
                 Assert.Equal(PcInstallState.Current, status.State);
                 Assert.Equal(PcInstaller.NotVerified, status.Activation);
-                Assert.Contains("activation:  NOT VERIFIED: no start of MCVS Offline since the install (start the game once, then run status)", text);
+                Assert.Contains("activation:  NOT VERIFIED: no start of MCVS Encore since the install (start the game once, then run status)", text);
                 Assert.Empty(status.Errors);
                 Assert.Null(status.HookEvidence);
 
@@ -218,13 +218,13 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 PcStatusReport status = fake.Status();
                 List<string> text = Print(status);
                 Assert.Equal(PcInstallState.NotActive, status.State);
-                Assert.Equal("installed, NOT ACTIVE (the game started without MCVS Offline)", status.StateDetail);
-                Assert.Equal("NOT ACTIVE: the game started without MCVS Offline; Windows did not use " + fake.ConfigPath, status.Activation);
-                Assert.Contains("activation:  NOT ACTIVE: the game started without MCVS Offline; Windows did not use " + fake.ConfigPath, text);
-                Assert.Contains("dr0.bin written by the game at 2026-11-02T18:30:00Z, after the install (2026-11-02T18:00:00Z); no start of MCVS Offline since",
+                Assert.Equal("installed, NOT ACTIVE (the game started without MCVS Encore)", status.StateDetail);
+                Assert.Equal("NOT ACTIVE: the game started without MCVS Encore; Windows did not use " + fake.ConfigPath, status.Activation);
+                Assert.Contains("activation:  NOT ACTIVE: the game started without MCVS Encore; Windows did not use " + fake.ConfigPath, text);
+                Assert.Contains("dr0.bin written by the game at 2026-11-02T18:30:00Z, after the install (2026-11-02T18:00:00Z); no start of MCVS Encore since",
                                 status.Problems);
                 Assert.Contains(status.Errors, e => e.Contains("Windows did not use " + fake.ConfigPath));
-                Assert.Equal("no hook.txt in %TEMP%\\McvsOffline: MCVS Offline's EngineBridge has never run as this user", status.HookEvidence);
+                Assert.Equal("no hook.txt in %TEMP%\\McvsOffline: MCVS Encore's EngineBridge has never run as this user", status.HookEvidence);
                 Assert.Contains("hook:        " + status.HookEvidence, text);
                 Assert.DoesNotContain(text, l => l.Contains("installed, current"));
 
@@ -237,14 +237,14 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 fake.Log(fake.Marker, fake.MarkerStart("2026-11-01T10:00:00.000Z", 4242));
                 status = fake.Status();
                 Assert.Equal(PcInstallState.NotActive, status.State);
-                Assert.Equal("hook.txt: the last start of MCVS Offline's EngineBridge was at 2026-11-01T10:00:00Z, before the install: it has not run since",
+                Assert.Equal("hook.txt: the last start of MCVS Encore's EngineBridge was at 2026-11-01T10:00:00Z, before the install: it has not run since",
                              status.HookEvidence);
                 Assert.Equal(fake.Marker, status.HookMarkerPath);
 
                 // verify fails on it (it starts from status).
                 PcInstallReport verify = PcInstaller.Verify(fake.Game, null, () => false, null, fake.Temp);
                 Assert.Equal(PcExitCodes.Io, verify.ExitCode);
-                Assert.Contains("NOT ACTIVE (the game started without MCVS Offline)", verify.Error);
+                Assert.Contains("NOT ACTIVE (the game started without MCVS Encore)", verify.Error);
             }
         }
 
@@ -262,10 +262,10 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 Assert.Null(status.HookEvidence);
 
                 // A line of our host after the install without the assemblies/patches lines: unknown, not NOT VERIFIED.
-                fake.Log(fake.GameLog, "2026-11-02T18:07:00.100Z INFO  [embedded] MCVS Offline 0.1.0-dev embedded host starting (platform windows)\r\n");
+                fake.Log(fake.GameLog, "2026-11-02T18:07:00.100Z INFO  [embedded] MCVS Encore 0.1.0-dev embedded host starting (platform windows)\r\n");
                 status = fake.Status();
                 Assert.Equal(PcInstallState.Current, status.State);
-                Assert.StartsWith("unknown: MCVS Offline started at 2026-11-02T18:07:00Z but logged no [boot] assemblies:/patches: lines", status.Activation);
+                Assert.StartsWith("unknown: MCVS Encore started at 2026-11-02T18:07:00Z but logged no [boot] assemblies:/patches: lines", status.Activation);
             }
         }
 
@@ -315,17 +315,17 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 List<string> text = Print(status);
                 Assert.Equal(PcInstallState.NotActive, status.State);
                 Assert.Equal("installed, NOT ACTIVE (the server did not start)", status.StateDetail);
-                Assert.Equal("NOT ACTIVE: MCVS Offline's EngineBridge ran at 2026-11-02T18:29:00Z but the server did not start: McvsOfflineInit failed (pid 4242): " +
+                Assert.Equal("NOT ACTIVE: MCVS Encore's EngineBridge ran at 2026-11-02T18:29:00Z but the server did not start: McvsOfflineInit failed (pid 4242): " +
                              "System.IO.FileNotFoundException: Could not load file or assembly 'McvsOffline.Server, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null'",
                              status.Activation);
                 Assert.StartsWith("hook.txt: our EngineBridge ran at 2026-11-02T18:29:00Z (start pid 4242 exe ", status.HookEvidence);
-                Assert.Contains(status.Errors, e => e.StartsWith("MCVS Offline's EngineBridge ran (" + fake.Marker + ") but its server did not start", StringComparison.Ordinal));
+                Assert.Contains(status.Errors, e => e.StartsWith("MCVS Encore's EngineBridge ran (" + fake.Marker + ") but its server did not start", StringComparison.Ordinal));
                 Assert.DoesNotContain(text, l => l.Contains("Windows did not use"));
 
                 // While the game runs, a recorded failure is still the verdict (Init threw).
                 PcStatusReport running = PcInstaller.Status(fake.Game, () => true, null, fake.Temp);
                 Assert.Equal(PcInstallState.NotActive, running.State);
-                Assert.StartsWith("NOT ACTIVE: MCVS Offline's EngineBridge ran at 2026-11-02T18:29:00Z but the server did not start: McvsOfflineInit failed",
+                Assert.StartsWith("NOT ACTIVE: MCVS Encore's EngineBridge ran at 2026-11-02T18:29:00Z but the server did not start: McvsOfflineInit failed",
                                   running.Activation);
 
                 // Without the failure line (a crash before the catch): still NOT ACTIVE, "no exception recorded".
@@ -337,7 +337,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 running = PcInstaller.Status(fake.Game, () => true, null, fake.Temp);
                 List<string> runningText = Print(running);
                 Assert.Equal(PcInstallState.Current, running.State);
-                Assert.Equal("NOT VERIFIED: MCVS Offline's EngineBridge ran at 2026-11-02T18:29:00Z; the game is still running: run status after closing it",
+                Assert.Equal("NOT VERIFIED: MCVS Encore's EngineBridge ran at 2026-11-02T18:29:00Z; the game is still running: run status after closing it",
                              running.Activation);
                 Assert.StartsWith("hook.txt: our EngineBridge ran at 2026-11-02T18:29:00Z (start pid 4242 exe ", running.HookEvidence);
                 Assert.Empty(running.Errors);
@@ -374,12 +374,12 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 status = fake.Status();
                 Assert.Equal(PcInstallState.NotActive, status.State);
                 Assert.Equal(PcInstaller.StartedWithoutUs + fake.ConfigPath, status.Activation);
-                Assert.Equal("hook.txt: no start of MCVS Offline's EngineBridge from this game folder", status.HookEvidence);
+                Assert.Equal("hook.txt: no start of MCVS Encore's EngineBridge from this game folder", status.HookEvidence);
 
                 // A start whose exe is in this folder counts, whatever the dll path (a hand copy loads EngineBridge.dll next to the exe).
                 fake.Log(fake.Marker, "2026-11-02T18:31:00.000Z hook-pc start pid 5 exe " + Path.Combine(fake.Game, GameFolder.ExeName) +
                                       " dll " + Path.Combine(fake.Game, "EngineBridge.dll") + "\r\n");
-                Assert.StartsWith("NOT ACTIVE: MCVS Offline's EngineBridge ran at 2026-11-02T18:31:00Z", fake.Status().Activation);
+                Assert.StartsWith("NOT ACTIVE: MCVS Encore's EngineBridge ran at 2026-11-02T18:31:00Z", fake.Status().Activation);
 
                 Assert.True(PcHookMarker.Under("C:\\Games\\MCVS\\McvsOffline\\bin\\EngineBridge.dll", "c:\\games\\mcvs"));
                 Assert.True(PcHookMarker.Under("C:/Games/MCVS/EngineBridge.dll", "C:\\Games\\MCVS\\"));
@@ -402,9 +402,9 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 PcStatusReport status = fake.Status();
                 List<string> text = Print(status);
                 Assert.Equal(PcInstallState.Partial, status.State);
-                Assert.Equal("NOT ACTIVE: the game started without MCVS Offline: " + fake.ConfigPath + " is missing (install did not finish)", status.Activation);
+                Assert.Equal("NOT ACTIVE: the game started without MCVS Encore: " + fake.ConfigPath + " is missing (install did not finish)", status.Activation);
                 Assert.Equal(PcInstaller.StartedWithoutUsNoConfig + fake.ConfigPath + " is missing (install did not finish)", status.Activation);
-                Assert.Contains(status.Errors, e => e.EndsWith("but MCVS Offline did not start: " + fake.ConfigPath + " is missing (install did not finish)",
+                Assert.Contains(status.Errors, e => e.EndsWith("but MCVS Encore did not start: " + fake.ConfigPath + " is missing (install did not finish)",
                                                                StringComparison.Ordinal));
                 Assert.DoesNotContain(text, l => l.Contains("Windows did not use"));
 
@@ -470,9 +470,9 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 List<string> text = Print(status);
                 Assert.Equal(PcInstallState.Stale, status.State);
                 Assert.Equal("STALE (EngineBridge.dll, Game.dll, Gameloft.Engine.dll, Gameloft.Util.dll changed): " + PcInstaller.ManualCopyAdvice, status.StateDetail);
-                Assert.EndsWith("you copied MCVS Offline's DLLs over the game's own files; Steam > Verify integrity of game files restores them, then run install",
+                Assert.EndsWith("you copied MCVS Encore's DLLs over the game's own files; Steam > Verify integrity of game files restores them, then run install",
                                 status.StateDetail);
-                Assert.Contains("Game.dll is MCVS Offline's copy from McvsOffline\\bin (copied over the game's own file)", status.Problems);
+                Assert.Contains("Game.dll is MCVS Encore's copy from McvsOffline\\bin (copied over the game's own file)", status.Problems);
                 Assert.DoesNotContain(text, l => l.Contains(PcInstaller.StaleAdvice));
                 Assert.Contains(status.Leftovers, l => l.StartsWith("McvsOffline.Server.dll in the game folder is a hand copy of ours", StringComparison.Ordinal));
 
@@ -503,11 +503,11 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 PcStatusReport status = fake.Status();
                 List<string> text = Print(status);
                 Assert.Equal(PcInstallState.Damaged, status.State);
-                Assert.Equal("EngineBridge.dll is MCVS Offline's copy from McvsOffline\\bin (copied over the game's own file)", status.Problems[0]);
+                Assert.Equal("EngineBridge.dll is MCVS Encore's copy from McvsOffline\\bin (copied over the game's own file)", status.Problems[0]);
                 Assert.Equal(new[] { "EngineBridge.dll", "Game.dll", "Gameloft.Engine.dll", "Gameloft.Util.dll" },
                              status.Problems.Take(4).Select(p => p.Substring(0, p.IndexOf(' '))));
                 Assert.Equal(PcExeConfig.FileName + " " + PcExeConfig.QualifyLeftoverProblem, status.Problems[4]);
-                Assert.StartsWith("DAMAGED (EngineBridge.dll is MCVS Offline's copy", status.StateDetail);
+                Assert.StartsWith("DAMAGED (EngineBridge.dll is MCVS Encore's copy", status.StateDetail);
                 Assert.EndsWith("an old build-14/15 config): " + PcInstaller.ManualCopyAdvice, status.StateDetail);
                 Assert.DoesNotContain("run install again", status.StateDetail);
                 Assert.Contains(text, l => l.Contains(PcInstaller.ManualCopyAdvice));
@@ -540,7 +540,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 PcInstallReport refused = PcInstaller.Uninstall(new PcUninstallOptions { GameFolder = fake.Game, GameRunning = () => false });
                 output.WriteLine(refused.Error);
                 Assert.Equal(PcExitCodes.Refused, refused.ExitCode);
-                Assert.Equal("EngineBridge.dll, Game.dll, Gameloft.Engine.dll, Gameloft.Util.dll are MCVS Offline's own copies from McvsOffline\\bin, not the game's: " +
+                Assert.Equal("EngineBridge.dll, Game.dll, Gameloft.Engine.dll, Gameloft.Util.dll are MCVS Encore's own copies from McvsOffline\\bin, not the game's: " +
                              PcInstaller.ManualCopyUndo + ", then run uninstall again. Nothing was removed", refused.Error);
                 Assert.Equal(before, Tree(fake.Game));
                 Assert.Empty(refused.Removed);
@@ -594,7 +594,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                     });
                     output.WriteLine(report.Error);
                     Assert.Equal(PcExitCodes.Refused, report.ExitCode);
-                    Assert.Equal("EngineBridge.dll, Gameloft.Util.dll are MCVS Offline's own copies from McvsOffline\\bin, not the game's: " +
+                    Assert.Equal("EngineBridge.dll, Gameloft.Util.dll are MCVS Encore's own copies from McvsOffline\\bin, not the game's: " +
                                  PcInstaller.ManualCopyAdvice + ". Nothing was written", report.Error);
                     Assert.Empty(report.Written);
                 }

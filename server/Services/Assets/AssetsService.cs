@@ -254,10 +254,10 @@ namespace McvsOffline.Server.Services.Assets
                 }
                 catch (Exception ex)
                 {
-                    log.Error("coupon '" + code + "': opening the MCVS Offline page failed", ex);
+                    log.Error("coupon '" + code + "': opening the MCVS Encore page failed", ex);
                     refused = "error";
                 }
-                log.Info("coupon '" + code + "': opens the MCVS Offline page (" + (refused == null ? "requested" : "ignored: " + refused) + ")");
+                log.Info("coupon '" + code + "': opens the MCVS Encore page (" + (refused == null ? "requested" : "ignored: " + refused) + ")");
                 return HttpResponse.Error(HttpStatus.NotFound, "coupon does not exist");
             }
 

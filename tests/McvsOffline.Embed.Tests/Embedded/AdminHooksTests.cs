@@ -38,7 +38,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.Equal(4, entry.Count);
                 Assert.Equal("mcvs_offline", entry["customAction"]);
                 Assert.Equal(true, entry["isClickable"]);
-                Assert.Equal("MCVS Offline", entry["label"]);
+                Assert.Equal("MCVS Encore", entry["label"]);
                 Assert.Equal("Menus/assets/png/icons/Settings.png", entry["icon"]);
                 Assert.Equal(AdminHooks.ButtonAction, entry["customAction"]);
 

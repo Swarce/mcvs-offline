@@ -483,7 +483,7 @@ INSTALL_INDEX = ("McvsOffline", "install", "pack.info")
 
 
 def write_install_index(pi, b, dest):
-    """Put the archive's index where MCVS Offline looks for it (files/McvsOffline/install/pack.info): on the phone it
+    """Put the archive's index where MCVS Encore looks for it (files/McvsOffline/install/pack.info): on the phone it
     gives it to the game's installer, which then accepts the copied Data/ without any network
     (docs/INSTALL-OFFLINE.md)."""
     out = os.path.join(dest, *INSTALL_INDEX)
@@ -492,7 +492,7 @@ def write_install_index(pi, b, dest):
     atomic_write(out + ".txt",
                  "Index of the Modern Combat Versus %s %s data pack (%s), written by tools/cdn-mirror/mirror.py --extract.\n"
                  "Copy the whole files/ folder to /sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files/ ;\n"
-                 "MCVS Offline gives this index to the game's installer, which then accepts the data without internet.\n"
+                 "MCVS Encore gives this index to the game's installer, which then accepts the data without internet.\n"
                  % (b.get("version"), b.get("texture"), b.get("filename")))
     return out
 

@@ -33,9 +33,9 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 : "WARN  [boot] +0.672 s assemblies: Game " + Steam + "\\Game.dll (GAME FOLDER): the .exe.config redirect did not apply";
             return string.Join("\r\n", new[]
             {
-                time + ".425Z INFO  [embedded] MCVS Offline 0.1.0-dev embedded host starting (platform windows)",
+                time + ".425Z INFO  [embedded] MCVS Encore 0.1.0-dev embedded host starting (platform windows)",
                 time + ".434Z INFO  [crash] hooks: AppDomain ok, unobserved-tasks ok (event)",
-                time + ".438Z INFO  [boot] +0.078 s MCVS Offline host started by the game (EngineBridge.Class1.Start)",
+                time + ".438Z INFO  [boot] +0.078 s MCVS Encore host started by the game (EngineBridge.Class1.Start)",
                 time + ".764Z INFO  [boot] +0.406 s assemblies: EngineBridge " + Steam + "\\McvsOffline\\bin\\EngineBridge.dll (McvsOffline\\bin)",
                 time + ".765Z INFO  [boot] +0.406 s assemblies: Gameloft.Engine " + Steam + "\\McvsOffline\\bin\\Gameloft.Engine.dll (McvsOffline\\bin)",
                 time + ".765Z INFO  [boot] +0.406 s assemblies: McvsOffline.Server " + Steam + "\\McvsOffline\\bin\\McvsOffline.Server.dll (McvsOffline\\bin)",
@@ -89,7 +89,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             Assert.False(boot.NotActive);
             Assert.False(boot.GameSeen);
             Assert.StartsWith("unknown: the last start (2026-10-29T17:53:17.425Z) did not load Game", boot.Describe());
-            Assert.Null(PcBootActivation.Read("2026-10-29T17:53:17.425Z INFO  [embedded] MCVS Offline embedded host starting\n"));
+            Assert.Null(PcBootActivation.Read("2026-10-29T17:53:17.425Z INFO  [embedded] MCVS Encore embedded host starting\n"));
             Assert.Null(PcBootActivation.Read(""));
             Assert.Null(PcBootActivation.Read(null));
         }
@@ -198,7 +198,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 Assert.Equal("installed, NOT ACTIVE (Game loaded from the game folder; the 'store' patch is missing)", inactive.StateDetail);
                 Assert.Contains("state:       installed, NOT ACTIVE (Game loaded from the game folder; the 'store' patch is missing)", text);
                 Assert.DoesNotContain(text, l => l.Contains("installed, current"));
-                Assert.Contains(text, l => l.StartsWith("ERROR: the last start did not run MCVS Offline's files (Game loaded from the game folder", StringComparison.Ordinal));
+                Assert.Contains(text, l => l.StartsWith("ERROR: the last start did not run MCVS Encore's files (Game loaded from the game folder", StringComparison.Ordinal));
                 Assert.Contains(text, l => l.StartsWith("activation:  NOT ACTIVE at the last start (2026-11-02T18:05:00.425Z)", StringComparison.Ordinal));
                 Assert.Contains(text, l => l.Contains("last start: assemblies: Game " + Steam + "\\Game.dll (GAME FOLDER)"));
                 Assert.Equal("installed, NOT ACTIVE", PcReportText.StateName(PcInstallState.NotActive));

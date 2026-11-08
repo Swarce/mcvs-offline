@@ -109,7 +109,7 @@ namespace McvsOffline.Patcher.Pc
                 return lines;
             }
             foreach (string removed in r.Removed) lines.Add("removed  " + removed);
-            if (r.Removed.Count == 0) lines.Add("nothing of MCVS Offline was found to remove");
+            if (r.Removed.Count == 0) lines.Add("nothing of MCVS Encore was found to remove");
             foreach (string n in r.Notes) lines.Add("note     " + n);
             foreach (string left in r.LeftBehind) lines.Add("LEFT     " + left);
             if (r.ExitCode != PcExitCodes.Ok) lines.Add("error: " + r.Error);

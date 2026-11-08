@@ -62,7 +62,7 @@ namespace McvsOffline.Patcher.Signing
         {
             using (RSA rsa = RSA.Create(2048))
             {
-                var request = new CertificateRequest("CN=MCVS Offline player build, O=MCVS Offline", rsa, HashAlgorithmName.SHA256,
+                var request = new CertificateRequest("CN=MCVS Encore player build, O=MCVS Encore", rsa, HashAlgorithmName.SHA256,
                                                      RSASignaturePadding.Pkcs1);
                 DateTimeOffset now = DateTimeOffset.UtcNow;
                 using (X509Certificate2 generated = request.CreateSelfSigned(now.AddDays(-1), now.AddYears(30)))

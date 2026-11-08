@@ -702,7 +702,7 @@ namespace McvsOffline.Tools.HdTextures
 
         private static string IndexNote(int replaced, PackIndex index, AstcOptions options)
         {
-            return "Index of the MCVS Offline ASTC HD data pack: Gameloft's Modern Combat Versus 1.17.32 ASTC pack with " + replaced +
+            return "Index of the MCVS Encore ASTC HD data pack: Gameloft's Modern Combat Versus 1.17.32 ASTC pack with " + replaced +
                    " textures replaced by the PC (Steam) textures re-encoded to ASTC (tools/hd-textures astc-pack; " + index.LogicalFiles + " files, " +
                    index.LogicalBytes.ToString(CultureInfo.InvariantCulture) + " bytes), made on " +
                    options.NowUtc.ToUniversalTime().ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture) + ".\n" +
@@ -715,7 +715,7 @@ namespace McvsOffline.Tools.HdTextures
         {
             const string phone = "/sdcard/Android/data/com.gameloft.android.ANMP.GloftMVHM/files";
             var sb = new StringBuilder();
-            sb.Append("MCVS Offline - ASTC HD data pack (Modern Combat Versus 1.17.32)\n");
+            sb.Append("MCVS Encore - ASTC HD data pack (Modern Combat Versus 1.17.32)\n");
             sb.Append("===============================================================\n\n");
             sb.Append("Gameloft's ASTC data pack with ").Append(replaced.Count).Append(" textures replaced by the PC (Steam) textures, re-encoded to ASTC at\n");
             sb.Append("the PC resolution (").Append(string.Join(", ", options.Categories.Where(options.Settings.ContainsKey).Select(c => c + " " + options.Settings[c]))).Append(";\n");
@@ -730,7 +730,7 @@ namespace McvsOffline.Tools.HdTextures
             sb.Append("  files/McvsOffline/install/replaced.tsv the replaced files and Gameloft's size and CRC32 of each\n");
             sb.Append("  files/McvsOffline/install/astc-hd.json per texture: block size, sizes, PSNR self-check\n\n");
             string pkg = "com.gameloft.android.ANMP.GloftMVHM";
-            sb.Append("WHICH APK. This needs an MCVS Offline APK that knows replaced.tsv (built after build 11): it gives this index to the\n");
+            sb.Append("WHICH APK. This needs an MCVS Encore APK that knows replaced.tsv (built after build 11): it gives this index to the\n");
             sb.Append("game's installer, which then accepts the files at the next start without internet and without SKIP_VALIDATION.\n");
             sb.Append("BUILD 11 AND OLDER keep the installer's old ETC index, and the installer would delete these files and try to download\n");
             sb.Append("them: with such a build, step 3 clears the app's storage and step 6 puts your profile back. With a newer APK, leave\n");

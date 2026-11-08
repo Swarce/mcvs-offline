@@ -144,7 +144,7 @@ namespace McvsOffline.PcSpike
 
         private static void Header(StringBuilder s, GameLocation game)
         {
-            s.AppendLine("MCVS Offline - PC spike (WP0) summary");
+            s.AppendLine("MCVS Encore - PC spike (WP0) summary");
             s.AppendLine("collected:   " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss zzz", CultureInfo.InvariantCulture));
             s.AppendLine("kit:         McvsOffline.PcSpike " + typeof(Collector).Assembly.GetName().Version + " (server " + McvsOffline.Server.Core.McvsVersion.Current + ")");
             s.AppendLine("windows:     " + RuntimeInformation.OSDescription + ", " + RuntimeInformation.OSArchitecture + ", " +
@@ -171,7 +171,7 @@ namespace McvsOffline.PcSpike
             {
                 byte[] bytes = File.ReadAllBytes(args);
                 bool ours = ArgsFile.ReadManagedValue(bytes, "ServerLocation") != null;
-                s.AppendLine("  args.txt: present, " + (ours ? "with the MCVS Offline block (run 'stop' to restore the original)" : "without our block"));
+                s.AppendLine("  args.txt: present, " + (ours ? "with the MCVS Encore block (run 'stop' to restore the original)" : "without our block"));
                 AddBytes(zip, "game-folder/args.txt", bytes);
             }
             else

@@ -49,9 +49,9 @@ namespace McvsOffline.Server.Services.Misc
 
         public const string OfflinePage =
             "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-            + "<title>MCVS Offline</title>" + EmptyIcon + "</head><body style=\"background:#111;color:#ddd;font-family:sans-serif;text-align:center;padding:2em\">"
+            + "<title>MCVS Encore</title>" + EmptyIcon + "</head><body style=\"background:#111;color:#ddd;font-family:sans-serif;text-align:center;padding:2em\">"
             + "<h2>Not available offline</h2><p>This page came from Gameloft's servers, which are gone. "
-            + "MCVS Offline runs the game without them.</p></body></html>";
+            + "MCVS Encore runs the game without them.</p></body></html>";
 
         /// <summary>Registers this module's routes. Called once at startup by <see cref="ServiceRegistry"/>.</summary>
         public static void Register(Router router, ServerContext context)

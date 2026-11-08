@@ -26,7 +26,7 @@ before args.txt is written.
    normal case this is the only step, well under a millisecond, and nothing else changes.
 2. `AddressAlreadyInUse`: ask the holder (`PortProbe`): a raw socket connect of at most 250 ms, then
    `GET /_mcvs/status HTTP/1.0` with `Host: 127.0.0.1:<port>`, at most 500 ms and 16 KiB of answer. The holder is
-   - **Mcvs**: a working MCVS Offline server answered (`"server": "mcvs-offline"`). The game uses it: args.txt keeps the
+   - **Mcvs**: a working MCVS Encore server answered (`"server": "mcvs-offline"`). The game uses it: args.txt keeps the
      configured port and this game's own server stays off (INFO line). This is the dev loop (a standalone server on the PC
      through `adb reverse`), and for a second copy of the game it avoids two servers on one data folder. When the
      answering server's data directory is ours (another copy of the game), the line is a WARN ("quit it before playing"),
@@ -51,7 +51,7 @@ before args.txt is written.
    port (port 0). `AccessDenied` (Windows' Hyper-V/WSL excluded port ranges, usually 100 ports wide) skips the probe and the
    neighbours and goes straight to port 0.
 4. One WARN line names the busy port, what the probe saw and the port used, for example:
-   `port 51780 is held by another program that does not answer as MCVS Offline: it accepted the connection but sent nothing
+   `port 51780 is held by another program that does not answer as MCVS Encore: it accepted the connection but sent nothing
    in 500 ms; this start uses port 51781: args.txt, the eve URLs, the settings page and the geo lookup follow it;
    settings.json keeps 51780 and the next start tries it first (a phone restart frees it)`, plus a `[boot]` mark. The
    Android build's `SO_REUSEADDR not set (...)` warning, when the libc call fails, comes from this bind now and is logged
@@ -70,7 +70,7 @@ keeps the configured value (the settings page shows it as `server.configuredPort
 
 `embedded.portFallback` (default `true`, file-only, read-only on the settings page) set to `false` pins the port: a busy
 port is then handled as in build 25 (args.txt keeps it, the server thread retries `StartAttempts` x `RetryDelayMs`, and the
-error carries the platform hint). Only the deferral to an answering MCVS Offline server stays.
+error carries the platform hint). Only the deferral to an answering MCVS Encore server stays.
 
 ## 3. Everything that has to follow the port
 

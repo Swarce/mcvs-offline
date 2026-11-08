@@ -50,7 +50,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.True(host.FlushLogs(10000));
                 string bootstrap = File.ReadAllText(Path.Combine(root, "McvsOffline", "logs", "bootstrap.log"));
                 Assert.Contains("[boot] +", bootstrap);
-                Assert.Contains("MCVS Offline host started by the game", bootstrap);
+                Assert.Contains("MCVS Encore host started by the game", bootstrap);
                 Assert.Contains("offline server listening at http://127.0.0.1:" + port + "/", bootstrap);
                 Assert.Contains("args.txt updated", bootstrap);
                 string serverLog = File.ReadAllText(Path.Combine(root, "McvsOffline", "logs", "server.log"));
@@ -134,7 +134,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.Contains("restart requested from the settings page (settings)", bootstrap);
             Assert.False(File.Exists(Path.Combine(logs, "restart-requested.txt")));
             // server.log of the first run is now .1; the planted (older than both starts) files are gone.
-            Assert.Contains("MCVS Offline server", File.ReadAllText(Path.Combine(logs, "server.log.1")));
+            Assert.Contains("MCVS Encore server", File.ReadAllText(Path.Combine(logs, "server.log.1")));
             Assert.False(File.Exists(Path.Combine(logs, "server.log.4")));
             Assert.False(File.Exists(Path.Combine(logs, "server.log.5")));
             Assert.False(File.Exists(Path.Combine(logs, "crash-20261028-101010-000-1.txt")));
@@ -205,7 +205,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.Contains("was busy", host.Server.Context.PortNote);
                 Assert.True(host.FlushLogs(10000));
                 string bootstrap = File.ReadAllText(Path.Combine(root, "McvsOffline", "logs", "bootstrap.log"));
-                Assert.Contains("port " + port + " is held by another program that does not answer as MCVS Offline: it accepted the connection but sent nothing in 500 ms; " +
+                Assert.Contains("port " + port + " is held by another program that does not answer as MCVS Encore: it accepted the connection but sent nothing in 500 ms; " +
                                 "this start uses port " + actual + ": args.txt, the eve URLs, the settings page and the geo lookup follow it", bootstrap);
                 Assert.Contains("port fallback: " + port + " busy, the offline server listens on " + actual, bootstrap);
                 Assert.DoesNotContain("retrying", bootstrap);
@@ -241,7 +241,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             }
         }
 
-        /// <summary>The dev loop: a working MCVS Offline server already answers on the port (a standalone through adb reverse).</summary>
+        /// <summary>The dev loop: a working MCVS Encore server already answers on the port (a standalone through adb reverse).</summary>
         [Fact]
         public void AWorkingMcvsServerOnThePortIsUsedAndNoSecondServerStarts()
         {
@@ -252,7 +252,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             int port = standalone.Port;
             WarmUp(port);
             var watch = System.Diagnostics.Stopwatch.StartNew();
-            EmbeddedHost host = EmbeddedHost.Start(new DirectoryPlatform(root, false), new EmbeddedHostOptions { Port = port });
+            EmbeddedHost host = EmbeddedHost.Start(new DirectoryPlatform(root, false), new EmbeddedHostOptions { Port = port, ProbePort = p => PortProbe.Probe(p, 5000, 10000) });
             try
             {
                 Assert.True(host.WaitForServer(30000));
@@ -266,7 +266,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                              GameArgsSimulator.Parse(File.ReadAllBytes(Path.Combine(root, "args.txt")))["EnvironmentSwitcherUrl"]);
                 Assert.True(host.FlushLogs(10000));
                 string bootstrap = File.ReadAllText(Path.Combine(root, "McvsOffline", "logs", "bootstrap.log"));
-                Assert.Contains("port " + port + " is held by a working MCVS Offline server", bootstrap);
+                Assert.Contains("port " + port + " is held by a working MCVS Encore server", bootstrap);
                 Assert.Contains("this game's own server stays off", bootstrap);
                 Assert.DoesNotContain("another copy of the game is still running", bootstrap);
             }
@@ -368,7 +368,7 @@ namespace McvsOffline.Embed.Tests.Embedded
 
         /// <summary>
         /// Holds a port like a copy of the game whose server is still being built: the socket listens (connections wait in the
-        /// backlog) and nothing answers for <c>delayMs</c>; then every connection, the waiting ones too, gets an MCVS Offline
+        /// backlog) and nothing answers for <c>delayMs</c>; then every connection, the waiting ones too, gets an MCVS Encore
         /// /_mcvs/status answer naming <c>dataDir</c>.
         /// </summary>
         private sealed class StartingMcvsHolder : IDisposable
@@ -464,7 +464,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             other.Start();
             int port = other.Port;
             WarmUp(port);
-            EmbeddedHost host = EmbeddedHost.Start(new DirectoryPlatform(root, false), new EmbeddedHostOptions { Port = port, PortWatchIntervalMs = 100 });
+            EmbeddedHost host = EmbeddedHost.Start(new DirectoryPlatform(root, false), new EmbeddedHostOptions { Port = port, PortWatchIntervalMs = 100, ProbePort = p => PortProbe.Probe(p, 5000, 10000) });
             try
             {
                 Assert.True(host.WaitForServer(30000));
@@ -487,7 +487,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                 }
                 Assert.True(host.FlushLogs(10000));
                 string bootstrap = File.ReadAllText(Path.Combine(data, "logs", "bootstrap.log"));
-                Assert.Matches(@"WARN.*port " + port + @" is held by a working MCVS Offline server.*It uses this game's own data folder", bootstrap);
+                Assert.Matches(@"WARN.*port " + port + @" is held by a working MCVS Encore server.*It uses this game's own data folder", bootstrap);
                 Assert.Contains("this game's own server takes port " + port + " over", bootstrap);
                 Assert.Contains("state=running", File.ReadAllText(Path.Combine(data, "logs", StartMarker.FileName)));
             }

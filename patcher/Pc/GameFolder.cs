@@ -218,7 +218,7 @@ namespace McvsOffline.Patcher.Pc
 
         /// <summary>
         /// <c>*_args.txt</c> files in the game folder: the native reader prefers <c>&lt;prefix&gt;_args.txt</c> over args.txt
-        /// (tools/pc-spike/ArgsTxtStep.cs), so MCVS Offline would be ignored and the game would go online ([CR] F9).
+        /// (tools/pc-spike/ArgsTxtStep.cs), so MCVS Encore would be ignored and the game would go online ([CR] F9).
         /// </summary>
         public static List<string> PrefixedArgsFiles(string game)
         {
@@ -411,7 +411,7 @@ namespace McvsOffline.Patcher.Pc
         public static string FormatListing(string game, IEnumerable<GameFolderEntry> entries)
         {
             var sb = new StringBuilder();
-            sb.Append("# MCVS Offline game-folder listing of ").Append(game).Append('\n');
+            sb.Append("# MCVS Encore game-folder listing of ").Append(game).Append('\n');
             sb.Append("# name\tkind\tsize\tmodified (UTC)\tsha256 | files\n");
             foreach (GameFolderEntry e in entries)
             {

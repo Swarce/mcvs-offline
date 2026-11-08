@@ -15,7 +15,7 @@ The data lives on the phone in
 
 Usage:
   python3 verify.py BACKUP_DIR                      # uses the index the backup carries (McvsOffline/install/pack.info,
-                                                    # saved by MCVS Offline, or files/pack.info), else local manifests/
+                                                    # saved by MCVS Encore, or files/pack.info), else local manifests/
                                                     # copies (never committed; --fetch gets them), auto-detects ASTC/ETC
   python3 verify.py BACKUP_DIR --manifest pack.info # your device's own pack.info / an .amz / manifest.json
   python3 verify.py BACKUP_DIR --mirror MIRROR_DIR  # use manifests from a mirror.py output dir
@@ -69,7 +69,7 @@ def find_root(path):
 
 
 def backup_indexes(root):
-    """Indexes a backup of the files folder carries: the copy MCVS Offline keeps of the installer's index, or one the
+    """Indexes a backup of the files folder carries: the copy MCVS Encore keeps of the installer's index, or one the
     player put next to Data/ (for example from mirror.py --extract)."""
     out = []
     if not root:

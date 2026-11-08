@@ -122,7 +122,7 @@ namespace McvsOffline.PcKit
         public static List<string> Run(IProbeActions actions, string gameFolder, string bcl)
         {
             var lines = new List<string>();
-            lines.Add("== MCVS Offline probe (run it before starting the game, from a normal, non-administrator prompt)");
+            lines.Add("== MCVS Encore probe (run it before starting the game, from a normal, non-administrator prompt)");
 
             // (1) http.sys, the Finder's prefix.
             ProbeOutcome http = actions.HttpSys(FinderPrefix);

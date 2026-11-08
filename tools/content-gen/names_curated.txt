@@ -1,4 +1,4 @@
-# MCVS Offline curated gamer tags (build 29): the names of the generated leaderboard rivals and in-match bots come from this
+# MCVS Encore curated gamer tags (build 29): the names of the generated leaderboard rivals and in-match bots come from this
 # list first (server/Core/Names/GamerTags.cs, docs/LIVEOPS.md section 5.1). tools/content-gen/content_gen.py copies it into
 # server/Content/names.json after checking every name.
 #

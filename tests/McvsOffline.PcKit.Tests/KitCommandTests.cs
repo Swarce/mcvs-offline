@@ -123,7 +123,7 @@ namespace McvsOffline.PcKit.Tests
                 Assert.Equal(PcExitCodes.Ok, Program.Run(box.Env, box.Options("status")));
                 string text = box.Out.ToString();
                 Assert.Contains("state:       installed, NOT ACTIVE (the server did not start)", text);
-                Assert.Contains("activation:  NOT ACTIVE: MCVS Offline's EngineBridge ran at 2026-11-02T18:10:00Z but the server did not start: " +
+                Assert.Contains("activation:  NOT ACTIVE: MCVS Encore's EngineBridge ran at 2026-11-02T18:10:00Z but the server did not start: " +
                                 "McvsOfflineInit failed (pid 7): System.IO.FileNotFoundException: McvsOffline.Server", text);
                 Assert.Equal(PcExitCodes.Io, Program.Run(box.Env, box.Options("verify")));
             }

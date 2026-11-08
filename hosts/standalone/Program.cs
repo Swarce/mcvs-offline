@@ -68,7 +68,7 @@ namespace McvsOffline.Standalone
                 stopped.Wait(TimeSpan.FromSeconds(10));
             };
 
-            Console.WriteLine("MCVS Offline server running on " + server.Context.BaseUrl + " - press Ctrl+C to stop.");
+            Console.WriteLine("MCVS Encore server running on " + server.Context.BaseUrl + " - press Ctrl+C to stop.");
             string page = SettingsPageUrl(server);
             if (page != null) Console.WriteLine("Settings page: " + page);
             stopRequested.Wait();
@@ -144,7 +144,7 @@ namespace McvsOffline.Standalone
         private static void PrintUsage()
         {
             Console.WriteLine(
-                "MCVS Offline - Federation server (standalone host)\n\n" +
+                "MCVS Encore - Federation server (standalone host)\n\n" +
                 "Usage: McvsOffline.Standalone [options]\n\n" +
                 "  --port <n>         TCP port (default 51780, from settings.json)\n" +
                 "  --bind <address>   127.0.0.1 (default), 0.0.0.0 or * for LAN, :: for dual-stack\n" +

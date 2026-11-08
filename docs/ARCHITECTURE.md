@@ -1,4 +1,4 @@
-# MCVS Offline — Architecture
+# MCVS Encore — Architecture
 
 Preservation project for **Modern Combat Versus** (Gameloft, Android, APK 1.17.32,
 `com.gameloft.android.ANMP.GloftMVHM`). Gameloft's backend is gone; the content CDN still works.
@@ -164,7 +164,7 @@ request; `--art` is a separate option):
   IAP code, KeyProvider, local push and `RECEIVE_BOOT_COMPLETED`, FacebookActivity and the app-id meta-data, Google
   Analytics, VIBRATE/BILLING, all dex code and Bind*.dll (`targetsdk` later turns GA off in `classes.dex` and, from 31,
   takes its four components out of the manifest).
-- `adminpage` (default, build 9): Settings › Account gets an "MCVS Offline" button. Game.dll
+- `adminpage` (default, build 9): Settings › Account gets an "MCVS Encore" button. Game.dll
   `PlayerProfileComponent.GetAccountMenuButtonList` returns its list through `McvsOffline.AdminHooks.AccountMenuButtons`
   (one more entry, `customAction "mcvs_offline"`), and `ProcessAccountMenuButtonAction` first sends that action to
   `AdminHooks.OpenPage("account", World)`, which opens the settings page in the game's own browser with a one-time

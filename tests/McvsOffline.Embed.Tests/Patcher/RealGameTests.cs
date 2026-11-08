@@ -162,8 +162,8 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.DoesNotContain(report.Notes, n => n.Contains("LocalAnubisManager"));
 
             // The settings-page triggers are verified and listed by the default dry run; the Forum button is not touched.
-            Assert.Contains(log, l => l.StartsWith("patch adminpage: Settings > Account: an 'MCVS Offline' button", StringComparison.Ordinal));
-            Assert.Contains(log, l => l.StartsWith("patch adminlink: the 'MCVS Offline' inbox message", StringComparison.Ordinal));
+            Assert.Contains(log, l => l.StartsWith("patch adminpage: Settings > Account: an 'MCVS Encore' button", StringComparison.Ordinal));
+            Assert.Contains(log, l => l.StartsWith("patch adminlink: the 'MCVS Encore' inbox message", StringComparison.Ordinal));
             Assert.DoesNotContain(log, l => l.StartsWith("patch forum:", StringComparison.Ordinal));
             Assert.Equal(2, report.Notes.Count(n => n.Contains("PlayerProfileComponent::") && n.Contains("AdminHooks.")));
             Assert.Single(report.Notes, n => n.Contains("BrowserComponent::OpenUrl") && n.Contains("OpenIfPageMarker"));

@@ -40,7 +40,7 @@ namespace McvsOffline.Embedded.Admin
         /// <summary>Watchdog lease while a share target in its own task has the foreground.</summary>
         public const int ShareLeaseMs = 600000;
 
-        public const string PageLeaseReason = "MCVS Offline page open";
+        public const string PageLeaseReason = "MCVS Encore page open";
         public const string ShareLeaseReason = "share target";
 
         /// <summary>logs/&lt;this&gt;: "&lt;iso time&gt; &lt;reason&gt;", read and deleted at the next start.</summary>
@@ -562,7 +562,7 @@ namespace McvsOffline.Embedded.Admin
                 if (string.IsNullOrEmpty(text)) return AdminShareResult.None("There is nothing to share.");
                 if (text.Length > MaxShareTextChars) text = text.Substring(0, MaxShareTextChars);
                 Lease(ShareLeaseMs, ShareLeaseReason);
-                AdminShareResult result = platform.ShareText(subject ?? "MCVS Offline", text) ?? AdminShareResult.None("The text could not be shared.");
+                AdminShareResult result = platform.ShareText(subject ?? "MCVS Encore", text) ?? AdminShareResult.None("The text could not be shared.");
                 // Not Ok but "text": the sheet was started and may still open (the UI thread ran late), so the share lease stays.
                 if (!result.Ok && result.Method != "text") Lease(PageLeaseMs, PageLeaseReason);
                 return result;
@@ -580,7 +580,7 @@ namespace McvsOffline.Embedded.Admin
             try
             {
                 if (platform == null || text == null || text.Length > MaxClipboardChars) return false;
-                return platform.CopyToClipboard(label ?? "MCVS Offline", text);
+                return platform.CopyToClipboard(label ?? "MCVS Encore", text);
             }
             catch (Exception)
             {

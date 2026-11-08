@@ -58,7 +58,7 @@ namespace McvsOffline.Embed.Tests.Patcher
                 Assert.Contains(reason, ex.Message);
             }
             Refused("{\"splash\": {\"backround\": \"#000000\"}}", "unknown key splash.backround");
-            Refused("{\"label\": \"MCVS Offline\"}", "unknown key label");
+            Refused("{\"label\": \"MCVS Encore\"}", "unknown key label");
             Refused("{\"splash\": {\"background\": \"#00000080\"}}", "\"#RRGGBB\"");
             Refused("{\"splash\": {\"background\": \"red\"}}", "\"#RRGGBB\"");
             Refused("{\"splash\": {\"background\": 1}}", "must be a string");

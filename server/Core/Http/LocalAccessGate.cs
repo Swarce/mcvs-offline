@@ -127,7 +127,7 @@ namespace McvsOffline.Server.Core.Http
                 if (!HasCsrfHeader(request.Headers) || !OriginAllowed(request.Headers, options.Port) || !FetchSiteAllowed(request.Headers))
                 {
                     refusal = RefusedCsrf;
-                    return Refuse(HttpStatus.Forbidden, "csrf", "This request was refused. Use the MCVS Offline page inside the game.");
+                    return Refuse(HttpStatus.Forbidden, "csrf", "This request was refused. Use the MCVS Encore page inside the game.");
                 }
             }
             return null;

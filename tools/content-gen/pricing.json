@@ -1,6 +1,6 @@
 {
   "_comment": [
-    "MCVS Offline economy tuning (our own numbers, not Gameloft's). tools/content-gen/content_gen.py turns this",
+    "MCVS Encore economy tuning (our own numbers, not Gameloft's). tools/content-gen/content_gen.py turns this",
     "plus the player's decoded catalogue into server/Content/*.json. See docs/ECONOMY.md for the design and the",
     "earn rates these prices are balanced against. Every price is in VersusCoins unless a key says otherwise;",
     "settings.json economy.priceMultiplier scales all of them at runtime without regenerating."

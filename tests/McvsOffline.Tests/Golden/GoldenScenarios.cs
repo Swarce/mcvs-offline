@@ -260,6 +260,12 @@ namespace McvsOffline.Tests.Golden
         }
 
         /// <summary>Lower-case hex SHA-256 of the UTF-8 bytes of <paramref name="text"/>.</summary>
+        /// <summary>The text with the project's display name as it was when the golden file was captured.</summary>
+        public static string BrandAsCaptured(string text)
+        {
+            return text == null ? null : text.Replace("MCVS Encore", "MCVS Offline");
+        }
+
         public static string Sha256(string text)
         {
             using (var sha = SHA256.Create())
@@ -312,7 +318,9 @@ namespace McvsOffline.Tests.Golden
                     problems.Add(o.Name + ": no golden entry");
                     continue;
                 }
-                string t = text == null ? o.Text : text(o);
+                // The project was renamed after the capture (MCVS Offline -> MCVS Encore, a text-only change in the inbox
+                // item): the golden pins the economy, not the brand, so the old name is put back before hashing.
+                string t = BrandAsCaptured(text == null ? o.Text : text(o));
                 string hash = Sha256(t);
                 long length = Length(t);
                 if (hash != entry.Sha256)

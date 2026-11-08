@@ -269,7 +269,7 @@ namespace McvsOffline.Server.Services.Admin
             // The gate checks this for every /_mcvs write; repeated here in case a route is ever reached around it.
             string csrf = request.Headers.Get(LocalAccessGate.HeaderName);
             if (csrf == null || csrf.Trim() != "1")
-                return AdminJson.Error(HttpStatus.Forbidden, "csrf", "This request was refused. Use the MCVS Offline page inside the game.");
+                return AdminJson.Error(HttpStatus.Forbidden, "csrf", "This request was refused. Use the MCVS Encore page inside the game.");
             if (request.Body.Length > maxBodyBytes) return AdminJson.TooLarge(maxBodyBytes);
             if (!LocalAccessGate.IsMediaType(request.ContentType, "application/json"))
                 return AdminJson.Error(AdminJson.UnsupportedMediaType, "unsupported_media_type", "Send JSON (Content-Type: application/json).");
@@ -283,14 +283,14 @@ namespace McvsOffline.Server.Services.Admin
         internal static HttpResponse Disabled()
         {
             return AdminJson.Error(HttpStatus.ServiceUnavailable, "admin_disabled",
-                                   "The MCVS Offline page is turned off (admin.enabled is false in settings.json).");
+                                   "The MCVS Encore page is turned off (admin.enabled is false in settings.json).");
         }
 
         internal static HttpResponse NoSession(HttpRequest request)
         {
             bool expired = AdminSecurity.HasSessionCookie(request);
             return AdminJson.Error(HttpStatus.Unauthorized, expired ? "session_expired" : "no_session",
-                                   "Open this page from the game: Settings > Account > MCVS Offline, or the MCVS Offline message in the inbox.");
+                                   "Open this page from the game: Settings > Account > MCVS Encore, or the MCVS Encore message in the inbox.");
         }
 
         internal static HttpResponse Restarting()
