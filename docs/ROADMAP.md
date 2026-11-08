@@ -27,23 +27,29 @@ Done items are struck through. Device-test history and open risks are in [STATUS
 - ~~**Steam PC version** (builds 13-27, [design/pc-port.md](design/pc-port.md), [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md)): the PC kit installs the same server and patches into the Steam files and restores them on uninstall; bots fixed at any frame rate (`botmove`, build 27); a frame rate setting up to unlimited (`fpslimit`).~~ ✅ (confirmed on the owner's PC)
 - ~~**Settings menu** (builds 19-24, [design/settings-menu.md](design/settings-menu.md)): the shorter menu with the PERFORMANCE page, no flash of the stock menu, ABOUT centred.~~ ✅ (confirmed on the phone)
 - ~~**Project art** (build 25): the owner's launcher icon, the launch screen colour, the data installer background from a local folder (`--art-extra`).~~ ✅ (confirmed on the phone)
-- ~~**Port fallback** (build 26, [design/port-fallback.md](design/port-fallback.md)): a busy port no longer hangs the loading screen.~~ ✅ (built; the case itself is rare to reproduce)
-- ~~**Names** (builds 28-29): rivals with their own names and emblems; ~2,000 hand-written names for rivals and bots.~~ ✅ (built; awaiting a device look)
+- ~~**Port fallback** (build 26, [design/port-fallback.md](design/port-fallback.md)): a busy port no longer hangs the loading screen.~~ ✅ (approved by the owner)
+- ~~**Names** (builds 28-29): rivals with their own names and emblems; ~2,000 hand-written names for rivals and bots.~~ ✅ (approved by the owner)
+
+- ~~**1.0 release** (build 29): players are using it.~~ ✅
 
 ## Next
 
-Planned in November 2026, after build 29. Order is a suggestion; the owner decides.
+Build 29 is the **1.0 release** (November 2026): players already use it. The open device checks of builds 22-29 passed and
+are approved by the owner (names, port fallback, Special Event, HD packs, Game Mode flags, the PC kit), except the
+Cosmetic crate, whose crates start on 2026-11-09.
 
 | Priority | Item |
 |---|---|
-| High | **1.0 release**: quieter logging defaults (server.log detail `info`, one-line unknown-endpoint summaries, fewer Settings-menu timing lines), STATUS.md split into a short CHANGELOG.md plus `docs/history/`, `tools/pc-spike` archived, licence notices and SPDX headers, GitHub Releases with the patcher and the PC kit, a version name. **Back up the APK signing key** (`mcvs-offline-signing.p12`): every update must be signed with it. |
-| High | **Open device checks**: the Cosmetic crate (crates from 2026-11-09), the daily Special Event, the new rival and bot names (spaces, brackets and accents in the rows, kill feed and scoreboard), the port fallback, the ETC HD packs, the Game Mode flags, the PC kit upgrade over an earlier install. |
 | High | **M3 LAN multiplayer**: a read-only design pass first (the LocalAnubis Finder/Lobby patches of research 06 and verify-C6, the guest's profile reached through the host), then the implementation. It is the base for internet play. |
-| Next | **M4 Internet multiplayer with Epic Online Services P2P** (the owner's choice): the owner registers a product in the Epic Developer Portal; a spike signs in on phone and PC and exchanges a packet; then a tunnel of the game's TCP control and ENet UDP traffic over EOS P2P and join codes through EOS Lobbies. Risks: Epic's terms for a fan project, client keys inside every build; phone-PC cross-play needs a protocol check (1.17.32 vs 1.17.30). |
-| Next | **Robustness**: a data-folder lock (two servers on one folder after a thawed copy), Windows `ExclusiveAddressUse` checked on a real PC, the PC kit's probe following the bound port. |
+| High | **M4 Internet multiplayer with Epic Online Services P2P** (the owner's choice): the owner registers a product in the Epic Developer Portal; a spike signs in on phone and PC and exchanges a packet; then a tunnel of the game's TCP control and ENet UDP traffic over EOS P2P and join codes through EOS Lobbies. Risks: Epic's terms for a fan project, client keys inside every build; phone-PC cross-play needs a protocol check (1.17.32 vs 1.17.30). |
+| Next | **Polish**: quieter logging defaults (server.log detail `info`, one-line unknown-endpoint summaries, fewer Settings-menu timing lines), STATUS.md split into a short CHANGELOG.md plus `docs/history/`, `tools/pc-spike` archived, licence notices and SPDX headers, GitHub Releases with the patcher and the PC kit; robustness (a data-folder lock, Windows `ExclusiveAddressUse` on a real PC, the PC kit's probe following the bound port). |
+| Check | **The Cosmetic crate** device test once crates start (2026-11-09). |
 | Later | **Live content**: a seasonal event calendar, new event rules and modifiers, weekly challenges, rotating store bundles and crates, event packs defined in data files. |
 | Later | **Player features**: moving a save between phone and PC in one step, a match history and stats page on the settings page, an opt-in update notice from GitHub Releases. |
 | Low | **Signature screen, half-unlocked profiles** (only if someone reports a hitch). |
+
+The APK signing key (`mcvs-offline-signing.p12`) is with the owner: every update must be signed with the same key, or
+players have to uninstall (and lose their data) to update.
 
 ## Release checklist
 

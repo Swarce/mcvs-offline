@@ -12,7 +12,7 @@ No download: you turn your own copy of the game into the offline version on your
 ![Platform: Android](https://img.shields.io/badge/platform-Android-3DDC84?logo=android&logoColor=white)
 ![Platform: Steam](https://img.shields.io/badge/platform-Steam%20(Windows)-1b2838?logo=steam&logoColor=white)
 ![Game: 1.17.32](https://img.shields.io/badge/game-1.17.32-555555)
-![Status: in development](https://img.shields.io/badge/status-in%20development-orange)
+![Release: 1.0](https://img.shields.io/badge/release-1.0%20(build%2029)-brightgreen)
 [![CI](https://github.com/Swarce/mcvs-offline/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Swarce/mcvs-offline/actions/workflows/ci.yml)
 [![License: MPL 2.0](https://img.shields.io/badge/license-MPL--2.0-brightgreen)](LICENSE)
 
@@ -43,8 +43,7 @@ The repository contains no game files. You bring your own APK; the project bring
   The game has no visible bot-match tile: its own "Practice" tile is hidden in the shipped data.
 - **Special Event** in the Battle menu is the game's Arena mode (Havoc, Blitz, Competitive and other twists). Live
   ops generates one: a new mode every day at the daily reset, filled with bots like Classic, wins pay a Credits and
-  VersusCoins bonus; the box shows the countdown to the next mode ([LIVEOPS §8a](docs/LIVEOPS.md); not yet checked on
-  a device).
+  VersusCoins bonus; the box shows the countdown to the next mode ([LIVEOPS §8a](docs/LIVEOPS.md)).
 - Tournaments are the game's private matches: no bots fill them and they give no trophies, currency or agent XP, by
   the game's design. They need other human players, and LAN play is experimental and does not work end to end yet
   ([PLAYER-SETUP §9](docs/PLAYER-SETUP.md#9-lan-play-experimental-not-working-end-to-end-yet)); use Classic for bot
@@ -112,14 +111,14 @@ the shop, the MCVS Offline page and the HD textures. A few newer features are bu
 | Offline data install from a backup or copied data | Works (tested on a phone) |
 | Live ops from the clock | Works (tested on a phone) |
 | MCVS Offline page: settings, saves, logs | Works (tested on a phone) |
-| Cosmetic crate | Built, waiting for a phone test (the crate starts with a later season) |
+| Cosmetic crate | Built, waiting for a phone test (crates start on 2026-11-09) |
 | Target Android 15 | Works (builds 10 to 12 installed and played on a phone) |
 | Graphics profiles | Works (tested on a phone) |
 | HD textures (ASTC and ETC packs) | Works: the ASTC pack on a Galaxy S22, at the same frame rate as the stock textures |
-| Game Mode flags (Android 'game' patch) | Built (build 13), waiting for a phone test |
+| Game Mode flags (Android 'game' patch) | Works (approved) |
 | Project icon, launch screen, installer background | Works (build 25, tested on a phone) |
-| Leaderboard rivals' names and emblems, bot names | Built (builds 28 and 29), waiting for a device test |
-| Port fallback (busy port) | Built (build 26), waiting for a device test |
+| Leaderboard rivals' names and emblems, bot names | Works (builds 28 and 29, approved) |
+| Port fallback (busy port) | Works (build 26, approved) |
 | Shorter Settings menu, Android PERFORMANCE page | Works (builds 19 to 24; no flash of the stock menu, tested on a phone) |
 | PC (Steam) port | Works: install kit, offline start, bot matches with competitive bots at any frame rate (builds 13 to 27, tested on the owner's PC) |
 | LAN multiplayer | Experimental: guests use the host's server for everything |
@@ -274,11 +273,12 @@ docs/                architecture, status, guides, protocol notes, designs, rese
 
 ## Roadmap
 
-- **Next:** a 1.0 release (quieter logs, a changelog, GitHub Releases with the patcher and the PC kit), the open device
-  checks (Cosmetic crate, Special Events, names, port fallback), and LAN multiplayer.
-- **Later:** internet multiplayer through Epic Online Services P2P with join codes, more live content (seasonal events,
-  store rotations), moving a save between phone and PC in one step, and preservation extras (a full CDN mirror, maps
-  from older builds).
+Build 29 is the **1.0 release**.
+
+- **Next:** LAN multiplayer, then internet multiplayer through Epic Online Services P2P with join codes, and polish
+  (quieter logs, a changelog, GitHub Releases with the patcher and the PC kit).
+- **Later:** more live content (seasonal events, store rotations), moving a save between phone and PC in one step, a
+  match history page, and preservation extras (a full CDN mirror, maps from older builds).
 
 Details: [docs/ROADMAP.md](docs/ROADMAP.md).
 
