@@ -24,14 +24,32 @@ Done items are struck through. Device-test history and open risks are in [STATUS
 - ~~**Target Android 15 and graphics profiles** (build 10): `targetsdk` (default 35: no Play Protect "older version" warning; `--target-sdk 29` as the fallback) and the graphics setting (`graphics`, profiles auto/mid/high/ultra).~~ ✅ (confirmed in device test 9; STATUS.md, "Build 12 and device test 9")
 - ~~**HD textures, ASTC** (builds 11 and 12, route A, [design/hd-textures.md](design/hd-textures.md)): the PC textures converted by `tools/hd-textures` and installed into the game's own `Data/`; the ASTC HD data pack.~~ ✅ (confirmed in device test 9, at the same frame rate; the ETC packs are not yet tested on a phone)
 
+- ~~**Steam PC version** (builds 13-27, [design/pc-port.md](design/pc-port.md), [PLAYER-SETUP-PC.md](PLAYER-SETUP-PC.md)): the PC kit installs the same server and patches into the Steam files and restores them on uninstall; bots fixed at any frame rate (`botmove`, build 27); a frame rate setting up to unlimited (`fpslimit`).~~ ✅ (confirmed on the owner's PC)
+- ~~**Settings menu** (builds 19-24, [design/settings-menu.md](design/settings-menu.md)): the shorter menu with the PERFORMANCE page, no flash of the stock menu, ABOUT centred.~~ ✅ (confirmed on the phone)
+- ~~**Project art** (build 25): the owner's launcher icon, the launch screen colour, the data installer background from a local folder (`--art-extra`).~~ ✅ (confirmed on the phone)
+- ~~**Port fallback** (build 26, [design/port-fallback.md](design/port-fallback.md)): a busy port no longer hangs the loading screen.~~ ✅ (approved by the owner)
+- ~~**Names** (builds 28-29): rivals with their own names and emblems; ~2,000 hand-written names for rivals and bots.~~ ✅ (approved by the owner)
+
+- ~~**1.0 release** (build 29): players are using it.~~ ✅
+
 ## Next
+
+Build 29 is the **1.0 release** (November 2026): players already use it. The open device checks of builds 22-29 passed and
+are approved by the owner (names, port fallback, Special Event, HD packs, Game Mode flags, the PC kit), except the
+Cosmetic crate, whose crates start on 2026-11-09.
 
 | Priority | Item |
 |---|---|
-| High | **Economy polish**: a play path for the ~600 released items that never had an unlock source. **Implemented in build 9** as the Cosmetic crate ("CUSTOMIZATION CRATE", [ECONOMY.md](ECONOMY.md) §5, [design/economy-collector.md](design/economy-collector.md)): daily missions, weekly events and season rewards from 2026-11-09; awaiting its device test (STATUS.md, build 9, checks 14–28; crates start on 2026-11-09). Then tuned from play (`itemsPerCrate`, weights). |
-| High | **Release polish, the rest of build 10** (STATUS.md, "What to check on the phone (build 10)"): target Android 15 (`targetsdk`, default 35) and the graphics profiles are confirmed in device test 9, and the HD texture probe is done (route A, builds 11 and 12; see Done). Still open: the one-time notification permission request, the page layout at target 35, whether Restart brings the game back by itself on Android 13+, and the project's icon and launch-screen art (the `--art` mechanism is in; the stock icon stays until the art is drawn). |
-| Next | **Steam PC version**: the WP0 test kit is implemented in build 10 (`tools/pc-spike`, one Windows exe, [PC-SPIKE.md](PC-SPIKE.md)) and awaits a run on the owner's PC. PC support itself comes next, after WP0's answers ([research/pc-port.md](research/pc-port.md)): the same server and patches on the Steam build, which ships the same .NET assemblies and data. |
-| Low | **Signature screen, half-unlocked profiles** (only if someone reports a hitch; ~0.5–0.9 s estimated, not seen in device test 7): build the avatar list once per screen refresh in `GameOfflineStore.GetKillSignItemObject` too. |
+| High | **M3 LAN multiplayer**: a read-only design pass first (the LocalAnubis Finder/Lobby patches of research 06 and verify-C6, the guest's profile reached through the host), then the implementation. It is the base for internet play. |
+| High | **M4 Internet multiplayer with Epic Online Services P2P** (the owner's choice): the owner registers a product in the Epic Developer Portal; a spike signs in on phone and PC and exchanges a packet; then a tunnel of the game's TCP control and ENet UDP traffic over EOS P2P and join codes through EOS Lobbies. Risks: Epic's terms for a fan project, client keys inside every build; phone-PC cross-play needs a protocol check (1.17.32 vs 1.17.30). |
+| Next | **Polish**: quieter logging defaults (server.log detail `info`, one-line unknown-endpoint summaries, fewer Settings-menu timing lines), STATUS.md split into a short CHANGELOG.md plus `docs/history/`, `tools/pc-spike` archived, licence notices and SPDX headers, GitHub Releases with the patcher and the PC kit; robustness (a data-folder lock, Windows `ExclusiveAddressUse` on a real PC, the PC kit's probe following the bound port). |
+| Check | **The Cosmetic crate** device test once crates start (2026-11-09). |
+| Later | **Live content**: a seasonal event calendar, new event rules and modifiers, weekly challenges, rotating store bundles and crates, event packs defined in data files. |
+| Later | **Player features**: moving a save between phone and PC in one step, a match history and stats page on the settings page, an opt-in update notice from GitHub Releases. |
+| Low | **Signature screen, half-unlocked profiles** (only if someone reports a hitch). |
+
+The APK signing key (`mcvs-offline-signing.p12`) is with the owner: every update must be signed with the same key, or
+players have to uninstall (and lose their data) to update.
 
 ## Release checklist
 
@@ -39,7 +57,5 @@ Done items are struck through. Device-test history and open risks are in [STATUS
 
 ## Later
 
-- **Release polish** (the open build-10 items are under "Next"): the project's own icon and launch-screen art (the mechanism is in); a phone test of the ETC HD packs; quieter logging by default for player builds (the `--game-log fatal` option exists; the default is still `all` for testing); ready-to-use patcher builds for Windows/macOS/Linux; player guide; testing on more devices.
-- **M3 LAN multiplayer** (experimental groundwork in: the optional `lan` patches and the server's LAN mode): host's Game Server reaches each guest's profile on the guest's own embedded server; LAN discovery.
-- **M4 Internet multiplayer**: overlay VPN guide first (Tailscale/ZeroTier), then an optional relay; host-leaves handling.
-- **M5 Preservation extras** (`tools/cdn-mirror` and the offline install from copied data are done): mirror all 121 CDN builds while the CDN lives; missing maps from older builds (Barrage, Bridge, Downtown, Gym); archive the remaining online assets (news/event images); fully CDN-independent installs.
+- **M5 Preservation extras** (time-sensitive: `tools/cdn-mirror` and the offline install from copied data are done): mirror all 121 CDN builds while the CDN lives; missing maps from older builds (Barrage, Bridge, Downtown, Gym); archive the remaining online assets (news/event images); fully CDN-independent installs.
+- **More devices**: testing on more phones and GPUs; ready-to-use patcher builds for Windows, macOS and Linux.

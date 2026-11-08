@@ -483,8 +483,16 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.Contains("WindowsPlatform::InstallNativeCrashFilter",
                                 Calls(Method(module, "McvsOffline.Embedded.Windows.WindowsPlatform", "InstallCrashHooks")).Select(c => c.DeclaringType.Name + "::" + c.Name));
 
-                List<string> gameLog = Calls(Method(module, "McvsOffline.Embedded.Windows.WindowsPlatform", "ApplyGameLog"))
-                                           .Select(c => c.DeclaringType.Name + "::" + c.Name + "/" + c.Parameters.Count).ToList();
+                MethodDefinition applyGameLog = Method(module, "McvsOffline.Embedded.Windows.WindowsPlatform", "ApplyGameLog");
+                if (module.GetType("McvsOffline.Embedded.Diagnostics.GameLogBridge") == null &&
+                    applyGameLog.Body.Instructions.Any(i => i.OpCode == OpCodes.Ldstr && (string)i.Operand == "game log: bridge not compiled in"))
+                {
+                    // A PC DLL built without the game's assemblies (CI: no MCVS_PC_REFS) has no game-log bridge (MCVS_GAMELOG).
+                    if (TestEnvironment.RequirePc) throw new InvalidOperationException("MCVS_REQUIRE_PC=1 but the PC server DLL was built without the game-log bridge");
+                    output.WriteLine("the PC server DLL has no game-log bridge (built without the game's assemblies): its wiring is not checked");
+                    return;
+                }
+                List<string> gameLog = Calls(applyGameLog).Select(c => c.DeclaringType.Name + "::" + c.Name + "/" + c.Parameters.Count).ToList();
                 Assert.Contains("GameFatalLines::.ctor/2", gameLog);
                 Assert.Contains("GameLogBridge::Apply/6", gameLog);
                 // The bridge reads LogEntry.Member and hands Fatal entries to the watcher.
