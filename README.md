@@ -277,7 +277,9 @@ docs/                architecture, status, guides, protocol notes, designs, rese
 
 Build 29 is the **1.0 release**. Build 30 smooths the match start and the results screen and ships the in-match bot
 names off (the leaderboard rivals keep theirs). Build 31 removes the three `MCVS_Meta.xlsx` parses per bot during agent
-selection, the main cost of the stutter every 5 s there (to be confirmed on a device).
+selection, the main cost of the stutter every 5 s there (to be confirmed on a device). Build 32 makes the template reader
+find a JSON object's properties with a dictionary: each bot's copy of the unlock-all profile at agent selection (about 4 s
+each on the owner's phone, 27.7 s for 7 bots) and every profile load and reload (to be confirmed on a device).
 
 - **Next:** LAN multiplayer, then internet multiplayer through Epic Online Services P2P with join codes, and polish
   (quieter logs, a changelog, GitHub Releases with the patcher and the PC kit).

@@ -1,7 +1,7 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-The project is now called **MCVS Encore** (the display name only: the code name `McvsOffline`, the data folders, the settings keys, the `MCVSOFFLINE` code and the repository name are unchanged, so existing saves and installs keep working; the history below keeps the old name). Last updated for build 31 (November 2026): build 31 removes the main cost of the stutter every 5 s during agent selection (each bot the match adds made the game parse `MCVS_Meta.xlsx` three times; a file read before is now restored from memory; to be confirmed on a device, see "Build 31" for the per-bot work that is left) and says in the log when the watchdog is off by the settings; see "Build 31". Build 30 removes two hitches of ours (the game no longer reloads `MCVS_Meta.xlsx` at every match, and a profile save normalizes its JSON once instead of four times), adds a hitch probe for the rest, and ships the in-match bot names off; see "Build 30". Build 29 is **the 1.0 release** (players already use it; the owner approved every open device check of builds 22-29, the Cosmetic crate included): build 29 replaces the generic gamer tags with about 2,000 hand-written names; see "Build 29". Build 28 gives the leaderboard rivals gamer-tag names and their own emblems, and the in-match bots thousands of names; see "Build 28". The owner confirmed build 27's bot fix on Steam. Build 27 fixes the Steam bots (a resting bot could not start on frames shorter than 1/60 s) and adds a Steam frame rate setting up to unlimited; see "Build 27". Build 26 starts normally when another program holds the server's port (it moves to a free one and everything follows); see "Build 26". Build 25 brings the project's own launcher icon (the owner's art), a dark red launch screen and a new background for the game's data installer (kept outside the repository); see "Build 25". Build 24 keeps ABOUT centred on the return from a tab (the owner's build-23 log: the tile just tapped was still in its pressed animation and our width check refused it); see "Build 24". Build 23 fixes what the owner saw on the phone in build 22 (the PERFORMANCE title drawn over its icon, ABOUT right of centre, a small stutter on the gear tap) and adds timings to the `settings menu:` log lines; Steam is unchanged apart from log text; not yet tested on a phone or on Windows; see "Build 23". The Steam bots' report (they idle at spawn and sometimes stop moving) is open: its investigation was stopped before any result, see "Build 23". Build 22: on the owner's phone build 21 still flashed
+The project is now called **MCVS Encore** (the display name only: the code name `McvsOffline`, the data folders, the settings keys, the `MCVSOFFLINE` code and the repository name are unchanged, so existing saves and installs keep working; the history below keeps the old name). Last updated for build 32 (November 2026): build 32 removes the quadratic name scan of the game's template reader, which froze agent selection for 27.7 s in the owner's build-31 log (each of the 7 bots read the human's unlock-all profile again, about 4 s each; profile loads and reloads use the same reader; to be confirmed on a device), and takes managed thread dumps at the first hitches of a start; see "Build 32". Build 31 removes the main cost of the stutter every 5 s during agent selection (each bot the match adds made the game parse `MCVS_Meta.xlsx` three times; a file read before is now restored from memory; to be confirmed on a device, see "Build 31" for the per-bot work that is left) and says in the log when the watchdog is off by the settings; see "Build 31". Build 30 removes two hitches of ours (the game no longer reloads `MCVS_Meta.xlsx` at every match, and a profile save normalizes its JSON once instead of four times), adds a hitch probe for the rest, and ships the in-match bot names off; see "Build 30". Build 29 is **the 1.0 release** (players already use it; the owner approved every open device check of builds 22-29, the Cosmetic crate included): build 29 replaces the generic gamer tags with about 2,000 hand-written names; see "Build 29". Build 28 gives the leaderboard rivals gamer-tag names and their own emblems, and the in-match bots thousands of names; see "Build 28". The owner confirmed build 27's bot fix on Steam. Build 27 fixes the Steam bots (a resting bot could not start on frames shorter than 1/60 s) and adds a Steam frame rate setting up to unlimited; see "Build 27". Build 26 starts normally when another program holds the server's port (it moves to a free one and everything follows); see "Build 26". Build 25 brings the project's own launcher icon (the owner's art), a dark red launch screen and a new background for the game's data installer (kept outside the repository); see "Build 25". Build 24 keeps ABOUT centred on the return from a tab (the owner's build-23 log: the tile just tapped was still in its pressed animation and our width check refused it); see "Build 24". Build 23 fixes what the owner saw on the phone in build 22 (the PERFORMANCE title drawn over its icon, ABOUT right of centre, a small stutter on the gear tap) and adds timings to the `settings menu:` log lines; Steam is unchanged apart from log text; not yet tested on a phone or on Windows; see "Build 23". The Steam bots' report (they idle at spawn and sometimes stop moving) is open: its investigation was stopped before any result, see "Build 23". Build 22: on the owner's phone build 21 still flashed
 MORE GAMES and the FORUM tile on a return to Settings; build 22 no longer races the game's own `setup()`: on the phone
 its stock writes are made to draw nothing (the engine's text remap turns FORUM into PERFORMANCE, the icon is out of its
 reach, the removed tiles are off the panel, ABOUT stays at the game's own place on the bottom row), prepared before
@@ -65,6 +65,99 @@ HD texture probe and a Windows test kit for the Steam version. Build 11 installs
 version into the game's own data. Build 12 accepts a full ASTC data pack with 2,215 PC textures in it: **device test 9:
 the HD textures and the graphics profiles work, at the same frame rate as before**, and builds 10 to 12 (target Android
 15) installed and played fine.
+
+## Build 32 (November 2026): the template reader without its quadratic name scan (the 27.7 s agent-select freeze), managed dumps at the first hitches
+
+On `wip/b32` (`McvsVersion.Build` is `32`). Tests: TESTCOUNTS. Not yet tested on a phone or on Steam; the APK and the PC
+kit of this build are not built yet.
+
+**The owner's build-31 log** (Galaxy S25 Ultra SM-S938B, unlock-all profile of ~611 KB; session `20261111-182001`, watchdog
+and hitch probe on):
+
+- Build 31's restore works: per bot the `MCVS_Meta` loads are 8-20 ms restores, about 40 ms of database work per bot.
+- **One frozen agent select:** a single hitch of 27,656 ms (18:21:22.5 to 18:21:50.1, no frame at all) while the GS added its
+  bots about every 4 s (crm lines at 26.07, 30.09, 34.05, 38.17, 42.13, 45.84). The managed dump of the 15 s STALL at 18:21:37
+  has the game thread in `GameServerComponent.<CloseRoom>d__86.MoveNext` [0x549] → `GameMatchmakingComponent.SpawnBot` →
+  `MultiplayerComponent.CreateBotWithProfile` [0x70] → `GetProfileTemplate` → `GameProfileSection.GetTemplate` →
+  `JsonTemplateReader` `ReadTemplate` → `ReadObject` ×4 → `BindNodes` [0x2f] → `TNode.HasName` → `TNode.Node` →
+  `TName.op_Equality` → `string.Equals`: `$default` → `/Profile` → `CrmStandardData` → `Inventory`.
+- **Why:** with instant bots (MinPlayers 1, MaxOpenTimeInSeconds 0) `CloseRoom` spawns all 7 bots in one `MoveNext`
+  (`while (Bots.Count() < n) SpawnBot();`, IL_0549-0566), and each bot's template is the human's profile read again from
+  its text (`GetTemplate` has no cache). The reader binds each property with `HasName` and then `Add`'s conflict scan, two
+  linear scans of the children: k² name comparisons for an object of k properties. The unlock-all
+  `CrmStandardData.Inventory` has one key per ledger key, 11,368: about 129 million comparisons per read, about 3.6-4 s
+  on the phone. `OnConstantUpdate`'s `FillWithBots` adds no bot here (with MinPlayers 1 its target is at most 1).
+  **Correction to build 31's text:** the build-30 log's "one bot every 5.2 s" was most likely this same `CloseRoom` loop
+  (one frozen lobby), not `OnConstantUpdate` (an inference; the build-30 log was not read again).
+- **The other hitches of the start** (from game.log and server.log around each; about 76 s frozen in all):
+  the TS's first profile load at boot (8.4 s, STALL 18:20:33.8) and the GS World's (18:21:09.1-16.2, 7.1 s): each a template
+  read plus the profile's game-object creation; two profile reloads at boot (3.7 s each), because the profile still carried
+  `ProfileOwnerRoomId` from the previous process (`TakeProfileLock` → `MakeSureProfileIsUnlocked`: kick, reload every 1 s for
+  5 s); the reload back in the menu (18:26:18.2-22.5, 4.3 s); the saves (Play 3.2 s, results 7.3 s with two overlapping
+  `DoSaveProfile`, menu 4.1 s, boot ~3.7 s): the template **writer** (`TObject.FromObject`, ~2.3-3 s), the normalize
+  (375-636 ms) and ~0.4 s to build the request; the match start (1.06 s) and 3 hitches before the probe was armed: not
+  determined (no lines, no dump).
+
+**The changes:**
+
+- New default patch `templates` (`Gameloft.Templates.dll`, Android 1.17.32 and Steam 1.17.30, the same fingerprints;
+  `patcher/Patches/TemplatesPatch.cs`): `JsonTemplateReader.ReadObject` gives an object of 8 properties or more a
+  `Dictionary<TName, TNode>` of the children it has bound, and binds each property with `McvsBind`: found → the game's
+  `MergeWith` on that child, not found → `Add(child, false)` and into the dictionary; attribute names (`@base` among them) and
+  a null name go to the game's `BindNodes`. `ReadArray` adds each element with `Add(node, false)` (`TArray.Add` names a new
+  element `[Count]`, which no earlier one has). Why the result is the shipped one: the parent is the reader's own new
+  `TObject`, its children change only through this loop, a merge changes the found child's subtree and keeps its name, so the
+  dictionary always holds the node `Node(name)` finds first and the conflict check after a negative `HasName` can never fire.
+  Every bot still gets a tree of its own (nothing cached, nothing shared). Pure IL, no server needed; the patcher drops
+  `Gameloft.Templates.dll`'s AOT image (JIT) like the other patched assemblies', and the PC install redirects it as a fifth DLL.
+  Every changed method and every game method the argument relies on (BindNodes, the two ReadNode, ReadValue, TNode's Add, Node,
+  HasName, MergeWith, ChangeName, TArray's and TValue's Add/MergeWith, TName's equality and hash) is checked against its
+  fingerprint first.
+- **Tests on the real assemblies of both builds** (shipped vs patched vs patched without the server DLL): an unlock-all-shaped
+  profile (the 11,368 keys of `server/Content/unlocks.json`, the kill-signature lists, 21 mercs, 611,274 chars) gives the
+  shipped tree line for line (47,117 nodes: types, names and name types, values and value types, order, parent links,
+  annotations, bases); 31 edge cases (`a`/`.a`/`'a'`, path merges, `@value`, a local `@base`, a null value merged with an
+  object, attributes, child and quoted names, odd names, errors) and 400 random documents give the same tree or the same
+  exception type and message; two reads share no node and changing one leaves the other unchanged; ILVerify: no finding
+  before or after (0 shipped findings in the assembly). **Timing** of `GetTemplate`'s body on that profile (best of 3, this
+  4-core machine): Android DLLs shipped 392-564 ms, patched 29-40 ms (10-20×); Steam DLLs shipped 345 ms, patched 40 ms
+  (9×). On the phone, about 0.15-0.3 s per read instead of ~4 s is an estimate, not a measurement.
+- **What it should change on the phone** (to be confirmed by a device log): the agent-select freeze (7 template reads), the
+  template-read part of the first profile load of each World and of every reload (boot, the ownership loop, the menu).
+  Not the saves: their writer (`TObject.FromObject` → `DefaultConverter.ConvertToTemplate`, `Add` with the conflict scan per
+  child) is unchanged.
+- **Diagnostics:** `[game] templates: DefaultProfile.tx read in X ms (JSON A ms, nodes B ms); N objects of 8+ names indexed,
+  the largest M names (patch 'templates')` for a read of 100 ms or more or with an object of 1,000 names or more, and
+  `templates: TObject.FromObject(GameObject) took X ms` for a FromObject of 100 ms or more (the save's writer), at most 60
+  lines per start; the `[status]` line's data hooks end with `templates: N read (total, longest; slow or large ones), N objects
+  indexed (largest M names); FromObject N (of 100 ms or more, total, longest)`. Watchdog: the first 3 hitches after arming
+  (at least 5 s apart) also take Mono's managed thread dump, off the game thread (every thread in
+  `logs/threaddump-hitch-*.txt`; in the log only the threads native code entered, the game thread among them; the STALL dump of
+  the build-31 log took 4 ms); each of the first 20 hitches before arming gets one `[watchdog] hitch before the probe was armed:
+  the frame clock stood about N ms` line. Both under the existing `diagnostics.watchdog` / `diagnostics.threadDump` switches;
+  no default changed.
+- `McvsVersion.Build` 32.
+
+**Not changed (open):**
+
+- The saves (3-7 s each in the build-31 log): the writer's per-child conflict scan in `DefaultConverter.ConvertToTemplate`
+  (k²/2 for the Inventory dictionary, 0.25-0.52 s on the test machine), `ToString("j")`, the normalize and the request build.
+  A fix in the converter (a name set, `Add(child, false)` for a name not seen) is possible but its share of a save is measured
+  only off the device; the new `FromObject` lines and the hitch dumps should show it.
+- The profile's game-object creation at a World's first load (the rest of the 7-8 s), `ValidateProfileVersion`'s
+  `LoadDefaultProfile().MergeWith(template)` and `TNode.Copy` (the same scan in `MergeWith`/`Copy`); the per-bot apply of the
+  template (`AddGameObject`, about 0.25 s per bot in the log); the 7 bots are still spawned in one frame (spreading them would
+  change the order against `BalanceTeams`, `RoomClosed` and the saves).
+- The stale `ProfileOwnerRoomId` after a start that followed a restart from the settings page (the 7.4 s reload loop at boot):
+  clearing it at boot is possible, not done.
+- Two overlapping saves on the results screen (`GameplayComponent` and `OfflineBotsGameplayComponent`), the match start's
+  1.06 s, the 3 early boot hitches: not determined.
+
+**Checklist (phone):** agent select with an unlock-all profile: how long the lobby freezes (the `hitch over` line), and
+`templates: DefaultProfile.tx read in ...` lines, one per bot plus the profile loads, with their times; the boot and the
+menu return (their hitch lines and the reload's `templates:` line); the `threaddump-hitch-*.txt` files and the
+`hitch before the probe was armed` lines; the `[status]` line's `templates:` part; send the log. PC: the install writes five
+DLLs into `McvsOffline\bin` and the game starts.
 
 ## Build 31 (November 2026): no more `MCVS_Meta.xlsx` parses per bot at agent selection, and a visible watchdog switch
 
