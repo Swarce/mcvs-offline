@@ -469,7 +469,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 PcStatusReport status = fake.Status();
                 List<string> text = Print(status);
                 Assert.Equal(PcInstallState.Stale, status.State);
-                Assert.Equal("STALE (EngineBridge.dll, Game.dll, Gameloft.Engine.dll, Gameloft.Util.dll changed): " + PcInstaller.ManualCopyAdvice, status.StateDetail);
+                Assert.Equal("STALE (EngineBridge.dll, Game.dll, Gameloft.Engine.dll, Gameloft.Util.dll, Gameloft.Templates.dll changed): " + PcInstaller.ManualCopyAdvice, status.StateDetail);
                 Assert.EndsWith("you copied MCVS Encore's DLLs over the game's own files; Steam > Verify integrity of game files restores them, then run install",
                                 status.StateDetail);
                 Assert.Contains("Game.dll is MCVS Encore's copy from McvsOffline\\bin (copied over the game's own file)", status.Problems);
@@ -504,9 +504,9 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 List<string> text = Print(status);
                 Assert.Equal(PcInstallState.Damaged, status.State);
                 Assert.Equal("EngineBridge.dll is MCVS Encore's copy from McvsOffline\\bin (copied over the game's own file)", status.Problems[0]);
-                Assert.Equal(new[] { "EngineBridge.dll", "Game.dll", "Gameloft.Engine.dll", "Gameloft.Util.dll" },
-                             status.Problems.Take(4).Select(p => p.Substring(0, p.IndexOf(' '))));
-                Assert.Equal(PcExeConfig.FileName + " " + PcExeConfig.QualifyLeftoverProblem, status.Problems[4]);
+                Assert.Equal(new[] { "EngineBridge.dll", "Game.dll", "Gameloft.Engine.dll", "Gameloft.Util.dll", "Gameloft.Templates.dll" },
+                             status.Problems.Take(5).Select(p => p.Substring(0, p.IndexOf(' '))));
+                Assert.Equal(PcExeConfig.FileName + " " + PcExeConfig.QualifyLeftoverProblem, status.Problems[5]);
                 Assert.StartsWith("DAMAGED (EngineBridge.dll is MCVS Encore's copy", status.StateDetail);
                 Assert.EndsWith("an old build-14/15 config): " + PcInstaller.ManualCopyAdvice, status.StateDetail);
                 Assert.DoesNotContain("run install again", status.StateDetail);
@@ -540,7 +540,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 PcInstallReport refused = PcInstaller.Uninstall(new PcUninstallOptions { GameFolder = fake.Game, GameRunning = () => false });
                 output.WriteLine(refused.Error);
                 Assert.Equal(PcExitCodes.Refused, refused.ExitCode);
-                Assert.Equal("EngineBridge.dll, Game.dll, Gameloft.Engine.dll, Gameloft.Util.dll are MCVS Encore's own copies from McvsOffline\\bin, not the game's: " +
+                Assert.Equal("EngineBridge.dll, Game.dll, Gameloft.Engine.dll, Gameloft.Util.dll, Gameloft.Templates.dll are MCVS Encore's own copies from McvsOffline\\bin, not the game's: " +
                              PcInstaller.ManualCopyUndo + ", then run uninstall again. Nothing was removed", refused.Error);
                 Assert.Equal(before, Tree(fake.Game));
                 Assert.Empty(refused.Removed);

@@ -58,6 +58,9 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             "System.Void McvsOffline.GameDataHooks::ForgetDatabaseFiles()",
             "System.String McvsOffline.GameDataHooks::CachedNormalizedJson(System.String)",
             "System.String McvsOffline.GameDataHooks::RememberNormalizedJson(System.String,System.String)",
+            "System.Int64 McvsOffline.GameDataHooks::TemplateClock()",
+            "System.Void McvsOffline.GameDataHooks::TemplateRead(System.String,System.Int64,System.Int64,System.Int32,System.Int32)",
+            "System.Void McvsOffline.GameDataHooks::TemplateFromObject(System.Object,System.Int64)",
         };
 
         [Fact]

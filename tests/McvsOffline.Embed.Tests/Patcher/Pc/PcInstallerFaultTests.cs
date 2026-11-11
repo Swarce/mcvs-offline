@@ -172,7 +172,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                     Assert.Equal(old, File.ReadAllBytes(configPath));   // the old config is still the one in place
                 }
                 Assert.Equal(0, copy.Install().ExitCode);
-                Assert.Equal(PcExeConfigTests.Expected, File.ReadAllText(configPath));
+                Assert.Equal(PcExeConfigTests.Installed, File.ReadAllText(configPath));
             }
         }
 

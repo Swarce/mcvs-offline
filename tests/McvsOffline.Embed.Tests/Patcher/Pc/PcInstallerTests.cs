@@ -86,7 +86,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             return new List<IlPatch>
             {
                 new StandInHookPcPatch(), new StorePatch(), new SignaturesPatch(), new InboxPatch(), new HeadlessEnginePatch(), new PhysicsPatch(),
-                new GameAssemblyLoadPatch(), new GeoPatch(),
+                new GameAssemblyLoadPatch(), new GeoPatch(), new TemplatesPatch(),
             };
         }
 
@@ -209,7 +209,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 Assert.Equal(OurFiles, report.Written.ToArray());   // §7.4 order: bin, install.json, config
                 foreach (string f in OurFiles) Assert.Equal(after[f], report.WrittenSha256[f]);
 
-                Assert.Equal(PcExeConfigTests.Expected, File.ReadAllText(copy.Path_(PcExeConfig.FileName)));
+                Assert.Equal(PcExeConfigTests.Installed, File.ReadAllText(copy.Path_(PcExeConfig.FileName)));
                 InstallManifest m = InstallManifest.Parse(File.ReadAllText(copy.Path_("McvsOffline/install.json")));
                 Assert.Equal("pc-steam-6372049", m.BuildId);
                 Assert.Equal(BuildProfile.PcSteam6372049.OriginalSha256["ModernCombatVersus.exe"], m.ExeSha256);
@@ -463,7 +463,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
 
                 PcInstallReport again = copy.Install();
                 Assert.True(again.ExitCode == 0, again.Error);
-                Assert.Equal(PcExeConfigTests.Expected, File.ReadAllText(configPath));
+                Assert.Equal(PcExeConfigTests.Installed, File.ReadAllText(configPath));
                 Assert.Equal(PcInstallState.Current, copy.Status().State);
                 Assert.Equal(0, PcInstaller.Verify(copy.Game, TestEnvironment.Net452Refs, () => false).ExitCode);
             }
@@ -495,7 +495,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 SortedDictionary<string, string> before = copy.Tree();
                 PcInstallReport refused = copy.Install();
                 Assert.Equal(PcExitCodes.Refused, refused.ExitCode);
-                Assert.Equal("EngineBridge.dll, Game.dll, Gameloft.Engine.dll, Gameloft.Util.dll are MCVS Encore's own copies from McvsOffline\\bin, not the game's: " +
+                Assert.Equal("EngineBridge.dll, Game.dll, Gameloft.Engine.dll, Gameloft.Util.dll, Gameloft.Templates.dll are MCVS Encore's own copies from McvsOffline\\bin, not the game's: " +
                              PcInstaller.ManualCopyAdvice + ". Nothing was written", refused.Error);
                 Assert.Equal(before, copy.Tree());
 
