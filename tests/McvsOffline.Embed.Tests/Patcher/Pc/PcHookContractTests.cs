@@ -52,6 +52,9 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             "System.Void McvsOffline.PcHooks::ServerWorldFailed(System.Exception)",
             "System.Void McvsOffline.PcHooks::ComponentCreateFailed(System.Exception,System.Type)",
             "System.String McvsOffline.PortHooks::GeolocalizationUrl(System.String)",
+            "System.Boolean McvsOffline.GameDataHooks::SameCrmChanges(System.Object,System.Object,System.Object)",
+            "System.String McvsOffline.GameDataHooks::CachedNormalizedJson(System.String)",
+            "System.String McvsOffline.GameDataHooks::RememberNormalizedJson(System.String,System.String)",
         };
 
         [Fact]

@@ -1235,11 +1235,14 @@ access denial: a virus scanner holding the file) up to 10 times 100 ms apart (`P
 | `forum` | Game.dll | optional | unchanged | [PP] §3 |
 | `botmove` | Game.dll | default (build 27; optional on Android) | unchanged (identical fingerprint) | §8.10 |
 | `fpslimit` | Game.dll | default (build 27) | new (PC only: Android has neither site, and its `WCPFramerateLimit` is a native `ret`) | §8.11 |
+| `crmtables` | Gameloft.Engine.dll | default (build 30, also on Android) | identical fingerprint (`Database.set_Changer`) | `patcher/Patches/CrmTablesPatch.cs` |
+| `jsonnorm` | Gameloft.Util.dll | default (build 30, also on Android) | identical fingerprint (`Json.NormalizeJsonString`) | `patcher/Patches/JsonNormPatch.cs` |
 | `hook`, `finder`, `finderport`, `lan`, `debloat`, `targetsdk`, `game` | — | **excluded** | Android only (`finderport`: build 26, the PC ClientSettings has no Finder port; PcHooks use the Finder's PublicPort) | X; [PP] §3 |
 
 Order inside a file (as `ApkPatcher.AllPatches`, `:66-71`, then the new ones): Game.dll `headless`, `store`,
 `signatures`, `inbox`, `adminpage`, `forum`, `botmove`, `fpslimit` (build 27, last in `PcOrder`); Gameloft.Engine.dll `headless-engine`, `physics`, `quicklaunch`, `headless-diag`,
-`nativeonline`, `waits`, `adminlink`, `graphics`, `gameload`. The PC list lives in `PatchPlan` only; `ApkPatcher.AllPatches` and its
+`nativeonline`, `waits`, `adminlink`, `graphics`, `gameload`, then `crmtables` (build 30); Gameloft.Util.dll `geo`, then `jsonnorm`
+(build 30). The PC list lives in `PatchPlan` only; `ApkPatcher.AllPatches` and its
 test (`PatchTests.cs:277-303`) are not touched by the PC work.
 
 Per-build selection inside a patch class: fingerprints stay constants next to the patch (`…Fingerprint` for Android,

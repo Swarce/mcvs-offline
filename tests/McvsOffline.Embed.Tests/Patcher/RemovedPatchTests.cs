@@ -48,7 +48,8 @@ namespace McvsOffline.Embed.Tests.Patcher
         [Fact]
         public void AStaleBotTileOnTheAndroidCommandLineIsIgnored()
         {
-            SortedSet<string> defaults = PatcherOptions.ParsePatchList("default");
+            // Build 20's list cannot name build 30's defaults ('crmtables', 'jsonnorm').
+            var defaults = new SortedSet<string>(PatcherOptions.ParsePatchList("default").Where(id => id != "crmtables" && id != "jsonnorm"), StringComparer.Ordinal);
             Assert.Equal(defaults, PatcherOptions.ParsePatchList(Build20Defaults));
             Assert.Equal(new[] { "finder", "geo" }, PatcherOptions.ParsePatchList("geo,BOTTILE,finder"));
             Assert.Empty(PatcherOptions.ParsePatchList("bottile"));

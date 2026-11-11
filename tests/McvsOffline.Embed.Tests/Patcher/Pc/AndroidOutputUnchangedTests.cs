@@ -70,6 +70,13 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             ["Gameloft.Util.dll"] = new[] { "e9f21ed9f597012ffcfa11ede25958d1fe628515248bea26241de4bc50eb67f7", "dff3d08f1c35a27459187ab815354abc073a39a1a85e6cc75c172813e9c67ef0", "37f45859aedef101d34cf514476cc0e99b11ce4dc3cbfaa499041a62d24528c8" },
         };
 
+        /// <summary>Gameloft.Engine.dll and Gameloft.Util.dll patched for build 30's default set (the other files equal <see cref="Build21"/>/<see cref="Expected"/>).</summary>
+        private static readonly Dictionary<string, string[]> Build30 = new Dictionary<string, string[]>(StringComparer.Ordinal)
+        {
+            ["Gameloft.Engine.dll"] = new[] { "bebe3bcfaa32e44fec2518895ffe9650fbdb3129b0976eb2254094b118ff7037", "0aac111cd678d6fe5e5548b1cfdc9168e953708ecabf7406af094459281cd893", "d745603cb3a08c25d218e7251b1c564d65ab4802f1f9eb7f0a1c98d64e4b2fbb" },
+            ["Gameloft.Util.dll"] = new[] { "48a69bf0eeeeedfeed07667402607b28ad8349d8bf9743e619856f1f8941975c", "e9df9cf8e317570b869129b31d802f8666ca6d2a38edb70e75771f3425acd1a9", "2d2a0bd007716346f0c5514b6d5cb03d7693a3aa075969cd7bd7e0c1ebdfdb2c" },
+        };
+
         private readonly ITestOutputHelper output;
 
         public AndroidOutputUnchangedTests(ITestOutputHelper output)
@@ -83,7 +90,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         {
             string refs = Refs();
             if (refs == null) return;
-            AssertOutput(PatchDefault(refs, true, true, "inbox"), Expected);
+            AssertOutput(PatchDefault(refs, true, true, "inbox", "crmtables", "jsonnorm"), Expected);
         }
 
         /// <summary>
@@ -95,7 +102,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         {
             string refs = Refs();
             if (refs == null) return;
-            Dictionary<string, byte[]> patched = PatchDefault(refs, false, true);
+            Dictionary<string, byte[]> patched = PatchDefault(refs, false, true, Build30Patches);
             var expected = new Dictionary<string, string[]>(Expected, StringComparer.Ordinal);
             foreach (var pair in Build21) expected[pair.Key] = pair.Value;
             AssertOutput(patched, expected);
@@ -112,7 +119,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             string refs = Refs();
             if (refs == null) return;
             Assert.Contains("inbox", new PatcherOptions().Patches);
-            Dictionary<string, byte[]> patched = PatchDefault(refs, true, true);
+            Dictionary<string, byte[]> patched = PatchDefault(refs, true, true, Build30Patches);
             var expected = new Dictionary<string, string[]>(Expected, StringComparer.Ordinal);
             foreach (var pair in WithInbox) expected[pair.Key] = pair.Value;
             AssertOutput(patched, expected);
@@ -130,7 +137,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         {
             string refs = Refs();
             if (refs == null) return;
-            Dictionary<string, byte[]> patched = PatchDefault(refs, false, false);
+            Dictionary<string, byte[]> patched = PatchDefault(refs, false, false, Build30Patches);
             var expected = new Dictionary<string, string[]>(Expected, StringComparer.Ordinal);
             foreach (var pair in Build21) expected[pair.Key] = pair.Value;
             foreach (var pair in Build26) expected[pair.Key] = pair.Value;
@@ -142,6 +149,37 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             }
             using (ModuleDefinition util = ModuleDefinition.ReadModule(new MemoryStream(patched["Gameloft.Util.dll"]), new ReaderParameters { InMemory = true }))
                 Assert.Contains(util.AssemblyReferences, r => r.Name == "McvsOffline.Server");
+        }
+
+        /// <summary>The build-30 default patches (hitch fixes): the earlier tests leave them out and keep their pinned values.</summary>
+        private static readonly string[] Build30Patches = { "crmtables", "jsonnorm" };
+
+        /// <summary>
+        /// Build 30's default set: build 26's output except Gameloft.Engine.dll ('crmtables': Database.set_Changer and the
+        /// McvsCrmTables helper) and Gameloft.Util.dll ('jsonnorm': Json.NormalizeJsonString and the McvsJsonNorm helper), pinned
+        /// in <see cref="Build30"/>; Game.dll and NicePlaySDK.dll unchanged.
+        /// </summary>
+        [Fact]
+        public void TheBuild30DefaultOutputIsTheBuild26OutputPlusTheHitchPatches()
+        {
+            string refs = Refs();
+            if (refs == null) return;
+            Assert.Contains("crmtables", new PatcherOptions().Patches);
+            Assert.Contains("jsonnorm", new PatcherOptions().Patches);
+            Dictionary<string, byte[]> patched = PatchDefault(refs, false, false);
+            var expected = new Dictionary<string, string[]>(Expected, StringComparer.Ordinal);
+            foreach (var pair in Build21) expected[pair.Key] = pair.Value;
+            foreach (var pair in Build30) expected[pair.Key] = pair.Value;
+            AssertOutput(patched, expected);
+            foreach (string file in Build30.Keys)
+            {
+                Assert.NotEqual(Build26[file][1], Build30[file][1]);
+                Assert.NotEqual(Build26[file][2], Build30[file][2]);
+            }
+            using (ModuleDefinition engine = ModuleDefinition.ReadModule(new MemoryStream(patched["Gameloft.Engine.dll"]), new ReaderParameters { InMemory = true }))
+                Assert.NotNull(engine.GetType(CrmTablesPatch.HelperNamespace + "." + CrmTablesPatch.HelperType));
+            using (ModuleDefinition util = ModuleDefinition.ReadModule(new MemoryStream(patched["Gameloft.Util.dll"]), new ReaderParameters { InMemory = true }))
+                Assert.NotNull(util.GetType(JsonNormPatch.HelperNamespace + "." + JsonNormPatch.HelperType));
         }
 
         private string Refs()
@@ -187,7 +225,8 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         internal static Dictionary<string, byte[]> PatchDefault(string refs, bool build20BotTile, bool build25Ports, params string[] without)
         {
             byte[] server = FixtureCompiler.Compile("McvsOffline.Server", RealGamePatchTests.HookServerSource,
-                                                    FixtureCompiler.RepoSource("hosts", "embedded", "PortHooks.cs"));
+                                                    FixtureCompiler.RepoSource("hosts", "embedded", "PortHooks.cs"),
+                                                    FixtureCompiler.RepoSource("hosts", "embedded", "GameDataHooks.cs"));
             var ids = new PatcherOptions().Patches;
             foreach (string id in without) Assert.True(ids.Remove(id), id + " is not a default patch");
             List<IlPatch> patches = ApkPatcher.SelectPatches(ids);

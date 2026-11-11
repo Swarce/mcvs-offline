@@ -186,6 +186,10 @@ namespace McvsOffline.Patcher
                 "                          botmove  a bot standing still always takes its first step, also on frames shorter than\n" +
                 "                                   1/60 s (an uncapped 90/120 Hz phone); unchanged at 60 frames/s or less\n" +
                 "                                   (settings.json embedded.bots.moveFromRest; not in the default set)\n" +
+                "                          crmtables  a design database that gets the same CRM cells again keeps its tables\n" +
+                "                                   instead of re-reading its file (hitches at the match start and back in the menu)\n" +
+                "                          jsonnorm  a profile save does not normalize the same large profile text again\n" +
+                "                                   (hitches on the results screen and when Play is pressed, unlock-all profiles)\n" +
                 "                        'none' = only the mandatory patches (server hook, headless TS/GS fixes, server physics),\n" +
                 "                        'all' = everything (the default set plus lan, forum and botmove), 'default' = the\n" +
                 "                        default set,\n" +

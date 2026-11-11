@@ -137,8 +137,8 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             Assert.Equal(new[] { "Game.dll" }, alone.Keys);
             Assert.Contains(notes, n => n.Contains("McvsFrameRate.Limit") && n.Contains("graphics.pcFpsLimit"));
             Assert.Equal(2, notes.Count);
-            // The default plan (headless first, fpslimit last): the same two insertions.
-            Assert.Equal("fpslimit", PatchPlan.For(Pc, PatchPlan.Ids(Pc).Default).Last().Id);
+            // The default plan (headless first, fpslimit the last of Game.dll's): the same two insertions.
+            Assert.Equal("fpslimit", PatchPlan.For(Pc, PatchPlan.Ids(Pc).Default).Last(p => p.AssemblyFile == "Game.dll").Id);
             Dictionary<string, byte[]> plan = RealPc.Patch(pc, server, null, Pc, PatchPlan.For(Pc, PatchPlan.Ids(Pc).Default).Where(p => p.AssemblyFile == "Game.dll").ToArray());
             Dictionary<string, byte[]> headlessOnly = RealPc.Patch(pc, server, null, Pc, new HeadlessGamePatch());
             ReaderParameters reader = RealPc.Reader(pc, PcHookServer.WriteToTempFolder());
