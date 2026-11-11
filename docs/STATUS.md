@@ -68,7 +68,7 @@ the HD textures and the graphics profiles work, at the same frame rate as before
 
 ## Build 32 (November 2026): the template reader without its quadratic name scan (the 27.7 s agent-select freeze), managed dumps at the first hitches
 
-On `wip/b32` (`McvsVersion.Build` is `32`). Tests: TESTCOUNTS. Not yet tested on a phone or on Steam; the APK and the PC
+On `wip/b32` (`McvsVersion.Build` is `32`). Tests: 1618, Embed 1401, PcKit 63, PcSpike 62, all passed (the solution, the embedded and the PC server DLLs built). Not yet tested on a phone or on Steam; the APK and the PC
 kit of this build are not built yet.
 
 **The owner's build-31 log** (Galaxy S25 Ultra SM-S938B, unlock-all profile of ~611 KB; session `20261111-182001`, watchdog
