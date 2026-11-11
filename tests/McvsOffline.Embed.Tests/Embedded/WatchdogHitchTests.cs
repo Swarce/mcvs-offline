@@ -245,6 +245,77 @@ namespace McvsOffline.Embed.Tests.Embedded
             }
         }
 
+        /// <summary>
+        /// Build 32 (the owner's build-31 log had one managed dump for 14 hitches, and no times for the boot's hitches): before
+        /// arming each hitch gets one line when it ends (up to <see cref="GameThreadWatchdog.EarlyHitchLines"/>); after arming the
+        /// first <see cref="GameThreadWatchdog.HitchManagedDumps"/> hitches, at least <see cref="GameThreadWatchdog.HitchManagedDumpSpacingMs"/>
+        /// apart, start the managed dump instead of the native one, then the native one as before.
+        /// </summary>
+        [Fact]
+        public void EarlyHitchesGetALineAndTheFirstArmedOnesAManagedDump()
+        {
+            var notices = new ConcurrentQueue<string>();
+            var nativeDumps = new ConcurrentQueue<int>();
+            var managedDumps = new ConcurrentQueue<int>();
+            bool armed = false;
+            var game = new HitchGame6();
+            HitchGame6.Instance = game;
+            var watchdog = new GameThreadWatchdog(null, s => notices.Enqueue(s), null, 200, new[] { 5000 }, null)
+            {
+                Notice = s => notices.Enqueue(s),
+                HitchMs = 400,
+                HitchArmed = () => Volatile.Read(ref armed),
+                HitchDumps = 5,
+                HitchDump = (tid, comm) => nativeDumps.Enqueue(tid),
+                HitchManagedDumps = 2,
+                HitchManagedDumpSpacingMs = 0,
+                HitchManagedDump = (tid, comm) => managedDumps.Enqueue(tid),
+                EarlyHitchLines = 1,
+            };
+            Assert.True(watchdog.Bind(typeof(HitchGame6)));
+            game.Start();
+            watchdog.Start();
+            try
+            {
+                Assert.True(SpinWait.SpinUntil(() => watchdog.Beats >= 3, 10000));
+                for (int i = 1; i <= 2; i++)
+                {
+                    game.Block(1000);
+                    Assert.True(SpinWait.SpinUntil(() => watchdog.Hitches == i, 5000));
+                    Assert.True(SpinWait.SpinUntil(() => !game.Blocked, 5000));
+                    Thread.Sleep(400);
+                }
+                // One line for the first early hitch (EarlyHitchLines 1), none for the second; no snapshot, no dump.
+                Assert.Single(notices, n => n.StartsWith("[watchdog] hitch before the probe was armed: the frame clock stood about ", StringComparison.Ordinal));
+                Assert.Contains(notices, n => n.Contains("(early hitch 1; no snapshot)"));
+                Assert.DoesNotContain(notices, n => n.Contains("HITCH:"));
+                Assert.Empty(nativeDumps);
+                Assert.Empty(managedDumps);
+
+                Volatile.Write(ref armed, true);
+                Assert.True(SpinWait.SpinUntil(() => notices.Any(n => n.StartsWith("[watchdog] hitch probe armed: 2 hitches", StringComparison.Ordinal)), 5000),
+                            string.Join("\n", notices));
+                for (int i = 1; i <= 3; i++)
+                {
+                    game.Block(1000);
+                    Assert.True(SpinWait.SpinUntil(() => watchdog.Hitches == 2 + i, 5000), string.Join("\n", notices));
+                    Assert.True(SpinWait.SpinUntil(() => !game.Blocked, 5000));
+                    Thread.Sleep(400);
+                }
+                Assert.True(SpinWait.SpinUntil(() => managedDumps.Count == 2 && nativeDumps.Count == 1, 5000),
+                            managedDumps.Count + " managed, " + nativeDumps.Count + " native");
+                Assert.Contains(notices, n => n.StartsWith("[watchdog] hitch 1: a managed thread dump (1 of at most 2 per start), off the game thread", StringComparison.Ordinal));
+                Assert.Contains(notices, n => n.StartsWith("[watchdog] hitch 2: a managed thread dump (2 of at most 2 per start)", StringComparison.Ordinal));
+                Assert.Single(notices, n => n.StartsWith("[watchdog] hitch before the probe was armed", StringComparison.Ordinal));
+            }
+            finally
+            {
+                watchdog.Stop();
+                game.Stop();
+                HitchGame6.Instance = null;
+            }
+        }
+
         /// <summary>A "game thread" that drains the context every 16 ms and can be blocked for a while.</summary>
         internal class GameLoop
         {
@@ -342,6 +413,11 @@ namespace McvsOffline.Embed.Tests.Embedded
         private sealed class HitchGame5 : GameLoop
         {
             public static HitchGame5 Instance { get; set; }
+        }
+
+        private sealed class HitchGame6 : GameLoop
+        {
+            public static HitchGame6 Instance { get; set; }
         }
     }
 

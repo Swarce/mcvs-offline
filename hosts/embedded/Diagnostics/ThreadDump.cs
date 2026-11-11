@@ -43,6 +43,14 @@ namespace McvsOffline.Embedded.Diagnostics
         /// <param name="emit">Receives each section (multi-line text).</param>
         public static void Capture(int gameTid, IList<int> scanTids, string managedDumpFile, int managedTimeoutMs, Action<string> emit)
         {
+            Capture(gameTid, scanTids, managedDumpFile, managedTimeoutMs, emit, null);
+        }
+
+        /// <summary>As above; <paramref name="managedThreads"/> (null: all) picks the managed dump's thread blocks that are also
+        /// emitted (the file always has every thread).</summary>
+        public static void Capture(int gameTid, IList<int> scanTids, string managedDumpFile, int managedTimeoutMs, Action<string> emit,
+                                   Func<string, bool> managedThreads)
+        {
             if (emit == null) return;
             if (Interlocked.CompareExchange(ref running, 1, 0) != 0)
             {
@@ -55,7 +63,7 @@ namespace McvsOffline.Embedded.Diagnostics
                 if (gameTid > 0) scan.Add(gameTid);
                 if (scanTids != null) foreach (int t in scanTids) if (t > 0 && !scan.Contains(t)) scan.Add(t);
                 NativeView(scan, emit);
-                if (managedDumpFile != null) ManagedDump(managedDumpFile, managedTimeoutMs, emit);
+                if (managedDumpFile != null) ManagedDump(managedDumpFile, managedTimeoutMs, emit, managedThreads);
             }
             catch (Exception ex)
             {
@@ -311,7 +319,16 @@ namespace McvsOffline.Embedded.Diagnostics
 
         // ------------------------------------------------------------------------------------------------ managed view
 
-        private static void ManagedDump(string path, int timeoutMs, Action<string> emit)
+        /// <summary>
+        /// For a hitch's managed dump: only the thread blocks of threads that native code called into (the game thread runs under
+        /// <c>(wrapper native-to-managed) GameApplication._UpdateWorlds</c>), not the server's own and the pool's.
+        /// </summary>
+        public static bool EnteredFromNative(string threadBlock)
+        {
+            return threadBlock != null && threadBlock.IndexOf("(wrapper native-to-managed)", StringComparison.Ordinal) >= 0;
+        }
+
+        private static void ManagedDump(string path, int timeoutMs, Action<string> emit, Func<string, bool> managedThreads)
         {
             string binding = MonoRuntime.Bind();
             if (binding == null)
@@ -388,23 +405,39 @@ namespace McvsOffline.Embedded.Diagnostics
                 Emit(emit, "[threaddump] cannot read " + path + ": " + ex.Message);
             }
             if (string.IsNullOrEmpty(text)) return;
-            // One log entry per thread block ("\n\"name\"\n  at ..."), split further when long.
-            var block = new StringBuilder();
+            // One log entry per thread block ("\n\"name\"\n  at ..."), split further when long; with a filter, only its blocks.
+            var thread = new List<string>();
+            int skipped = 0;
             foreach (string line in text.Split(new[] { '\n' }, StringSplitOptions.None))
             {
-                if (line.StartsWith("\"", StringComparison.Ordinal) && block.Length > 0)
+                if (line.StartsWith("\"", StringComparison.Ordinal) && thread.Count > 0)
                 {
-                    Emit(emit, block.ToString());
-                    block.Length = 0;
+                    if (!EmitThread(emit, thread, managedThreads)) skipped++;
+                    thread.Clear();
                 }
+                if (line.Length > 0) thread.Add(line);
+            }
+            if (thread.Count > 0 && !EmitThread(emit, thread, managedThreads)) skipped++;
+            if (managedThreads != null)
+                Emit(emit, "[threaddump] " + Str(skipped) + " other thread blocks are only in " + path + "\n");
+        }
+
+        /// <summary>Emits one thread's lines (in entries of at most ~2800 chars) when <paramref name="filter"/> takes it.</summary>
+        private static bool EmitThread(Action<string> emit, List<string> lines, Func<string, bool> filter)
+        {
+            if (filter != null && !filter(string.Join("\n", lines.ToArray()))) return false;
+            var block = new StringBuilder();
+            foreach (string line in lines)
+            {
                 if (block.Length + line.Length > 2800)
                 {
                     Emit(emit, block.ToString());
                     block.Length = 0;
                 }
-                if (line.Length > 0) block.Append(block.Length == 0 ? "[threaddump] " : "").Append(line).Append('\n');
+                block.Append(block.Length == 0 ? "[threaddump] " : "").Append(line).Append('\n');
             }
             if (block.Length > 0) Emit(emit, block.ToString());
+            return true;
         }
 
         /// <summary>Mono's exported runtime API, bound by the first library name that resolves: "libmonosgen-2.0.so" (Android:
