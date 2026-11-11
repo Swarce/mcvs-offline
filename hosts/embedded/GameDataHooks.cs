@@ -182,7 +182,7 @@ namespace McvsOffline
         /// <summary>The rows of one file as its parse left them (before any CRM cell): never handed out, only copied.</summary>
         private sealed class KeptFile
         {
-            public Type TableType;
+            public ConstructorInfo TableConstructor;
             public string[] Names;
             public string[][] Fields;
             public object[][][] Rows;
@@ -232,7 +232,7 @@ namespace McvsOffline
                     if (table == null)
                     {
                         // Load: value = (Tables[item.Key] = new Table()); value.Database = this; value.Name = item.Key;
-                        table = Activator.CreateInstance(kept.TableType);
+                        table = kept.TableConstructor.Invoke(null);
                         tables[name] = table;
                         Set(table, "Database", database);
                         Set(table, "Name", name);
@@ -367,10 +367,11 @@ namespace McvsOffline
                 fields.Add((string[])f.Clone());
                 rows.Add(copy);
             }
-            if (tableType == null || tableType.GetConstructor(Type.EmptyTypes) == null) return null;
+            ConstructorInfo constructor = tableType == null ? null : tableType.GetConstructor(Type.EmptyTypes);
+            if (constructor == null) return null;
             return new KeptFile
             {
-                TableType = tableType, Names = names.ToArray(), Fields = fields.ToArray(), Rows = rows.ToArray(),
+                TableConstructor = constructor, Names = names.ToArray(), Fields = fields.ToArray(), Rows = rows.ToArray(),
                 RowCount = rowCount, CellCount = cellCount,
             };
         }
