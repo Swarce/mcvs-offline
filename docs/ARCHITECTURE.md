@@ -155,8 +155,15 @@ Recommended extra patches (all optional, `--patch`; the default set is `nativeon
   The tree is the shipped one node for node; every bot still gets its own. Pure IL; `ReadDefaultTemplate`, `LoadRoot` and
   `TObject.FromObject` also report their times (`GameDataHooks.TemplateRead`/`TemplateFromObject`, a `hooksMissing` latch). Log:
   `[game] templates: DefaultProfile.tx read in X ms (JSON A ms, nodes B ms); N objects of 8+ names indexed, the largest M names`,
-  `templates: TObject.FromObject(GameObject) took X ms` (the save's writer, unchanged); status `templates: N read (...)`; a
-  template read inside another on the same thread (a base template) is left out of the outer read's time and counted once.
+  `templates: TObject.FromObject(GameObject) took X ms` (the save's writer), `templates: TObject.ToString("j") wrote N chars in
+  X ms` (its text); status `templates: N read (...)`; a template read inside another on the same thread (a base template) is
+  left out of the outer read's time and counted once. Second part (build 32): the writer `DefaultConverter.ConvertToTemplate`
+  (`McvsConvertBegin`/`McvsConvertAdd`), `TNode.Copy` (`McvsCopyAdd`) and `TNode.MergeWith` (`McvsMergeFrom`) no longer scan a
+  `TObject`'s children per child: from the 8th child a `HashSet<TName>` (a `Dictionary<TName, TNode>` in MergeWith) of the
+  children's names; a name in the set, a null name, any other node type and a merge whose child list changed under it (only
+  possible when the tree is not a tree) take the game's code. A converter that returns a node already in a tree turns the
+  writer's set off for the process (`TNode.mcvsShared`; none of the game's does). Tree-identical and `ToString("j")`
+  byte-identical on the real DLLs of both builds (`RealTemplatesWriterTests`).
 - `waits` (default, hardening with no observed trigger): the pumping `TaskExtension.WaitAndWork` helpers wait in 100 ms
   slices (`WaitAny(handles, 100)`). This bounds the two wake-up gaps in the shipped code: a context re-enabled by
   `World.OnLoadedScene` raises no `WorkItemAdded`, and the `NativeTaskAdded` accessors install and remove the native

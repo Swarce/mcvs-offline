@@ -130,7 +130,10 @@ What the patches do:
   name of a JSON object with all the names before it, twice. A big profile (after `UNLOCKALL`, 11,368 inventory keys) took
   about 4 seconds per read on a recent phone, and the match lobby reads it again for every bot it adds (27 seconds of
   frozen agent selection with 7 bots in the owner's log), as well as at start and back in the menu. With the patch the
-  reader keeps an index of each object's names; the game gets exactly the same profile as before.
+  reader keeps an index of each object's names; the game gets exactly the same profile as before. The same patch also
+  takes the same kind of scan out of the code that turns the profile back into text at every save and out of the merge
+  with the default profile at every profile load (the game gets exactly the same text and profile as before; how much
+  shorter the saves and loads are on a phone is not measured yet).
 - **inbox**: the inbox froze after the big unlock codes (`UNLOCKALL`, `UNLOCKPAID`, `UNLOCKCAMOS`, `UNLOCKACCESSORIES`
   and their parts): up to build 16 each code was one message with thousands of rewards, and the game built every one of
   them on opening the inbox and again every 10 seconds while it was open. Since build 17 the codes come through the
