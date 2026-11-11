@@ -41,7 +41,7 @@ namespace McvsOffline
     /// normalizations of the ~611 KB unlock-all gameProfile per save, on the game thread. The function is pure, so the last
     /// few large results are kept and an identical input (ordinal) gets the same string back.</item>
     /// <item>Patch 'templates', build 32 (Gameloft.Templates <c>JsonTemplateReader</c>, <c>TObject.FromObject</c>): timing only,
-    /// <see cref="TemplateClock"/>, <see cref="TemplateRead"/> and <see cref="TemplateFromObject"/>. The reader change itself is
+    /// <see cref="TemplateClock"/>, <see cref="TemplateRead"/>, <see cref="TemplateFromObject"/> and <see cref="TemplateToJson"/>. The reader change itself is
     /// pure IL (a per-object dictionary instead of two linear scans per property); these say on the device how long each large
     /// template read (the profile of every bot at agent select, every profile load) and each large FromObject (the profile save's
     /// writer) took.</item>
@@ -110,6 +110,8 @@ namespace McvsOffline
         private static long templateReadTicks, templateLargeReadTicks, templateMaxReadTicks;
         private static int fromObjects, fromObjectsLarge;
         private static long fromObjectLargeTicks, fromObjectMaxTicks;
+        private static int jsonTexts, jsonTextsLarge;
+        private static long jsonLargeTicks, jsonMaxTicks;
         // The reads that ended on this thread, newest last (start, inclusive ticks): a read that ends takes out those that started
         // after it (they ran inside it: a non-local @base, BindBase -> TemplateManager.GetTemplate -> a nested ReadDefaultTemplate).
         private const int NestedSlots = 32;
@@ -596,6 +598,30 @@ namespace McvsOffline
             }
         }
 
+        /// <summary>
+        /// After <c>TObject.ToString("j")</c> (or "J") wrote <paramref name="text"/>: the profile save's text (GameProfileSection.FromGameObject
+        /// is FromObject, then this). A slow one gets a line; every one counts in the status line.
+        /// </summary>
+        public static void TemplateToJson(string text, long started)
+        {
+            try
+            {
+                if (started == 0) return;
+                long ticks = Stopwatch.GetTimestamp() - started;
+                Interlocked.Increment(ref jsonTexts);
+                MaxLong(ref jsonMaxTicks, ticks);
+                if (ticks * 1000.0 / Stopwatch.Frequency < TemplateLogMinMs) return;
+                Interlocked.Increment(ref jsonTextsLarge);
+                Interlocked.Add(ref jsonLargeTicks, ticks);
+                if (Interlocked.Increment(ref templateLines) > TemplateLineLimit) return;
+                Info("templates: TObject.ToString(\"j\") wrote " + (text == null ? 0 : text.Length).ToString(CultureInfo.InvariantCulture) +
+                     " chars in " + Ms(ticks) + " (the template writer's text: a profile save stores it)");
+            }
+            catch (Exception)
+            {
+            }
+        }
+
         private static void Max(ref int target, int value)
         {
             int seen;
@@ -667,14 +693,17 @@ namespace McvsOffline
         {
             int reads = Interlocked.CompareExchange(ref templateReads, 0, 0);
             int converted = Interlocked.CompareExchange(ref fromObjects, 0, 0);
-            if (reads == 0 && converted == 0) return "; templates: none read yet (or no 'templates' patch)";
+            if (reads == 0 && converted == 0 && Interlocked.CompareExchange(ref jsonTexts, 0, 0) == 0) return "; templates: none read yet (or no 'templates' patch)";
             return "; templates: " + reads.ToString(CultureInfo.InvariantCulture) + " read (" + Ms(Interlocked.Read(ref templateReadTicks)) +
                    ", longest " + Ms(Interlocked.Read(ref templateMaxReadTicks)) + "; " + Interlocked.CompareExchange(ref templateLargeReads, 0, 0).ToString(CultureInfo.InvariantCulture) +
                    " slow or large ones, " + Ms(Interlocked.Read(ref templateLargeReadTicks)) + "), " +
                    Interlocked.CompareExchange(ref templateIndexed, 0, 0).ToString(CultureInfo.InvariantCulture) + " objects indexed (largest " +
                    Interlocked.CompareExchange(ref templateLargest, 0, 0).ToString(CultureInfo.InvariantCulture) + " names); FromObject " +
                    converted.ToString(CultureInfo.InvariantCulture) + " (" + Interlocked.CompareExchange(ref fromObjectsLarge, 0, 0).ToString(CultureInfo.InvariantCulture) +
-                   " of 100 ms or more, " + Ms(Interlocked.Read(ref fromObjectLargeTicks)) + ", longest " + Ms(Interlocked.Read(ref fromObjectMaxTicks)) + ")";
+                   " of 100 ms or more, " + Ms(Interlocked.Read(ref fromObjectLargeTicks)) + ", longest " + Ms(Interlocked.Read(ref fromObjectMaxTicks)) + "); ToString(j) " +
+                   Interlocked.CompareExchange(ref jsonTexts, 0, 0).ToString(CultureInfo.InvariantCulture) + " (" +
+                   Interlocked.CompareExchange(ref jsonTextsLarge, 0, 0).ToString(CultureInfo.InvariantCulture) + " of 100 ms or more, " +
+                   Ms(Interlocked.Read(ref jsonLargeTicks)) + ", longest " + Ms(Interlocked.Read(ref jsonMaxTicks)) + ")";
         }
 
         /// <summary>Tests: forget the counters and the cache.</summary>
@@ -708,6 +737,8 @@ namespace McvsOffline
             endedCount = 0;
             fromObjects = fromObjectsLarge = 0;
             fromObjectLargeTicks = fromObjectMaxTicks = 0;
+            jsonTexts = jsonTextsLarge = 0;
+            jsonLargeTicks = jsonMaxTicks = 0;
         }
 
         // ------------------------------------------------------------------------------------------------ helpers

@@ -89,7 +89,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         /// <summary>Build 32: Gameloft.Templates.dll patched by 'templates' (the other files equal <see cref="Build31"/>/<see cref="Build30"/>/...).</summary>
         private static readonly Dictionary<string, string[]> Build32 = new Dictionary<string, string[]>(StringComparer.Ordinal)
         {
-            ["Gameloft.Templates.dll"] = new[] { "c3412b05ff79ccd568d0bea341587a443a589e4f564e28ee4d44d26fac987d42", "1329350e90c701fa2f017df5c3dba882a763f4cfc7b4b4b6506c288f8575d13b", "ee1278f39d27bab62ee4c888d440266e72e77bfc2ab9993866526bd10a5fa017" },
+            ["Gameloft.Templates.dll"] = new[] { "b67809fd859c5d58b1817c3c182fb4863ea7ded4391771ff164478f0518e7215", "c7e2357d9fb427d96bcad9ceba616ed60a144106ffd5344942bdec8a68e648d3", "5e410bd71db61aebda80487588d2f524200152ba62898ba9e57e58193ed2ab40" },
         };
 
         private readonly ITestOutputHelper output;

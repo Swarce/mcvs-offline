@@ -211,7 +211,8 @@ namespace McvsOffline.Patcher.Pc
             "                        or unlimited; the default 'game' keeps the in-game value; since build 30 crmtables and\n" +
             "                        jsonnorm: no re-read of a design database for the same CRM cells, no second normalization\n" +
             "                        of the same profile text; since build 32 templates: the template reader finds a JSON\n" +
-            "                        object's properties with a dictionary)\n" +
+            "                        object's properties with a dictionary, and the writer, Copy and MergeWith check a\n" +
+            "                        TObject's names with a set)\n" +
             "  --dry-run             verify every patch site and print the SHA-256 of every file, write nothing\n" +
             "  --force               install on a build that is not the verified 6372049 (sites are still verified)\n" +
             "  --remove-data --yes   uninstall also deletes McvsOffline\\ (saves, settings, logs)\n\n" +

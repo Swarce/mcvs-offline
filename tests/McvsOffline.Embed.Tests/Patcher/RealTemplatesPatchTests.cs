@@ -76,7 +76,11 @@ namespace McvsOffline.Embed.Tests.Patcher
                    ", ReadDefaultTemplate " + IlPatch.Fingerprint(Method(t, TemplatesPatch.ReaderType, "ReadDefaultTemplate")) +
                    ", LoadRoot " + IlPatch.Fingerprint(Method(t, TemplatesPatch.ReaderType, "LoadRoot")) +
                    ", FromObject " + IlPatch.Fingerprint(Method(t, TemplatesPatch.ObjectType, "FromObject")) +
-                   ", relied on " + TemplatesPatch.Combined(TemplatesPatch.ReliedOn(t));
+                   ", relied on " + TemplatesPatch.Combined(TemplatesPatch.ReliedOn(t)) +
+                   ", ConvertToTemplate " + IlPatch.Fingerprint(Method(t, TemplatesPatch.ConverterType, "ConvertToTemplate")) +
+                   ", Copy " + IlPatch.Fingerprint(Method(t, TemplatesPatch.NodeType, "Copy")) +
+                   ", ToString " + IlPatch.Fingerprint(Method(t, TemplatesPatch.ObjectType, "ToString", m => m.Parameters.Count == 1)) +
+                   ", trees relied on " + TemplatesPatch.Combined(TemplatesPatch.TreesReliedOn(t));
         }
 
         private static void AssertFingerprints(ModuleDefinition t, bool pc)
@@ -92,6 +96,12 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Equal(pc ? TemplatesPatch.PcFromObjectFingerprint : TemplatesPatch.FromObjectFingerprint,
                          IlPatch.Fingerprint(Method(t, TemplatesPatch.ObjectType, "FromObject")));
             Assert.Equal(pc ? TemplatesPatch.PcReliedOnFingerprint : TemplatesPatch.ReliedOnFingerprint, TemplatesPatch.Combined(TemplatesPatch.ReliedOn(t)));
+            Assert.Equal(pc ? TemplatesPatch.PcConvertToTemplateFingerprint : TemplatesPatch.ConvertToTemplateFingerprint,
+                         IlPatch.Fingerprint(Method(t, TemplatesPatch.ConverterType, "ConvertToTemplate")));
+            Assert.Equal(pc ? TemplatesPatch.PcCopyFingerprint : TemplatesPatch.CopyFingerprint, IlPatch.Fingerprint(Method(t, TemplatesPatch.NodeType, "Copy")));
+            Assert.Equal(pc ? TemplatesPatch.PcToStringFingerprint : TemplatesPatch.ToStringFingerprint,
+                         IlPatch.Fingerprint(Method(t, TemplatesPatch.ObjectType, "ToString", m => m.Parameters.Count == 1)));
+            Assert.Equal(pc ? TemplatesPatch.PcTreesReliedOnFingerprint : TemplatesPatch.TreesReliedOnFingerprint, TemplatesPatch.Combined(TemplatesPatch.TreesReliedOn(t)));
         }
 
         [Fact]
@@ -150,6 +160,20 @@ namespace McvsOffline.Embed.Tests.Patcher
                 Assert.Single(bind.Body.Instructions, i => i.Operand is MethodReference m && m.Name == "BindNodes");
                 Assert.Single(bind.Body.Instructions, i => i.Operand is MethodReference m && m.Name == "TryGetValue");
                 Assert.NotNull(module.GetType(TemplatesPatch.HelperNamespace + "." + TemplatesPatch.HelperType));
+                // the writer, Copy and MergeWith
+                MethodDefinition convert = Method(module, TemplatesPatch.ConverterType, "ConvertToTemplate");
+                Assert.Single(convert.Body.Instructions, i => i.Operand is MethodReference m && m.Name == "McvsConvertAdd");
+                Assert.Single(convert.Body.Instructions, i => i.Operand is MethodReference m && m.Name == "McvsConvertBegin");
+                Assert.DoesNotContain(convert.Body.Instructions, i => i.Operand is MethodReference m && m.Name == "Add" && m.DeclaringType.Name == "TNode");
+                MethodDefinition copy = Method(module, TemplatesPatch.NodeType, "Copy");
+                Assert.Single(copy.Body.Instructions, i => i.Operand is MethodReference m && m.Name == "McvsCopyAdd");
+                Assert.DoesNotContain(copy.Body.Instructions, i => i.Operand is MethodReference m && m.Name == "Add");
+                MethodDefinition merge = Method(module, TemplatesPatch.NodeType, "MergeWith");
+                Assert.Single(merge.Body.Instructions, i => i.Operand is MethodReference m && m.Name == "McvsMergeFrom");
+                Assert.Single(merge.Body.Instructions, i => i.Operand is MethodReference m && m.Name == "Node");   // the game's loop is still there
+                MethodDefinition text = Method(module, TemplatesPatch.ObjectType, "ToString", m => m.Parameters.Count == 1);
+                Assert.Single(text.Body.Instructions, i => i.Operand is MethodReference m && m.Name == "JsonDone");
+                Assert.NotNull(module.GetType(TemplatesPatch.NodeType).Fields.SingleOrDefault(f => f.Name == "mcvsShared" && f.IsStatic));
                 Assert.Contains(module.AssemblyReferences, r => r.Name == "McvsOffline.Server");
             }
         }
@@ -160,10 +184,13 @@ namespace McvsOffline.Embed.Tests.Patcher
             string refs = Refs();
             if (refs == null) return;
             RealAdminPagePatchTests.AssertIlVerifyClean(output, refs, "Gameloft.Templates.dll", new IlPatch[] { new TemplatesPatch() },
-                new[] { @"\]Gameloft\.Templates\.JsonTemplateReader\.(ReadObject|ReadArray|ReadDefaultTemplate|LoadRoot)$", @"\]Gameloft\.Templates\.TObject\.FromObject$" }, 5,
+                new[] { @"\]Gameloft\.Templates\.JsonTemplateReader\.(ReadObject|ReadArray|ReadDefaultTemplate|LoadRoot)$", @"\]Gameloft\.Templates\.TObject\.(FromObject|ToString)$",
+                        @"\]Gameloft\.Templates\.TNode\.(Copy|MergeWith)$", @"\]Gameloft\.Templates\.DefaultConverter\.ConvertToTemplate$" }, 10,
                 "JsonTemplateReader::ReadObject", "JsonTemplateReader::ReadArray", "JsonTemplateReader::ReadDefaultTemplate", "JsonTemplateReader::LoadRoot",
-                "JsonTemplateReader::McvsBind", "JsonTemplateReader::McvsIndexFor", "TObject::FromObject", "McvsTemplates::Clock", "McvsTemplates::Read",
-                "McvsTemplates::FromObjectDone", "McvsTemplates::ForwardClock", "McvsTemplates::ForwardRead", "McvsTemplates::ForwardFromObject");
+                "JsonTemplateReader::McvsBind", "JsonTemplateReader::McvsIndexFor", "TObject::FromObject", "TObject::ToString", "McvsTemplates::Clock", "McvsTemplates::Read",
+                "McvsTemplates::FromObjectDone", "McvsTemplates::ForwardClock", "McvsTemplates::ForwardRead", "McvsTemplates::ForwardFromObject",
+                "McvsTemplates::JsonDone", "McvsTemplates::ForwardJson", "TNode::Copy", "TNode::MergeWith", "TNode::McvsAddNew", "TNode::McvsConvertBegin",
+                "TNode::McvsConvertAdd", "TNode::McvsCopyAdd", "TNode::McvsMergeFrom", "DefaultConverter::ConvertToTemplate");
         }
 
         // ------------------------------------------------------------------------------------------------ the profile
@@ -396,7 +423,7 @@ namespace McvsOffline.Embed.Tests.Patcher
 
         // ------------------------------------------------------------------------------------------------ the game's reader, by reflection
 
-        private sealed class Reader
+        internal sealed class Reader
         {
             private readonly MethodInfo fromStream, readDefault;
             private readonly Type node, value, array;

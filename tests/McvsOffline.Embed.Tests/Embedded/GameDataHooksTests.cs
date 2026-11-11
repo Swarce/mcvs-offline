@@ -453,7 +453,13 @@ namespace McvsOffline.Embed.Tests.Embedded
                 GameDataHooks.TemplateFromObject(new List<int>(), now - second / 5);
                 GameDataHooks.TemplateFromObject(null, now);                                                // fast: counted only
                 Assert.StartsWith("templates: TObject.FromObject(List`1) took ", lines[2]);
+                GameDataHooks.TemplateToJson(new string('x', 611274), now - second / 4);
+                GameDataHooks.TemplateToJson("{}", now);                                                    // fast: counted only
+                GameDataHooks.TemplateToJson(null, 0);                                                      // no clock: ignored
+                Assert.StartsWith("templates: TObject.ToString(\"j\") wrote 611274 chars in ", lines[3]);
+                Assert.EndsWith(" (the template writer's text: a profile save stores it)", lines[3]);
                 string status = GameDataHooks.Describe();
+                Assert.Contains("); ToString(j) 2 (1 of 100 ms or more, ", status);
                 Assert.Contains("; templates: 3 read (", status);
                 Assert.Contains("2 slow or large ones", status);
                 Assert.Contains("24 objects indexed (largest 11368 names); FromObject 2 (1 of 100 ms or more, ", status);
