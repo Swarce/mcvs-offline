@@ -250,6 +250,21 @@ namespace McvsOffline.Embed.Tests.Patcher
             new[] { "set", "bot3", "A" },          // a reload: read
         };
 
+        /// <summary>
+        /// A database that already has cells when it parses its file with empty Tables (the <c>File</c> setter's Unload and Load
+        /// of a database whose Changer is set): its parse is a fresh one and is kept, so the kept copy must be taken before the
+        /// game's <c>OnTableLoaded</c> applies those cells. Op "new+cells db cells": a new database with that changer, then Load.
+        /// </summary>
+        private static readonly string[][] FreshWithCells =
+        {
+            new[] { "new", "human" },              // parse 1: not kept
+            new[] { "new+cells", "bot1", "B" },    // parse 2 with B already set: read, kept (without B's cells), then B applied
+            new[] { "new", "bot2" },               // restored: the file's rows, none of B's cells
+            new[] { "set", "bot2", "A" },          // null -> A: in place
+            new[] { "set", "bot2", "B" },          // restored, then B
+            new[] { "new+cells", "bot3", "A" },    // restored, then A
+        };
+
         private sealed class ScenarioRun
         {
             public List<string> Snapshots = new List<string>();
@@ -277,7 +292,7 @@ namespace McvsOffline.Embed.Tests.Patcher
             ScenarioRun noServer = RunScenario(refs, Instrument(refs, patched), null, file, cells, AgentSelect, null);
             foreach (string l in lines) output.WriteLine(l);
 
-            AssertSameRuns(original, withHooks, noServer);
+            AssertSameRuns(AgentSelect, original, withHooks, noServer);
             // The ADD and MUL cells applied once on restored rows too, and the mutated row is gone after bot2's reload.
             Assert.Contains("rifle|Double:16|Rifle|null|", original.Snapshots[6]);
             Assert.Contains("rifle|Double:15|Rifle|null|", original.Snapshots[12]);
@@ -295,6 +310,35 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Equal(1, lines.Count(l => l.StartsWith("crm tables: " + file + " read from disk and parsed in ", StringComparison.Ordinal) &&
                                              l.EndsWith(" (a new database); its rows are kept in memory for the next loads (2 tables, 7 rows, 19 cells)", StringComparison.Ordinal)));
             Assert.Equal(5, lines.Count(l => l.Contains(" read from disk and parsed in ")));
+        }
+
+        [Fact]
+        public void TheKeptCopyOfADatabaseThatHadCellsDuringItsParseHasNoneOfThem()
+        {
+            string refs = Refs();
+            if (refs == null) return;
+            string dir = TestEnvironment.NewTempDir("crmtables-fresh-cells");
+            string file = Path.Combine(dir, "MCVS_Test.xlsx");
+            File.WriteAllText(file, BaseDatabase);
+            var cells = new Dictionary<string, string> { ["A"] = Cells1, ["B"] = Cells2 };
+
+            byte[] server = Server();
+            byte[] patched = RealGamePatchTests.PatchReal(refs, server, null, new CrmTablesPatch())["Gameloft.Engine.dll"];
+            ScenarioRun original = RunScenario(refs, Instrument(refs, File.ReadAllBytes(Path.Combine(refs, "Gameloft.Engine.dll"))), null, file, cells, FreshWithCells, null);
+            var lines = new List<string>();
+            ScenarioRun withHooks = RunScenario(refs, Instrument(refs, patched), server, file, cells, FreshWithCells, lines);
+            foreach (string l in lines) output.WriteLine(l);
+
+            AssertSameRuns(FreshWithCells, original, withHooks, null);
+            Assert.Contains("rifle|Double:16|Rifle|null|", original.Snapshots[1]);   // bot1 has B's ADD cell
+            Assert.Contains("rifle|Int64:10|Rifle|null|", original.Snapshots[2]);    // bot2: the file's value
+            Assert.DoesNotContain("Flank Sinatra", original.Snapshots[2]);
+            Assert.Contains("rifle|Double:15|Rifle|null|", original.Snapshots[5]);   // bot3: A's ADD cell once
+            // Shipped: every op but the in-place "set bot2 A" reads the file; patched: the two first parses only.
+            Assert.Equal(5, original.Reads);
+            Assert.Equal(2, withHooks.Reads);
+            Assert.Equal(1, lines.Count(l => l.Contains(" (a new database); its rows are kept in memory for the next loads (2 tables, 7 rows, 19 cells)")));
+            Assert.Equal(3, lines.Count(l => l.Contains(" restored from memory (2 tables, 7 rows) in ")));
         }
 
         /// <summary>
@@ -330,7 +374,7 @@ namespace McvsOffline.Embed.Tests.Patcher
             var lines = new List<string>();
             ScenarioRun withHooks = RunScenario(refs, Instrument(refs, patched), server, file, cells, AgentSelect, lines);
             foreach (string l in lines) output.WriteLine(l);
-            AssertSameRuns(original, withHooks, null);
+            AssertSameRuns(AgentSelect, original, withHooks, null);
             Assert.Equal(14, original.Reads);
             Assert.Equal(5, withHooks.Reads);
             for (int i = 0; i < AgentSelect.Length; i++)
@@ -341,11 +385,11 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Contains(lines, l => l.Contains("its rows are kept in memory for the next loads ("));
         }
 
-        private static void AssertSameRuns(ScenarioRun original, ScenarioRun patched, ScenarioRun latched)
+        private static void AssertSameRuns(string[][] ops, ScenarioRun original, ScenarioRun patched, ScenarioRun latched)
         {
-            for (int i = 0; i < AgentSelect.Length; i++)
+            for (int i = 0; i < ops.Length; i++)
             {
-                string what = "op " + i + " (" + string.Join(" ", AgentSelect[i]) + ")";
+                string what = "op " + i + " (" + string.Join(" ", ops[i]) + ")";
                 Assert.True(original.Snapshots[i] == patched.Snapshots[i], what + ":\n" + Head(original.Snapshots[i]) + "\nvs\n" + Head(patched.Snapshots[i]));
                 Assert.True(original.Events[i] == patched.Events[i], what + ": TablesLoaded " + original.Events[i] + " vs " + patched.Events[i]);
                 if (latched == null) continue;
@@ -448,6 +492,7 @@ namespace McvsOffline.Embed.Tests.Patcher
                     switch (op[0])
                     {
                         case "new":
+                        case "new+cells":
                         {
                             object database = RuntimeHelpers.GetUninitializedObject(databaseType);
                             tablesOf.SetValue(database, Activator.CreateInstance(typeof(Dictionary<,>).MakeGenericType(typeof(string), tableType)));
@@ -455,6 +500,8 @@ namespace McvsOffline.Embed.Tests.Patcher
                             string key = name;
                             databaseType.GetEvent("TablesLoaded").AddEventHandler(database, new EventHandler((s, e) => events[key]++));
                             databases[name] = database;
+                            if (op[0] == "new+cells")
+                                databaseType.GetField("changer", All).SetValue(database, newChanger.Invoke(new[] { parse.Invoke(null, new object[] { cells[op[2]] }) }));
                             load.Invoke(database, new object[] { file });
                             break;
                         }

@@ -38,7 +38,7 @@ Done items are struck through. Device-test history and open risks are in [STATUS
 
 Build 29 is the **1.0 release** (November 2026): players already use it. The open device checks of builds 22-29 passed and
 are approved by the owner (names, port fallback, Special Event, HD packs, Game Mode flags, the PC kit, the Cosmetic crate).
-Build 30 is the first update after it (fewer hitches, in-match bot names off). Build 31 removes the stutter every 5 s at agent selection.
+Build 30 is the first update after it (fewer hitches, in-match bot names off). Build 31 removes the three `MCVS_Meta.xlsx` parses per bot at agent selection, the main cost of the stutter every 5 s there (to be confirmed on a device).
 
 | Priority | Item |
 |---|---|
