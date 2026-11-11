@@ -156,7 +156,8 @@ deterministic id the auth module derives).
   "backups": { "keep": 20, "intervalMinutes": 30 },
   "autoRestoreCorrupt": true,
   "absentField": "empty",
-  "cache": true
+  "cache": true,
+  "clearStaleProfileOwner": true
 }
 ```
 
@@ -167,6 +168,7 @@ deterministic id the auth module derives).
 | `storage.autoRestoreCorrupt` | true | restore an unreadable profile from its newest backup |
 | `storage.cache` | true | keep parsed profiles in memory (validated against the file on every request) |
 | `storage.absentField` | `"empty"` | `"404"` answers 404 for absent selectors, except `_mcvs.gameProfile`, `_mcvs.currentMatch` and the four object sections, which stay `{}` |
+| `storage.clearStaleProfileOwner` | true | build 32, only when the game runs in the server's process (the embedded host): a read of `_mcvs.gameProfile` whose profile lock was left by an earlier start is answered with the lock released (below); false: served as stored |
 
 ## Staged operations and probation (settings page, build 9)
 
@@ -222,6 +224,20 @@ pre-operation backup back in place, the credential back on its previous account)
   the game only uses backups whose dump has `Version < 56`, and it is useful for tools.
 - **Own file layout instead of `context.OpenStore`**, because of the envelope, raw-text access, FIFO ordering and
   backups. It still uses the core's `AtomicFile`, `FileSystem` and `DocumentStore.EncodeKey`.
+- **A profile lock left by an earlier start is answered as released** (build 32, `StaleProfileOwner`). The TS stores its
+  room id in `$default./Profile.ProfileOwnerRoomId` (`GameServerComponent.TakeProfileLock`, `ResumeServer`) and null
+  again when the player leaves (`SaveAndReleaseProfile`). A start that ended otherwise (the app killed, the restart from
+  the settings page) leaves the id, and the next start's TS posts `multipleConnectionDetected`, kicks and reloads the
+  profile every second for 5 s (`MakeSureProfileIsUnlocked`; 7.4 s at boot in the build-31 log). Room ids are
+  `LocalAnubis-Room-` + a new GUID made in the game's process, and the game writes the dump only through these
+  endpoints. So when the game runs in this process (`ClientCapabilities.InProcessClient`, set by the embedded host), the
+  owner the dump held before the game's first request of this start (its first read of the dump, or its first write to the
+  account, whichever comes first) is an earlier start's. While the stored owner is still exactly that id, a GET of
+  `_mcvs.gameProfile` (no `include_fields`, the local store) answers it as `null`, the text `SaveAndReleaseProfile` stores
+  (the Templates writer writes a null string as `null`); the file is not changed, and one Info line says `profile: cleared a
+  room owner left by an earlier start: <id>`. An owner the game wrote in this start, an absent owner, a dump of another
+  shape (a key twice, a look-alike key, an owner that is not a string) and the standalone host are answered as stored. The
+  capture happens even with the setting off, so turning it on later never takes this start's room for an old one.
 - **Batch profiles answer one entry per requested credential** (`{}` for unknown ones), so array indexes match
   the request.
 

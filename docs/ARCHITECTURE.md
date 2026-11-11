@@ -156,7 +156,9 @@ Recommended extra patches (all optional, `--patch`; the default set is `nativeon
   `TObject.FromObject` also report their times (`GameDataHooks.TemplateRead`/`TemplateFromObject`, a `hooksMissing` latch). Log:
   `[game] templates: DefaultProfile.tx read in X ms (JSON A ms, nodes B ms); N objects of 8+ names indexed, the largest M names`,
   `templates: TObject.FromObject(GameObject) took X ms` (the save's writer), `templates: TObject.ToString("j") wrote N chars in
-  X ms` (its text); status `templates: N read (...)`; a template read inside another on the same thread (a base template) is
+  X ms` (its text), and per profile save `[game] profile: save in the TS|GS|client World, for <the game methods on the stack>;
+  FromObject X ms; N ms after the previous one (...)` (the read line of a profile text ends with `; for <callers>`);
+  status `templates: N read (...)`; a template read inside another on the same thread (a base template) is
   left out of the outer read's time and counted once. Second part (build 32): the writer `DefaultConverter.ConvertToTemplate`
   (`McvsConvertBegin`/`McvsConvertAdd`), `TNode.Copy` (`McvsCopyAdd`) and `TNode.MergeWith` (`McvsMergeFrom`) no longer scan a
   `TObject`'s children per child: from the 8th child a `HashSet<TName>` (a `Dictionary<TName, TNode>` in MergeWith) of the
@@ -288,7 +290,10 @@ verification to the issuing device.
 serialisation with read-your-writes. Saves return exactly **200**. Missing root → `200 {}`; missing
 `_mcvs.gameProfile` → `200 {}`; missing `_mcvs.currentMatch` → `200 {}`. **No ETag** (a per-document
 ETag makes every later save fail with 412). **Never 403/404 for existing data** (403 wipes the profile).
-Also the IAP `inventory` section `{rewardId: int}` (a generic grant channel).
+Also the IAP `inventory` section `{rewardId: int}` (a generic grant channel). Build 32: with the embedded host
+(`ClientCapabilities.InProcessClient`) a `_mcvs.gameProfile` read whose `ProfileOwnerRoomId` is still the one the dump held
+before the game's first request of this start (a start killed without `SaveAndReleaseProfile`) is answered with it `null`,
+so the TS skips its 5 s ownership loop (`StaleProfileOwner`, `storage.clearStaleProfileOwner`, docs/protocol/storage.md).
 
 **CRM.** `configs/users/me` and `configs/users/me/game` must return **200** with a complete document
 (the GS waits forever otherwise; a partial 200 is worse than an error for the TS). Base it on the

@@ -2,8 +2,9 @@
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
 The project is now called **MCVS Encore** (the display name only: the code name `McvsOffline`, the data folders, the settings keys, the `MCVSOFFLINE` code and the repository name are unchanged, so existing saves and installs keep working; the history below keeps the old name). Last updated for build 32 (November 2026): build 32 removes the quadratic name scan of the game's template reader, which froze agent selection for 27.7 s in the owner's build-31 log (each of the 7 bots read the human's unlock-all profile again, about 4 s each; profile loads and reloads use the same reader; to be confirmed on a device), takes the same kind of scan out of the profile saves' writer and the profile loads' merge with the default profile (the
-same text and tree; their gain on a phone is not measured yet), and takes managed thread dumps at the first hitches of a
-start; see "Build 32". Build 31 removes the main cost of the stutter every 5 s during agent selection (each bot the match adds made the game parse `MCVS_Meta.xlsx` three times; a file read before is now restored from memory; to be confirmed on a device, see "Build 31" for the per-bot work that is left) and says in the log when the watchdog is off by the settings; see "Build 31". Build 30 removes two hitches of ours (the game no longer reloads `MCVS_Meta.xlsx` at every match, and a profile save normalizes its JSON once instead of four times), adds a hitch probe for the rest, and ships the in-match bot names off; see "Build 30". Build 29 is **the 1.0 release** (players already use it; the owner approved every open device check of builds 22-29, the Cosmetic crate included): build 29 replaces the generic gamer tags with about 2,000 hand-written names; see "Build 29". Build 28 gives the leaderboard rivals gamer-tag names and their own emblems, and the in-match bots thousands of names; see "Build 28". The owner confirmed build 27's bot fix on Steam. Build 27 fixes the Steam bots (a resting bot could not start on frames shorter than 1/60 s) and adds a Steam frame rate setting up to unlimited; see "Build 27". Build 26 starts normally when another program holds the server's port (it moves to a free one and everything follows); see "Build 26". Build 25 brings the project's own launcher icon (the owner's art), a dark red launch screen and a new background for the game's data installer (kept outside the repository); see "Build 25". Build 24 keeps ABOUT centred on the return from a tab (the owner's build-23 log: the tile just tapped was still in its pressed animation and our width check refused it); see "Build 24". Build 23 fixes what the owner saw on the phone in build 22 (the PERFORMANCE title drawn over its icon, ABOUT right of centre, a small stutter on the gear tap) and adds timings to the `settings menu:` log lines; Steam is unchanged apart from log text; not yet tested on a phone or on Windows; see "Build 23". The Steam bots' report (they idle at spawn and sometimes stop moving) is open: its investigation was stopped before any result, see "Build 23". Build 22: on the owner's phone build 21 still flashed
+same text and tree; their gain on a phone is not measured yet), answers a profile lock left by a start that was killed as
+released (the 7.4 s ownership loop at boot; to be confirmed on a device), names the World and callers of every profile
+save in the log, and takes managed thread dumps at the first hitches of a start; see "Build 32". Build 31 removes the main cost of the stutter every 5 s during agent selection (each bot the match adds made the game parse `MCVS_Meta.xlsx` three times; a file read before is now restored from memory; to be confirmed on a device, see "Build 31" for the per-bot work that is left) and says in the log when the watchdog is off by the settings; see "Build 31". Build 30 removes two hitches of ours (the game no longer reloads `MCVS_Meta.xlsx` at every match, and a profile save normalizes its JSON once instead of four times), adds a hitch probe for the rest, and ships the in-match bot names off; see "Build 30". Build 29 is **the 1.0 release** (players already use it; the owner approved every open device check of builds 22-29, the Cosmetic crate included): build 29 replaces the generic gamer tags with about 2,000 hand-written names; see "Build 29". Build 28 gives the leaderboard rivals gamer-tag names and their own emblems, and the in-match bots thousands of names; see "Build 28". The owner confirmed build 27's bot fix on Steam. Build 27 fixes the Steam bots (a resting bot could not start on frames shorter than 1/60 s) and adds a Steam frame rate setting up to unlimited; see "Build 27". Build 26 starts normally when another program holds the server's port (it moves to a free one and everything follows); see "Build 26". Build 25 brings the project's own launcher icon (the owner's art), a dark red launch screen and a new background for the game's data installer (kept outside the repository); see "Build 25". Build 24 keeps ABOUT centred on the return from a tab (the owner's build-23 log: the tile just tapped was still in its pressed animation and our width check refused it); see "Build 24". Build 23 fixes what the owner saw on the phone in build 22 (the PERFORMANCE title drawn over its icon, ABOUT right of centre, a small stutter on the gear tap) and adds timings to the `settings menu:` log lines; Steam is unchanged apart from log text; not yet tested on a phone or on Windows; see "Build 23". The Steam bots' report (they idle at spawn and sometimes stop moving) is open: its investigation was stopped before any result, see "Build 23". Build 22: on the owner's phone build 21 still flashed
 MORE GAMES and the FORUM tile on a return to Settings; build 22 no longer races the game's own `setup()`: on the phone
 its stock writes are made to draw nothing (the engine's text remap turns FORUM into PERFORMANCE, the icon is out of its
 reach, the removed tiles are off the panel, ABOUT stays at the game's own place on the bottom row), prepared before
@@ -68,9 +69,9 @@ version into the game's own data. Build 12 accepts a full ASTC data pack with 2,
 the HD textures and the graphics profiles work, at the same frame rate as before**, and builds 10 to 12 (target Android
 15) installed and played fine.
 
-## Build 32 (November 2026): the template reader without its quadratic name scan (the 27.7 s agent-select freeze), the same for the saves' writer and the loads' merge, managed dumps at the first hitches
+## Build 32 (November 2026): the template reader without its quadratic name scan (the 27.7 s agent-select freeze), the same for the saves' writer and the loads' merge, a profile lock left by an earlier start answered as released, managed dumps at the first hitches
 
-On `wip/b32` (`McvsVersion.Build` is `32`). Tests: 1618, Embed 1415, PcKit 63, PcSpike 62, all passed (the solution, the embedded and the PC server DLLs built). Not yet tested on a phone or on Steam; the APK and the PC
+On `wip/b32` (`McvsVersion.Build` is `32`). Tests: 1653, Embed 1418, PcKit 63, PcSpike 62, all passed (the solution, the embedded and the PC server DLLs built). Not yet tested on a phone or on Steam; the APK and the PC
 kit of this build are not built yet.
 
 **The owner's build-31 log** (Galaxy S25 Ultra SM-S938B, unlock-all profile of ~611 KB; session `20261111-182001`, watchdog
@@ -182,20 +183,81 @@ and hitch probe on):
 - PC: `Gameloft.Templates` is also in the host's boot checks: the `install:` file check compares `Gameloft.Templates.dll`
   with install.json (a Steam update of that file alone says `stale`), and the watcher writes its `[boot] assemblies:` line and
   reports NOT ACTIVE when it loads from the game folder. The kit's `verify` message names the number of codeBases it expects (6).
+- **Third part, the profile lock left by an earlier start** (server only; no game code changed; `StaleProfileOwner`,
+  docs/protocol/storage.md, Decisions). The build-31 log, both starts of session `20261111-182001`, in `server.log`: the
+  boot's `GET _mcvs.gameProfile`, the TS's `POST messages/secured … type=multipleConnectionDetected roomId=LocalAnubis-Room-…`,
+  the reloads 1 s apart (3.7 s each on the phone), then `TakeProfileLock`'s save (first start: #30, #43, #44, save #47 8.7 s
+  after the notice; second start: #31, #43, #44 and #47, save #50 13.8 s after the notice). The dump the earlier start left is exactly 51 characters longer than a released one
+  (`"LocalAnubis-Room-<GUID>"` instead of `null`): the earlier start ended without `SaveAndReleaseProfile`. The Play sequence
+  in the same log is the in-process order the change must keep: the TS's release save (611,299 chars, the lock `null`), the
+  GS's `LoadPlayerProfile` reads it, the GS's results save, the TS's reload in the menu (`ResumeServer`), the TS's lock save
+  (+51 chars). The lock is a TS-only thing (`TakeProfileLock` and `ResumeServer` return early on the GS); room ids are
+  `LocalAnubis-Room-` + a new GUID made in the game's process (`LocalAnubis.Lobby.GenerateRoomId`); the game writes the
+  dump only through our storage endpoints. So the embedded host now tells its server that the game runs in its process
+  (`ClientCapabilities.InProcessClient`), and the storage module remembers per account the lock the stored dump held before
+  the game's first request of this start (its first read of `_mcvs.gameProfile`, or before its first write to the account,
+  whichever comes first). While the stored lock is still exactly that id, a `GET _mcvs.gameProfile` is answered with it
+  replaced by `null` (byte for byte the text `SaveAndReleaseProfile` stores), the file is not changed, and the server log
+  says once `profile: cleared a room owner left by an earlier start: LocalAnubis-Room-… (<account>; ProfileOwnerRoomId
+  answered as null, the stored profile is unchanged)`. The TS's `MakeSureProfileIsUnlocked` then finds no owner: no notice,
+  no kick, no reloads, and `TakeProfileLock` saves its own room as before. A lock the game wrote in this start (every
+  `TakeProfileLock`/`ResumeServer` of this process), an absent one, a dump of another shape (a key twice, a look-alike
+  key, an owner that is not a string, a `/Profile` of another `@type`), a selector deeper than `_mcvs.gameProfile`, the
+  whole document, a LAN-forwarded account and the standalone host are answered as stored, i.e. the game's own behaviour.
+  `storage.clearStaleProfileOwner: false` turns it off (the lock is still remembered, so turning it on later in the same
+  start never takes this start's room for an old one).
+- **Tests of the third part:** `StaleProfileOwnerTests` (35: the game's shape found and released to the exact released
+  text, pretty-printed/escaped/BOM text, 22 shapes that are not a lock, the first read or the first write captures, the
+  setting off, accounts apart; over the storage endpoints with a restart between starts: start 1 locks and is killed, start
+  2 reads it released, then locks, releases (Play), the GS's save, locks again, all answered as stored, start 3 reads start
+  2's lock released; a write to another section or the game server's `currentMatch` write before the first read; the
+  standalone server and the setting off serve the lock as stored); `RealProfileOwnerTests` on the real Gameloft.Templates.dll
+  of both builds, shipped and with the 'templates' patch, on the unlock-all-shaped profile: the answered text reads to the
+  stale tree with exactly one difference (the lock's `TValue` is `Null`), the game's writer writes the stale tree with that
+  value set to null as `"ProfileOwnerRoomId":null` and reads back to the same tree, and `DefaultConverter.ConvertFromTemplate`
+  gives a null string for it; `EmbeddedHostTests.TheNextStartAnswersALockLeftByTheEarlierStartAsReleased`: two real embedded
+  host starts over HTTP, the second answers the first one's lock released and logs the line.
+- **The results screen's two saves, from the code** (behaviour unchanged): the build-31 results screen has one
+  `gameProfile` POST (18:25:12.5) and two sections merges (`DoSaveProfile:807` at 15.887 and 15.914), so a second
+  `DoSaveProfile` ran while the first one's request was in flight (`ProfileSection.Save` goes through a
+  `NonConcurrentTask`). In a GS match `OfflineBotsGameplayComponent`'s `forceSaveIfPaused` save does not run (it is the TS's
+  save for a bot match the client runs itself, reported by `OfflineMatchAgainstBotsOver`); the GS's own candidates are
+  `GameplayComponent.OnMatchOverAsync`'s per-player save (then `DisableSave`) and `SaveAndReleaseProfile` from the
+  client's `CloseConnection`, which can start before that `DisableSave`. Not provably redundant: a later save carries what
+  changed after the first one's `FromObject`. So only diagnostics: every profile save now gets a `[game] profile: save in
+  the TS|GS|client World, for GameProfileSection.FromGameObject <- PlayerProfileComponent.DoSaveProfile <-
+  ProfileComponent.SaveProfile <- <caller>; FromObject X ms; N ms after the previous one (<its World>: <its callers>)` line
+  (from `TObject.FromObject` of a GameObject, which runs before `DoSaveProfile`'s first await, so the stack still holds the
+  callers; at most 40 per start; no IL change, host code only), and the `templates: DefaultProfile.tx read in …` line of a
+  profile-text read ends with `; for <the game methods that read it>` (a World's first load, a bot's template, a reload).
+  `ReloadProfileAsync` has only two callers, both on the TS (`ResumeServer`, `MakeSureProfileIsUnlocked`); after an await
+  the stack no longer shows which, so its read line names `ReloadProfileAsync` and the server log's order tells the rest.
+  Tested on a fixture assembly named `Game` with the game's type names and async shapes (`ProfileSaveLineTests`).
+- **The match start's 1.06 s** (hitch 4 of the build-31 start, 1.5 s after the frozen agent select): no line, no dump
+  (only the first 3 hitches after arming take one, 5 s apart). Diagnostics only: if a save or a profile read is in it, the
+  new lines say so; with the agent-select freeze shorter it may be one of the first three dumped hitches now.
 - `McvsVersion.Build` 32.
 
 **Not changed (open):**
 
 - The saves (3-7 s each in the build-31 log): the writer's scan is gone (second part, not yet confirmed on a device); the
   rest of `FromObject` (reflection over the components), `ToString("j")`, the normalize (0.3-0.6 s) and the request build
-  (~0.4 s) are unchanged; the two overlapping saves on the results screen stay two.
+  (~0.4 s) are unchanged; the two overlapping saves on the results screen stay two (their callers are logged now).
 - The profile's game-object creation at a World's first load (the rest of the 7-8 s); the per-bot apply of the
   template (`AddGameObject`, about 0.25 s per bot in the log); the 7 bots are still spawned in one frame (spreading them would
   change the order against `BalanceTeams`, `RoomClosed` and the saves).
-- The stale `ProfileOwnerRoomId` after a start that followed a restart from the settings page (the 7.4 s reload loop at boot):
-  clearing it at boot is possible, not done.
-- Two overlapping saves on the results screen (`GameplayComponent` and `OfflineBotsGameplayComponent`), the match start's
-  1.06 s, the 3 early boot hitches: not determined.
+- The boot's ownership loop (7.4 s in the build-31 log) should be gone after a start that ended without a release (third
+  part); not yet seen on a device. It stays for a lock the server cannot tell is old (another shape of dump, the setting
+  off, the standalone host).
+- Which two callers make the results screen's overlapping saves, what the match start's 1.06 s is, the 3 early boot
+  hitches: not determined (the new `profile:` lines and the hitch dumps should tell).
+
+**Checklist (phone), third part:** close the game from the recent-apps list (or restart it from the settings page)
+in the menu, start it again: `server.log` has `profile: cleared a room owner left by an earlier start: LocalAnubis-Room-…`
+right after the boot's `GET …/_mcvs.gameProfile`, no `type=multipleConnectionDetected` POST, no second `_mcvs.gameProfile`
+GET before the lock save, and the boot's hitch lines are shorter than build 31's (two reloads of 3.7 s each before); the
+inbox has no new message; play a match and go back to the menu (no `cleared` line then); the results screen's two
+`profile: save in the … World, for …` lines with their callers, and the lines at the match start. Send the log.
 
 **Checklist (phone):** agent select with an unlock-all profile: how long the lobby freezes (the `hitch over` line), and
 `templates: DefaultProfile.tx read in ...` lines, one per bot plus the profile loads, with their times; the boot and the
