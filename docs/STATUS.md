@@ -1,7 +1,7 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-The project is now called **MCVS Encore** (the display name only: the code name `McvsOffline`, the data folders, the settings keys, the `MCVSOFFLINE` code and the repository name are unchanged, so existing saves and installs keep working; the history below keeps the old name). Last updated for build 30 (November 2026): build 30 removes two hitches of ours (the game no longer reloads `MCVS_Meta.xlsx` at every match, and a profile save normalizes its JSON once instead of four times), adds a hitch probe for the rest, and ships the in-match bot names off; see "Build 30". Build 29 is **the 1.0 release** (players already use it; the owner approved every open device check of builds 22-29, the Cosmetic crate included): build 29 replaces the generic gamer tags with about 2,000 hand-written names; see "Build 29". Build 28 gives the leaderboard rivals gamer-tag names and their own emblems, and the in-match bots thousands of names; see "Build 28". The owner confirmed build 27's bot fix on Steam. Build 27 fixes the Steam bots (a resting bot could not start on frames shorter than 1/60 s) and adds a Steam frame rate setting up to unlimited; see "Build 27". Build 26 starts normally when another program holds the server's port (it moves to a free one and everything follows); see "Build 26". Build 25 brings the project's own launcher icon (the owner's art), a dark red launch screen and a new background for the game's data installer (kept outside the repository); see "Build 25". Build 24 keeps ABOUT centred on the return from a tab (the owner's build-23 log: the tile just tapped was still in its pressed animation and our width check refused it); see "Build 24". Build 23 fixes what the owner saw on the phone in build 22 (the PERFORMANCE title drawn over its icon, ABOUT right of centre, a small stutter on the gear tap) and adds timings to the `settings menu:` log lines; Steam is unchanged apart from log text; not yet tested on a phone or on Windows; see "Build 23". The Steam bots' report (they idle at spawn and sometimes stop moving) is open: its investigation was stopped before any result, see "Build 23". Build 22: on the owner's phone build 21 still flashed
+The project is now called **MCVS Encore** (the display name only: the code name `McvsOffline`, the data folders, the settings keys, the `MCVSOFFLINE` code and the repository name are unchanged, so existing saves and installs keep working; the history below keeps the old name). Last updated for build 31 (November 2026): build 31 removes the stutter every 5 s during agent selection (each bot the match adds made the game parse `MCVS_Meta.xlsx` three times; a file read before is now restored from memory) and says in the log when the watchdog is off by the settings; see "Build 31". Build 30 removes two hitches of ours (the game no longer reloads `MCVS_Meta.xlsx` at every match, and a profile save normalizes its JSON once instead of four times), adds a hitch probe for the rest, and ships the in-match bot names off; see "Build 30". Build 29 is **the 1.0 release** (players already use it; the owner approved every open device check of builds 22-29, the Cosmetic crate included): build 29 replaces the generic gamer tags with about 2,000 hand-written names; see "Build 29". Build 28 gives the leaderboard rivals gamer-tag names and their own emblems, and the in-match bots thousands of names; see "Build 28". The owner confirmed build 27's bot fix on Steam. Build 27 fixes the Steam bots (a resting bot could not start on frames shorter than 1/60 s) and adds a Steam frame rate setting up to unlimited; see "Build 27". Build 26 starts normally when another program holds the server's port (it moves to a free one and everything follows); see "Build 26". Build 25 brings the project's own launcher icon (the owner's art), a dark red launch screen and a new background for the game's data installer (kept outside the repository); see "Build 25". Build 24 keeps ABOUT centred on the return from a tab (the owner's build-23 log: the tile just tapped was still in its pressed animation and our width check refused it); see "Build 24". Build 23 fixes what the owner saw on the phone in build 22 (the PERFORMANCE title drawn over its icon, ABOUT right of centre, a small stutter on the gear tap) and adds timings to the `settings menu:` log lines; Steam is unchanged apart from log text; not yet tested on a phone or on Windows; see "Build 23". The Steam bots' report (they idle at spawn and sometimes stop moving) is open: its investigation was stopped before any result, see "Build 23". Build 22: on the owner's phone build 21 still flashed
 MORE GAMES and the FORUM tile on a return to Settings; build 22 no longer races the game's own `setup()`: on the phone
 its stock writes are made to draw nothing (the engine's text remap turns FORUM into PERFORMANCE, the icon is out of its
 reach, the removed tiles are off the panel, ABOUT stays at the game's own place on the bottom row), prepared before
@@ -65,6 +65,71 @@ HD texture probe and a Windows test kit for the Steam version. Build 11 installs
 version into the game's own data. Build 12 accepts a full ASTC data pack with 2,215 PC textures in it: **device test 9:
 the HD textures and the graphics profiles work, at the same frame rate as before**, and builds 10 to 12 (target Android
 15) installed and played fine.
+
+## Build 31 (November 2026): no stutter every 5 s at agent selection, and a visible watchdog switch
+
+On `wip/b31` (`McvsVersion.Build` is `31`). No APK or PC kit built in this session yet.
+
+**The owner's build-30 log** (Galaxy S25 Ultra class, unlock-all profile; `20261111-142707-*`):
+
+- The build-30 `crmtables` patch works in the menu: every refresh with the same cells logs `kept, no reload from disk`.
+- During agent selection (14:28:43 to 14:29:22, no HTTP request at all) `Design/MCVS_Meta.xlsx` was reloaded in pairs
+  about every 5.2 s: `got other CRM cells (tables 26 -> 25)`, then 250 to 280 ms later `(tables 25 -> 26)`, 8 pairs (7
+  in the lobby, one at the match load). The time between the two lines of a pair is the first reload itself, on the game
+  thread; the build-29 logcat shows matching bursts with two bridged GCs about 1.2 s apart each. That is the stutter
+  players reported.
+- The cause (read in the decompiled Gameloft.Engine and Game, identical on Android 1.17.32 and Steam 1.17.30): the GS lobby
+  adds one bot about every 5.2 s (`GameMatchmakingComponent.OnConstantUpdate` → `FillWithBots` → `SpawnBot` →
+  `CreateBotWithProfile`). Each bot gets new per-user databases (`PerUserDatabase.GetDatabase`: a new `Database`, its
+  file parsed, a first parse that logs nothing). `DatabaseLoaded` is a static event, so in our single process the handlers
+  of all three Worlds run on the bot's new database one after the other: the TS's GameplayCRM (the 26-table GS set, in
+  place), the TS's `CRMComponent` with the human's per-player document (25 tables, a full reload, line 1 of a pair), the
+  GS's GameplayCRM (26 tables, a full reload, line 2). Gameloft's GS ran in its own process, where a bot's database got
+  only the GS handler: one parse, on a server. The 25-cell state between the two reloads is never read; the bot database
+  ends on the GS set, as on Gameloft's servers.
+- The two cell sets really differ (the GS set has the 75 `KillsignatureAvatars` `ID@Unlockable` "false" cells and the
+  static `Crate_Event_Special` weights; the unlock-all client has its own weights), so build 30's "same cells" check could
+  not help.
+- No `[watchdog]` line in the build-29 and build-30 logs (build 24 still logged `game thread is tid`): the code path is
+  unchanged, so the switch `diagnostics.watchdog` was most likely off on the phone, which also turns off build 30's hitch
+  probe (no `HITCH:` lines). Nothing in the log said so.
+
+**The changes:**
+
+- Patch `crmtables` (`Gameloft.Engine.dll`, Android and Steam, one fingerprint) now also changes the private
+  `Database.Load(path)`: the second time a new database parses a file, its freshly parsed rows (before any CRM cell) are
+  copied and kept in memory; every later load of that file, by any database (a new bot database, a reload after other
+  cells, the human's database at the match start and on the return to the menu), gets new copies of those arrays (the same
+  interned strings and values a parse gives) instead of reading and parsing the file, then the game's own `OnTableLoaded`
+  applies the cells and raises `TablesLoaded` as before. The game's behaviour is unchanged: a test on the real assemblies
+  runs the agent-selection sequence (new bot databases, the three handlers' cell sets, someone writing into a database's
+  rows, a reload to no cells, a changed data file) on the shipped and on the patched engine and compares every table, cell
+  type and value and every `TablesLoaded` after every step; the patched one reads the file 5 times instead of 14. On the
+  real `MCVS_Meta.xlsx` (541 tables, 18,497 rows) a restore takes 2 to 4 ms on the test machine where a parse takes 55 to 60 ms;
+  with the cells applied, a reload of the owner's shape went from about 60 ms to about 3 to 11 ms there. Files with a cell
+  that is not a plain value (a JSON object or array) are never kept; a file loaded only once is never copied;
+  `Database.Game_DataChanged` (development builds) forgets everything kept; a missing server DLL makes the method the game's.
+- Log lines (bootstrap.log, `[game]`, at most 80 per start): `crm tables: <file> read from disk and parsed in X ms (a new
+  database|a reload)`, once `...; its rows are kept in memory for the next loads (N tables, R rows, C cells)`, then
+  `crm tables: <file> restored from memory (N tables, R rows) in X ms, no read from disk`. The status line adds
+  `database files N parsed (X ms), M restored from memory (Y ms), K files kept`. At agent selection each pair is now
+  `got other CRM cells ...: the game reloads it` followed by `restored from memory`.
+- Watchdog: when `diagnostics.watchdog` is false, one INFO line at the start, `[watchdog] off: settings
+  diagnostics.watchdog is false (...)`, says that there is no game-thread tid, no stall report, no thread dump and no hitch
+  probe; the `[status]` line now always has a `watchdog:` part (`off: settings diagnostics.watchdog is false ...` when
+  off), and so does the page's Status (host › watchdog). The default stays on.
+- `McvsVersion.Build` 31.
+
+**Not changed (open):** the per-bot work that is not a database load is still on the game thread at every bot: the
+human's 612 KB unlock-all profile template parsed again for each bot (`GetProfileTemplate`), the three `DatabaseLoaded`
+handlers' cell applies and the `TablesLoaded` listeners. The cross-World handler order itself is unchanged (a bot-only
+guard in `CRMComponent`, identical cells in both documents and per-World statics were considered and not done: each
+changes what runs, this change does not). The log's lobbies lasted 41 to 45 s although the bootstrap log says "instant
+bots on" (MinPlayers 1, MaxOpenTimeInSeconds 0 should close the room at once): not investigated in this build.
+
+**Checklist:** agent selection without a stutter every 5 s; in bootstrap.log `its rows are kept in memory` once per file
+and `restored from memory` lines at agent selection (send that log); a `watchdog:` part in every `[status]` line (and
+`[watchdog] off: ...` if the switch is off; turn it on for the next match log so `HITCH:` lines show what is left).
 
 ## Build 30 (November 2026): fewer hitches at match start and on the results screen, in-match bot names off
 

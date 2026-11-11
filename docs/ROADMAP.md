@@ -32,12 +32,13 @@ Done items are struck through. Device-test history and open risks are in [STATUS
 
 - ~~**1.0 release** (build 29): players are using it.~~ ✅
 - **Hitches** (build 30): the match start no longer reloads `MCVS_Meta.xlsx`, a profile save normalizes once instead of four times, in-match bot names off by default; a hitch probe names the rest (needs a device log).
+- **Agent-select stutter** (build 31): a design file read before is restored from memory instead of parsed again (each bot the match adds parsed `MCVS_Meta.xlsx` three times); the log says when the watchdog is off (needs a device log).
 
 ## Next
 
 Build 29 is the **1.0 release** (November 2026): players already use it. The open device checks of builds 22-29 passed and
 are approved by the owner (names, port fallback, Special Event, HD packs, Game Mode flags, the PC kit, the Cosmetic crate).
-Build 30 is the first update after it (fewer hitches, in-match bot names off).
+Build 30 is the first update after it (fewer hitches, in-match bot names off). Build 31 removes the stutter every 5 s at agent selection.
 
 | Priority | Item |
 |---|---|

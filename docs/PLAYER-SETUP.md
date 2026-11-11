@@ -119,7 +119,10 @@ What the patches do:
   when you own many of them (for example after `UNLOCKALL`).
 - **crmtables** (build 30): the game re-read one of its design databases (1.6 MB) from storage every time the offline
   server's settings for it were refreshed, even when nothing had changed: at every match start (agent selection) and on the
-  way back to the menu. With the patch a database that gets exactly the same changes again keeps its tables.
+  way back to the menu. With the patch a database that gets exactly the same changes again keeps its tables. Since build
+  31 the patch also keeps a copy of a database file the game has read twice and gives every later load that copy instead
+  of reading the file again: during agent selection every bot the match adds made the game read and parse the same 1.6 MB
+  file three times, a stutter about every 5 seconds.
 - **jsonnorm** (build 30): every save of a big profile (for example after `UNLOCKALL`) compared the old and the new profile
   four times in full on the game thread, which froze the game for a few seconds on the results screen, when you press Play
   and back in the menu. With the patch the game reuses what it already worked out for the same profile text.
@@ -577,7 +580,7 @@ in-game host:
 | `embedded.physics.clientMultithreaded` | `true` | `false` makes the game's own physics single-threaded too. |
 | `embedded.physics.stepGate` | `true` | `false` lets several worlds step their physics at the same time again (for testing only). |
 | `embedded.physics.stepGateTimeoutMs` | `2000` | How long one world's physics waits for another's before it goes ahead anyway (logged). |
-| `diagnostics.watchdog` | `true` | Report what the game waits for when it stops responding. Since build 30 also a `HITCH` line (INFO) when the game has not finished a frame for 0.7 s or more (where the game thread was at that moment), then `hitch over` with about how long it took. Armed at the first match of a start (the loading blocks before are only counted); the first two hitches after that also log the game thread's native stacks when `diagnostics.threadDump` is on (no file, no Mono managed dump). |
+| `diagnostics.watchdog` | `true` | Report what the game waits for when it stops responding. Since build 31 a start with this off logs one `[watchdog] off: ...` line, and the `[status]` lines say `watchdog: off: ...`. Since build 30 also a `HITCH` line (INFO) when the game has not finished a frame for 0.7 s or more (where the game thread was at that moment), then `hitch over` with about how long it took. Armed at the first match of a start (the loading blocks before are only counted); the first two hitches after that also log the game thread's native stacks when `diagnostics.threadDump` is on (no file, no Mono managed dump). |
 | `diagnostics.threadDump` | `true` | When the game has not responded for 15 s (and again at 180 s), write where every thread is (managed and native stacks) to the log and `logs/threaddump-*.txt`. |
 | `diagnostics.publicLogCopy` | `true` | Copies of the logs in Downloads > MCVS-Offline (Android 11+). |
 

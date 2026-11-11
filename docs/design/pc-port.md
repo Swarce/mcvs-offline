@@ -1235,7 +1235,7 @@ access denial: a virus scanner holding the file) up to 10 times 100 ms apart (`P
 | `forum` | Game.dll | optional | unchanged | [PP] §3 |
 | `botmove` | Game.dll | default (build 27; optional on Android) | unchanged (identical fingerprint) | §8.10 |
 | `fpslimit` | Game.dll | default (build 27) | new (PC only: Android has neither site, and its `WCPFramerateLimit` is a native `ret`) | §8.11 |
-| `crmtables` | Gameloft.Engine.dll | default (build 30, also on Android) | identical fingerprint (`Database.set_Changer`) | `patcher/Patches/CrmTablesPatch.cs` |
+| `crmtables` | Gameloft.Engine.dll | default (build 30, also on Android) | identical fingerprints (`Database.set_Changer`; build 31 also `Database.Load`, `Database.Game_DataChanged`) | `patcher/Patches/CrmTablesPatch.cs` |
 | `jsonnorm` | Gameloft.Util.dll | default (build 30, also on Android) | identical fingerprint (`Json.NormalizeJsonString`) | `patcher/Patches/JsonNormPatch.cs` |
 | `hook`, `finder`, `finderport`, `lan`, `debloat`, `targetsdk`, `game` | — | **excluded** | Android only (`finderport`: build 26, the PC ClientSettings has no Finder port; PcHooks use the Finder's PublicPort) | X; [PP] §3 |
 

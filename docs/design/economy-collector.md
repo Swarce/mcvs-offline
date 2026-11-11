@@ -1135,6 +1135,12 @@ content.md (per-player collector cells, mirror policy, `_mcvs/collector`); STATU
   process-wide registry; if a server World's handler (static mirror) runs after the TS's `CRMComponent`, the TS opens
   crates with the mirror (static weights, no `true` cells: avatars only from the 230 shipped-unlockable, still no
   Kayac) until the next forced refresh. Valid and O5-safe; more duplicates. Checks 1 and 15.
+  The same shared event runs the TS's `CRMComponent` handler on every new per-user database of a GS bot (build-30 device
+  log, STATUS "Build 31"): the bot's MCVS_Meta gets the client's per-player cells, then the GS mirror again, two reloads per
+  bot at agent selection. Build 31 does not change the cells or the handler order; patch `crmtables` restores such
+  reloads from memory instead of parsing the file (ARCHITECTURE.md §2). Making the two sets identical (the per-player
+  layer in the GS answer, reversing D10 for it) would avoid the reloads altogether but changes the bots' and the
+  crate's inputs; not done.
 * **Preview cost on the TLE screens**: every crate reward object rebuilds a preview (`CreateRewardItem` + `GetObject` +
   `IsAvailable` per weighted row, signature list builds, agent scans) and runs `CrateRewardItem.IsAvailable` (rows in
   table order until one is available); the weekly screen builds 12 of them on the game thread. Round 3 (§2.3): the

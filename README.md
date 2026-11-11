@@ -276,7 +276,7 @@ docs/                architecture, status, guides, protocol notes, designs, rese
 ## Roadmap
 
 Build 29 is the **1.0 release**. Build 30 smooths the match start and the results screen and ships the in-match bot
-names off (the leaderboard rivals keep theirs).
+names off (the leaderboard rivals keep theirs). Build 31 removes the stutter every 5 s during agent selection.
 
 - **Next:** LAN multiplayer, then internet multiplayer through Epic Online Services P2P with join codes, and polish
   (quieter logs, a changelog, GitHub Releases with the patcher and the PC kit).

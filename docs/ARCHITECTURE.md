@@ -129,6 +129,15 @@ Recommended extra patches (all optional, `--patch`; the default set is `nativeon
   (`McvsOffline.GameDataHooks.SameCrmChanges`), the setter stores it and raises `TablesLoaded` without `Load(File)`: the
   tables already are the file's rows plus those cells, and the typed tables and listeners rebuild as before. Any other case,
   and a missing server DLL, is the game's setter. Log: `[game] crm tables: <file> got the same CRM cells again (...)`.
+  Build 31 also changes the private `Database.Load(path)` (`GameDataHooks.RestoreDatabaseFile`, `DatabaseFileParsed`):
+  at the second parse of a file by a new database (empty `Tables`) its freshly parsed `Fields`/`Rows` are copied and kept
+  (only plain cell values: string, number, bool, null); every later `Load` of that file, by any database, gets new copies
+  of those arrays and goes on with the game's `OnTableLoaded(null)` (cells, `TablesLoaded`) instead of `AssetStream` +
+  `Json.LoadObject` + `Populate`. The owner's build-30 agent selection parsed MCVS_Meta three times per bot: the GS adds a
+  bot about every 5 s, the bot's new per-user database is parsed, and the static `PerUserDatabase.DatabaseLoaded` runs the
+  handlers of all three Worlds on it in our single process (TS GameplayCRM, TS `CRMComponent` with the client's cells, GS
+  GameplayCRM). `Database.Game_DataChanged` first forgets the kept files. Log: `crm tables: <file> restored from memory
+  (...)`; status `database files N parsed, M restored from memory, K files kept`.
 - `jsonnorm` (default, build 30, Android and PC, `patcher/Patches/JsonNormPatch.cs`): `ProfileSection.IsModified`
   normalizes the saved and the current profile text (parse, recursive sort, re-serialization) and a save evaluates it twice:
   four normalizations of the ~611 KB unlock-all gameProfile per save on the game thread (3-5 s blocks on the results screen,
