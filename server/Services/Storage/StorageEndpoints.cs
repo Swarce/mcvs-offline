@@ -38,6 +38,8 @@ namespace McvsOffline.Server.Services.Storage
         private readonly LocalProfileStore store;
         private readonly DataBlobStore blobs;
         private readonly Log log;
+        private readonly StorageSettings settings;
+        private readonly StaleProfileOwner owners = new StaleProfileOwner();
 
         public StorageEndpoints(ServerContext context, LocalProfileStore store, DataBlobStore blobs, Log log)
         {
@@ -45,6 +47,7 @@ namespace McvsOffline.Server.Services.Storage
             this.store = store;
             this.blobs = blobs;
             this.log = log ?? Log.Null;
+            settings = new StorageSettings(context.Settings);
         }
 
         public void Register(Router router)
@@ -104,6 +107,20 @@ namespace McvsOffline.Server.Services.Storage
                           + " via " + s.Name + " -> " + Status(result) + ", " + result.Body.Length.ToString(CultureInfo.InvariantCulture) + " chars");
                 if (IsGameProfileDump(selector))
                 {
+                    if (fields.Count == 0 && result.IsOk && TracksOwners(s))
+                    {
+                        string cleared;
+                        bool firstTime;
+                        string body = owners.OnRead(target.AccountId, result.Body, settings.ClearStaleProfileOwner, out cleared, out firstTime);
+                        if (cleared != null)
+                        {
+                            string line = "profile: cleared a room owner left by an earlier start: " + cleared + " (" + target.AccountId +
+                                          "; ProfileOwnerRoomId answered as null, the stored profile is unchanged)";
+                            if (firstTime) log.Info(line);
+                            else log.Debug(line);
+                            result = StorageResult.Ok(body);
+                        }
+                    }
                     var read = new Dictionary<string, object>(StringComparer.Ordinal);
                     read["account"] = target.AccountId;
                     read["selector"] = selector;
@@ -159,12 +176,39 @@ namespace McvsOffline.Server.Services.Storage
                 log.Debug("If-Match '" + write.IfMatch + "' ignored for " + Describe(target, write.Selector) + " (no ETags, verify-C3 §3.5)");
 
             IProfileStore s = Locate(target);
+            BeforeGameWrite(s, target);
             StorageResult result = s.Write(target, write);
             string size = write.ObjectText == null ? "no object" : write.ObjectText.Length.ToString(CultureInfo.InvariantCulture) + " chars";
             string line = op + " " + Describe(target, write.Selector) + " (" + size + ") via " + s.Name + " -> " + Status(result);
             if (result.IsOk) log.Debug(line);
             else log.Warn(line + ": " + result.Body);
             return result.ToResponse();
+        }
+
+        /// <summary>
+        /// Profile locks are followed only for the local store and when the game runs in this process
+        /// (<see cref="ClientCapabilities.InProcessClient"/>): only then is every room id the game writes one of this process.
+        /// </summary>
+        private bool TracksOwners(IProfileStore s)
+        {
+            if (!ReferenceEquals(s, store)) return false;
+            ClientCapabilities client = context.Features.Get<ClientCapabilities>();
+            return client != null && client.InProcessClient == true;
+        }
+
+        /// <summary>
+        /// Before the game's first write to an account in this process: the lock its stored game profile holds now, if no read
+        /// of it came first (<see cref="StaleProfileOwner.BeforeWrite"/>). Followed even while the setting is off, so turning it
+        /// on later never takes an owner of this process for an old one.
+        /// </summary>
+        private void BeforeGameWrite(IProfileStore s, StorageTarget target)
+        {
+            if (owners.IsCaptured(target.AccountId) || !TracksOwners(s)) return;
+            owners.BeforeWrite(target.AccountId, () =>
+            {
+                StorageResult stored = s.Get(target, McvsConstants.GameProfileSelector + ".gameProfile", new List<string>());
+                return stored.IsOk ? stored.Body : null;
+            });
         }
 
         private HttpResponse DeleteProfile(HttpRequest request)
@@ -175,6 +219,7 @@ namespace McvsOffline.Server.Services.Storage
                 HttpResponse error;
                 if (!ResolveTarget(request, caller, true, out target, out error)) return error;
                 IProfileStore s = Locate(target);
+                BeforeGameWrite(s, target);
                 StorageResult result = s.DeleteProfile(target);
                 log.Info("profile delete requested for " + target.AccountId + " by " + DescribeCaller(caller) + " via " + s.Name + " -> " + Status(result));
                 return result.ToResponse();

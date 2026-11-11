@@ -25,8 +25,9 @@ namespace McvsOffline.Tests.Storage
 
         private readonly bool ownsDir;
 
-        public StorageHarness(TempDir dir = null, Action<Settings> configure = null, DateTime? start = null)
+        public StorageHarness(TempDir dir = null, Action<Settings> configure = null, DateTime? start = null, bool inProcessClient = false)
         {
+            InProcessClient = inProcessClient;
             ownsDir = dir == null;
             Dir = dir ?? new TempDir();
             Clock = new ManualClock(start ?? new DateTime(2026, 10, 25, 10, 0, 0, DateTimeKind.Utc));
@@ -36,6 +37,9 @@ namespace McvsOffline.Tests.Storage
         }
 
         public TempDir Dir { get; }
+
+        /// <summary>The server is told the game runs in its process (the embedded host's <c>ClientCapabilities.InProcessClient</c>).</summary>
+        public bool InProcessClient { get; set; }
 
         public ManualClock Clock { get; }
 
@@ -70,6 +74,7 @@ namespace McvsOffline.Tests.Storage
                 FileLog = false,
                 Clock = Clock,
                 RegisterServices = StorageService.Register,
+                ClientCapabilities = new ClientCapabilities { InProcessClient = InProcessClient ? true : (bool?)null },
             };
             options.ExtraSinks.Add(Logs);
             var server = McvsServer.Create(options);

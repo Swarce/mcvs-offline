@@ -37,6 +37,72 @@ namespace McvsOffline.Server.Services.Storage
             return true;
         }
 
+        /// <summary>One member of an object: its decoded name and the span of its value.</summary>
+        public struct Member
+        {
+            public string Name;
+            public int ValueStart;
+            public int ValueLength;
+        }
+
+        /// <summary>The index of the first non-whitespace character at or after <paramref name="pos"/> (a leading BOM skipped at 0).</summary>
+        public static int SkipLeading(string text, int pos)
+        {
+            if (text == null) return 0;
+            if (pos == 0 && text.Length > 0 && text[0] == '\uFEFF') pos = 1;
+            return SkipWhitespace(text, pos);
+        }
+
+        /// <summary>
+        /// The members of the object starting at <paramref name="pos"/> (a '{'), in text order, duplicates included. False (and
+        /// <paramref name="members"/> in an unspecified state) when there is no object there or it is not well formed.
+        /// </summary>
+        public static bool TryReadMembers(string text, int pos, List<Member> members)
+        {
+            if (text == null || members == null) return false;
+            members.Clear();
+            if (pos < 0 || pos >= text.Length || text[pos] != '{') return false;
+            pos = SkipWhitespace(text, pos + 1);
+            if (pos < text.Length && text[pos] == '}') return true;
+            while (true)
+            {
+                if (pos >= text.Length || text[pos] != '"') return false;
+                string name;
+                pos = ReadString(text, pos, out name);
+                if (pos < 0) return false;
+                pos = SkipWhitespace(text, pos);
+                if (pos >= text.Length || text[pos] != ':') return false;
+                pos = SkipWhitespace(text, pos + 1);
+                int end = SkipValue(text, pos);
+                if (end < 0) return false;
+                var member = new Member();
+                member.Name = name;
+                member.ValueStart = pos;
+                member.ValueLength = end - pos;
+                members.Add(member);
+                pos = SkipWhitespace(text, end);
+                if (pos >= text.Length) return false;
+                if (text[pos] == ',')
+                {
+                    pos = SkipWhitespace(text, pos + 1);
+                    continue;
+                }
+                return text[pos] == '}';
+            }
+        }
+
+        /// <summary>True when the span is exactly one JSON string literal; <paramref name="value"/> is its decoded text.</summary>
+        public static bool TryReadString(string text, int start, int length, out string value)
+        {
+            value = null;
+            if (text == null || start < 0 || length < 2 || start + length > text.Length || text[start] != '"') return false;
+            string decoded;
+            int end = ReadString(text, start, out decoded);
+            if (end != start + length) return false;
+            value = decoded;
+            return true;
+        }
+
         /// <summary>
         /// <paramref name="pos"/> is at an object; returns the start of the value of the last member named
         /// <paramref name="key"/>, or -1.

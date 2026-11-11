@@ -80,6 +80,15 @@ namespace McvsOffline
         /// <summary>At most this many "templates:" lines per process (then only the counters of the status line).</summary>
         public const int TemplateLineLimit = 60;
 
+        /// <summary>At most this many "profile: save" lines per process.</summary>
+        public const int ProfileLineLimit = 40;
+
+        /// <summary>A template read of this source gets its callers in its "templates:" line (the profile text's reads).</summary>
+        public const string ProfileTemplateSource = "DefaultProfile.tx";
+
+        /// <summary>At most this many game methods in a caller chain.</summary>
+        public const int CallerChainLength = 6;
+
         private static volatile Action<string> info;
         private static readonly object gate = new object();
 
@@ -112,6 +121,10 @@ namespace McvsOffline
         private static long fromObjectLargeTicks, fromObjectMaxTicks;
         private static int jsonTexts, jsonTextsLarge;
         private static long jsonLargeTicks, jsonMaxTicks;
+        // profile saves (lastSave* under gate)
+        private static int profileLines;
+        private static long lastSaveStamp;
+        private static string lastSave;
         // The reads that ended on this thread, newest last (start, inclusive ticks): a read that ends takes out those that started
         // after it (they ran inside it: a non-local @base, BindBase -> TemplateManager.GetTemplate -> a nested ReadDefaultTemplate).
         private const int NestedSlots = 32;
@@ -528,8 +541,15 @@ namespace McvsOffline
                             (nestedReads == 1 ? " template" : " templates") + " read inside it, counted on their own";
                 }
                 if (json.Length > 0) json = " (" + json + ")";
+                string callers = "";
+                if (string.Equals(source, ProfileTemplateSource, StringComparison.Ordinal))
+                {
+                    // Build 32: who read the profile text (a World's first load, a TS reload, a bot's template, the default profile).
+                    string chain = Callers();
+                    if (chain.Length > 0) callers = "; for " + chain;
+                }
                 Info("templates: " + (source ?? "?") + " read in " + Ms(ticks) + json + "; " + indexed.ToString(CultureInfo.InvariantCulture) +
-                     " objects of 8+ names indexed, the largest " + largest.ToString(CultureInfo.InvariantCulture) + " names (patch 'templates')");
+                     " objects of 8+ names indexed, the largest " + largest.ToString(CultureInfo.InvariantCulture) + " names (patch 'templates')" + callers);
             }
             catch (Exception)
             {
@@ -586,6 +606,7 @@ namespace McvsOffline
                 long ticks = Stopwatch.GetTimestamp() - started;
                 Interlocked.Increment(ref fromObjects);
                 MaxLong(ref fromObjectMaxTicks, ticks);
+                ProfileSave(instance, ticks);
                 if (ticks * 1000.0 / Stopwatch.Frequency < TemplateLogMinMs) return;
                 Interlocked.Increment(ref fromObjectsLarge);
                 Interlocked.Add(ref fromObjectLargeTicks, ticks);
@@ -596,6 +617,137 @@ namespace McvsOffline
             catch (Exception)
             {
             }
+        }
+
+        /// <summary>
+        /// Build 32 diagnostics (the build-31 log's two overlapping saves on the results screen): <c>TObject.FromObject</c> of a
+        /// <c>GameObject</c> is <c>GameProfileSection.FromGameObject</c>, the first thing <c>PlayerProfileComponent.DoSaveProfile</c>
+        /// does, before its first await, so the stack still holds the save's callers. One line per such save (at most
+        /// <see cref="ProfileLineLimit"/>): the World (TS, GS or client: <c>World.IsServer</c>, <c>World.Server.ServerType</c>), the
+        /// game methods on the stack, the FromObject time, and how long after the previous one it started and from where.
+        /// </summary>
+        private static void ProfileSave(object instance, long ticks)
+        {
+            if (instance == null || instance.GetType().Name != "GameObject") return;
+            if (Interlocked.Increment(ref profileLines) > ProfileLineLimit) return;
+            string world = WorldOf(instance);
+            string chain = Callers();
+            string self = world + ": " + (chain.Length > 0 ? chain : "?");
+            long now = Stopwatch.GetTimestamp();
+            long previousStamp;
+            string previous;
+            lock (gate)
+            {
+                previousStamp = lastSaveStamp;
+                previous = lastSave;
+                lastSaveStamp = now;
+                lastSave = self;
+            }
+            string after = previous == null ? "the first of this start"
+                : Ms(now - previousStamp) + " after the previous one (" + previous + ")";
+            string what = chain.IndexOf("DoSaveProfile", StringComparison.Ordinal) >= 0 ? "save" : "TObject.FromObject(GameObject)";
+            Info("profile: " + what + " in the " + world + " World, for " + (chain.Length > 0 ? chain : "?") + "; FromObject " + Ms(ticks) +
+                 "; " + after);
+        }
+
+        /// <summary>"TS", "GS" (the server World's <c>Server.ServerType</c>), "client", or "?".</summary>
+        private static string WorldOf(object gameObject)
+        {
+            try
+            {
+                object world = Get(gameObject, "World");
+                if (world == null) return "?";
+                object isServer = Get(world, "IsServer");
+                if (!(isServer is bool) || !(bool)isServer) return isServer is bool ? "client" : "?";
+                string type = Get(Get(world, "Server"), "ServerType") as string;
+                return string.IsNullOrEmpty(type) ? "server" : type.ToUpperInvariant();
+            }
+            catch (Exception)
+            {
+                return "?";
+            }
+        }
+
+        /// <summary>
+        /// The game's methods on this thread's stack, innermost first, joined with " &lt;- " (at most <see cref="CallerChainLength"/>):
+        /// frames of the framework, of Gameloft.Templates and of this assembly are left out, an async method's state machine and a
+        /// lambda count as the method that holds them, a method repeated next to itself once. "" when the stack is unavailable.
+        /// </summary>
+        internal static string Callers()
+        {
+            try
+            {
+                var trace = new StackTrace(1, false);
+                var names = new List<string>();
+                int frames = trace.FrameCount;
+                for (int i = 0; i < frames && names.Count < CallerChainLength; i++)
+                {
+                    StackFrame frame = trace.GetFrame(i);
+                    MethodBase method = frame == null ? null : frame.GetMethod();
+                    string name = GameMethod(method);
+                    if (name == null) continue;
+                    if (names.Count > 0 && names[names.Count - 1] == name) continue;
+                    names.Add(name);
+                }
+                return string.Join(" <- ", names.ToArray());
+            }
+            catch (Exception)
+            {
+                return "";
+            }
+        }
+
+        /// <summary>"Type.Method" for a game method (state machines and lambdas folded into their method), null for the rest.</summary>
+        internal static string GameMethod(MethodBase method)
+        {
+            if (method == null) return null;
+            Type type = method.DeclaringType;
+            if (type == null) return null;
+            string assembly = type.Assembly.GetName().Name ?? "";
+            if (!IsGameAssembly(assembly)) return null;
+            if ((type.Namespace ?? "").StartsWith("McvsOffline", StringComparison.Ordinal)) return null;
+            string name = method.Name;
+            // <Name>d__12.MoveNext (an async method), <<Name>b__0>d.MoveNext (an async lambda): the method that holds it.
+            if (name == "MoveNext" && type.Name.StartsWith("<", StringComparison.Ordinal))
+            {
+                name = Inner(type.Name);
+                type = type.DeclaringType ?? type;
+            }
+            // <Name>b__0 (a lambda), possibly in a display class (<>c__DisplayClass5_0, <>c).
+            if (name.StartsWith("<", StringComparison.Ordinal)) name = Inner(name);
+            while (type.Name.StartsWith("<", StringComparison.Ordinal) && type.DeclaringType != null) type = type.DeclaringType;
+            string typeName = type.Name;
+            int tick = typeName.IndexOf('`');
+            if (tick > 0) typeName = typeName.Substring(0, tick);
+            return typeName + "." + name;
+        }
+
+        /// <summary>"&lt;Name&gt;d__12" → "Name", "&lt;&lt;Name&gt;b__0&gt;d" → "Name".</summary>
+        private static string Inner(string name)
+        {
+            while (name.StartsWith("<", StringComparison.Ordinal))
+            {
+                int depth = 0, end = -1;
+                for (int i = 0; i < name.Length; i++)
+                {
+                    if (name[i] == '<') depth++;
+                    else if (name[i] == '>' && --depth == 0)
+                    {
+                        end = i;
+                        break;
+                    }
+                }
+                if (end <= 1) return name;
+                name = name.Substring(1, end - 1);
+            }
+            return name;
+        }
+
+        /// <summary>Game, GameManager and Gameloft.* except Gameloft.Templates (the writer and the reader themselves).</summary>
+        private static bool IsGameAssembly(string assembly)
+        {
+            if (assembly == "Game" || assembly == "GameManager" || assembly == "EngineBridge") return true;
+            return assembly.StartsWith("Gameloft.", StringComparison.Ordinal) && assembly != "Gameloft.Templates";
         }
 
         /// <summary>
@@ -739,6 +891,12 @@ namespace McvsOffline
             fromObjectLargeTicks = fromObjectMaxTicks = 0;
             jsonTexts = jsonTextsLarge = 0;
             jsonLargeTicks = jsonMaxTicks = 0;
+            profileLines = 0;
+            lock (gate)
+            {
+                lastSaveStamp = 0;
+                lastSave = null;
+            }
         }
 
         // ------------------------------------------------------------------------------------------------ helpers

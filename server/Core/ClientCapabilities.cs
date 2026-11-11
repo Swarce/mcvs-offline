@@ -23,6 +23,14 @@ namespace McvsOffline.Server.Core
         public bool? InboxPatch { get; set; }
 
         /// <summary>
+        /// Build 32: the game client runs in this process (the embedded host, Android and PC): every room id it writes into a
+        /// profile was made by this process, so a profile lock (<c>ProfileOwnerRoomId</c>) the stored game profile held before the
+        /// game's first storage request was left by an earlier start (<see cref="Services.Storage.StaleProfileOwner"/>). null or
+        /// false (the standalone host, tests): unknown, the stored lock is served as it is.
+        /// </summary>
+        public bool? InProcessClient { get; set; }
+
+        /// <summary>
         /// PC (WR2 F2): why the patched client is not the one running, e.g. "Game loaded from the game folder" (an assembly the
         /// .exe.config redirects came from elsewhere) or "the 'store' patch is missing" (a witness of §3.9); several reasons are
         /// joined with "; ". null: active, or unknown (Android, the standalone host, Game not loaded yet). The settings page and

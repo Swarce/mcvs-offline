@@ -1272,7 +1272,9 @@ namespace McvsOffline.Embedded
         {
             Func<Action<System.Reflection.Assembly>, Action> watchLoads = null;
             if (extensions != null) watchLoads = extensions.WatchAssemblyLoads;
-            PatchWatcher watcher = GamePatchProbe.Watch(new ClientCapabilities(), Logger.For("game"), watchLoads, isWindows ? Boot : null, Paths.GameRoot);
+            // The game runs in this process: a profile lock its stored profile held before this start's first request is stale.
+            var capabilities = new ClientCapabilities { InProcessClient = true };
+            PatchWatcher watcher = GamePatchProbe.Watch(capabilities, Logger.For("game"), watchLoads, isWindows ? Boot : null, Paths.GameRoot);
             Patches = watcher;
             return watcher;
         }
