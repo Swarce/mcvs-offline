@@ -87,7 +87,7 @@ namespace McvsOffline
         public const string ProfileTemplateSource = "DefaultProfile.tx";
 
         /// <summary>At most this many game methods in a caller chain.</summary>
-        public const int CallerChainLength = 6;
+        public const int CallerChainLength = 8;
 
         private static volatile Action<string> info;
         private static readonly object gate = new object();

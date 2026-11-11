@@ -293,7 +293,7 @@ ETag makes every later save fail with 412). **Never 403/404 for existing data** 
 Also the IAP `inventory` section `{rewardId: int}` (a generic grant channel). Build 32: with the embedded host
 (`ClientCapabilities.InProcessClient`) a `_mcvs.gameProfile` read whose `ProfileOwnerRoomId` is still the one the dump held
 before the game's first request of this start (a start killed without `SaveAndReleaseProfile`) is answered with it `null`,
-so the TS skips its 5 s ownership loop (`StaleProfileOwner`, `storage.clearStaleProfileOwner`, docs/protocol/storage.md).
+so the TS is expected to skip its 5 s ownership loop (to be confirmed on a device; `StaleProfileOwner`, `storage.clearStaleProfileOwner`, docs/protocol/storage.md).
 
 **CRM.** `configs/users/me` and `configs/users/me/game` must return **200** with a complete document
 (the GS waits forever otherwise; a partial 200 is worse than an error for the TS). Base it on the

@@ -23,10 +23,12 @@ namespace McvsOffline.Server.Core
         public bool? InboxPatch { get; set; }
 
         /// <summary>
-        /// Build 32: the game client runs in this process (the embedded host, Android and PC): every room id it writes into a
-        /// profile was made by this process, so a profile lock (<c>ProfileOwnerRoomId</c>) the stored game profile held before the
-        /// game's first storage request was left by an earlier start (<see cref="Services.Storage.StaleProfileOwner"/>). null or
-        /// false (the standalone host, tests): unknown, the stored lock is served as it is.
+        /// Build 32: the game client of this process is the only one using this server (the embedded host's server started with
+        /// the game, Android and PC): every room id written into a profile was made by this process, so a profile lock
+        /// (<c>ProfileOwnerRoomId</c>) the stored game profile held before the game's first storage request was left by an earlier
+        /// start (<see cref="Services.Storage.StaleProfileOwner"/>). false: a server that took the port over from another copy of
+        /// the game mid-session (that copy's rooms, and this game's own lock taken through it, may be live). null or false (also
+        /// the standalone host, tests): unknown, the stored lock is served as it is. LAN mode turns it off too (guests' rooms).
         /// </summary>
         public bool? InProcessClient { get; set; }
 

@@ -497,6 +497,8 @@ namespace McvsOffline.Patcher.Patches
             public Instruction ConvertAdd, ConvertCreated, CopyAdd, MergeStart, JsonStart, JsonReturn;
             public FieldDefinition Nodes, Name, Parent;
             public MethodReference ListCount, ListItem, ObjectGetType, TypeEquals, GetValue;
+            public GenericInstanceType SetType, Dict;
+            public MethodReference NewSet, SetAdd, SetContains, NewDict, DictTryGet, DictAdd, DictSet, DictHas, FromHandle;
         }
 
         /// <summary>
@@ -587,7 +589,68 @@ namespace McvsOffline.Patcher.Patches
                 throw new PatchException(t.ToJson.FullName + ": not the verified body:\n" + Dump(t.ToJson));
             t.JsonStart = streams[0];
             t.JsonReturn = rets[1];
+            ResolveCollections(module, t);
             return t;
+        }
+
+        /// <summary>
+        /// The HashSet&lt;TName&gt;, Dictionary&lt;TName, TNode&gt; and Type::GetTypeFromHandle references the writer/Copy/MergeWith
+        /// change uses, resolved against the game's own mscorlib (each one checked), for <see cref="ApplyTrees"/>.
+        /// </summary>
+        private static void ResolveCollections(ModuleDefinition module, TreeSites t)
+        {
+            TypeSystem ts = module.TypeSystem;
+            TypeDefinition node = t.Node;
+            TypeReference name = t.Name.FieldType;
+            // HashSet<TName> from the module's own reference (TNode.ExtendedNodeNames returns one).
+            List<MethodDefinition> extended = node.Methods.Where(m => m.Name == "ExtendedNodeNames" && m.Parameters.Count == 0).ToList();
+            if (extended.Count != 1) throw new PatchException(NodeType + ": expected exactly one ExtendedNodeNames(), found " + extended.Count);
+            MethodDefinition extendedNames = extended[0];
+            var setType = extendedNames.ReturnType as GenericInstanceType;
+            if (setType == null || setType.ElementType.FullName != "System.Collections.Generic.HashSet`1")
+                throw new PatchException(extendedNames.FullName + " does not return a HashSet<TName>");
+            TypeReference openSet = setType.ElementType;
+            var newSet = new MethodReference(".ctor", ts.Void, setType) { HasThis = true };
+            var setAdd = new MethodReference("Add", ts.Boolean, setType) { HasThis = true };
+            setAdd.Parameters.Add(new ParameterDefinition(openSet.GenericParameters[0]));
+            var setContains = new MethodReference("Contains", ts.Boolean, setType) { HasThis = true };
+            setContains.Parameters.Add(new ParameterDefinition(openSet.GenericParameters[0]));
+            foreach (MethodReference m in new[] { newSet, setAdd, setContains })
+                if (m.Resolve() == null) throw new PatchException("the game's HashSet`1 has no " + m.FullName);
+            // Dictionary<TName, TNode>
+            var openDict = new TypeReference("System.Collections.Generic", "Dictionary`2", module, ts.CoreLibrary);
+            openDict.GenericParameters.Add(new GenericParameter("TKey", openDict));
+            openDict.GenericParameters.Add(new GenericParameter("TValue", openDict));
+            var dict = new GenericInstanceType(openDict);
+            dict.GenericArguments.Add(name);
+            dict.GenericArguments.Add(node);
+            var newDict = new MethodReference(".ctor", ts.Void, dict) { HasThis = true };
+            var dictTryGet = new MethodReference("TryGetValue", ts.Boolean, dict) { HasThis = true };
+            dictTryGet.Parameters.Add(new ParameterDefinition(openDict.GenericParameters[0]));
+            dictTryGet.Parameters.Add(new ParameterDefinition(new ByReferenceType(openDict.GenericParameters[1])));
+            var dictAdd = new MethodReference("Add", ts.Void, dict) { HasThis = true };
+            dictAdd.Parameters.Add(new ParameterDefinition(openDict.GenericParameters[0]));
+            dictAdd.Parameters.Add(new ParameterDefinition(openDict.GenericParameters[1]));
+            var dictSet = new MethodReference("set_Item", ts.Void, dict) { HasThis = true };
+            dictSet.Parameters.Add(new ParameterDefinition(openDict.GenericParameters[0]));
+            dictSet.Parameters.Add(new ParameterDefinition(openDict.GenericParameters[1]));
+            var dictHas = new MethodReference("ContainsKey", ts.Boolean, dict) { HasThis = true };
+            dictHas.Parameters.Add(new ParameterDefinition(openDict.GenericParameters[0]));
+            foreach (MethodReference m in new[] { newDict, dictTryGet, dictAdd, dictSet, dictHas })
+                if (m.Resolve() == null) throw new PatchException("the game's mscorlib has no " + m.FullName);
+            TypeReference typeType = t.TypeEquals.Parameters[0].ParameterType;
+            MethodReference fromHandle = CorlibMethod(module, typeType, "GetTypeFromHandle", false, typeType, PatchSites.CorlibType(module, "System", "RuntimeTypeHandle"));
+            t.SetType = setType;
+            t.NewSet = newSet;
+            t.SetAdd = setAdd;
+            t.SetContains = setContains;
+            t.Dict = dict;
+            t.NewDict = newDict;
+            t.DictTryGet = dictTryGet;
+            t.DictAdd = dictAdd;
+            t.DictSet = dictSet;
+            t.DictHas = dictHas;
+            t.FromHandle = fromHandle;
         }
 
         /// <summary>
@@ -626,42 +689,11 @@ namespace McvsOffline.Patcher.Patches
             TypeDefinition node = t.Node;
             TypeReference name = t.Name.FieldType;
             TypeReference list = t.Nodes.FieldType;
-            // HashSet<TName> from the module's own reference (TNode.ExtendedNodeNames returns one).
-            MethodDefinition extendedNames = node.Methods.Single(m => m.Name == "ExtendedNodeNames" && m.Parameters.Count == 0);
-            var setType = extendedNames.ReturnType as GenericInstanceType;
-            if (setType == null || setType.ElementType.FullName != "System.Collections.Generic.HashSet`1")
-                throw new PatchException(extendedNames.FullName + " does not return a HashSet<TName>");
-            TypeReference openSet = setType.ElementType;
-            var newSet = new MethodReference(".ctor", ts.Void, setType) { HasThis = true };
-            var setAdd = new MethodReference("Add", ts.Boolean, setType) { HasThis = true };
-            setAdd.Parameters.Add(new ParameterDefinition(openSet.GenericParameters[0]));
-            var setContains = new MethodReference("Contains", ts.Boolean, setType) { HasThis = true };
-            setContains.Parameters.Add(new ParameterDefinition(openSet.GenericParameters[0]));
-            foreach (MethodReference m in new[] { newSet, setAdd, setContains })
-                if (m.Resolve() == null) throw new PatchException("the game's HashSet`1 has no " + m.FullName);
-            // Dictionary<TName, TNode>
-            var openDict = new TypeReference("System.Collections.Generic", "Dictionary`2", module, ts.CoreLibrary);
-            openDict.GenericParameters.Add(new GenericParameter("TKey", openDict));
-            openDict.GenericParameters.Add(new GenericParameter("TValue", openDict));
-            var dict = new GenericInstanceType(openDict);
-            dict.GenericArguments.Add(name);
-            dict.GenericArguments.Add(node);
-            var newDict = new MethodReference(".ctor", ts.Void, dict) { HasThis = true };
-            var dictTryGet = new MethodReference("TryGetValue", ts.Boolean, dict) { HasThis = true };
-            dictTryGet.Parameters.Add(new ParameterDefinition(openDict.GenericParameters[0]));
-            dictTryGet.Parameters.Add(new ParameterDefinition(new ByReferenceType(openDict.GenericParameters[1])));
-            var dictAdd = new MethodReference("Add", ts.Void, dict) { HasThis = true };
-            dictAdd.Parameters.Add(new ParameterDefinition(openDict.GenericParameters[0]));
-            dictAdd.Parameters.Add(new ParameterDefinition(openDict.GenericParameters[1]));
-            var dictSet = new MethodReference("set_Item", ts.Void, dict) { HasThis = true };
-            dictSet.Parameters.Add(new ParameterDefinition(openDict.GenericParameters[0]));
-            dictSet.Parameters.Add(new ParameterDefinition(openDict.GenericParameters[1]));
-            var dictHas = new MethodReference("ContainsKey", ts.Boolean, dict) { HasThis = true };
-            dictHas.Parameters.Add(new ParameterDefinition(openDict.GenericParameters[0]));
-            foreach (MethodReference m in new[] { newDict, dictTryGet, dictAdd, dictSet, dictHas })
-                if (m.Resolve() == null) throw new PatchException("the game's mscorlib has no " + m.FullName);
-            TypeReference typeType = t.TypeEquals.Parameters[0].ParameterType;
-            MethodReference fromHandle = CorlibMethod(module, typeType, "GetTypeFromHandle", false, typeType, PatchSites.CorlibType(module, "System", "RuntimeTypeHandle"));
+            // Resolved and checked by VerifyTrees (ResolveCollections), before anything was changed.
+            GenericInstanceType setType = t.SetType, dict = t.Dict;
+            MethodReference newSet = t.NewSet, setAdd = t.SetAdd, setContains = t.SetContains;
+            MethodReference newDict = t.NewDict, dictTryGet = t.DictTryGet, dictAdd = t.DictAdd, dictSet = t.DictSet, dictHas = t.DictHas;
+            MethodReference fromHandle = t.FromHandle;
 
             var shared = new FieldDefinition("mcvsShared", FieldAttributes.Private | FieldAttributes.Static, ts.Boolean);
             node.Fields.Add(shared);

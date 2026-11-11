@@ -200,6 +200,72 @@ namespace McvsOffline.Tests.Storage
             Assert.Equal(Dump(Current), owners.OnRead("a", Dump(Current), true, out cleared, out first));
         }
 
+        /// <summary>
+        /// The read without the dump scan once nothing can be cleared (nothing inherited, the setting off, a dump that cannot hold
+        /// the inherited owner) gives exactly the answers of the build-32 read that always scanned (<see cref="ScanningRead"/>), for
+        /// every order of reads of these dumps, both settings, and an owner written with escapes.
+        /// </summary>
+        [Fact]
+        public void TheReadWithoutTheScanAnswersAsTheScanningRead()
+        {
+            string escaped = Dump(Old).Replace("\"" + Old + "\"", "\"\\u004cocal" + Old.Substring(5) + "\"");
+            Assert.Equal(Old, Owner(escaped));
+            string slashed = Dump(Current, "a\\\"b");   // a backslash elsewhere, not in the owner
+            string[] dumps = { Dump(Old), Dump(Current), Dump(null), escaped, slashed, "{}", "", null, "not json " + Old,
+                               Dump(Old).Replace(Old, Old + "x"), Dump(Old.Substring(0, 20)) };
+            var random = new Random(32);
+            for (int round = 0; round < 400; round++)
+            {
+                var owners = new StaleProfileOwner();
+                var model = new Dictionary<string, string>(StringComparer.Ordinal);
+                var reported = new HashSet<string>(StringComparer.Ordinal);
+                int reads = 1 + random.Next(6);
+                for (int r = 0; r < reads; r++)
+                {
+                    string dump = dumps[random.Next(dumps.Length)];
+                    bool clear = random.Next(4) != 0;
+                    string account = random.Next(3) == 0 ? "b" : "a";
+                    string cleared, expectedCleared;
+                    bool first, expectedFirst;
+                    string answer = owners.OnRead(account, dump, clear, out cleared, out first);
+                    string expected = ScanningRead(model, reported, account, dump, clear, out expectedCleared, out expectedFirst);
+                    Assert.Equal(expected, answer);
+                    Assert.Equal(expectedCleared, cleared);
+                    Assert.Equal(expectedFirst, first);
+                    Assert.Equal(model.ContainsKey(account) ? model[account] : null, owners.Inherited(account));
+                }
+            }
+            Assert.False(StaleProfileOwner.MayHold(Dump(null), Old));
+            Assert.False(StaleProfileOwner.MayHold(Dump(Current), Old));
+            Assert.False(StaleProfileOwner.MayHold("", Old));
+            Assert.False(StaleProfileOwner.MayHold(null, Old));
+            Assert.True(StaleProfileOwner.MayHold(Dump(Old), Old));
+            Assert.True(StaleProfileOwner.MayHold(escaped, Old));
+            Assert.True(StaleProfileOwner.MayHold(slashed, Old));
+        }
+
+        /// <summary>The build-32 read as first committed: the dump scanned on every read.</summary>
+        private static string ScanningRead(Dictionary<string, string> inherited, HashSet<string> reported, string accountId, string dump,
+                                           bool clear, out string cleared, out bool firstTime)
+        {
+            cleared = null;
+            firstTime = false;
+            if (string.IsNullOrEmpty(accountId)) return dump;
+            int start, length;
+            string owner;
+            bool found = StaleProfileOwner.TryFindOwner(dump, out start, out length, out owner);
+            string old;
+            if (!inherited.TryGetValue(accountId, out old))
+            {
+                old = found ? owner : null;
+                inherited[accountId] = old;
+            }
+            if (!clear || !found || owner == null || old == null || !string.Equals(owner, old, StringComparison.Ordinal)) return dump;
+            firstTime = reported.Add(accountId + "\n" + owner);
+            cleared = owner;
+            return StaleProfileOwner.Release(dump, start, length);
+        }
+
         // ------------------------------------------------------------------ over the storage endpoints
 
         private static string Get(StorageHarness h, string token)
@@ -346,6 +412,37 @@ namespace McvsOffline.Tests.Storage
             Save(h3, t3, "not json " + Old);
             h3.Restart();
             Assert.Equal("not json " + Old, Get(h3, h3.PlayerToken("r")));
+        }
+
+        /// <summary>
+        /// LAN mode: guests keep their profiles in this server and make their rooms in their own processes, so locks are not
+        /// followed while it is on, nor for the rest of the process once it has been on (a guest's live lock is never cleared).
+        /// </summary>
+        [Fact]
+        public void InLanModeTheLockIsServedAsStored()
+        {
+            using (var h = new StorageHarness(configure: s => s.Override("lanMode", true), inProcessClient: true))
+            {
+                string token = h.PlayerToken("p");
+                Save(h, token, Dump(Old));
+                h.Restart();
+                token = h.PlayerToken("p");
+                Assert.Equal(Dump(Old), Get(h, token));
+                Assert.Equal(0, Lines(h, "earlier start"));
+            }
+            using (var h = new StorageHarness(inProcessClient: true))
+            {
+                string token = h.PlayerToken("p");
+                Save(h, token, Dump(Old));
+                h.Restart();
+                token = h.PlayerToken("p");
+                Assert.Equal(Dump(null), Get(h, token));
+                // Turned on in this start, then off again: served as stored from then on.
+                h.Context.Settings.Override("lanMode", true);
+                Assert.Equal(Dump(Old), Get(h, token));
+                h.Context.Settings.Override("lanMode", false);
+                Assert.Equal(Dump(Old), Get(h, token));
+            }
         }
     }
 }

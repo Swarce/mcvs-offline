@@ -40,6 +40,8 @@ namespace McvsOffline.Server.Services.Storage
         private readonly Log log;
         private readonly StorageSettings settings;
         private readonly StaleProfileOwner owners = new StaleProfileOwner();
+        // LAN mode was on at some request of this process: profile locks are no longer followed (TracksOwners).
+        private volatile bool lanSeen;
 
         public StorageEndpoints(ServerContext context, LocalProfileStore store, DataBlobStore blobs, Log log)
         {
@@ -186,12 +188,15 @@ namespace McvsOffline.Server.Services.Storage
         }
 
         /// <summary>
-        /// Profile locks are followed only for the local store and when the game runs in this process
-        /// (<see cref="ClientCapabilities.InProcessClient"/>): only then is every room id the game writes one of this process.
+        /// Profile locks are followed only for the local store, when the game client of this process is the only one using this
+        /// server (<see cref="ClientCapabilities.InProcessClient"/>; not a server that took the port over from another copy of
+        /// the game), and never once LAN mode has been on in this process (guests store their profiles here, and their rooms are
+        /// made in their own processes): only then is every room id the game writes one of this process.
         /// </summary>
         private bool TracksOwners(IProfileStore s)
         {
-            if (!ReferenceEquals(s, store)) return false;
+            if (context.Settings.LanMode) lanSeen = true;
+            if (lanSeen || !ReferenceEquals(s, store)) return false;
             ClientCapabilities client = context.Features.Get<ClientCapabilities>();
             return client != null && client.InProcessClient == true;
         }

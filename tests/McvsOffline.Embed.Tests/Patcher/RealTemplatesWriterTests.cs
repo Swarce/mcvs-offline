@@ -604,6 +604,13 @@ namespace McvsFixture
             Assembly t = game.Get("Gameloft.Templates");
             Type nodeType = t.GetType(TemplatesPatch.NodeType, true), valueType = t.GetType(TemplatesPatch.ValueType, true);
             PropertyInfo name = nodeType.GetProperty("Name"), parent = nodeType.GetProperty("Parent"), value = valueType.GetProperty("Value");
+            PropertyInfo nameKind = name.PropertyType.GetProperty("Type"), valueKind = valueType.GetProperty("ValueType");
+            PropertyInfo declaredBase = nodeType.GetProperty("DeclaredBase");
+            FieldInfo annotations = nodeType.GetField("annotations", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(nameKind);
+            Assert.NotNull(valueKind);
+            Assert.NotNull(declaredBase);
+            Assert.NotNull(annotations);
             MethodInfo nodes = nodeType.GetMethod("Nodes", Type.EmptyTypes);
             var ids = new Dictionary<object, int>(ReferenceEqualityComparer.Instance);
             var sb = new StringBuilder();
@@ -618,9 +625,17 @@ namespace McvsFixture
                 int id = ids.Count;
                 ids[n] = id;
                 object p = parent.GetValue(n);
-                sb.Append('#').Append(id).Append(' ').Append(n.GetType().Name).Append(' ').Append(name.GetValue(n)?.ToString() ?? "?").Append(' ')
+                object nodeName = name.GetValue(n);
+                sb.Append('#').Append(id).Append(' ').Append(n.GetType().Name).Append(' ').Append(nodeName?.ToString() ?? "?")
+                  .Append('/').Append(nodeName == null ? "?" : nameKind.GetValue(nodeName).ToString()).Append(' ')
                   .Append(p == null ? "-" : ids.TryGetValue(p, out int pid) ? "^" + pid : "^?");
-                if (valueType.IsInstanceOfType(n)) sb.Append(" = ").Append(Convert.ToString(value.GetValue(n), CultureInfo.InvariantCulture) ?? "null");
+                object b = declaredBase.GetValue(n);
+                if (b != null) sb.Append(" base ").Append(ids.TryGetValue(b, out int bid) ? "#" + bid : name.GetValue(b)?.ToString() ?? "?");
+                if (annotations.GetValue(n) is IDictionary<string, object> notes)
+                    foreach (KeyValuePair<string, object> note in notes.OrderBy(x => x.Key, StringComparer.Ordinal))
+                        sb.Append(" @").Append(note.Key).Append('=').Append(Convert.ToString(note.Value, CultureInfo.InvariantCulture));
+                if (valueType.IsInstanceOfType(n))
+                    sb.Append(" = ").Append(valueKind.GetValue(n)).Append(':').Append(Convert.ToString(value.GetValue(n), CultureInfo.InvariantCulture) ?? "null");
                 sb.Append('\n');
                 if (depth > 40) return;
                 foreach (object c in ((IEnumerable)nodes.Invoke(n, null)).Cast<object>().ToList()) Walk(c, depth + 1);

@@ -71,7 +71,7 @@ the HD textures and the graphics profiles work, at the same frame rate as before
 
 ## Build 32 (November 2026): the template reader without its quadratic name scan (the 27.7 s agent-select freeze), the same for the saves' writer and the loads' merge, a profile lock left by an earlier start answered as released, managed dumps at the first hitches
 
-On `wip/b32` (`McvsVersion.Build` is `32`). Tests: 1653, Embed 1418, PcKit 63, PcSpike 62, all passed (the solution, the embedded and the PC server DLLs built). Not yet tested on a phone or on Steam; the APK and the PC
+On `wip/b32` (`McvsVersion.Build` is `32`). Tests: 1655, Embed 1418, PcKit 63, PcSpike 62, all passed (the solution, the embedded and the PC server DLLs built). Not yet tested on a phone or on Steam; the APK and the PC
 kit of this build are not built yet.
 
 **The owner's build-31 log** (Galaxy S25 Ultra SM-S938B, unlock-all profile of ~611 KB; session `20261111-182001`, watchdog
@@ -193,30 +193,44 @@ and hitch probe on):
   GS's `LoadPlayerProfile` reads it, the GS's results save, the TS's reload in the menu (`ResumeServer`), the TS's lock save
   (+51 chars). The lock is a TS-only thing (`TakeProfileLock` and `ResumeServer` return early on the GS); room ids are
   `LocalAnubis-Room-` + a new GUID made in the game's process (`LocalAnubis.Lobby.GenerateRoomId`); the game writes the
-  dump only through our storage endpoints. So the embedded host now tells its server that the game runs in its process
-  (`ClientCapabilities.InProcessClient`), and the storage module remembers per account the lock the stored dump held before
+  dump only through our storage endpoints. So the embedded host now tells the server it starts with the game that the
+  game client of its process is the only one using it (`ClientCapabilities.InProcessClient`; not a server that took the
+  port over from another copy of the game mid-session, and not while LAN mode is or has been on in the process: guests'
+  rooms are made in their own processes), and the storage module remembers per account the lock the stored dump held before
   the game's first request of this start (its first read of `_mcvs.gameProfile`, or before its first write to the account,
   whichever comes first). While the stored lock is still exactly that id, a `GET _mcvs.gameProfile` is answered with it
-  replaced by `null` (byte for byte the text `SaveAndReleaseProfile` stores), the file is not changed, and the server log
+  replaced by `null` (the same text with the lock written as null, as the writer writes a released lock), the file is not changed, and the server log
   says once `profile: cleared a room owner left by an earlier start: LocalAnubis-Room-… (<account>; ProfileOwnerRoomId
   answered as null, the stored profile is unchanged)`. The TS's `MakeSureProfileIsUnlocked` then finds no owner: no notice,
   no kick, no reloads, and `TakeProfileLock` saves its own room as before. A lock the game wrote in this start (every
   `TakeProfileLock`/`ResumeServer` of this process), an absent one, a dump of another shape (a key twice, a look-alike
   key, an owner that is not a string, a `/Profile` of another `@type`), a selector deeper than `_mcvs.gameProfile`, the
-  whole document, a LAN-forwarded account and the standalone host are answered as stored, i.e. the game's own behaviour.
+  whole document, a LAN-forwarded account, LAN mode, a server that took the port over and the standalone host are
+  answered as stored, i.e. the game's own behaviour. Once nothing can be cleared for an account (no lock inherited, the
+  setting off, or a dump with no backslash that does not contain the inherited id), a read answers the dump without
+  scanning it (the ~611 KB dump was scanned about three times per read before).
   `storage.clearStaleProfileOwner: false` turns it off (the lock is still remembered, so turning it on later in the same
   start never takes this start's room for an old one).
-- **Tests of the third part:** `StaleProfileOwnerTests` (35: the game's shape found and released to the exact released
+- **Tests of the third part:** `StaleProfileOwnerTests` (37: the game's shape found and released to the exact released
   text, pretty-printed/escaped/BOM text, 22 shapes that are not a lock, the first read or the first write captures, the
   setting off, accounts apart; over the storage endpoints with a restart between starts: start 1 locks and is killed, start
   2 reads it released, then locks, releases (Play), the GS's save, locks again, all answered as stored, start 3 reads start
   2's lock released; a write to another section or the game server's `currentMatch` write before the first read; the
-  standalone server and the setting off serve the lock as stored); `RealProfileOwnerTests` on the real Gameloft.Templates.dll
+  standalone server and the setting off serve the lock as stored; the read without the scan answers exactly as the
+  always-scanning read for 400 random orders of reads over 11 dumps, both settings and an id written with escapes; LAN mode
+  on, or turned on and off in the same start, serves the lock as stored); `RealProfileOwnerTests` on the real Gameloft.Templates.dll
   of both builds, shipped and with the 'templates' patch, on the unlock-all-shaped profile: the answered text reads to the
   stale tree with exactly one difference (the lock's `TValue` is `Null`), the game's writer writes the stale tree with that
   value set to null as `"ProfileOwnerRoomId":null` and reads back to the same tree, and `DefaultConverter.ConvertFromTemplate`
   gives a null string for it; `EmbeddedHostTests.TheNextStartAnswersALockLeftByTheEarlierStartAsReleased`: two real embedded
-  host starts over HTTP, the second answers the first one's lock released and logs the line.
+  host starts over HTTP, the second answers the first one's lock released and logs the line;
+  `WhenTheOtherCopysServerStopsThisGamesOwnServerTakesThePortOver`: the takeover server does not follow locks.
+- **Review of the second and third parts** (no change in what the game gets on the paths already tested): the takeover
+  server and LAN mode no longer follow locks (above); a read with nothing to clear no longer scans the dump (about 1.3 ms
+  per read for a 455 KB dump on the build machine before, nothing now; more on a phone); the 'templates' patch resolves
+  its HashSet/Dictionary/GetTypeFromHandle references in its checks, before the reader change is applied (the patched IL
+  is unchanged); the writer tests' tree comparison also prints each name's kind, each value's `ValueType`, `DeclaredBase`
+  and the annotations; a caller chain holds 8 game methods (was 6).
 - **The results screen's two saves, from the code** (behaviour unchanged): the build-31 results screen has one
   `gameProfile` POST (18:25:12.5) and two sections merges (`DoSaveProfile:807` at 15.887 and 15.914), so a second
   `DoSaveProfile` ran while the first one's request was in flight (`ProfileSection.Save` goes through a
@@ -246,9 +260,9 @@ and hitch probe on):
 - The profile's game-object creation at a World's first load (the rest of the 7-8 s); the per-bot apply of the
   template (`AddGameObject`, about 0.25 s per bot in the log); the 7 bots are still spawned in one frame (spreading them would
   change the order against `BalanceTeams`, `RoomClosed` and the saves).
-- The boot's ownership loop (7.4 s in the build-31 log) should be gone after a start that ended without a release (third
-  part); not yet seen on a device. It stays for a lock the server cannot tell is old (another shape of dump, the setting
-  off, the standalone host).
+- The boot's ownership loop (7.4 s in the build-31 log) is expected to be skipped after a start that ended without a
+  release (third part); to be confirmed on a device. It stays for a lock the server cannot tell is old (another shape of
+  dump, the setting off, LAN mode, a server that took the port over, the standalone host).
 - Which two callers make the results screen's overlapping saves, what the match start's 1.06 s is, the 3 early boot
   hitches: not determined (the new `profile:` lines and the hitch dumps should tell).
 

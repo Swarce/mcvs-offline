@@ -1157,7 +1157,7 @@ namespace McvsOffline.Embedded
             return result.Content;
         }
 
-        private void RunServer(EmbeddedHostOptions options, int port, PortReservation reservation)
+        private void RunServer(EmbeddedHostOptions options, int port, PortReservation reservation, bool tookOver = false)
         {
             Socket listener = reservation == null ? null : reservation.Listener;
             try
@@ -1175,7 +1175,7 @@ namespace McvsOffline.Embedded
                     FileLog = true,
                     BootTrace = Boot,
                     FileLogOptions = LogFileOptions(),
-                    ClientCapabilities = WatchPatches().Target,
+                    ClientCapabilities = WatchPatches(!tookOver).Target,
                 };
                 // LAN is not supported on PC: the server's own copy of the settings too (never saved).
                 if (isWindows) serverOptions.LanMode = false;
@@ -1268,12 +1268,14 @@ namespace McvsOffline.Embedded
         /// The client's patches for the server (ServerOptions.ClientCapabilities): probed now, and on PC again when Game loads (the
         /// bootstrap runs before it there), with the "[boot] assemblies:" and "[boot] patches:" lines.
         /// </summary>
-        private PatchWatcher WatchPatches()
+        private PatchWatcher WatchPatches(bool onlyClient)
         {
             Func<Action<System.Reflection.Assembly>, Action> watchLoads = null;
             if (extensions != null) watchLoads = extensions.WatchAssemblyLoads;
-            // The game runs in this process: a profile lock its stored profile held before this start's first request is stale.
-            var capabilities = new ClientCapabilities { InProcessClient = true };
+            // The game runs in this process and is the only client of this server: a profile lock its stored profile held before
+            // this server's first request is stale. Not for a server that took the port over from another copy's (onlyClient
+            // false): until then this game used that server and may hold a live lock of its own, and the other copy may be back.
+            var capabilities = new ClientCapabilities { InProcessClient = onlyClient };
             PatchWatcher watcher = GamePatchProbe.Watch(capabilities, Logger.For("game"), watchLoads, isWindows ? Boot : null, Paths.GameRoot);
             Patches = watcher;
             return watcher;
@@ -1412,7 +1414,7 @@ namespace McvsOffline.Embedded
                                      "this game's own server takes port " + port + " over, and the game's next requests reach it");
                             Boot.Mark("offline server: took port " + port + " over after the other copy's server stopped");
                             portWatching = false;
-                            RunServer(options, port, reservation);
+                            RunServer(options, port, reservation, true);
                             return;
                         }
                     }

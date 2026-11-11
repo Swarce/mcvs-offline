@@ -15,10 +15,11 @@ namespace McvsOffline.Server.Services.Storage
     /// <para>
     /// The room ids are <c>LocalAnubis-Room-</c> + a new GUID (<c>Gameloft.Engine.LocalAnubis.Lobby.GenerateRoomId</c>), made
     /// by the game in its own process, and the game writes the dump only through this server's storage endpoints. So when the
-    /// game runs in the same process as this server (the embedded host: <see cref="Core.ClientCapabilities.InProcessClient"/>),
-    /// the owner the dump held before the game's first storage request of this process (its first read of the dump, or its
-    /// first write to the account, whichever comes first) was written by an earlier process, and no room of this process can
-    /// have that id. While the stored owner is still exactly that id, a read of <c>_mcvs.gameProfile</c> is answered with the
+    /// game client of this server's process is the only one using it (the embedded host's server started with the game:
+    /// <see cref="Core.ClientCapabilities.InProcessClient"/>; not a server that took the port over from another copy of the game,
+    /// not in LAN mode), the owner the dump held before the game's first storage request of this process (its first read of the
+    /// dump, or its first write to the account, whichever comes first) was written by an earlier process, and no room of this
+    /// process can have that id. While the stored owner is still exactly that id, a read of <c>_mcvs.gameProfile</c> is answered with the
     /// value replaced by <c>null</c>, which is what the game itself stores on <c>SaveAndReleaseProfile</c> (the Templates writer
     /// writes a null string as <c>null</c>): the stored file is not changed. Any other owner (one the game wrote in this
     /// process) and anything unexpected (no dump, a dump that is not the expected shape, a key twice, an owner that is not a
@@ -91,10 +92,16 @@ namespace McvsOffline.Server.Services.Storage
             cleared = null;
             firstTime = false;
             if (string.IsNullOrEmpty(accountId)) return dump;
+            string old;
+            lock (gate)
+            {
+                // Already captured and nothing to look for (nothing inherited, the setting off, or a dump that cannot hold the
+                // inherited owner): the answer below would be the dump itself, so it is given without scanning the dump.
+                if (inherited.TryGetValue(accountId, out old) && (old == null || !clear || !MayHold(dump, old))) return dump;
+            }
             int start, length;
             string owner;
             bool found = TryFindOwner(dump, out start, out length, out owner);
-            string old;
             lock (gate)
             {
                 if (!inherited.TryGetValue(accountId, out old))
@@ -107,6 +114,17 @@ namespace McvsOffline.Server.Services.Storage
             }
             cleared = owner;
             return Release(dump, start, length);
+        }
+
+        /// <summary>
+        /// False only when no JSON string of <paramref name="dump"/> can decode to <paramref name="owner"/>: the dump has no backslash
+        /// (so no string in it has an escape, and each one's text is its value) and does not contain the owner's text. Then
+        /// <see cref="TryFindOwner"/> cannot find that owner, and <see cref="OnRead"/> answers the dump as it is.
+        /// </summary>
+        internal static bool MayHold(string dump, string owner)
+        {
+            if (string.IsNullOrEmpty(dump)) return false;
+            return dump.IndexOf('\\') >= 0 || dump.IndexOf(owner, StringComparison.Ordinal) >= 0;
         }
 
         /// <summary>The dump with the value span [start, start + length) replaced by the JSON literal null.</summary>

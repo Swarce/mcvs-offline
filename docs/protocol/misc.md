@@ -213,7 +213,7 @@ type=<auth|sp|gs|chat|shop|matchmaking|lobby|data|mpmatch>&status=<0|1>&timestam
    The notice names the *old* room id; the new TS ignores it (`GameServerComponent.InboxComponent_MultipleConnectionDetected`
    compares room ids, and LocalAnubis room ids are fresh GUIDs, `LA/Lobby.cs:185-188`). Build 32: with the embedded host the
    storage module answers a lock left by an earlier start as released (docs/protocol/storage.md, Decisions), so after a kill
-   the next login posts no notice at all.
+   the next login is expected to post no notice at all (to be confirmed on a device).
 3. **Gifts the client cannot parse are refused (400)**: a `type=gift` message needs a JSON-object body
    (`{"gifts":[{"name","value"}],"message"}`) or a `gift_type`, otherwise the client throws `CorruptedGiftException`
    and would skip it forever. Push transports (`apns`, `gcm`, `mpns`, `wns`, and `any`, used by the clan join-request

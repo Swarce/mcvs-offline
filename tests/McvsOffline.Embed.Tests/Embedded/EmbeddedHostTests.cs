@@ -92,10 +92,6 @@ namespace McvsOffline.Embed.Tests.Embedded
         }
 
         /// <summary>
-        /// Log retention per start (docs/design/settings-page.md §7.7): every start begins new log files, records itself in
-        /// logs/starts.txt and deletes the files of starts older than the previous one; the restart marker is still taken.
-        /// </summary>
-        /// <summary>
         /// Build 32: the embedded host tells its server that the game runs in this process, so the next start answers the
         /// profile lock an earlier start left (no SaveAndReleaseProfile: the app was killed) as released, over HTTP.
         /// </summary>
@@ -160,6 +156,10 @@ namespace McvsOffline.Embed.Tests.Embedded
                 return reader.ReadToEnd();
         }
 
+        /// <summary>
+        /// Log retention per start (docs/design/settings-page.md §7.7): every start begins new log files, records itself in
+        /// logs/starts.txt and deletes the files of starts older than the previous one; the restart marker is still taken.
+        /// </summary>
         [Fact]
         public void EachStartBeginsNewLogFilesAndDeletesOlderStarts()
         {
@@ -588,6 +588,8 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.Equal(port, host.Server.Port);
                 Assert.Equal(PortOutcome.Configured, host.PortReservation.Outcome);
                 Assert.False(host.WatchingPort);
+                // Until now the game used the other copy's server (and may hold a live lock through it): locks are not followed.
+                Assert.False(host.Server.Context.Features.Get<ClientCapabilities>().InProcessClient);
                 using (var http = new HttpClient())
                 {
                     Assert.Equal(HttpStatusCode.OK, http.GetAsync("http://127.0.0.1:" + port + "/").Result.StatusCode);
