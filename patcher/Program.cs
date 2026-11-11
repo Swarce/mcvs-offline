@@ -190,6 +190,8 @@ namespace McvsOffline.Patcher
                 "                                   instead of re-reading its file (hitches at the match start and back in the menu)\n" +
                 "                          jsonnorm  a profile save does not normalize the same large profile text again\n" +
                 "                                   (hitches on the results screen and when Play is pressed, unlock-all profiles)\n" +
+                "                          templates  the template reader finds a JSON object's properties with a dictionary\n" +
+                "                                   (every bot at agent select and every profile load read the whole profile)\n" +
                 "                        'none' = only the mandatory patches (server hook, headless TS/GS fixes, server physics),\n" +
                 "                        'all' = everything (the default set plus lan, forum and botmove), 'default' = the\n" +
                 "                        default set,\n" +

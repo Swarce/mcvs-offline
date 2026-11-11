@@ -114,10 +114,10 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                     return o;
                 };
                 Assert.DoesNotContain("bottile", PatchPlan.Ids(BuildProfile.PcSteam6372049).Default);
-                // Build 20's default set: today's without 'botmove' and 'fpslimit' (build 27) and 'crmtables' and 'jsonnorm' (build 30),
+                // Build 20's default set: today's without 'botmove' and 'fpslimit' (build 27) and 'crmtables' and 'jsonnorm' (build 30) and 'templates' (build 32),
                 // which an explicit build-20 list cannot name.
                 List<string> build20Ids = PatchPlan.Ids(BuildProfile.PcSteam6372049).Default
-                    .Where(id => id != "botmove" && id != "fpslimit" && id != "crmtables" && id != "jsonnorm").ToList();
+                    .Where(id => id != "botmove" && id != "fpslimit" && id != "crmtables" && id != "jsonnorm" && id != "templates").ToList();
                 Assert.Equal(build20Ids.OrderBy(id => id, StringComparer.Ordinal),
                              PcReportText.ParsePatchList(Build20Defaults.Replace("bottile,", "")).OrderBy(id => id, StringComparer.Ordinal));
 

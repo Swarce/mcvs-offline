@@ -40,6 +40,11 @@ namespace McvsOffline
     /// text (a full parse, a recursive sort, a re-serialization), and every profile save evaluates it twice: four
     /// normalizations of the ~611 KB unlock-all gameProfile per save, on the game thread. The function is pure, so the last
     /// few large results are kept and an identical input (ordinal) gets the same string back.</item>
+    /// <item>Patch 'templates', build 32 (Gameloft.Templates <c>JsonTemplateReader</c>, <c>TObject.FromObject</c>): timing only,
+    /// <see cref="TemplateClock"/>, <see cref="TemplateRead"/> and <see cref="TemplateFromObject"/>. The reader change itself is
+    /// pure IL (a per-object dictionary instead of two linear scans per property); these say on the device how long each large
+    /// template read (the profile of every bot at agent select, every profile load) and each large FromObject (the profile save's
+    /// writer) took.</item>
     /// </list>
     /// </summary>
     public static class GameDataHooks
@@ -66,6 +71,15 @@ namespace McvsOffline
         /// <summary>At most this many database-file lines (parsed, kept, restored) per process.</summary>
         public const int FileLineLimit = 80;
 
+        /// <summary>A template read or a FromObject that took at least this long gets a "templates:" line.</summary>
+        public const double TemplateLogMinMs = 100;
+
+        /// <summary>A template read with an object of at least this many names gets a "templates:" line, however fast.</summary>
+        public const int TemplateLogMinNames = 1000;
+
+        /// <summary>At most this many "templates:" lines per process (then only the counters of the status line).</summary>
+        public const int TemplateLineLimit = 60;
+
         private static volatile Action<string> info;
         private static readonly object gate = new object();
 
@@ -90,6 +104,12 @@ namespace McvsOffline
         private static int normHits, normMisses, normHitsSinceLine;
         private static long normMissTicks;
         [ThreadStatic] private static long normStarted;
+
+        // templates (Interlocked)
+        private static int templateReads, templateLargeReads, templateIndexed, templateLargest, templateLines;
+        private static long templateReadTicks, templateLargeReadTicks, templateMaxReadTicks;
+        private static int fromObjects, fromObjectsLarge;
+        private static long fromObjectLargeTicks, fromObjectMaxTicks;
 
         /// <summary>The embedded host's log (bootstrap.log, "[game]"); null: no lines, counters only.</summary>
         public static void Configure(Action<string> infoLine)
@@ -456,6 +476,85 @@ namespace McvsOffline
             }
         }
 
+        // ------------------------------------------------------------------------------------------------ templates
+
+        /// <summary>The patched reader's clock (<see cref="Stopwatch.GetTimestamp"/>).</summary>
+        public static long TemplateClock()
+        {
+            return Stopwatch.GetTimestamp();
+        }
+
+        /// <summary>
+        /// After a <c>JsonTemplateReader</c> read its default template (<c>ReadDefaultTemplate</c>'s first call): from
+        /// <paramref name="started"/> to now, the JSON parse up to <paramref name="rooted"/> (0: unknown), <paramref name="indexed"/>
+        /// objects of 8 names or more found their children by the dictionary, the largest with <paramref name="largest"/> names.
+        /// A slow or large one gets a "templates:" line; every read counts in the status line.
+        /// </summary>
+        public static void TemplateRead(string source, long started, long rooted, int indexed, int largest)
+        {
+            try
+            {
+                if (started == 0) return;
+                long now = Stopwatch.GetTimestamp();
+                long ticks = now - started;
+                Interlocked.Increment(ref templateReads);
+                Interlocked.Add(ref templateReadTicks, ticks);
+                if (indexed > 0) Interlocked.Add(ref templateIndexed, indexed);
+                Max(ref templateLargest, largest);
+                MaxLong(ref templateMaxReadTicks, ticks);
+                double ms = ticks * 1000.0 / Stopwatch.Frequency;
+                if (ms < TemplateLogMinMs && largest < TemplateLogMinNames) return;
+                Interlocked.Increment(ref templateLargeReads);
+                Interlocked.Add(ref templateLargeReadTicks, ticks);
+                if (Interlocked.Increment(ref templateLines) > TemplateLineLimit) return;
+                string json = rooted >= started && rooted <= now
+                    ? " (JSON " + Ms(rooted - started) + ", nodes " + Ms(now - rooted) + ")"
+                    : "";
+                Info("templates: " + (source ?? "?") + " read in " + Ms(ticks) + json + "; " + indexed.ToString(CultureInfo.InvariantCulture) +
+                     " objects of 8+ names indexed, the largest " + largest.ToString(CultureInfo.InvariantCulture) + " names (patch 'templates')");
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>After <c>TObject.FromObject(instance)</c> (the profile save's writer among others): a slow one gets a line.</summary>
+        public static void TemplateFromObject(object instance, long started)
+        {
+            try
+            {
+                if (started == 0) return;
+                long ticks = Stopwatch.GetTimestamp() - started;
+                Interlocked.Increment(ref fromObjects);
+                MaxLong(ref fromObjectMaxTicks, ticks);
+                if (ticks * 1000.0 / Stopwatch.Frequency < TemplateLogMinMs) return;
+                Interlocked.Increment(ref fromObjectsLarge);
+                Interlocked.Add(ref fromObjectLargeTicks, ticks);
+                if (Interlocked.Increment(ref templateLines) > TemplateLineLimit) return;
+                Info("templates: TObject.FromObject(" + (instance == null ? "null" : instance.GetType().Name) + ") took " + Ms(ticks) +
+                     " (the template writer: a profile save builds its text from it)");
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private static void Max(ref int target, int value)
+        {
+            int seen;
+            while (value > (seen = Interlocked.CompareExchange(ref target, 0, 0)) && Interlocked.CompareExchange(ref target, value, seen) != seen)
+            {
+            }
+        }
+
+        private static void MaxLong(ref long target, long value)
+        {
+            long seen;
+            while (value > (seen = Interlocked.Read(ref target)) && Interlocked.CompareExchange(ref target, value, seen) != seen)
+            {
+            }
+        }
+
         // ------------------------------------------------------------------------------------------------ status
 
         public static int CrmReloadsSkipped { get { return crmSkipped; } }
@@ -471,6 +570,12 @@ namespace McvsOffline
         public static int NormalizeHits { get { lock (gate) return normHits; } }
 
         public static int NormalizeMisses { get { lock (gate) return normMisses; } }
+
+        public static int TemplateReads { get { return Interlocked.CompareExchange(ref templateReads, 0, 0); } }
+
+        public static int TemplateObjectsIndexed { get { return Interlocked.CompareExchange(ref templateIndexed, 0, 0); } }
+
+        public static int TemplateLargestObject { get { return Interlocked.CompareExchange(ref templateLargest, 0, 0); } }
 
         /// <summary>One status-line part: "data hooks: crm tables ...; json normalize ...".</summary>
         public static string Describe()
@@ -496,7 +601,23 @@ namespace McvsOffline
                    " restored from memory (" + Ms(Interlocked.Read(ref fileRestoreTicks)) + "), " + kept.ToString(CultureInfo.InvariantCulture) +
                    " files kept" + (forgotten > 0 ? " (" + forgotten.ToString(CultureInfo.InvariantCulture) + " forgotten: data changed)" : "") +
                    "; json normalize " + misses.ToString(CultureInfo.InvariantCulture) +
-                   " large ones computed (" + Ms(missTicks) + "), " + hits.ToString(CultureInfo.InvariantCulture) + " from the cache";
+                   " large ones computed (" + Ms(missTicks) + "), " + hits.ToString(CultureInfo.InvariantCulture) + " from the cache" +
+                   DescribeTemplates();
+        }
+
+        /// <summary>"; templates: none read (no 'templates' patch)" or "; templates: 412 read (...)".</summary>
+        private static string DescribeTemplates()
+        {
+            int reads = Interlocked.CompareExchange(ref templateReads, 0, 0);
+            int converted = Interlocked.CompareExchange(ref fromObjects, 0, 0);
+            if (reads == 0 && converted == 0) return "; templates: none read yet (or no 'templates' patch)";
+            return "; templates: " + reads.ToString(CultureInfo.InvariantCulture) + " read (" + Ms(Interlocked.Read(ref templateReadTicks)) +
+                   ", longest " + Ms(Interlocked.Read(ref templateMaxReadTicks)) + "; " + Interlocked.CompareExchange(ref templateLargeReads, 0, 0).ToString(CultureInfo.InvariantCulture) +
+                   " slow or large ones, " + Ms(Interlocked.Read(ref templateLargeReadTicks)) + "), " +
+                   Interlocked.CompareExchange(ref templateIndexed, 0, 0).ToString(CultureInfo.InvariantCulture) + " objects indexed (largest " +
+                   Interlocked.CompareExchange(ref templateLargest, 0, 0).ToString(CultureInfo.InvariantCulture) + " names); FromObject " +
+                   converted.ToString(CultureInfo.InvariantCulture) + " (" + Interlocked.CompareExchange(ref fromObjectsLarge, 0, 0).ToString(CultureInfo.InvariantCulture) +
+                   " of 100 ms or more, " + Ms(Interlocked.Read(ref fromObjectLargeTicks)) + ", longest " + Ms(Interlocked.Read(ref fromObjectMaxTicks)) + ")";
         }
 
         /// <summary>Tests: forget the counters and the cache.</summary>
@@ -525,6 +646,10 @@ namespace McvsOffline
             }
             loadStarted = 0;
             loadFresh = false;
+            templateReads = templateLargeReads = templateIndexed = templateLargest = templateLines = 0;
+            templateReadTicks = templateLargeReadTicks = templateMaxReadTicks = 0;
+            fromObjects = fromObjectsLarge = 0;
+            fromObjectLargeTicks = fromObjectMaxTicks = 0;
         }
 
         // ------------------------------------------------------------------------------------------------ helpers

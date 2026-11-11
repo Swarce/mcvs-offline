@@ -73,7 +73,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         private static readonly string[] Steps =
         {
             "McvsOffline/bin/EngineBridge.dll", "McvsOffline/bin/Game.dll", "McvsOffline/bin/Gameloft.Engine.dll", "McvsOffline/bin/Gameloft.Util.dll",
-            "McvsOffline/bin/McvsOffline.Server.dll", "McvsOffline/install.json", "ModernCombatVersus.exe.config",
+            "McvsOffline/bin/Gameloft.Templates.dll", "McvsOffline/bin/McvsOffline.Server.dll", "McvsOffline/install.json", "ModernCombatVersus.exe.config",
         };
 
         private readonly ITestOutputHelper output;

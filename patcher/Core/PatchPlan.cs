@@ -42,12 +42,12 @@ namespace McvsOffline.Patcher.Core
             "hook-pc",
             "headless", "store", "signatures", "inbox", "adminpage", "forum",
             "headless-engine", "physics", "quicklaunch", "headless-diag", "nativeonline", "waits", "adminlink", "graphics", "gameload",
-            "geo", "botmove", "fpslimit", "crmtables", "jsonnorm",
+            "geo", "botmove", "fpslimit", "crmtables", "jsonnorm", "templates",
         };
 
         private static readonly PatchIds PcIds = new PatchIds(
             new[] { "hook-pc", "headless", "headless-engine", "physics", "quicklaunch", "headless-diag", "graphics", "gameload" },
-            new[] { "nativeonline", "waits", "adminlink", "geo", "store", "signatures", "inbox", "adminpage", "botmove", "fpslimit", "crmtables", "jsonnorm" },
+            new[] { "nativeonline", "waits", "adminlink", "geo", "store", "signatures", "inbox", "adminpage", "botmove", "fpslimit", "crmtables", "jsonnorm", "templates" },
             new[] { "forum" },
             new[] { "hook", "finder", "finderport", "lan", "debloat", "targetsdk", "game" });
 
@@ -124,6 +124,7 @@ namespace McvsOffline.Patcher.Core
                 case "fpslimit": return new FpsLimitPatch();
                 case "crmtables": return new CrmTablesPatch();
                 case "jsonnorm": return new JsonNormPatch();
+                case "templates": return new TemplatesPatch();
                 default: throw new ArgumentException("unknown PC patch '" + id + "'");
             }
         }

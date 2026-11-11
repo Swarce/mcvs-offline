@@ -104,7 +104,7 @@ namespace McvsOffline.Patcher.Pc
         public const string SpikeCopyFolder = "McvsOffline/spike";
 
         /// <summary>The assemblies the PC patches edit and the config redirects, in the order written (§7.4).</summary>
-        public static readonly IReadOnlyList<string> PatchedFiles = new[] { "EngineBridge.dll", "Game.dll", "Gameloft.Engine.dll", "Gameloft.Util.dll" };
+        public static readonly IReadOnlyList<string> PatchedFiles = new[] { "EngineBridge.dll", "Game.dll", "Gameloft.Engine.dll", "Gameloft.Util.dll", "Gameloft.Templates.dll" };
 
         public const string ServerFile = "McvsOffline.Server.dll";
 

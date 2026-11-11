@@ -182,7 +182,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.Equal(5, GameDataHooks.NormalizeMisses);
                 Assert.Equal(5, GameDataHooks.NormalizeHits);
                 Assert.Contains("json normalize 5 large ones computed (", GameDataHooks.Describe());
-                Assert.EndsWith(", 5 from the cache", GameDataHooks.Describe());
+                Assert.Contains(", 5 from the cache; templates: ", GameDataHooks.Describe());
             }
             finally
             {
@@ -350,6 +350,51 @@ namespace McvsOffline.Embed.Tests.Embedded
             }
             finally
             {
+                GameDataHooks.Reset();
+            }
+        }
+
+        /// <summary>Build 32, patch 'templates': timing only; a slow or large read gets a line, every read counts, lines are capped.</summary>
+        [Fact]
+        public void TemplateReadsAreCountedAndTheSlowOrLargeOnesLogged()
+        {
+            GameDataHooks.Reset();
+            var lines = new List<string>();
+            GameDataHooks.Configure(lines.Add);
+            try
+            {
+                Assert.Contains("; templates: none read yet (or no 'templates' patch)", GameDataHooks.Describe());
+                long now = GameDataHooks.TemplateClock();
+                long second = System.Diagnostics.Stopwatch.Frequency;
+                GameDataHooks.TemplateRead("Small.tx", now, now, 0, 0);                                     // fast and small: counted only
+                GameDataHooks.TemplateRead("DefaultProfile.tx", now - second / 2, now - second / 4, 23, 11368);
+                GameDataHooks.TemplateRead("Slow.tx", now - second, 0, 1, 9);                               // slow: logged, no JSON split
+                GameDataHooks.TemplateRead("Never.tx", 0, 0, 5, 50000);                                     // no clock (hooks were missing): ignored
+                Assert.Equal(3, GameDataHooks.TemplateReads);
+                Assert.Equal(24, GameDataHooks.TemplateObjectsIndexed);
+                Assert.Equal(11368, GameDataHooks.TemplateLargestObject);
+                Assert.Equal(2, lines.Count);
+                Assert.StartsWith("templates: DefaultProfile.tx read in ", lines[0]);
+                Assert.Contains(" (JSON ", lines[0]);
+                Assert.EndsWith("; 23 objects of 8+ names indexed, the largest 11368 names (patch 'templates')", lines[0]);
+                Assert.StartsWith("templates: Slow.tx read in ", lines[1]);
+                Assert.DoesNotContain("JSON", lines[1]);
+
+                GameDataHooks.TemplateFromObject(new List<int>(), now - second / 5);
+                GameDataHooks.TemplateFromObject(null, now);                                                // fast: counted only
+                Assert.StartsWith("templates: TObject.FromObject(List`1) took ", lines[2]);
+                string status = GameDataHooks.Describe();
+                Assert.Contains("; templates: 3 read (", status);
+                Assert.Contains("2 slow or large ones", status);
+                Assert.Contains("24 objects indexed (largest 11368 names); FromObject 2 (1 of 100 ms or more, ", status);
+
+                for (int i = 0; i < GameDataHooks.TemplateLineLimit + 5; i++) GameDataHooks.TemplateRead("Big.tx", now, now, 1, 5000);
+                Assert.Equal(GameDataHooks.TemplateLineLimit, lines.Count);
+                Assert.Equal(3 + GameDataHooks.TemplateLineLimit + 5, GameDataHooks.TemplateReads);
+            }
+            finally
+            {
+                GameDataHooks.Configure(null);
                 GameDataHooks.Reset();
             }
         }

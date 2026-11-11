@@ -48,8 +48,8 @@ namespace McvsOffline.Embed.Tests.Patcher
         [Fact]
         public void AStaleBotTileOnTheAndroidCommandLineIsIgnored()
         {
-            // Build 20's list cannot name build 30's defaults ('crmtables', 'jsonnorm').
-            var defaults = new SortedSet<string>(PatcherOptions.ParsePatchList("default").Where(id => id != "crmtables" && id != "jsonnorm"), StringComparer.Ordinal);
+            // Build 20's list cannot name build 30's and build 32's defaults ('crmtables', 'jsonnorm', 'templates').
+            var defaults = new SortedSet<string>(PatcherOptions.ParsePatchList("default").Where(id => id != "crmtables" && id != "jsonnorm" && id != "templates"), StringComparer.Ordinal);
             Assert.Equal(defaults, PatcherOptions.ParsePatchList(Build20Defaults));
             Assert.Equal(new[] { "finder", "geo" }, PatcherOptions.ParsePatchList("geo,BOTTILE,finder"));
             Assert.Empty(PatcherOptions.ParsePatchList("bottile"));
