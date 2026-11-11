@@ -68,7 +68,7 @@ the HD textures and the graphics profiles work, at the same frame rate as before
 
 ## Build 31 (November 2026): no more `MCVS_Meta.xlsx` parses per bot at agent selection, and a visible watchdog switch
 
-On `wip/b31` (`McvsVersion.Build` is `31`). No APK or PC kit built yet. Tests: 1618, Embed 1390, PcKit 63, PcSpike 62, all passed.
+On `wip/b31` (`McvsVersion.Build` is `31`). Tests: 1618, Embed 1391, PcKit 63, PcSpike 62, all passed. The APK (same key, zipalign and apksigner OK) and the PC kit are built; the PC end to end on the Steam files passed (install, verify, a second install with the same bytes, an uninstall that restores every file, the same ILVerify findings before and after). Not yet tested on a phone or on Steam.
 
 **The owner's build-30 log** (Galaxy S25 Ultra class, unlock-all profile; `20261111-142707-*`):
 
