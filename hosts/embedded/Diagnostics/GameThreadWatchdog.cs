@@ -31,6 +31,13 @@ namespace McvsOffline.Embedded.Diagnostics
     /// A lease (<see cref="PauseFor"/>, design §8.5) tells it that the game loop is paused on purpose: while the settings page
     /// is shown in the in-game browser the main activity is paused and the game thread runs no frame, which is not a stall.
     /// </para>
+    /// <para>
+    /// Hitches (build 30, <see cref="HitchMs"/>; the owner's S22 log had 1 to 5 s game-thread blocks on the results screen and at
+    /// the match start, all under the first 5 s report): while a work item has waited at least <see cref="HitchMs"/>, one
+    /// "HITCH:" notice with the same snapshot as a stall (no Java stacks), and for the first <see cref="HitchDumps"/> hitches of
+    /// the process the thread dump; when the item runs, "hitch over" with how long it waited. The loop then wakes every
+    /// <see cref="HitchPollMs"/> ms (the beat is still posted once per interval).
+    /// </para>
     /// </summary>
     public sealed class GameThreadWatchdog
     {
@@ -62,6 +69,30 @@ namespace McvsOffline.Embedded.Diagnostics
         private bool pauseActive;              // a lease was granted and not ended (under pauseGate)
         private string pauseReason;            // under pauseGate
         private bool pauseReported;            // watchdog thread only
+        private int beatPostedAt;              // Environment.TickCount when the outstanding beat was posted
+        private int lastPost;                  // watchdog thread only
+        private bool hitchOpen;                // watchdog thread only
+        private int hitchPostedAt;             // beatPostedAt of the open hitch's beat
+        private int hitches;
+        private int longestHitchMs;
+
+        /// <summary>The loop's period while <see cref="HitchMs"/> is on (at most the beat interval).</summary>
+        public const int HitchPollMs = 250;
+
+        /// <summary>What EmbeddedHost sets <see cref="HitchMs"/> to: a work item that waited this long is a hitch.</summary>
+        public const int DefaultHitchMs = 700;
+
+        /// <summary>A work item that waited at least this long is a hitch (0, the default: no hitch notices). Set before <see cref="Start"/>.</summary>
+        public int HitchMs { get; set; }
+
+        /// <summary>At most this many "HITCH:" snapshots per process (later hitches are counted and get the "hitch over" line).</summary>
+        public int HitchSnapshots { get; set; } = 8;
+
+        /// <summary>The first this many hitches also start the thread dump (when there is one).</summary>
+        public int HitchDumps { get; set; } = 2;
+
+        /// <summary>Hitches seen so far.</summary>
+        public int Hitches { get { return hitches; } }
 
         /// <param name="serverState">e.g. the boot trace's Describe().</param>
         /// <param name="report">Where snapshots go (logcat + bootstrap.log).</param>
@@ -123,9 +154,13 @@ namespace McvsOffline.Embedded.Diagnostics
         {
             string reason;
             string paused = IsPaused(out reason) ? ", paused: " + reason : "";
+            string hitchText = HitchMs > 0
+                ? ", " + hitches.ToString(CultureInfo.InvariantCulture) + " hitches of " + HitchMs.ToString(CultureInfo.InvariantCulture) +
+                  " ms or more (longest " + longestHitchMs.ToString(CultureInfo.InvariantCulture) + " ms)"
+                : "";
             return "game thread tid " + gameTid.ToString(CultureInfo.InvariantCulture) + " ('" + (gameThreadName ?? "?") +
                    "'), last work item " + (Environment.TickCount - lastBeat).ToString(CultureInfo.InvariantCulture) + " ms ago, " +
-                   beats.ToString(CultureInfo.InvariantCulture) + " beats" + paused;
+                   beats.ToString(CultureInfo.InvariantCulture) + " beats" + hitchText + paused;
         }
 
         /// <summary>Treat the game thread as paused (not stalled) until now + ms; the latest call wins; 0 ends it. Thread-safe.</summary>
@@ -196,20 +231,25 @@ namespace McvsOffline.Embedded.Diagnostics
             double lastTotal = -1;
             int lastTotalChange = Environment.TickCount;
             bool announced = false;
+            int tick = HitchMs > 0 ? Math.Min(intervalMs, HitchPollMs) : intervalMs;
+            lastPost = Environment.TickCount - intervalMs;
             while (!stopped)
             {
                 try
                 {
-                    Thread.Sleep(intervalMs);
+                    Thread.Sleep(tick);
                     object app = instanceProperty.GetValue(null, null);
                     if (app == null)
                     {
                         lastBeat = Environment.TickCount;   // not created yet: nothing to watch
                         continue;
                     }
-                    if (Interlocked.CompareExchange(ref beatOutstanding, 1, 0) == 0)
+                    if (hitchOpen && beatOutstanding == 0) CloseHitch();   // before the next beat is posted
+                    if (Environment.TickCount - lastPost >= intervalMs - tick / 2 && Interlocked.CompareExchange(ref beatOutstanding, 1, 0) == 0)
                     {
                         var context = contextProperty.GetValue(app, null) as SynchronizationContext;
+                        lastPost = Environment.TickCount;
+                        beatPostedAt = lastPost;
                         if (context != null) context.Post(beatCallback, null);
                         else beatOutstanding = 0;
                     }
@@ -236,6 +276,7 @@ namespace McvsOffline.Embedded.Diagnostics
                         }
                         lastBeat = Environment.TickCount;
                         stallReports = 0;
+                        hitchOpen = false;
                         continue;
                     }
                     if (pauseReported)
@@ -252,6 +293,7 @@ namespace McvsOffline.Embedded.Diagnostics
                         lastTotalChange = Environment.TickCount;
                     }
                     bool suspended = suspendField != null && (bool)suspendField.GetValue(app);
+                    if (HitchMs > 0) CheckHitch(suspended, Environment.TickCount - lastTotalChange);
                     int lag = Environment.TickCount - lastBeat;
                     if (lag < ReportAtMs[0])
                     {
@@ -275,6 +317,40 @@ namespace McvsOffline.Embedded.Diagnostics
                     try { Thread.Sleep(10000); } catch (Exception) { }
                 }
             }
+        }
+
+        /// <summary>
+        /// The hitch probe (watchdog thread): a beat outstanding for at least <see cref="HitchMs"/> opens a hitch (one snapshot,
+        /// the dump for the first ones); the beat running closes it with the time it waited.
+        /// </summary>
+        private void CheckHitch(bool suspended, int frameClockMs)
+        {
+            int now = Environment.TickCount;
+            int posted = beatPostedAt;
+            bool outstanding = beatOutstanding != 0;
+            if (hitchOpen && (!outstanding || posted != hitchPostedAt))
+            {
+                CloseHitch();
+                return;
+            }
+            if (hitchOpen || !outstanding || suspended || now - posted < HitchMs) return;
+            hitchOpen = true;
+            hitchPostedAt = posted;
+            int n = Interlocked.Increment(ref hitches);
+            if (n <= HitchSnapshots)
+                Note(Snapshot(now - posted, frameClockMs, suspended, false, "HITCH: the game thread has not run a work item posted "));
+            if (n <= HitchDumps) StartThreadDump();
+        }
+
+        /// <summary>The beat of the open hitch ran: "hitch over" with how long it waited.</summary>
+        private void CloseHitch()
+        {
+            hitchOpen = false;
+            int waited = lastBeat - hitchPostedAt;
+            if (waited < 0) waited = Environment.TickCount - hitchPostedAt;
+            if (waited > longestHitchMs) longestHitchMs = waited;
+            Note("[watchdog] hitch over: the game thread ran the work item after " + waited.ToString(CultureInfo.InvariantCulture) +
+                 " ms (hitch " + hitches.ToString(CultureInfo.InvariantCulture) + " of this start)");
         }
 
         private void Note(string line)
@@ -353,11 +429,11 @@ namespace McvsOffline.Embedded.Diagnostics
             }
         }
 
-        private string Snapshot(int lagMs, int frameClockMs, bool suspended, bool withJava)
+        private string Snapshot(int lagMs, int frameClockMs, bool suspended, bool withJava, string headline = "STALL: no game-thread work item ran for ")
         {
             var sb = new StringBuilder();
-            sb.Append("[watchdog] STALL: no game-thread work item ran for ").Append(lagMs.ToString(CultureInfo.InvariantCulture))
-              .Append(" ms; frame clock (totalTime) unchanged for ").Append(frameClockMs.ToString(CultureInfo.InvariantCulture))
+            sb.Append("[watchdog] ").Append(headline).Append(lagMs.ToString(CultureInfo.InvariantCulture))
+              .Append(headline.StartsWith("HITCH", StringComparison.Ordinal) ? " ms ago" : " ms").Append("; frame clock (totalTime) unchanged for ").Append(frameClockMs.ToString(CultureInfo.InvariantCulture))
               .Append(" ms; suspendUpdateInBackground=").Append(suspended ? "true" : "false")
               .Append(HostProcess.Suffix("; ")).Append('\n');
             try

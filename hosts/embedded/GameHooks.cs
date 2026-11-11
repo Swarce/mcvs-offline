@@ -41,6 +41,8 @@ namespace McvsOffline
         private static int physicsContended;
         private static int physicsMaxWaitMs;
         private static int physicsTimeouts;
+        private static long physicsWaitTotalMs;   // build 30: the step gate's waits in the status line
+        private static int physicsWaits4, physicsWaits16;
 
         /// <summary>How long a physics step waits for another World's step before it goes ahead without the gate.</summary>
         public const int DefaultStepGateTimeoutMs = 2000;
@@ -291,6 +293,9 @@ namespace McvsOffline
                 }
                 Interlocked.Increment(ref physicsContended);
                 if (waited > physicsMaxWaitMs) physicsMaxWaitMs = waited;
+                if (waited > 0) Interlocked.Add(ref physicsWaitTotalMs, waited);
+                if (waited >= 4) Interlocked.Increment(ref physicsWaits4);
+                if (waited >= 16) Interlocked.Increment(ref physicsWaits16);
                 if (!taken)
                 {
                     int n = Interlocked.Increment(ref physicsTimeouts);
@@ -327,18 +332,29 @@ namespace McvsOffline
             }
         }
 
-        /// <summary>One status-line part: what the physics hooks decided and did.</summary>
+        /// <summary>
+        /// One status-line part: what the physics hooks decided and did. Since build 30 the waits also carry their total and how
+        /// many lasted 4 ms or more and 16 ms or more (a frame at 60 FPS), to tell an in-match stutter of the gate from noise.
+        /// </summary>
         public static string DescribePhysics()
         {
             int worlds = physicsWorlds;
             if (worlds == 0) return "physics: no World built yet";
             return "physics: " + worlds.ToString(CultureInfo.InvariantCulture) + " Havok worlds built (" +
                    serverWorldsSingleThreaded.ToString(CultureInfo.InvariantCulture) + " server Worlds made single-threaded), step gate " +
-                   (physicsStepGate ? "on: " + physicsSteps.ToString(CultureInfo.InvariantCulture) + " entries, " +
-                                      physicsContended.ToString(CultureInfo.InvariantCulture) + " waited (max " +
-                                      physicsMaxWaitMs.ToString(CultureInfo.InvariantCulture) + " ms), " +
-                                      physicsTimeouts.ToString(CultureInfo.InvariantCulture) + " timeouts"
-                                    : "off");
+                   (physicsStepGate ? "on: " + DescribeGate() : "off");
+        }
+
+        /// <summary>"N entries, M waited (max X ms, total Y ms; A of 4 ms or more, B of 16 ms or more), T timeouts".</summary>
+        internal static string DescribeGate()
+        {
+            return physicsSteps.ToString(CultureInfo.InvariantCulture) + " entries, " +
+                   physicsContended.ToString(CultureInfo.InvariantCulture) + " waited (max " +
+                   physicsMaxWaitMs.ToString(CultureInfo.InvariantCulture) + " ms, total " +
+                   Interlocked.Read(ref physicsWaitTotalMs).ToString(CultureInfo.InvariantCulture) + " ms; " +
+                   physicsWaits4.ToString(CultureInfo.InvariantCulture) + " of 4 ms or more, " +
+                   physicsWaits16.ToString(CultureInfo.InvariantCulture) + " of 16 ms or more), " +
+                   physicsTimeouts.ToString(CultureInfo.InvariantCulture) + " timeouts";
         }
 
         // ------------------------------------------------------------------ bots (patch 'botmove', build 27)

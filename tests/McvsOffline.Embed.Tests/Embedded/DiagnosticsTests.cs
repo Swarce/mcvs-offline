@@ -65,6 +65,103 @@ namespace McvsOffline.Embed.Tests.Embedded
             }
         }
 
+        /// <summary>A stream whose every read fails as the game's chunked HTTP stream did after StopListening.</summary>
+        private sealed class AbortedStream : Stream
+        {
+            public override bool CanRead => true;
+            public override bool CanSeek => false;
+            public override bool CanWrite => false;
+            public override long Length => throw new NotSupportedException();
+            public override long Position { get => 0; set => throw new NotSupportedException(); }
+            public override void Flush() { }
+            public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+            public override void SetLength(long value) => throw new NotSupportedException();
+            public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+            public override int Read(byte[] buffer, int offset, int count) => throw Aborted();
+
+            public override async System.Threading.Tasks.Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+            {
+                await System.Threading.Tasks.Task.Yield();
+                throw Aborted();
+            }
+
+            public override async System.Threading.Tasks.ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+            {
+                await System.Threading.Tasks.Task.Yield();
+                throw Aborted();
+            }
+
+            private static IOException Aborted()
+            {
+                return new IOException("Unable to read data from the transport connection: Operation aborted.",
+                                       new System.Net.Sockets.SocketException((int)System.Net.Sockets.SocketError.OperationAborted));
+            }
+        }
+
+        /// <summary>The fault a listener loop leaves behind: ReadLineAsync on a stream closed under it, as the task's exception.</summary>
+        private static AggregateException ListenerFault()
+        {
+            var task = new StreamReader(new AbortedStream()).ReadLineAsync();
+            try
+            {
+                task.Wait(5000);
+            }
+            catch (AggregateException)
+            {
+            }
+            Assert.True(task.IsFaulted);
+            return task.Exception;
+        }
+
+        /// <summary>
+        /// Build 30: the owner's log had two exception files, each the game's own chat/alert listener reading a chunked HTTP stream
+        /// that StopListening had closed (an IOException "Operation aborted" in StreamReader.ReadLineAsync, reported by the
+        /// finalizer at the next GC). Those are one INFO line now, no file and no copy in Downloads; every other fault (another
+        /// IOException, a mix, another socket error, no stack under ReadLineAsync) is reported as before.
+        /// </summary>
+        [Fact]
+        public void AnAbortedListenerReadIsALineAndEveryOtherFaultAReport()
+        {
+            AggregateException listener = ListenerFault();
+            Assert.True(CrashReporter.IsAbortedListenerRead(listener));
+            Assert.True(CrashReporter.IsAbortedListenerRead(new AggregateException(listener)));   // nested aggregates are flattened
+
+            var otherSocket = new IOException("x", new System.Net.Sockets.SocketException((int)System.Net.Sockets.SocketError.ConnectionReset));
+            Assert.False(CrashReporter.IsAbortedListenerRead(new AggregateException(otherSocket)));
+            Assert.False(CrashReporter.IsAbortedListenerRead(new AggregateException(new IOException("Operation aborted"))));   // no socket cause
+            var notThrown = new IOException("y", new System.Net.Sockets.SocketException((int)System.Net.Sockets.SocketError.OperationAborted));
+            Assert.False(CrashReporter.IsAbortedListenerRead(new AggregateException(notThrown)));       // no ReadLineAsync stack
+            Assert.False(CrashReporter.IsAbortedListenerRead(new AggregateException(listener.InnerExceptions[0], new TimeoutException("t"))));
+            Assert.False(CrashReporter.IsAbortedListenerRead(listener.InnerExceptions[0]));             // not the task's aggregate
+            Assert.False(CrashReporter.IsAbortedListenerRead(new AggregateException()));
+            Assert.False(CrashReporter.IsAbortedListenerRead(null));
+
+            string dir = TestEnvironment.NewTempDir("crash-listener");
+            CrashReporter.Install();
+            CrashReporter.ResetForTests();
+            var mirrored = new List<string>();
+            CrashReporter.SetCrashDirectory(dir);
+            CrashReporter.Mirror = p => mirrored.Add(p);
+            try
+            {
+                CrashReporter.Unobserved(listener);
+                CrashReporter.Unobserved(ListenerFault());
+                Assert.Equal(2, CrashReporter.ListenerAborts);
+                Assert.Empty(Directory.GetFiles(dir, "exception-*.txt"));
+                Assert.DoesNotContain(mirrored, m => m.Contains("crash-listener"));
+
+                CrashReporter.Unobserved(new AggregateException(otherSocket));
+                Assert.Contains(Directory.GetFiles(dir, "exception-*.txt"), f => File.ReadAllText(f).Contains("ConnectionReset") || File.ReadAllText(f).Contains("inner[0] System.IO.IOException: x"));
+                Assert.Equal(2, CrashReporter.ListenerAborts);
+            }
+            finally
+            {
+                CrashReporter.Mirror = null;
+                CrashReporter.SetCrashDirectory(null);
+                CrashReporter.ResetForTests();
+            }
+        }
+
         /// <summary>
         /// Review finding: one shared budget of 5 let five unobserved task faults (routine: MoreAsync.WithCancellation never
         /// observes the task it abandons) silence the FATAL report that follows. Fatal and non-fatal budgets are separate.
@@ -150,6 +247,47 @@ namespace McvsOffline.Embed.Tests.Embedded
                 CrashReporter.SetCrashDirectory(null);
                 CrashReporter.ResetForTests();
             }
+        }
+
+        /// <summary>
+        /// Build 30: a mirror cycle streams each changed log through one 64 KB buffer instead of reading it into a new array of its
+        /// size (0.5 MB per log in the owner's match: large-object garbage for the Mono GC that stops the game thread). The copies
+        /// are the same bytes: a whole small file, and the last 2 MB of a bigger one.
+        /// </summary>
+        [Fact]
+        public void TheLogMirrorCopiesTheSameTailWithoutAnArrayOfTheFilesSize()
+        {
+            string downloads = TestEnvironment.NewTempDir("mirror-stream-downloads");
+            string logs = TestEnvironment.NewTempDir("mirror-stream-logs");
+            string server = Path.Combine(logs, "server.log"), game = Path.Combine(logs, "game.log");
+            var random = new Random(30);
+            byte[] small = new byte[1500 * 1024];
+            byte[] big = new byte[2 * 1024 * 1024 + 123457];
+            random.NextBytes(small);
+            random.NextBytes(big);
+            File.WriteAllBytes(server, small);
+            File.WriteAllBytes(game, big);
+            var mirror = new McvsOffline.Embedded.Android.PublicMirror(new[] { server, game }, logs, s => { })
+            {
+                SdkInt = () => 34,
+                DownloadsDir = () => downloads,
+                Scan = paths => { },
+            };
+            Assert.True(mirror.Open());
+            mirror.CopyAll();   // warm-up (JIT, first file handles)
+            File.AppendAllText(server, "x");
+            File.AppendAllText(game, "y");
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            mirror.CopyAll();
+            long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+            Assert.True(allocated < 512 * 1024, "one cycle of two changed logs (1.5 MB and 2.1 MB) allocated " + allocated + " bytes");
+
+            string target = Path.Combine(downloads, "MCVS-Offline");
+            string p = mirror.SessionPrefix;
+            Assert.Equal(small.Concat(new[] { (byte)'x' }).ToArray(), File.ReadAllBytes(Path.Combine(target, p + "server.log.txt")));
+            byte[] gameNow = big.Concat(new[] { (byte)'y' }).ToArray();
+            Assert.Equal(gameNow.Skip(gameNow.Length - 2 * 1024 * 1024).ToArray(), File.ReadAllBytes(Path.Combine(target, p + "game.log.txt")));
+            Assert.Empty(Directory.GetFiles(target, "*.tmp"));
         }
 
         /// <summary>

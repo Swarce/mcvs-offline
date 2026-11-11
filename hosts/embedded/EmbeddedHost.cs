@@ -252,6 +252,7 @@ namespace McvsOffline.Embedded
                   .Append(", store items skipped: ").Append(GameHooks.StoreReports).Append('\n');
                 sb.Append(GameHooks.DescribePhysics());
                 sb.Append('\n').Append(GameHooks.DescribeBots());
+                sb.Append('\n').Append(GameDataHooks.Describe());
                 sb.Append('\n').Append(GraphicsHooks.Describe());
                 string args = argsWarning;
                 if (args != null) sb.Append('\n').Append(args);
@@ -408,6 +409,8 @@ namespace McvsOffline.Embedded
             int keepStarts = (int)Num.Clamp(Settings.GetLong("logging.keepStarts", LogRetention.DefaultKeepStarts), 0, LogRetention.MaxKeepStarts);
             Retention = LogRetention.Begin(Paths.LogsDir, startedUtc, keepStarts, platformName + " " + McvsVersion.Current, Logger.For("logs"));
             GameHooks.Configure(Settings.GetBool("embedded.nativeOnlineSdk", false), Logger.For("game"), Boot);
+            Log dataLog = Logger.For("game");
+            GameDataHooks.Configure(line => dataLog.Info(line));
             ConfigurePhysics();
             ConfigureBots();
             ConfigureGraphics();
@@ -888,6 +891,9 @@ namespace McvsOffline.Embedded
                                                       javaStacks, 1000, null, threadDump)
                     {
                         Notice = s => watchdogLog.Info(WithoutTag(s, "[watchdog] ")),
+                        // Build 30: the 1-5 s blocks of the owner's results screen and match start are under the first stall
+                        // report; a hitch notice (INFO) says where the game thread is, the first two with the thread dump.
+                        HitchMs = GameThreadWatchdog.DefaultHitchMs,
                     };
                     if (extensions != null)
                     {

@@ -153,7 +153,71 @@ namespace McvsOffline.Embedded.Diagnostics
 
         private static void OnUnobserved(object sender, UnobservedTaskExceptionEventArgs e)
         {
-            Report("TaskScheduler.UnobservedTaskException", UnobservedException(e), false);
+            Unobserved(UnobservedException(e));
+        }
+
+        private static int listenerAborts;
+
+        /// <summary>Unobserved faults recognised as an aborted listener read (<see cref="IsAbortedListenerRead"/>) this process.</summary>
+        public static int ListenerAborts { get { return listenerAborts; } }
+
+        /// <summary>At most this many INFO lines for aborted listener reads per process (then only the counter).</summary>
+        public const int ListenerAbortLines = 10;
+
+        /// <summary>
+        /// An unobserved task fault: a report, unless it is the game's own listener loop whose stream was closed on purpose
+        /// (build 30: the owner's log had two "exception" files, each an AggregateException of an IOException "Operation aborted"
+        /// in <c>StreamReader.ReadLineAsync</c> over a chunked HTTP stream: <c>ChatRoom.Listen</c> / <c>Alerts.StartListen</c>
+        /// after <c>StopListening</c> closed it; the finalizer only reports them at the next GC). Those get one INFO line in the
+        /// logs, no report file and no copy in Downloads.
+        /// </summary>
+        internal static void Unobserved(object exception)
+        {
+            if (IsAbortedListenerRead(exception as Exception))
+            {
+                int n = Interlocked.Increment(ref listenerAborts);
+                if (n <= ListenerAbortLines)
+                {
+                    SelfLog.Write(SelfLog.Info, "unobserved task fault: a listener's read of a closed HTTP stream (IOException 'Operation aborted' in " +
+                                                "StreamReader.ReadLineAsync; the game's chat/alert listener after StopListening), not reported (" +
+                                                n.ToString(CultureInfo.InvariantCulture) + " this start)");
+                }
+                return;
+            }
+            Report("TaskScheduler.UnobservedTaskException", exception, false);
+        }
+
+        /// <summary>
+        /// True for an AggregateException whose every inner exception (flattened) is an IOException caused by a SocketException
+        /// "Operation aborted" and thrown under <c>StreamReader.ReadLineAsync</c> or a chunked HTTP read stream: a listener whose
+        /// connection was closed under it. Anything else, or a mix, is false.
+        /// </summary>
+        internal static bool IsAbortedListenerRead(Exception exception)
+        {
+            try
+            {
+                var aggregate = exception as AggregateException;
+                if (aggregate == null) return false;
+                var inner = aggregate.Flatten().InnerExceptions;
+                if (inner.Count == 0) return false;
+                foreach (Exception ex in inner)
+                {
+                    if (!(ex is IOException)) return false;
+                    var socket = ex.InnerException as System.Net.Sockets.SocketException;
+                    if (socket == null) return false;
+                    if (socket.SocketErrorCode != System.Net.Sockets.SocketError.OperationAborted &&
+                        (socket.Message ?? "").IndexOf("Operation aborted", StringComparison.OrdinalIgnoreCase) < 0)
+                        return false;
+                    string stack = ex.StackTrace ?? "";
+                    if (stack.IndexOf("ReadLineAsync", StringComparison.Ordinal) < 0 && stack.IndexOf("ChunkedEncodingReadStream", StringComparison.Ordinal) < 0)
+                        return false;
+                }
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
 
         /// <summary>UnobservedTaskExceptionEventArgs.Exception is trimmed from the game's mscorlib: property, else its field.</summary>
@@ -198,6 +262,7 @@ namespace McvsOffline.Embedded.Diagnostics
             Interlocked.Exchange(ref nonFatalReports, 0);
             Interlocked.Exchange(ref probablyFatalReports, 0);
             lastReported = null;
+            listenerAborts = 0;
             lastReportedKind = NonFatalKind;
             lastGameFatal = null;
         }

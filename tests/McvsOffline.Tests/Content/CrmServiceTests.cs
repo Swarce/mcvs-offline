@@ -73,6 +73,9 @@ namespace McvsOffline.Tests.Content
         {
             using var dir = new TempDir();
             using var server = ContentTestSupport.CreateServer(dir.Combine("data"));
+            // The weekly live-ops modifier pinned to "standard": on the real clock the week of 2026-11-09 is rivalSurge, whose
+            // ×1.25 on the same VersusCoins cells made this test read "*2.5" (a date-dependent failure).
+            server.Context.Settings.Override("liveops.modifiers", "standard");
             var before = ContentTestSupport.JsonObject(ContentTestSupport.Get(server, "/configs/users/me"));
             Assert.Equal(false, JsonPath.Get(before, "game._ServerConfig.default.IsDevelopment"));
             long basePrice = (long)JsonPath.Get(before, "offline_store.prices.0.billing_methods.0.price.0.price");
