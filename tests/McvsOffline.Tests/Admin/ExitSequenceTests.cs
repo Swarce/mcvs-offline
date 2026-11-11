@@ -238,19 +238,31 @@ namespace McvsOffline.Tests.Admin
             DateTime since = clock.UtcNow;
             Assert.False(tracker.WaitForSave(Account, since, 100, 10));
 
-            // Saves that keep coming delay the answer until they stop for the quiet period.
+            // Saves that keep coming delay the answer until they stop for the quiet period. The quiet period is long against the
+            // 40 ms between saves (build 30: on a slow CI runner a late saver thread made a 150 ms period end between two saves),
+            // and the answer must come after the LAST save plus the quiet period, with every save already made.
+            const int quiet = 1000;
+            int saves = 0;
+            int lastSaveTick = 0;
             var saver = new Thread(() =>
             {
                 for (int i = 0; i < 5; i++)
                 {
                     Thread.Sleep(40);
                     tracker.OnProfileChanged(Change(Account, "http"));
+                    Volatile.Write(ref lastSaveTick, Environment.TickCount);
+                    Interlocked.Increment(ref saves);
                 }
             });
             var watch = Stopwatch.StartNew();
             saver.Start();
-            Assert.True(tracker.WaitForSave(Account, since, 5000, 150));
-            Assert.True(watch.ElapsedMilliseconds >= 300, "returned after the last save plus the quiet period: " + watch.ElapsedMilliseconds);
+            Assert.True(tracker.WaitForSave(Account, since, 20000, quiet));
+            int returnedTick = Environment.TickCount;
+            Assert.Equal(5, Volatile.Read(ref saves));
+            // TickCount moves in steps of up to ~16 ms, and the tracker took its tick just before the saver's.
+            Assert.True(returnedTick - Volatile.Read(ref lastSaveTick) >= quiet - 20,
+                        "returned " + (returnedTick - lastSaveTick) + " ms after the last save (quiet period " + quiet + " ms)");
+            Assert.True(watch.ElapsedMilliseconds >= 5 * 40 + quiet - 20, "elapsed " + watch.ElapsedMilliseconds);
             saver.Join();
 
             // Unknown account: false at the timeout.
