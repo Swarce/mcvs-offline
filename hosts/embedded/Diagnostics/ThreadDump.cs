@@ -376,6 +376,9 @@ namespace McvsOffline.Embedded.Diagnostics
             }
             finally
             {
+                // Build 32 review: the loop's condition took the time before its last 50 ms sleep, so a dump that finished in
+                // that sleep said "after 4 ms" (the build-31 log); the time is taken again here, once the poll has ended.
+                elapsed = Environment.TickCount - started;
                 if (redirected)
                 {
                     if (saved >= 0) Libc.dup2(saved, 1);
@@ -391,7 +394,7 @@ namespace McvsOffline.Embedded.Diagnostics
             var sb = new StringBuilder();
             sb.Append("[threaddump] Mono managed thread dump via ").Append(binding).Append(": ")
               .Append(finished ? "complete" : "NOT complete (the finalizer thread did not finish it: see its line in the native view)")
-              .Append(" after ").Append(Str(elapsed)).Append(" ms, ").Append(Str(size)).Append(" bytes, completion by ")
+              .Append(" after ").Append(Str(elapsed)).Append(" ms (polled every 50 ms), ").Append(Str(size)).Append(" bytes, completion by ")
               .Append(flag != 0 ? "thread_dump_requested @0x" + Hex(flag) : "file size").Append(", fd 1 was ").Append(fd1 ?? "?")
               .Append(", file ").Append(path).Append('\n');
             Emit(emit, sb.ToString());
@@ -405,21 +408,38 @@ namespace McvsOffline.Embedded.Diagnostics
                 Emit(emit, "[threaddump] cannot read " + path + ": " + ex.Message);
             }
             if (string.IsNullOrEmpty(text)) return;
-            // One log entry per thread block ("\n\"name\"\n  at ..."), split further when long; with a filter, only its blocks.
+            EmitDump(text, path, emit, managedThreads);
+        }
+
+        /// <summary>
+        /// The managed dump's text into the log: one entry per thread block (from a line that starts with a quote, the thread's
+        /// name, to the next one), split further when long; with <paramref name="managedThreads"/> only the blocks it takes, then
+        /// one "n other thread blocks are only in &lt;path&gt;" line. Returns how many blocks were left out.
+        /// </summary>
+        internal static int EmitDump(string text, string path, Action<string> emit, Func<string, bool> managedThreads)
+        {
+            if (string.IsNullOrEmpty(text)) return 0;
             var thread = new List<string>();
             int skipped = 0;
             foreach (string line in text.Split(new[] { '\n' }, StringSplitOptions.None))
             {
                 if (line.StartsWith("\"", StringComparison.Ordinal) && thread.Count > 0)
                 {
-                    if (!EmitThread(emit, thread, managedThreads)) skipped++;
+                    if (!EmitThread(emit, thread, managedThreads) && IsThreadBlock(thread)) skipped++;
                     thread.Clear();
                 }
                 if (line.Length > 0) thread.Add(line);
             }
-            if (thread.Count > 0 && !EmitThread(emit, thread, managedThreads)) skipped++;
+            if (thread.Count > 0 && !EmitThread(emit, thread, managedThreads) && IsThreadBlock(thread)) skipped++;
             if (managedThreads != null)
                 Emit(emit, "[threaddump] " + Str(skipped) + " other thread blocks are only in " + path + "\n");
+            return skipped;
+        }
+
+        /// <summary>A block that starts with a thread's name (not the stray text before the first one, e.g. the build-31 dump's "Init_private").</summary>
+        private static bool IsThreadBlock(List<string> lines)
+        {
+            return lines.Count > 0 && lines[0].StartsWith("\"", StringComparison.Ordinal);
         }
 
         /// <summary>Emits one thread's lines (in entries of at most ~2800 chars) when <paramref name="filter"/> takes it.</summary>

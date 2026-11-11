@@ -155,7 +155,8 @@ Recommended extra patches (all optional, `--patch`; the default set is `nativeon
   The tree is the shipped one node for node; every bot still gets its own. Pure IL; `ReadDefaultTemplate`, `LoadRoot` and
   `TObject.FromObject` also report their times (`GameDataHooks.TemplateRead`/`TemplateFromObject`, a `hooksMissing` latch). Log:
   `[game] templates: DefaultProfile.tx read in X ms (JSON A ms, nodes B ms); N objects of 8+ names indexed, the largest M names`,
-  `templates: TObject.FromObject(GameObject) took X ms` (the save's writer, unchanged); status `templates: N read (...)`.
+  `templates: TObject.FromObject(GameObject) took X ms` (the save's writer, unchanged); status `templates: N read (...)`; a
+  template read inside another on the same thread (a base template) is left out of the outer read's time and counted once.
 - `waits` (default, hardening with no observed trigger): the pumping `TaskExtension.WaitAndWork` helpers wait in 100 ms
   slices (`WaitAny(handles, 100)`). This bounds the two wake-up gaps in the shipped code: a context re-enabled by
   `World.OnLoadedScene` raises no `WorkItemAdded`, and the `NativeTaskAdded` accessors install and remove the native

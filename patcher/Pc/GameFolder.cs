@@ -226,7 +226,7 @@ namespace McvsOffline.Patcher.Pc
             return Directory.GetFiles(game, "*_args.txt").Select(Path.GetFileName).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
         }
 
-        /// <summary>What install step 1 needs: the exe, the four DLLs and Data\MCVS.game; null when complete, else what is missing.</summary>
+        /// <summary>What install step 1 needs: the exe, the patched DLLs (<see cref="PatchedFiles"/>, five from build 32) and Data\MCVS.game; null when complete, else what is missing.</summary>
         public static string MissingGameFiles(string game)
         {
             if (string.IsNullOrEmpty(game) || !Directory.Exists(game)) return "the folder " + game + " does not exist";

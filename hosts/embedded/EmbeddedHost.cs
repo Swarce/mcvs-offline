@@ -930,7 +930,8 @@ namespace McvsOffline.Embedded
                         hitchDump = (tid, comm) => ThreadDump.Capture(tid, ThreadDump.Related(tid, comm), null, 0,
                             s => dumpLog.Info(WithoutTag(s, "[threaddump] ")));
                         // Build 32: the owner's build-31 log had one managed dump (a STALL's) for 14 hitches, so most hitches were
-                        // told apart only by the server's requests. Mono's dump took 4 ms there: the first hitches of a start get
+                        // told apart only by the server's requests. Mono's dump finished within ~55 ms there (it said "after 4 ms": the
+                        // time before the last 50 ms poll): the first hitches of a start get
                         // one too (every thread in logs/threaddump-hitch-*.txt; in the log only the threads native code entered,
                         // the game thread among them), at INFO.
                         hitchManagedDump = (tid, comm) => ThreadDump.Capture(tid, ThreadDump.Related(tid, comm),

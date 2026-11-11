@@ -316,6 +316,62 @@ namespace McvsOffline.Embed.Tests.Embedded
             }
         }
 
+        /// <summary>
+        /// Build 32 review: the spacing of the managed hitch dumps. A hitch that starts within
+        /// <see cref="GameThreadWatchdog.HitchManagedDumpSpacingMs"/> of the last managed dump gets the native dump instead (one
+        /// of <see cref="GameThreadWatchdog.HitchDumps"/>); a later one gets the next managed dump.
+        /// </summary>
+        [Fact]
+        public void AHitchSoonAfterAManagedDumpGetsTheNativeOneAndALaterOneTheNextManagedOne()
+        {
+            var notices = new ConcurrentQueue<string>();
+            var nativeDumps = new ConcurrentQueue<int>();
+            var managedDumps = new ConcurrentQueue<int>();
+            var game = new HitchGame7();
+            HitchGame7.Instance = game;
+            var watchdog = new GameThreadWatchdog(null, s => notices.Enqueue(s), null, 200, new[] { 5000 }, null)
+            {
+                Notice = s => notices.Enqueue(s),
+                HitchMs = 400,
+                HitchDumps = 5,
+                HitchDump = (tid, comm) => nativeDumps.Enqueue(tid),
+                HitchManagedDumps = 3,
+                HitchManagedDumpSpacingMs = 4000,
+                HitchManagedDump = (tid, comm) => managedDumps.Enqueue(tid),
+            };
+            Assert.True(watchdog.Bind(typeof(HitchGame7)));
+            game.Start();
+            watchdog.Start();
+            try
+            {
+                Assert.True(SpinWait.SpinUntil(() => watchdog.Beats >= 3, 10000));
+                // Hitch 1: managed. Hitch 2 starts about 1.8 s later: within the 4 s, so the native dump.
+                for (int i = 1; i <= 2; i++)
+                {
+                    game.Block(1000);
+                    Assert.True(SpinWait.SpinUntil(() => watchdog.Hitches == i, 5000), string.Join("\n", notices));
+                    Assert.True(SpinWait.SpinUntil(() => !game.Blocked, 5000));
+                    Thread.Sleep(400);
+                }
+                Assert.True(SpinWait.SpinUntil(() => managedDumps.Count == 1 && nativeDumps.Count == 1, 5000),
+                            managedDumps.Count + " managed, " + nativeDumps.Count + " native");
+                Assert.Single(notices, n => n.Contains(": a managed thread dump ("));
+                // Hitch 3 starts more than 4 s after hitch 1: the second managed dump.
+                Thread.Sleep(2500);
+                game.Block(1000);
+                Assert.True(SpinWait.SpinUntil(() => watchdog.Hitches == 3, 5000), string.Join("\n", notices));
+                Assert.True(SpinWait.SpinUntil(() => managedDumps.Count == 2, 5000), managedDumps.Count + " managed, " + nativeDumps.Count + " native");
+                Assert.Single(nativeDumps);
+                Assert.Contains(notices, n => n.StartsWith("[watchdog] hitch 3: a managed thread dump (2 of at most 3 per start)", StringComparison.Ordinal));
+            }
+            finally
+            {
+                watchdog.Stop();
+                game.Stop();
+                HitchGame7.Instance = null;
+            }
+        }
+
         /// <summary>A "game thread" that drains the context every 16 ms and can be blocked for a while.</summary>
         internal class GameLoop
         {
@@ -418,6 +474,11 @@ namespace McvsOffline.Embed.Tests.Embedded
         private sealed class HitchGame6 : GameLoop
         {
             public static HitchGame6 Instance { get; set; }
+        }
+
+        private sealed class HitchGame7 : GameLoop
+        {
+            public static HitchGame7 Instance { get; set; }
         }
     }
 

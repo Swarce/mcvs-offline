@@ -68,7 +68,7 @@ the HD textures and the graphics profiles work, at the same frame rate as before
 
 ## Build 32 (November 2026): the template reader without its quadratic name scan (the 27.7 s agent-select freeze), managed dumps at the first hitches
 
-On `wip/b32` (`McvsVersion.Build` is `32`). Tests: 1618, Embed 1401, PcKit 63, PcSpike 62, all passed (the solution, the embedded and the PC server DLLs built). Not yet tested on a phone or on Steam; the APK and the PC
+On `wip/b32` (`McvsVersion.Build` is `32`). Tests: 1618, Embed 1409, PcKit 63, PcSpike 62, all passed (the solution, the embedded and the PC server DLLs built). Not yet tested on a phone or on Steam; the APK and the PC
 kit of this build are not built yet.
 
 **The owner's build-31 log** (Galaxy S25 Ultra SM-S938B, unlock-all profile of ~611 KB; session `20261111-182001`, watchdog
@@ -116,7 +116,7 @@ and hitch probe on):
 - **Tests on the real assemblies of both builds** (shipped vs patched vs patched without the server DLL): an unlock-all-shaped
   profile (the 11,368 keys of `server/Content/unlocks.json`, the kill-signature lists, 21 mercs, 611,274 chars) gives the
   shipped tree line for line (47,117 nodes: types, names and name types, values and value types, order, parent links,
-  annotations, bases); 31 edge cases (`a`/`.a`/`'a'`, path merges, `@value`, a local `@base`, a null value merged with an
+  annotations, bases); 32 edge cases (`a`/`.a`/`'a'`, path merges, `@value`, a local `@base`, a null value merged with an
   object, attributes, child and quoted names, odd names, errors) and 400 random documents give the same tree or the same
   exception type and message; two reads share no node and changing one leaves the other unchanged; ILVerify: no finding
   before or after (0 shipped findings in the assembly). **Timing** of `GetTemplate`'s body on that profile (best of 3, this
@@ -129,13 +129,17 @@ and hitch probe on):
 - **Diagnostics:** `[game] templates: DefaultProfile.tx read in X ms (JSON A ms, nodes B ms); N objects of 8+ names indexed,
   the largest M names (patch 'templates')` for a read of 100 ms or more or with an object of 1,000 names or more, and
   `templates: TObject.FromObject(GameObject) took X ms` for a FromObject of 100 ms or more (the save's writer), at most 60
-  lines per start; the `[status]` line's data hooks end with `templates: N read (total, longest; slow or large ones), N objects
+  lines per start; a template read inside another on the same thread (a base template not cached yet) has its own line and
+  is left out of the outer read's time and of the status totals (`not counting X ms in N templates read inside it`); the `[status]` line's data hooks end with `templates: N read (total, longest; slow or large ones), N objects
   indexed (largest M names); FromObject N (of 100 ms or more, total, longest)`. Watchdog: the first 3 hitches after arming
   (at least 5 s apart) also take Mono's managed thread dump, off the game thread (every thread in
   `logs/threaddump-hitch-*.txt`; in the log only the threads native code entered, the game thread among them; the STALL dump of
-  the build-31 log took 4 ms); each of the first 20 hitches before arming gets one `[watchdog] hitch before the probe was armed:
+  the build-31 log finished within about 55 ms: its "after 4 ms" was taken before the last 50 ms poll, which build 32 fixes); each of the first 20 hitches before arming gets one `[watchdog] hitch before the probe was armed:
   the frame clock stood about N ms` line. Both under the existing `diagnostics.watchdog` / `diagnostics.threadDump` switches;
   no default changed.
+- PC: `Gameloft.Templates` is also in the host's boot checks: the `install:` file check compares `Gameloft.Templates.dll`
+  with install.json (a Steam update of that file alone says `stale`), and the watcher writes its `[boot] assemblies:` line and
+  reports NOT ACTIVE when it loads from the game folder. The kit's `verify` message names the number of codeBases it expects (6).
 - `McvsVersion.Build` 32.
 
 **Not changed (open):**
@@ -157,7 +161,8 @@ and hitch probe on):
 `templates: DefaultProfile.tx read in ...` lines, one per bot plus the profile loads, with their times; the boot and the
 menu return (their hitch lines and the reload's `templates:` line); the `threaddump-hitch-*.txt` files and the
 `hitch before the probe was armed` lines; the `[status]` line's `templates:` part; send the log. PC: the install writes five
-DLLs into `McvsOffline\bin` and the game starts.
+DLLs into `McvsOffline\bin` and the game starts; `bootstrap.log` has `[boot] assemblies: Gameloft.Templates …\McvsOffline\bin\Gameloft.Templates.dll
+(McvsOffline\bin)` and `install: current`.
 
 ## Build 31 (November 2026): no more `MCVS_Meta.xlsx` parses per bot at agent selection, and a visible watchdog switch
 

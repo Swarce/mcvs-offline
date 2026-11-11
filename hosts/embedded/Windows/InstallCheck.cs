@@ -13,15 +13,18 @@ namespace McvsOffline.Embedded.Windows
     /// <summary>
     /// The optional boot check of docs/design/pc-port.md §6.2: are the patched copies in McvsOffline\bin still made from the
     /// game files Steam has now? It compares the SHA-256 of <c>&lt;GameRoot&gt;\Game.dll</c>, <c>Gameloft.Engine.dll</c>,
-    /// <c>Gameloft.Util.dll</c> and <c>EngineBridge.dll</c> with <c>McvsOffline\install.json</c> <c>originals.&lt;file&gt;.sha256</c>
+    /// <c>Gameloft.Util.dll</c>, <c>EngineBridge.dll</c> and (build 32) <c>Gameloft.Templates.dll</c> with <c>McvsOffline\install.json</c> <c>originals.&lt;file&gt;.sha256</c>
     /// (only the keys fixed in §3.10; a <c>format</c> other than 1 is not checked). Reads files only; never throws.
     /// </summary>
     public static class InstallCheck
     {
         public const string ManifestFile = "install.json";
 
-        /// <summary>The game-folder originals the installer patched (§3.10).</summary>
-        public static readonly string[] Originals = { "EngineBridge.dll", "Game.dll", "Gameloft.Engine.dll", "Gameloft.Util.dll" };
+        /// <summary>
+        /// The game-folder originals the installer patched (§3.10): the patcher's <c>GameFolder.PatchedFiles</c>
+        /// (InstallCheckTests keeps the two equal). An older install.json without Gameloft.Templates.dll skips that file.
+        /// </summary>
+        public static readonly string[] Originals = { "EngineBridge.dll", "Game.dll", "Gameloft.Engine.dll", "Gameloft.Util.dll", "Gameloft.Templates.dll" };
 
         /// <summary>The result line without "[boot] ": "install: current", "install: stale: ...", or an "install: ..." note.</summary>
         public sealed class Result

@@ -276,6 +276,37 @@ namespace McvsOffline.Embed.Tests.Embedded
         }
 
         /// <summary>
+        /// Build 32 review: the boot check covers every file the installer patches, Gameloft.Templates.dll included, so a Steam
+        /// update of that file alone says "stale"; an install.json from before build 32 (no Templates entry) is still "current".
+        /// </summary>
+        [Fact]
+        public void TheInstallCheckCoversGameloftTemplatesToo()
+        {
+            Assert.Equal(McvsOffline.Patcher.Pc.GameFolder.PatchedFiles, InstallCheck.Originals);
+            string root = GameFolder("installcheck-templates");
+            string data = Path.Combine(root, "McvsOffline");
+            Directory.CreateDirectory(data);
+            var all = new StringBuilder("{\"format\": 1, \"originals\": {");
+            var older = new StringBuilder("{\"format\": 1, \"originals\": {");
+            for (int i = 0; i < InstallCheck.Originals.Length; i++)
+            {
+                string file = Path.Combine(root, InstallCheck.Originals[i]);
+                File.WriteAllText(file, "original " + i);
+                string entry = "\"" + InstallCheck.Originals[i] + "\": {\"sha256\": \"" + InstallCheck.Sha256(file) + "\"}";
+                all.Append(i == 0 ? "" : ", ").Append(entry);
+                if (InstallCheck.Originals[i] != "Gameloft.Templates.dll") older.Append(i == 0 ? "" : ", ").Append(entry);
+            }
+            File.WriteAllText(Path.Combine(data, InstallCheck.ManifestFile), all.Append("}}").ToString());
+            Assert.Equal("install: current", InstallCheck.Run(root, data).Line);
+            File.WriteAllText(Path.Combine(root, "Gameloft.Templates.dll"), "Steam updated only me");
+            InstallCheck.Result stale = InstallCheck.Run(root, data);
+            Assert.True(stale.Stale);
+            Assert.Contains("Gameloft.Templates.dll changed since the install", stale.Line);
+            File.WriteAllText(Path.Combine(data, InstallCheck.ManifestFile), older.Append("}}").ToString());
+            Assert.Equal("install: current", InstallCheck.Run(root, data).Line);
+        }
+
+        /// <summary>
         /// WR2 F2: the status line's "install:" part is the error "installed, NOT ACTIVE (...)" whenever the running process shows
         /// the redirect or a witness failed, whatever the file check said ("current" is dropped, anything else is kept).
         /// </summary>

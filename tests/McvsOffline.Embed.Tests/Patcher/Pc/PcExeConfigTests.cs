@@ -184,7 +184,30 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         }
 
         /// <summary>
-        /// Install's read-back (and verify) reads the config back to the five codeBases, each pointing at the copy of its own
+        /// Build 32 review: the read-back of a config with build 31's five codeBases (no Gameloft.Templates) names the count it
+        /// expects from <see cref="GameFolder.PatchedFiles"/> plus the server (six), not a fixed "five".
+        /// </summary>
+        [Fact]
+        public void TheReadBackOfAConfigWithoutTemplatesSaysSixCodeBasesWereExpected()
+        {
+            string game = Path.Combine(Path.GetTempPath(), "mcvs-embed-tests", "pcconfig-count-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(game);
+            try
+            {
+                File.WriteAllText(Path.Combine(game, PcExeConfig.FileName), PcExeConfig.Build(BuildCodeBases()));
+                List<string> problems = PcInstaller.CheckWritten(game, new InstallManifest(), null);
+                Assert.Contains(PcExeConfig.FileName + ": expected the 6 codeBases EngineBridge, Game, Gameloft.Engine, Gameloft.Util, Gameloft.Templates, " +
+                                "McvsOffline.Server, found EngineBridge, Game, Gameloft.Engine, Gameloft.Util, McvsOffline.Server", problems);
+                Assert.DoesNotContain(problems, p => p.Contains("five"));
+            }
+            finally
+            {
+                Directory.Delete(game, true);
+            }
+        }
+
+        /// <summary>
+        /// Install's read-back (and verify) reads the config back to the six codeBases (five patched DLLs and the server), each pointing at the copy of its own
         /// assembly, and reports a qualifyAssembly entry as an old build-14/15 config. Real install of the stand-in plan; skipped
         /// without MCVS_PC_REFS.
         /// </summary>

@@ -110,6 +110,12 @@ namespace McvsOffline
         private static long templateReadTicks, templateLargeReadTicks, templateMaxReadTicks;
         private static int fromObjects, fromObjectsLarge;
         private static long fromObjectLargeTicks, fromObjectMaxTicks;
+        // The reads that ended on this thread, newest last (start, inclusive ticks): a read that ends takes out those that started
+        // after it (they ran inside it: a non-local @base, BindBase -> TemplateManager.GetTemplate -> a nested ReadDefaultTemplate).
+        private const int NestedSlots = 32;
+        [ThreadStatic] private static long[] endedStarts;
+        [ThreadStatic] private static long[] endedTicks;
+        [ThreadStatic] private static int endedCount;
 
         /// <summary>The embedded host's log (bootstrap.log, "[game]"); null: no lines, counters only.</summary>
         public static void Configure(Action<string> infoLine)
@@ -488,7 +494,9 @@ namespace McvsOffline
         /// After a <c>JsonTemplateReader</c> read its default template (<c>ReadDefaultTemplate</c>'s first call): from
         /// <paramref name="started"/> to now, the JSON parse up to <paramref name="rooted"/> (0: unknown), <paramref name="indexed"/>
         /// objects of 8 names or more found their children by the dictionary, the largest with <paramref name="largest"/> names.
-        /// A slow or large one gets a "templates:" line; every read counts in the status line.
+        /// A slow or large one gets a "templates:" line; every read counts in the status line. Build 32 review: a template read
+        /// inside this one on the same thread (a base template that was not cached yet) has its own call and line, so its time is
+        /// taken out of this read's total, nodes part and status counters, and the line says how much was taken out.
         /// </summary>
         public static void TemplateRead(string source, long started, long rooted, int indexed, int largest)
         {
@@ -496,7 +504,9 @@ namespace McvsOffline
             {
                 if (started == 0) return;
                 long now = Stopwatch.GetTimestamp();
-                long ticks = now - started;
+                int nestedReads;
+                long nested = TakeNested(started, now - started, out nestedReads);
+                long ticks = NotNegative(now - started - nested);
                 Interlocked.Increment(ref templateReads);
                 Interlocked.Add(ref templateReadTicks, ticks);
                 if (indexed > 0) Interlocked.Add(ref templateIndexed, indexed);
@@ -508,14 +518,61 @@ namespace McvsOffline
                 Interlocked.Add(ref templateLargeReadTicks, ticks);
                 if (Interlocked.Increment(ref templateLines) > TemplateLineLimit) return;
                 string json = rooted >= started && rooted <= now
-                    ? " (JSON " + Ms(rooted - started) + ", nodes " + Ms(now - rooted) + ")"
+                    ? "JSON " + Ms(rooted - started) + ", nodes " + Ms(NotNegative(now - rooted - nested))
                     : "";
+                if (nestedReads > 0)
+                {
+                    json += (json.Length > 0 ? "; " : "") + "not counting " + Ms(nested) + " in " + nestedReads.ToString(CultureInfo.InvariantCulture) +
+                            (nestedReads == 1 ? " template" : " templates") + " read inside it, counted on their own";
+                }
+                if (json.Length > 0) json = " (" + json + ")";
                 Info("templates: " + (source ?? "?") + " read in " + Ms(ticks) + json + "; " + indexed.ToString(CultureInfo.InvariantCulture) +
                      " objects of 8+ names indexed, the largest " + largest.ToString(CultureInfo.InvariantCulture) + " names (patch 'templates')");
             }
             catch (Exception)
             {
             }
+        }
+
+        // Not Math.Max: against the game's Android mscorlib (MCVS_REFS) the embedded build found no Math.Max(long, long) overload.
+        private static long NotNegative(long value)
+        {
+            return value < 0 ? 0 : value;
+        }
+
+        /// <summary>
+        /// The inclusive ticks of the reads that ended on this thread since <paramref name="started"/> (each started at or after
+        /// it, so it ran inside this read; their own nested reads were taken out by them), and records this read. Reads on one
+        /// thread either nest or follow each other, so those are the newest records.
+        /// </summary>
+        private static long TakeNested(long started, long inclusive, out int count)
+        {
+            long[] starts = endedStarts, ticks = endedTicks;
+            if (starts == null)
+            {
+                endedStarts = starts = new long[NestedSlots];
+                endedTicks = ticks = new long[NestedSlots];
+                endedCount = 0;
+            }
+            int n = endedCount;
+            long nested = 0;
+            count = 0;
+            while (n > 0 && starts[n - 1] >= started)
+            {
+                n--;
+                nested += ticks[n];
+                count++;
+            }
+            if (n == NestedSlots)
+            {
+                Array.Copy(starts, 1, starts, 0, n - 1);
+                Array.Copy(ticks, 1, ticks, 0, n - 1);
+                n--;
+            }
+            starts[n] = started;
+            ticks[n] = inclusive;
+            endedCount = n + 1;
+            return nested;
         }
 
         /// <summary>After <c>TObject.FromObject(instance)</c> (the profile save's writer among others): a slow one gets a line.</summary>
@@ -648,6 +705,7 @@ namespace McvsOffline
             loadFresh = false;
             templateReads = templateLargeReads = templateIndexed = templateLargest = templateLines = 0;
             templateReadTicks = templateLargeReadTicks = templateMaxReadTicks = 0;
+            endedCount = 0;
             fromObjects = fromObjectsLarge = 0;
             fromObjectLargeTicks = fromObjectMaxTicks = 0;
         }

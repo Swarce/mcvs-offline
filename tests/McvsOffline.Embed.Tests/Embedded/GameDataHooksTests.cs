@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace McvsOffline.Embed.Tests.Embedded
@@ -354,6 +355,72 @@ namespace McvsOffline.Embed.Tests.Embedded
             }
         }
 
+        /// <summary>
+        /// Build 32 review: a template read inside another on the same thread (a base template not cached yet, read by a nested
+        /// ReadDefaultTemplate) has its own line; the outer read's total, nodes part and the status counters leave its time out,
+        /// and the outer line says how much. A read after them (not inside) leaves nothing out.
+        /// </summary>
+        [Fact]
+        public void ATemplateReadInsideAnotherIsCountedOnce()
+        {
+            GameDataHooks.Reset();
+            var lines = new List<string>();
+            GameDataHooks.Configure(lines.Add);
+            try
+            {
+                long second = System.Diagnostics.Stopwatch.Frequency;
+                long now = GameDataHooks.TemplateClock();
+                long outerStarted = now - second, outerRooted = now - second * 9 / 10;
+                // The base template: started 0.4 s ago (inside the outer read, after its JSON), ends now.
+                GameDataHooks.TemplateRead("Base.tx", now - second * 4 / 10, now - second * 35 / 100, 0, 0);
+                GameDataHooks.TemplateRead("DefaultProfile.tx", outerStarted, outerRooted, 3, 11368);
+                Assert.Equal(2, lines.Count);
+                Assert.StartsWith("templates: Base.tx read in ", lines[0]);
+                Assert.DoesNotContain("not counting", lines[0]);
+                Match outer = Regex.Match(lines[1], @"^templates: DefaultProfile\.tx read in ([0-9.]+) ms \(JSON ([0-9.]+) ms, nodes ([0-9.]+) ms; not counting ([0-9.]+) ms in 1 template read inside it, counted on their own\); 3 objects");
+                Assert.True(outer.Success, lines[1]);
+                double total = Number(outer, 1), json = Number(outer, 2), nodes = Number(outer, 3), inner = Number(outer, 4);
+                Assert.InRange(inner, 395, 700);
+                Assert.InRange(total, 595, 800);   // about 1 s minus the base's 0.4 s
+                Assert.InRange(json, 99, 101);
+                Assert.InRange(nodes, total - json - 1, total - json + 1);
+                // The status total is the two own times (about 1 s), not 1.4 s.
+                Match status = Regex.Match(GameDataHooks.Describe(), @"; templates: 2 read \(([0-9.]+) ms, longest ([0-9.]+) ms");
+                Assert.True(status.Success, GameDataHooks.Describe());
+                Assert.InRange(Number(status, 1), 995, 1300);
+                Assert.InRange(Number(status, 2), total - 1, total + 1);
+
+                // A three-level chain in the order the reads end: C inside B inside A.
+                lines.Clear();
+                now = GameDataHooks.TemplateClock();
+                GameDataHooks.TemplateRead("C.tx", now - second / 10, 0, 0, 0);
+                GameDataHooks.TemplateRead("B.tx", now - second * 3 / 10, 0, 0, 0);
+                GameDataHooks.TemplateRead("A.tx", now - second * 6 / 10, 0, 0, 0);
+                Match b = Regex.Match(lines[1], @"^templates: B\.tx read in ([0-9.]+) ms \(not counting ([0-9.]+) ms in 1 template read inside it");
+                Match a = Regex.Match(lines[2], @"^templates: A\.tx read in ([0-9.]+) ms \(not counting ([0-9.]+) ms in 1 template read inside it");
+                Assert.True(b.Success && a.Success, string.Join("\n", lines));
+                Assert.InRange(Number(b, 1), 195, 300);   // B's own 0.2 s
+                Assert.InRange(Number(a, 1), 295, 400);   // A's own 0.3 s: B (0.3 s, C included) is taken out once
+                Assert.InRange(Number(a, 2), 295, 400);
+
+                // A read that starts after them nested nothing.
+                lines.Clear();
+                long later = GameDataHooks.TemplateClock();
+                GameDataHooks.TemplateRead("After.tx", later - second / 5, 0, 0, 0);
+                Assert.DoesNotContain("not counting", Assert.Single(lines));
+            }
+            finally
+            {
+                GameDataHooks.Configure(null);
+                GameDataHooks.Reset();
+            }
+        }
+
+        private static double Number(Match m, int group)
+        {
+            return double.Parse(m.Groups[group].Value, System.Globalization.CultureInfo.InvariantCulture);
+        }
+
         /// <summary>Build 32, patch 'templates': timing only; a slow or large read gets a line, every read counts, lines are capped.</summary>
         [Fact]
         public void TemplateReadsAreCountedAndTheSlowOrLargeOnesLogged()
@@ -366,19 +433,22 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.Contains("; templates: none read yet (or no 'templates' patch)", GameDataHooks.Describe());
                 long now = GameDataHooks.TemplateClock();
                 long second = System.Diagnostics.Stopwatch.Frequency;
-                GameDataHooks.TemplateRead("Small.tx", now, now, 0, 0);                                     // fast and small: counted only
-                GameDataHooks.TemplateRead("DefaultProfile.tx", now - second / 2, now - second / 4, 23, 11368);
+                // In the order they started (reads on one thread follow each other or nest; none of these nests in another).
                 GameDataHooks.TemplateRead("Slow.tx", now - second, 0, 1, 9);                               // slow: logged, no JSON split
+                GameDataHooks.TemplateRead("DefaultProfile.tx", now - second / 2, now - second / 4, 23, 11368);
+                GameDataHooks.TemplateRead("Small.tx", now, now, 0, 0);                                     // fast and small: counted only
                 GameDataHooks.TemplateRead("Never.tx", 0, 0, 5, 50000);                                     // no clock (hooks were missing): ignored
                 Assert.Equal(3, GameDataHooks.TemplateReads);
                 Assert.Equal(24, GameDataHooks.TemplateObjectsIndexed);
                 Assert.Equal(11368, GameDataHooks.TemplateLargestObject);
                 Assert.Equal(2, lines.Count);
-                Assert.StartsWith("templates: DefaultProfile.tx read in ", lines[0]);
-                Assert.Contains(" (JSON ", lines[0]);
-                Assert.EndsWith("; 23 objects of 8+ names indexed, the largest 11368 names (patch 'templates')", lines[0]);
-                Assert.StartsWith("templates: Slow.tx read in ", lines[1]);
-                Assert.DoesNotContain("JSON", lines[1]);
+                Assert.StartsWith("templates: Slow.tx read in ", lines[0]);
+                Assert.DoesNotContain("JSON", lines[0]);
+                Assert.DoesNotContain("(", lines[0].Substring(0, lines[0].IndexOf("; ", StringComparison.Ordinal)));
+                Assert.StartsWith("templates: DefaultProfile.tx read in ", lines[1]);
+                Assert.Contains(" (JSON ", lines[1]);
+                Assert.DoesNotContain("not counting", lines[1]);
+                Assert.EndsWith("; 23 objects of 8+ names indexed, the largest 11368 names (patch 'templates')", lines[1]);
 
                 GameDataHooks.TemplateFromObject(new List<int>(), now - second / 5);
                 GameDataHooks.TemplateFromObject(null, now);                                                // fast: counted only
@@ -388,7 +458,11 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.Contains("2 slow or large ones", status);
                 Assert.Contains("24 objects indexed (largest 11368 names); FromObject 2 (1 of 100 ms or more, ", status);
 
-                for (int i = 0; i < GameDataHooks.TemplateLineLimit + 5; i++) GameDataHooks.TemplateRead("Big.tx", now, now, 1, 5000);
+                for (int i = 0; i < GameDataHooks.TemplateLineLimit + 5; i++)
+                {
+                    long at = GameDataHooks.TemplateClock();
+                    GameDataHooks.TemplateRead("Big.tx", at, at, 1, 5000);
+                }
                 Assert.Equal(GameDataHooks.TemplateLineLimit, lines.Count);
                 Assert.Equal(3 + GameDataHooks.TemplateLineLimit + 5, GameDataHooks.TemplateReads);
             }
