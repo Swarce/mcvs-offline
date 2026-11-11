@@ -113,6 +113,9 @@ namespace McvsOffline.Embedded
         private FileLogSink bootstrapSink;
         private SafeLogFile gameLogFile;
         private IPlatformDiagnostics diagnostics;
+
+        /// <summary>Why <see cref="Watchdog"/> is null after StartDiagnostics (the status line and the page say it), or null.</summary>
+        private volatile string watchdogOff;
         private IAdminPlatform adminPlatform;
         private INotificationPlatform notificationPlatform;
         private string platformName = "directory";
@@ -240,6 +243,7 @@ namespace McvsOffline.Embedded
             {
                 if (Boot != null) sb.Append("boot: ").Append(Boot.Describe()).Append('\n');
                 if (Watchdog != null) sb.Append("watchdog: ").Append(Watchdog.Describe()).Append('\n');
+                else sb.Append("watchdog: ").Append(watchdogOff ?? "not started yet").Append('\n');
                 if (bootstrapSink != null) sb.Append("log ").Append(bootstrapSink.File.Describe()).Append('\n');
                 McvsServer s = server;
                 if (s != null)
@@ -515,6 +519,7 @@ namespace McvsOffline.Embedded
                     FallbackLogsDir = fallbackLogDir,
                     StartedUtc = startedUtc,
                     Watchdog = () => this.Watchdog,
+                    WatchdogOff = () => this.WatchdogOffReason,
                     Problems = problemSink,
                     MirrorStatus = () =>
                     {
@@ -859,6 +864,22 @@ namespace McvsOffline.Embedded
             }
         }
 
+        /// <summary>The status-line text when the settings turned the watchdog off.</summary>
+        internal const string WatchdogOffBySettings =
+            "off: settings diagnostics.watchdog is false (no stall reports, no thread dumps, no hitch probe)";
+
+        /// <summary>The status-line text when the host's options start no watchdog (tests, tools).</summary>
+        internal const string WatchdogOffByHost = "off: this host starts no watchdog";
+
+        /// <summary>The one INFO line of a start whose settings turned the watchdog off.</summary>
+        internal const string WatchdogOffLine =
+            "off: settings diagnostics.watchdog is false (MCVS Offline page, Settings, Diagnostics, Freeze watchdog), so this start " +
+            "logs no game-thread tid, no stall report and no thread dump, and the hitch probe is off too (no HITCH: lines): it runs " +
+            "in the watchdog, on its thread and its frame clock. Turn the switch on and restart the game to get them back.";
+
+        /// <summary>Why the watchdog is not running (null while it runs or before the diagnostics start).</summary>
+        internal string WatchdogOffReason { get { return Watchdog == null ? watchdogOff : null; } }
+
         /// <summary>"[watchdog] x" → "x": the logger's category says it already.</summary>
         internal static string WithoutTag(string line, string tag)
         {
@@ -869,6 +890,17 @@ namespace McvsOffline.Embedded
         {
             try
             {
+                if (!options.Watchdog)
+                {
+                    watchdogOff = WatchdogOffByHost;
+                }
+                else if (!Settings.GetBool("diagnostics.watchdog", true))
+                {
+                    // The owner's build-29 and build-30 logs had no [watchdog] line at all (build 24 still logged "game thread is
+                    // tid"): the switch was off, and nothing said so. One line per start, and the status line repeats it.
+                    watchdogOff = WatchdogOffBySettings;
+                    Logger.For("watchdog").Info(WatchdogOffLine);
+                }
                 if (options.Watchdog && Settings.GetBool("diagnostics.watchdog", true))
                 {
                     Log watchdogLog = Logger.For("watchdog");

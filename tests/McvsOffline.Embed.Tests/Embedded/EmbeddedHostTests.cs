@@ -65,6 +65,8 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.Contains("native online SDK init requested", string.Join("\n", host.Boot.Milestones()));
                 Assert.Contains("boot: ", host.DescribeState());
                 Assert.Contains("server.log: ", host.DescribeState());
+                Assert.Contains("watchdog: game thread tid ", host.DescribeState());
+                Assert.DoesNotContain("[watchdog] off", bootstrap);
             }
             finally
             {
@@ -283,6 +285,36 @@ namespace McvsOffline.Embed.Tests.Embedded
             finally
             {
                 McvsOffline.PortHooks.Configure(0, 0);
+            }
+        }
+
+        /// <summary>
+        /// Build 31: the owner's build-29 and build-30 logs had no [watchdog] line at all. With settings diagnostics.watchdog false
+        /// one INFO line says so (and that the hitch probe is off with it), and the status line names the switch; the default stays on.
+        /// </summary>
+        [Fact]
+        public void AWatchdogTurnedOffInTheSettingsSaysSoInTheLogAndTheStatusLine()
+        {
+            string root = TestEnvironment.NewTempDir("watchdog-off");
+            Directory.CreateDirectory(Path.Combine(root, "McvsOffline"));
+            File.WriteAllText(Path.Combine(root, "McvsOffline", "settings.json"), "{\"diagnostics\": {\"watchdog\": false}}");
+            EmbeddedHost host = EmbeddedHost.Start(new DirectoryPlatform(root, false),
+                                                   new EmbeddedHostOptions { Port = TestEnvironment.FreePort(), StatusIntervalMs = 0 });
+            try
+            {
+                Assert.True(host.WaitForServer(30000));
+                Assert.Null(host.Watchdog);
+                Assert.Contains("watchdog: " + EmbeddedHost.WatchdogOffBySettings, host.DescribeState());
+                Assert.Contains("hitch probe", EmbeddedHost.WatchdogOffBySettings);
+                Assert.True(host.FlushLogs(10000));
+                string bootstrap = File.ReadAllText(Path.Combine(root, "McvsOffline", "logs", "bootstrap.log"));
+                Assert.Contains("INFO  [watchdog] " + EmbeddedHost.WatchdogOffLine, bootstrap);
+                Assert.Contains("no HITCH: lines", EmbeddedHost.WatchdogOffLine);
+                Assert.Contains("\"watchdog\": false", File.ReadAllText(Path.Combine(root, "McvsOffline", "settings.json")));
+            }
+            finally
+            {
+                host.Server?.Dispose();
             }
         }
 

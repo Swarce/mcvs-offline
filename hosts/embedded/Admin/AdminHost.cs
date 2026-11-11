@@ -97,6 +97,9 @@ namespace McvsOffline.Embedded.Admin
         /// <summary>The game-thread watchdog, read at call time (it starts after the server thread); may return null.</summary>
         public Func<GameThreadWatchdog> Watchdog { get; set; }
 
+        /// <summary>Why there is no watchdog ("off: settings diagnostics.watchdog is false ..."), read at call time; may be null.</summary>
+        public Func<string> WatchdogOff { get; set; }
+
         /// <summary>WARN/ERROR entries of the host logger (bootstrap.log, logcat) since boot.</summary>
         public MemoryLogSink Problems { get; set; }
 
@@ -474,7 +477,16 @@ namespace McvsOffline.Embedded.Admin
                 if (!string.IsNullOrEmpty(text)) info.MirrorStatus = text;
                 Func<GameThreadWatchdog> get = Watchdog;
                 GameThreadWatchdog watchdog = get == null ? null : get();
-                if (watchdog != null) info.WatchdogStatus = watchdog.Describe();
+                if (watchdog != null)
+                {
+                    info.WatchdogStatus = watchdog.Describe();
+                }
+                else
+                {
+                    Func<string> off = WatchdogOff;
+                    string reason = off == null ? null : off();
+                    if (!string.IsNullOrEmpty(reason)) info.WatchdogStatus = reason;
+                }
             }
             catch (Exception)
             {
