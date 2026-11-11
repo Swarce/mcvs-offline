@@ -71,8 +71,11 @@ the HD textures and the graphics profiles work, at the same frame rate as before
 
 ## Build 32 (November 2026): the template reader without its quadratic name scan (the 27.7 s agent-select freeze), the same for the saves' writer and the loads' merge, a profile lock left by an earlier start answered as released, managed dumps at the first hitches
 
-On `wip/b32` (`McvsVersion.Build` is `32`). Tests: 1655, Embed 1418, PcKit 63, PcSpike 62, all passed (the solution, the embedded and the PC server DLLs built). Not yet tested on a phone or on Steam; the APK and the PC
-kit of this build are not built yet.
+On `wip/b32` (`McvsVersion.Build` is `32`). Tests: 1655, Embed 1418, PcKit 63, PcSpike 62, all passed (the solution, the embedded and the PC server DLLs built). The APK (same key, zipalign and apksigner OK;
+`Gameloft.Templates.dll` patched and its AOT images dropped) and the PC kit are built; the PC end to end on the Steam files
+passed (install, verify and status `installed, current`, six codeBases, ILVerify findings unchanged on all five patched DLLs
+and none in the server, a second install writes the same bytes, uninstall restores every file). Not yet tested on a phone or
+on Steam.
 
 **The owner's build-31 log** (Galaxy S25 Ultra SM-S938B, unlock-all profile of ~611 KB; session `20261111-182001`, watchdog
 and hitch probe on):
