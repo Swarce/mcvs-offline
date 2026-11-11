@@ -68,7 +68,7 @@ the HD textures and the graphics profiles work, at the same frame rate as before
 
 ## Build 31 (November 2026): no stutter every 5 s at agent selection, and a visible watchdog switch
 
-On `wip/b31` (`McvsVersion.Build` is `31`). No APK or PC kit built in this session yet.
+On `wip/b31` (`McvsVersion.Build` is `31`). No APK or PC kit built yet. Tests: 1618, Embed 1390, PcKit 63, PcSpike 62, all passed.
 
 **The owner's build-30 log** (Galaxy S25 Ultra class, unlock-all profile; `20261111-142707-*`):
 
