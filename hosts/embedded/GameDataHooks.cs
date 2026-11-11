@@ -26,6 +26,15 @@ namespace McvsOffline
     /// the incoming changer holds exactly the same cells in the same order, the tables already are the shipped rows plus those
     /// cells, so the patched setter stores the new object and raises <c>TablesLoaded</c> (what Load's <c>OnTableLoaded</c>
     /// ends with, for the typed tables and the other listeners) without the reload.</item>
+    /// <item>Patch 'crmtables', build 31 (Gameloft.Engine <c>Database.Load(string)</c>): <see cref="RestoreDatabaseFile"/>,
+    /// <see cref="DatabaseFileParsed"/> and <see cref="ForgetDatabaseFiles"/>. The owner's build-30 log: during agent selection
+    /// the GS adds a bot about every 5 s, each bot gets new per-user databases (<c>PerUserDatabase.GetDatabase</c>: a new
+    /// <c>Database</c>, its file parsed), and in our single process all three Worlds' <c>DatabaseLoaded</c> handlers run on it,
+    /// so MCVS_Meta was parsed three times per bot (the new database, then the client's per-player cells, then the GS cells
+    /// again), about 265 ms each on the game thread. The second time a new database parses a file, its freshly parsed rows
+    /// (before any CRM cell) are copied and kept; every later <c>Load</c> of that file, by any database, gets a copy of those
+    /// rows instead of reading and parsing the file, then the game's own <c>OnTableLoaded</c> applies the cells and raises
+    /// <c>TablesLoaded</c> as after a parse.</item>
     /// <item>Patch 'jsonnorm' (Gameloft.Util <c>Json.NormalizeJsonString</c>): <see cref="CachedNormalizedJson"/> and
     /// <see cref="RememberNormalizedJson"/>. <c>ProfileSection.IsModified</c> normalizes both the saved and the current profile
     /// text (a full parse, a recursive sort, a re-serialization), and every profile save evaluates it twice: four
@@ -47,12 +56,31 @@ namespace McvsOffline
         /// <summary>At most this many crm-tables lines per process (then only the counters of the status line).</summary>
         public const int CrmLineLimit = 40;
 
+        /// <summary>The parse of a file by a new database that makes its rows kept (the first one of a file is not kept: most
+        /// files are loaded once per process, and a copy of them would only cost memory).</summary>
+        public const int KeepFileAtParse = 2;
+
+        /// <summary>At most this many files are kept.</summary>
+        public const int KeptFilesLimit = 32;
+
+        /// <summary>At most this many database-file lines (parsed, kept, restored) per process.</summary>
+        public const int FileLineLimit = 80;
+
         private static volatile Action<string> info;
         private static readonly object gate = new object();
 
         // crmtables
         private static int crmSkipped, crmChanged, crmLines;
         private static long crmCompareTicks;
+
+        // crmtables, Database.Load (the maps under fileGate)
+        private static readonly object fileGate = new object();
+        private static readonly Dictionary<string, KeptFile> keptFiles = new Dictionary<string, KeptFile>(StringComparer.Ordinal);
+        private static readonly Dictionary<string, int> freshParses = new Dictionary<string, int>(StringComparer.Ordinal);
+        private static int filesParsed, filesRestored, fileLines, filesForgotten;
+        private static long fileParseTicks, fileRestoreTicks;
+        [ThreadStatic] private static long loadStarted;
+        [ThreadStatic] private static bool loadFresh;
 
         // jsonnorm (under gate)
         private static readonly string[] normInput = new string[NormalizeCacheSlots];
@@ -149,6 +177,212 @@ namespace McvsOffline
             return null;
         }
 
+        // ------------------------------------------------------------------------------------------------ crmtables: Database.Load
+
+        /// <summary>The rows of one file as its parse left them (before any CRM cell): never handed out, only copied.</summary>
+        private sealed class KeptFile
+        {
+            public Type TableType;
+            public string[] Names;
+            public string[][] Fields;
+            public object[][][] Rows;
+            public int RowCount, CellCount;
+        }
+
+        /// <summary>
+        /// Called first by the patched <c>Database.Load(path)</c>. True when <paramref name="path"/>'s rows are kept: then every
+        /// table of the file in <paramref name="database"/> (an existing <c>Table</c> object, or a new one as <c>Load</c> makes it)
+        /// gets a copy of the kept <c>Fields</c> and <c>Rows</c> (new arrays, the same interned strings and boxed values a parse
+        /// gives), and the patched method goes on with the game's <c>OnTableLoaded(null)</c>, as after its parse. False (also on
+        /// any failure, after which the game's parse sets every table of the file again): the game reads and parses the file.
+        /// </summary>
+        public static bool RestoreDatabaseFile(object database, string path)
+        {
+            loadStarted = 0;
+            try
+            {
+                if (database == null || string.IsNullOrEmpty(path)) return false;
+                IDictionary tables = Get(database, "Tables") as IDictionary;
+                if (tables == null) return false;
+                long started = Stopwatch.GetTimestamp();
+                KeptFile kept;
+                lock (fileGate) keptFiles.TryGetValue(path, out kept);
+                if (kept == null)
+                {
+                    loadFresh = tables.Count == 0;
+                    loadStarted = started;
+                    return false;
+                }
+                // Every array first, then the assignments (they cannot fail half-way for a reason of ours).
+                int count = kept.Names.Length;
+                var fields = new string[count][];
+                var rows = new object[count][][];
+                for (int t = 0; t < count; t++)
+                {
+                    fields[t] = (string[])kept.Fields[t].Clone();
+                    object[][] source = kept.Rows[t];
+                    var copy = new object[source.Length][];
+                    for (int r = 0; r < source.Length; r++) copy[r] = (object[])source[r].Clone();
+                    rows[t] = copy;
+                }
+                for (int t = 0; t < count; t++)
+                {
+                    string name = kept.Names[t];
+                    object table = tables.Contains(name) ? tables[name] : null;
+                    if (table == null)
+                    {
+                        // Load: value = (Tables[item.Key] = new Table()); value.Database = this; value.Name = item.Key;
+                        table = Activator.CreateInstance(kept.TableType);
+                        tables[name] = table;
+                        Set(table, "Database", database);
+                        Set(table, "Name", name);
+                    }
+                    SetField(table, "Fields", fields[t]);
+                    SetField(table, "Rows", rows[t]);
+                }
+                long ticks = Stopwatch.GetTimestamp() - started;
+                Interlocked.Increment(ref filesRestored);
+                Interlocked.Add(ref fileRestoreTicks, ticks);
+                if (Interlocked.Increment(ref fileLines) <= FileLineLimit)
+                {
+                    Info("crm tables: " + path + " restored from memory (" + count.ToString(CultureInfo.InvariantCulture) + " tables, " +
+                         kept.RowCount.ToString(CultureInfo.InvariantCulture) + " rows) in " + Ms(ticks) + ", no read from disk");
+                }
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Called by the patched <c>Database.Load(path)</c> after the game's parse, before its <c>OnTableLoaded(null)</c> (which
+        /// applies the CRM cells). Counts the parse; at the <see cref="KeepFileAtParse"/>-th parse of a file by a new database
+        /// (an empty <c>Tables</c> before it, so every table came from this file) keeps a copy of its rows, unless a cell is not
+        /// an immutable value (a JSON object or array: nothing is kept for that file).
+        /// </summary>
+        public static void DatabaseFileParsed(object database, string path)
+        {
+            long started = loadStarted;
+            bool fresh = loadFresh;
+            loadStarted = 0;
+            try
+            {
+                if (started == 0 || database == null || string.IsNullOrEmpty(path)) return;
+                long ticks = Stopwatch.GetTimestamp() - started;
+                Interlocked.Increment(ref filesParsed);
+                Interlocked.Add(ref fileParseTicks, ticks);
+                string kept = null;
+                if (fresh)
+                {
+                    int parses;
+                    bool keep;
+                    lock (fileGate)
+                    {
+                        freshParses.TryGetValue(path, out parses);
+                        freshParses[path] = ++parses;
+                        keep = parses >= KeepFileAtParse && !keptFiles.ContainsKey(path) && keptFiles.Count < KeptFilesLimit;
+                    }
+                    if (keep)
+                    {
+                        KeptFile file = Snapshot(Get(database, "Tables") as IDictionary);
+                        if (file == null)
+                        {
+                            kept = "not kept in memory (a cell is not a plain value)";
+                        }
+                        else
+                        {
+                            lock (fileGate)
+                            {
+                                if (!keptFiles.ContainsKey(path) && keptFiles.Count < KeptFilesLimit) keptFiles[path] = file;
+                            }
+                            kept = "its rows are kept in memory for the next loads (" + file.Names.Length.ToString(CultureInfo.InvariantCulture) +
+                                   " tables, " + file.RowCount.ToString(CultureInfo.InvariantCulture) + " rows, " +
+                                   file.CellCount.ToString(CultureInfo.InvariantCulture) + " cells)";
+                        }
+                    }
+                }
+                if (Interlocked.Increment(ref fileLines) <= FileLineLimit)
+                {
+                    Info("crm tables: " + path + " read from disk and parsed in " + Ms(ticks) +
+                         (fresh ? " (a new database)" : " (a reload)") + (kept == null ? "" : "; " + kept));
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>The game's <c>Database.Game_DataChanged</c> (a data file changed, development builds): nothing kept is used again.</summary>
+        public static void ForgetDatabaseFiles()
+        {
+            try
+            {
+                lock (fileGate)
+                {
+                    if (keptFiles.Count > 0) filesForgotten += keptFiles.Count;
+                    keptFiles.Clear();
+                    freshParses.Clear();
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>A copy of every table's Fields and Rows in the dictionary's order, or null when a cell is not a plain value.</summary>
+        private static KeptFile Snapshot(IDictionary tables)
+        {
+            if (tables == null || tables.Count == 0) return null;
+            var names = new List<string>();
+            var fields = new List<string[]>();
+            var rows = new List<object[][]>();
+            Type tableType = null;
+            int rowCount = 0, cellCount = 0;
+            foreach (DictionaryEntry entry in tables)
+            {
+                string name = entry.Key as string;
+                object table = entry.Value;
+                if (name == null || table == null) return null;
+                if (tableType == null) tableType = table.GetType();
+                else if (table.GetType() != tableType) return null;
+                string[] f = GetField(table, "Fields") as string[];
+                object[][] r = GetField(table, "Rows") as object[][];
+                if (f == null || r == null) return null;
+                var copy = new object[r.Length][];
+                for (int i = 0; i < r.Length; i++)
+                {
+                    object[] row = r[i];
+                    if (row == null) return null;
+                    foreach (object cell in row)
+                    {
+                        if (!IsPlainValue(cell)) return null;
+                    }
+                    copy[i] = (object[])row.Clone();
+                    cellCount += row.Length;
+                }
+                rowCount += r.Length;
+                names.Add(name);
+                fields.Add((string[])f.Clone());
+                rows.Add(copy);
+            }
+            if (tableType == null || tableType.GetConstructor(Type.EmptyTypes) == null) return null;
+            return new KeptFile
+            {
+                TableType = tableType, Names = names.ToArray(), Fields = fields.ToArray(), Rows = rows.ToArray(),
+                RowCount = rowCount, CellCount = cellCount,
+            };
+        }
+
+        /// <summary>Null, a string or a boxed primitive, decimal, DateTime, DateTimeOffset, TimeSpan or Guid: values nothing can change.</summary>
+        internal static bool IsPlainValue(object cell)
+        {
+            if (cell == null || cell is string) return true;
+            Type type = cell.GetType();
+            return type.IsPrimitive || type.IsEnum || cell is decimal || cell is DateTime || cell is DateTimeOffset || cell is TimeSpan || cell is Guid;
+        }
+
         // ------------------------------------------------------------------------------------------------ jsonnorm
 
         /// <summary>
@@ -227,6 +461,12 @@ namespace McvsOffline
 
         public static int CrmReloadsKept { get { return crmChanged; } }
 
+        public static int FilesParsed { get { return filesParsed; } }
+
+        public static int FilesRestored { get { return filesRestored; } }
+
+        public static int FilesKept { get { lock (fileGate) return keptFiles.Count; } }
+
         public static int NormalizeHits { get { lock (gate) return normHits; } }
 
         public static int NormalizeMisses { get { lock (gate) return normMisses; } }
@@ -242,9 +482,19 @@ namespace McvsOffline
                 misses = normMisses;
                 missTicks = normMissTicks;
             }
+            int kept, forgotten;
+            lock (fileGate)
+            {
+                kept = keptFiles.Count;
+                forgotten = filesForgotten;
+            }
             return "data hooks: crm tables " + crmSkipped.ToString(CultureInfo.InvariantCulture) + " reloads skipped (same cells), " +
                    crmChanged.ToString(CultureInfo.InvariantCulture) + " reloaded (other cells), compare total " +
-                   Ms(Interlocked.Read(ref crmCompareTicks)) + "; json normalize " + misses.ToString(CultureInfo.InvariantCulture) +
+                   Ms(Interlocked.Read(ref crmCompareTicks)) + "; database files " + filesParsed.ToString(CultureInfo.InvariantCulture) +
+                   " parsed (" + Ms(Interlocked.Read(ref fileParseTicks)) + "), " + filesRestored.ToString(CultureInfo.InvariantCulture) +
+                   " restored from memory (" + Ms(Interlocked.Read(ref fileRestoreTicks)) + "), " + kept.ToString(CultureInfo.InvariantCulture) +
+                   " files kept" + (forgotten > 0 ? " (" + forgotten.ToString(CultureInfo.InvariantCulture) + " forgotten: data changed)" : "") +
+                   "; json normalize " + misses.ToString(CultureInfo.InvariantCulture) +
                    " large ones computed (" + Ms(missTicks) + "), " + hits.ToString(CultureInfo.InvariantCulture) + " from the cache";
         }
 
@@ -265,6 +515,15 @@ namespace McvsOffline
             }
             crmSkipped = crmChanged = crmLines = 0;
             crmCompareTicks = 0;
+            lock (fileGate)
+            {
+                keptFiles.Clear();
+                freshParses.Clear();
+                filesParsed = filesRestored = fileLines = filesForgotten = 0;
+                fileParseTicks = fileRestoreTicks = 0;
+            }
+            loadStarted = 0;
+            loadFresh = false;
         }
 
         // ------------------------------------------------------------------------------------------------ helpers
@@ -293,6 +552,49 @@ namespace McvsOffline
             }
             if (p == null) throw new InvalidOperationException(type.FullName + " has no public property " + property);
             return p.GetValue(target, null);
+        }
+
+        private static readonly Dictionary<Type, Dictionary<string, FieldInfo>> fieldInfos = new Dictionary<Type, Dictionary<string, FieldInfo>>();
+
+        private static FieldInfo FieldOf(object target, string field)
+        {
+            Type type = target.GetType();
+            FieldInfo f;
+            lock (fieldInfos)
+            {
+                Dictionary<string, FieldInfo> ofType;
+                if (!fieldInfos.TryGetValue(type, out ofType))
+                {
+                    ofType = new Dictionary<string, FieldInfo>(StringComparer.Ordinal);
+                    fieldInfos[type] = ofType;
+                }
+                if (!ofType.TryGetValue(field, out f))
+                {
+                    f = type.GetField(field, BindingFlags.Instance | BindingFlags.Public);
+                    ofType[field] = f;
+                }
+            }
+            if (f == null) throw new InvalidOperationException(type.FullName + " has no public field " + field);
+            return f;
+        }
+
+        /// <summary>A public instance field (Table.Fields, Table.Rows), the FieldInfo cached per type and name.</summary>
+        private static object GetField(object target, string field)
+        {
+            return target == null ? null : FieldOf(target, field).GetValue(target);
+        }
+
+        private static void SetField(object target, string field, object value)
+        {
+            FieldOf(target, field).SetValue(target, value);
+        }
+
+        /// <summary>Sets a public instance property (its setter may be non-public: Table.Database and Table.Name are public).</summary>
+        private static void Set(object target, string property, object value)
+        {
+            PropertyInfo p = target.GetType().GetProperty(property, BindingFlags.Instance | BindingFlags.Public);
+            if (p == null || !p.CanWrite) throw new InvalidOperationException(target.GetType().FullName + " has no settable property " + property);
+            p.SetValue(target, value, null);
         }
 
         private static string Ms(long ticks)

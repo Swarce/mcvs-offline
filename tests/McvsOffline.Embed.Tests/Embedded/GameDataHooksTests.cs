@@ -190,5 +190,168 @@ namespace McvsOffline.Embed.Tests.Embedded
                 GameDataHooks.Reset();
             }
         }
+
+        // ------------------------------------------------------------------------------------------------ crmtables: Database.Load
+
+        /// <summary>Look-alike of Gameloft.Engine.Database.Table: public fields Fields and Rows, properties Database and Name.</summary>
+        public sealed class Table
+        {
+            public string[] Fields;
+            public object[][] Rows;
+            public object Database { get; set; }
+            public string Name { get; set; }
+        }
+
+        /// <summary>Look-alike of a Database for Load: its Tables dictionary.</summary>
+        public sealed class FileDatabase
+        {
+            public Dictionary<string, Table> Tables { get; } = new Dictionary<string, Table>();
+        }
+
+        private const string MetaFile = "Design/MCVS_Meta.xlsx";
+
+        /// <summary>The game's Load with the patch around it: Restore, else "parse" (two tables, new arrays), then Parsed.</summary>
+        private static bool Load(FileDatabase db, string path = MetaFile, object oddCell = null)
+        {
+            if (GameDataHooks.RestoreDatabaseFile(db, path)) return true;
+            foreach (string name in new[] { "Weapons", "Bots" })
+            {
+                Table t;
+                if (!db.Tables.TryGetValue(name, out t))
+                {
+                    t = db.Tables[name] = new Table();
+                    t.Database = db;
+                    t.Name = name;
+                }
+                t.Fields = name == "Weapons" ? new[] { "Id", "Damage" } : new[] { "Name" };
+                t.Rows = name == "Weapons"
+                    ? new[] { new object[] { "rifle", 10L }, new object[] { "pistol", oddCell ?? 4.5 } }
+                    : new[] { new object[] { "Ace" }, new object[] { "Bruno" }, new object[] { "Kim" } };
+            }
+            GameDataHooks.DatabaseFileParsed(db, path);
+            return false;
+        }
+
+        [Fact]
+        public void AFileIsKeptAtItsSecondParseByANewDatabaseAndRestoredAsCopies()
+        {
+            GameDataHooks.Reset();
+            var lines = new List<string>();
+            GameDataHooks.Configure(lines.Add);
+            try
+            {
+                var human = new FileDatabase();
+                Assert.False(Load(human));                       // parse 1 by a new database: not kept
+                Assert.False(Load(human));                       // a reload of an existing database: not kept either
+                Assert.Equal(0, GameDataHooks.FilesKept);
+                var bot1 = new FileDatabase();
+                Assert.False(Load(bot1));                        // parse 2 by a new database: kept
+                Assert.Equal(1, GameDataHooks.FilesKept);
+                Assert.Contains("crm tables: Design/MCVS_Meta.xlsx read from disk and parsed in ", lines.Last());
+                Assert.EndsWith(" (a new database); its rows are kept in memory for the next loads (2 tables, 5 rows, 7 cells)", lines.Last());
+
+                bot1.Tables["Weapons"].Rows[0][1] = 15.0;        // a CRM cell applied after the parse: not in the kept copy
+                var bot2 = new FileDatabase();
+                Assert.True(Load(bot2));                         // restored: new Table objects, the dictionary in the file's order
+                Assert.Equal(new[] { "Weapons", "Bots" }, bot2.Tables.Keys);
+                Assert.Same(bot2, bot2.Tables["Bots"].Database);
+                Assert.Equal("Bots", bot2.Tables["Bots"].Name);
+                Assert.Equal(10L, bot2.Tables["Weapons"].Rows[0][1]);
+                Assert.Equal("Kim", bot2.Tables["Bots"].Rows[2][0]);
+                Assert.StartsWith("crm tables: Design/MCVS_Meta.xlsx restored from memory (2 tables, 5 rows) in ", lines.Last());
+                Assert.EndsWith(", no read from disk", lines.Last());
+
+                // A reload of an existing database keeps its Table objects and gets new arrays: nothing is shared.
+                Table weapons = human.Tables["Weapons"];
+                human.Tables["Weapons"].Rows[1][1] = "changed";
+                Assert.True(Load(human));
+                Assert.Same(weapons, human.Tables["Weapons"]);
+                Assert.Equal(4.5, human.Tables["Weapons"].Rows[1][1]);
+                Assert.NotSame(human.Tables["Weapons"].Rows, bot2.Tables["Weapons"].Rows);
+                Assert.NotSame(human.Tables["Weapons"].Rows[0], bot2.Tables["Weapons"].Rows[0]);
+                Assert.NotSame(human.Tables["Weapons"].Fields, bot2.Tables["Weapons"].Fields);
+                human.Tables["Weapons"].Fields[0] = "X";
+                var bot3 = new FileDatabase();
+                Assert.True(Load(bot3));
+                Assert.Equal("Id", bot3.Tables["Weapons"].Fields[0]);
+                Assert.Equal(1, GameDataHooks.FilesKept);
+
+                // Another file has its own count.
+                Assert.False(Load(new FileDatabase(), "Design/MCVS_AI.xlsx"));
+                Assert.Equal(3, GameDataHooks.FilesRestored);
+                Assert.Equal(4, GameDataHooks.FilesParsed);
+                string status = GameDataHooks.Describe();
+                Assert.Contains("; database files 4 parsed (", status);
+                Assert.Contains(" 3 restored from memory (", status);
+                Assert.Contains(" 1 files kept; json normalize ", status);
+
+                // Game_DataChanged: nothing kept is used again, and the counts start over.
+                GameDataHooks.ForgetDatabaseFiles();
+                Assert.Equal(0, GameDataHooks.FilesKept);
+                Assert.False(Load(new FileDatabase()));
+                Assert.False(Load(new FileDatabase()));
+                Assert.True(Load(new FileDatabase()));
+                Assert.Contains(" 1 files kept (1 forgotten: data changed); json normalize ", GameDataHooks.Describe());
+            }
+            finally
+            {
+                GameDataHooks.Configure(null);
+                GameDataHooks.Reset();
+            }
+        }
+
+        [Fact]
+        public void AFileWithACellThatIsNotAPlainValueIsNeverKept()
+        {
+            GameDataHooks.Reset();
+            var lines = new List<string>();
+            GameDataHooks.Configure(lines.Add);
+            try
+            {
+                var odd = new List<int> { 1 };                   // a JSON object or array cell (JToken) is mutable
+                Assert.False(Load(new FileDatabase(), MetaFile, odd));
+                Assert.False(Load(new FileDatabase(), MetaFile, odd));
+                Assert.EndsWith("; not kept in memory (a cell is not a plain value)", lines.Last());
+                Assert.False(Load(new FileDatabase(), MetaFile, odd));
+                Assert.Equal(0, GameDataHooks.FilesKept);
+                Assert.True(GameDataHooks.IsPlainValue(null));
+                Assert.True(GameDataHooks.IsPlainValue("x"));
+                Assert.True(GameDataHooks.IsPlainValue(3L));
+                Assert.True(GameDataHooks.IsPlainValue(2.5));
+                Assert.True(GameDataHooks.IsPlainValue(true));
+                Assert.True(GameDataHooks.IsPlainValue(DateTime.UtcNow));
+                Assert.False(GameDataHooks.IsPlainValue(new object[0]));
+                Assert.False(GameDataHooks.IsPlainValue(new object()));
+            }
+            finally
+            {
+                GameDataHooks.Configure(null);
+                GameDataHooks.Reset();
+            }
+        }
+
+        [Fact]
+        public void TheLoadHooksSayNoAndKeepNothingOnInputTheyDoNotKnow()
+        {
+            GameDataHooks.Reset();
+            try
+            {
+                Assert.False(GameDataHooks.RestoreDatabaseFile(null, MetaFile));
+                Assert.False(GameDataHooks.RestoreDatabaseFile(new FileDatabase(), null));
+                Assert.False(GameDataHooks.RestoreDatabaseFile(new FileDatabase(), ""));
+                Assert.False(GameDataHooks.RestoreDatabaseFile(new object(), MetaFile));   // no Tables: a failure is "no"
+                GameDataHooks.DatabaseFileParsed(new object(), MetaFile);                   // without a Restore call first: ignored
+                GameDataHooks.DatabaseFileParsed(null, null);
+                Assert.Equal(0, GameDataHooks.FilesParsed);
+                // A parse that fails (the file is missing) leaves nothing behind for the next Load.
+                Assert.False(GameDataHooks.RestoreDatabaseFile(new FileDatabase(), MetaFile));
+                Assert.False(Load(new FileDatabase()));
+                Assert.Equal(1, GameDataHooks.FilesParsed);
+            }
+            finally
+            {
+                GameDataHooks.Reset();
+            }
+        }
     }
 }

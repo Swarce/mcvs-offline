@@ -53,6 +53,9 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             "System.Void McvsOffline.PcHooks::ComponentCreateFailed(System.Exception,System.Type)",
             "System.String McvsOffline.PortHooks::GeolocalizationUrl(System.String)",
             "System.Boolean McvsOffline.GameDataHooks::SameCrmChanges(System.Object,System.Object,System.Object)",
+            "System.Boolean McvsOffline.GameDataHooks::RestoreDatabaseFile(System.Object,System.String)",
+            "System.Void McvsOffline.GameDataHooks::DatabaseFileParsed(System.Object,System.String)",
+            "System.Void McvsOffline.GameDataHooks::ForgetDatabaseFiles()",
             "System.String McvsOffline.GameDataHooks::CachedNormalizedJson(System.String)",
             "System.String McvsOffline.GameDataHooks::RememberNormalizedJson(System.String,System.String)",
         };
