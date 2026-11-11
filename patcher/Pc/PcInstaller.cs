@@ -323,7 +323,9 @@ namespace McvsOffline.Patcher.Pc
         /// <summary>
         /// The names of <paramref name="files"/> (game-folder file names) whose SHA-256 is that of our copy of the same name: the one
         /// <paramref name="manifest"/> records (when there is one) or the one in McvsOffline\bin now. A hand copy of bin into the game
-        /// folder, which Steam's own files never are.
+        /// folder, which Steam's own files never are. A file whose SHA-256 is the shipped original's (the manifest's record of it, or
+        /// the verified build's) is the game's own, also when our copy of it is unpatched (build 32: a plan without 'templates'
+        /// redirects Gameloft.Templates.dll to an unchanged copy).
         /// </summary>
         /// <summary>A status problem: <paramref name="file"/> in the game folder is one of our McvsOffline\bin copies.</summary>
         private static string CopyProblem(string file)
@@ -338,6 +340,11 @@ namespace McvsOffline.Patcher.Pc
             {
                 string now = GameFolder.TrySha256(Path.Combine(game, file));
                 if (now == null) continue;
+                InstallOriginal original = manifest == null ? null : manifest.FindOriginal(file);
+                string shipped;
+                if ((original != null && string.Equals(original.Sha256, now, StringComparison.Ordinal)) ||
+                    (BuildProfile.PcSteam6372049.OriginalSha256.TryGetValue(file, out shipped) && string.Equals(shipped, now, StringComparison.Ordinal)))
+                    continue;
                 string relative = GameFolder.BinRelative(file);
                 InstallWritten recorded = manifest == null ? null : manifest.FindWritten(relative);
                 string bin = GameFolder.Resolve(game, relative);
