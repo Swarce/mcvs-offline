@@ -333,7 +333,9 @@ namespace McvsOffline.Tests
             Request("GET", "/verify?credential=system%3AAnubis", "auth.verify");
             Request("GET", "/profiles/me/myprofile", "storage.profile.get", 404);
             Request("GET", "/profiles/me/myprofile", "storage.profile.get");
+            Assert.Equal(0, trace.GsLobbyConfigs);   // the watchdog's hitch probe is not armed during boot
             Request("GET", "/lobbyconfigs/c/gs", "matchmaker.lobbyconfigs");
+            Assert.Equal(1, trace.GsLobbyConfigs);
 
             string text = string.Join("\n", trace.Milestones());
             foreach (string expected in new[]

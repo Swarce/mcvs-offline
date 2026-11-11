@@ -577,7 +577,7 @@ in-game host:
 | `embedded.physics.clientMultithreaded` | `true` | `false` makes the game's own physics single-threaded too. |
 | `embedded.physics.stepGate` | `true` | `false` lets several worlds step their physics at the same time again (for testing only). |
 | `embedded.physics.stepGateTimeoutMs` | `2000` | How long one world's physics waits for another's before it goes ahead anyway (logged). |
-| `diagnostics.watchdog` | `true` | Report what the game waits for when it stops responding. Since build 30 also a `hitch` line when the game thread has not run for 0.7 s or more (where it was, and how long it took); the first two hitches of a start also write a thread dump when `diagnostics.threadDump` is on. |
+| `diagnostics.watchdog` | `true` | Report what the game waits for when it stops responding. Since build 30 also a `HITCH` line (INFO) when the game has not finished a frame for 0.7 s or more (where the game thread was at that moment), then `hitch over` with about how long it took. Armed at the first match of a start (the loading blocks before are only counted); the first two hitches after that also log the game thread's native stacks when `diagnostics.threadDump` is on (no file, no Mono managed dump). |
 | `diagnostics.threadDump` | `true` | When the game has not responded for 15 s (and again at 180 s), write where every thread is (managed and native stacks) to the log and `logs/threaddump-*.txt`. |
 | `diagnostics.publicLogCopy` | `true` | Copies of the logs in Downloads > MCVS-Offline (Android 11+). |
 

@@ -119,7 +119,7 @@ the shop, the MCVS Encore page and the HD textures. A few newer features are bui
 | HD textures (ASTC and ETC packs) | Works: the ASTC pack on a Galaxy S22, at the same frame rate as the stock textures |
 | Game Mode flags (Android 'game' patch) | Works (approved) |
 | Project icon, launch screen, installer background | Works (build 25, tested on a phone) |
-| Leaderboard rivals' names and emblems; generated bot names (optional) | Works (builds 28 and 29, approved); since build 30 the in-match bots use the game's own names unless `crm.botNames` is on |
+| Leaderboard rivals' names and emblems; generated bot names (optional) | Works (builds 28 and 29, approved); since build 30 the in-match bots use the game's own names unless `crm.botNames` is on (the first build-30 start turns a stored on off once; turn it on again to keep it) |
 | Port fallback (busy port) | Works (build 26, approved) |
 | Shorter Settings menu, Android PERFORMANCE page | Works (builds 19 to 24; no flash of the stock menu, tested on a phone) |
 | PC (Steam) port | Works: install kit, offline start, bot matches with competitive bots at any frame rate (builds 13 to 27, tested on the owner's PC) |

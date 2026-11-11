@@ -99,8 +99,10 @@ Built by `CrmDocumentBuilder`, layers in order (last wins):
    into `_ServerConfig.default._OverrideTables`: the TS applies the former, the GS applies the latter and forwards it to
    clients in its handshake (report 04 §4.2, `GM/GameplayCRMComponent.cs:119-203`).
 7b. **Bot names** (`crm.botNames`, build 28; default false since build 30, the owner's call: the in-match bots use the
-   game's own names again, and the GS and the client no longer reload `MCVS_AI` for them at every match start; the
-   leaderboard rivals keep their generated names and emblems, which do not depend on this key; `CrmBotNames`): with the
+   game's own names again, and the GS and the client no longer reload `MCVS_AI` for them at every match start; a stored
+   `true` from builds 28 and 29, which the settings page's Reset and a toggle back on wrote, is turned off once at the first
+   build-30 start, marker `crm.botNamesVersion: 30` in settings.json, `Settings.MigrateDefaults`; turning it on after that
+   sticks; the leaderboard rivals keep their generated names and emblems, which do not depend on this key; `CrmBotNames`): with the
    key on, not in the document itself. Only the answer
    to `configs/users/me/game` (the game object every GS World fetches when it is created,
    `EN/CRMServerSettingsComponent.cs:64-75,100-130`) gets one SET cell per renamed stock bot name in its mirror,

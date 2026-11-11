@@ -81,6 +81,53 @@ namespace McvsOffline.Tests
             Assert.False(new Settings().IsFallback);
         }
 
+        /// <summary>
+        /// Review finding (build 30): the settings page's Reset in builds 28 and 29 stored the then default <c>crm.botNames: true</c>,
+        /// and the build-30 default (off) alone did not turn those bots' names off. A stored true without the marker is turned off
+        /// once and the marker written; a player who turns it on again keeps it at every later start.
+        /// </summary>
+        [Fact]
+        public void ABuild29BotNamesTrueIsTurnedOffOnceAndAnOnSetAfterwardsIsKept()
+        {
+            using var dir = new TempDir();
+            string path = dir.Combine("settings.json");
+            File.WriteAllText(path, "{\"crm\":{\"botNames\":true,\"dailyCapMultiplier\":2}}");
+            var logs = new MemoryLogSink();
+            var logger = new Logger();
+            logger.AddSink(logs);
+            var s = Settings.Load(path, logger.For("settings"));
+            Assert.False(s.GetBool("crm.botNames", true));
+            Assert.False(McvsOffline.Server.Services.Crm.CrmOptions.FromSettings(s, Log.Null).BotNames);
+            Assert.True(logs.Contains("crm.botNames turned off once"));
+            var written = MiniJson.ParseObject(File.ReadAllText(path));
+            Assert.Equal(false, JsonPath.Get(written, "crm.botNames"));
+            Assert.Equal(Settings.BotNamesVersion, JsonPath.Get(written, Settings.BotNamesVersionKey));
+            Assert.Equal(2L, JsonPath.Get(written, "crm.dailyCapMultiplier"));
+
+            // The player turns Generated bot names on again (the page's save path): it stays on.
+            s.SetAndSave(new Dictionary<string, object> { { "crm.botNames", true } });
+            var again = Settings.Load(path, null);
+            Assert.True(again.GetBool("crm.botNames", false));
+            Assert.True(Settings.Load(path, null).GetBool("crm.botNames", false));
+        }
+
+        [Fact]
+        public void ANewSettingsFileCarriesTheBotNamesMarkerSoALaterOnIsKept()
+        {
+            using var dir = new TempDir();
+            string path = dir.Combine("settings.json");
+            var s = Settings.Load(path, null);
+            Assert.False(s.GetBool("crm.botNames", false));
+            Assert.Equal(Settings.BotNamesVersion, JsonPath.Get(MiniJson.ParseObject(File.ReadAllText(path)), Settings.BotNamesVersionKey));
+            s.SetAndSave(new Dictionary<string, object> { { "crm.botNames", true } });
+            Assert.True(Settings.Load(path, null).GetBool("crm.botNames", false));
+
+            // A build-29 file that never stored the key gets only the marker; a stored false stays false.
+            File.WriteAllText(path, "{\"crm\":{\"botNames\":false}}");
+            Assert.False(Settings.Load(path, null).GetBool("crm.botNames", true));
+            Assert.Equal(Settings.BotNamesVersion, JsonPath.Get(MiniJson.ParseObject(File.ReadAllText(path)), Settings.BotNamesVersionKey));
+        }
+
         [Fact]
         public void OverridesWinButAreNeverSaved()
         {

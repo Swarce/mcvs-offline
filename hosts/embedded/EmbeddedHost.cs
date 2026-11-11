@@ -875,6 +875,7 @@ namespace McvsOffline.Embedded
                     Func<string, string> javaStacks = null;
                     if (diagnostics != null) javaStacks = diagnostics.JavaStacks;
                     Action<int, string> threadDump = null;
+                    Action<int, string> hitchDump = null;
                     // No in-process thread dump on the .NET Framework CLR ([WH] §4.5): the PC build has only ThreadDumpStub.
                     if (diagnostics != null && !isWindows && Settings.GetBool("diagnostics.threadDump", true))
                     {
@@ -885,6 +886,10 @@ namespace McvsOffline.Embedded
                         threadDump = (tid, comm) => ThreadDump.Capture(tid, ThreadDump.Related(tid, comm),
                             Path.Combine(logsDir, "threaddump-" + DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + ".txt"),
                             10000, s => dumpLog.Warn(WithoutTag(s, "[threaddump] ")));
+                        // A hitch (build 30) is no problem: the native view only (no Mono managed dump, which suspends every managed
+                        // thread and would lengthen the player's hitch; no file, so nothing in Downloads), at INFO.
+                        hitchDump = (tid, comm) => ThreadDump.Capture(tid, ThreadDump.Related(tid, comm), null, 0,
+                            s => dumpLog.Info(WithoutTag(s, "[threaddump] ")));
                     }
                     // Stall snapshots at WARN (the page's "recent problems"); the tid and the page's pause/resume at INFO.
                     Watchdog = new GameThreadWatchdog(() => Boot.Describe(), s => watchdogLog.Warn(WithoutTag(s, "[watchdog] ")),
@@ -892,8 +897,11 @@ namespace McvsOffline.Embedded
                     {
                         Notice = s => watchdogLog.Info(WithoutTag(s, "[watchdog] ")),
                         // Build 30: the 1-5 s blocks of the owner's results screen and match start are under the first stall
-                        // report; a hitch notice (INFO) says where the game thread is, the first two with the thread dump.
+                        // report; a hitch notice (INFO) says where the game thread is, the first two with the native stacks.
+                        // Armed at the first match (the GS lobbyconfigs request): the loading blocks of the start are only counted.
                         HitchMs = GameThreadWatchdog.DefaultHitchMs,
+                        HitchArmed = () => Boot.GsLobbyConfigs > 0,
+                        HitchDump = hitchDump,
                     };
                     if (extensions != null)
                     {
