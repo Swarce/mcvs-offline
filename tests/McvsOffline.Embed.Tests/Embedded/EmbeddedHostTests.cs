@@ -176,7 +176,10 @@ namespace McvsOffline.Embed.Tests.Embedded
             using var blocker = new PortFallbackTests.SilentHolder();
             int port = blocker.Port;
             var watch = System.Diagnostics.Stopwatch.StartNew();
-            EmbeddedHost host = EmbeddedHost.Start(new DirectoryPlatform(root, false), new EmbeddedHostOptions { Port = port });
+            // The connect budget is long (build 30: a slow CI runner must not time out the connect and misread the holder); the
+            // read budget is the shipped 500 ms, which the bootstrap line below names.
+            EmbeddedHost host = EmbeddedHost.Start(new DirectoryPlatform(root, false),
+                                                   new EmbeddedHostOptions { Port = port, ProbePort = p => PortProbe.Probe(p, 5000, PortProbe.DefaultReadMs) });
             try
             {
                 Assert.True(host.WaitForServer(30000));
@@ -188,7 +191,11 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.Equal(actual, host.Port);
                 Assert.Equal(port, host.ConfiguredPort);
                 Assert.Equal(PortOutcome.Fallback, host.PortReservation.Outcome);
-                Assert.InRange(watch.ElapsedMilliseconds, 0, 3000);
+                // The decision itself: one probe of about the 500 ms read budget, no retries (build 25 retried for 30 s).
+                Assert.Equal(PortHolderKind.Silent, host.PortReservation.Holder.Kind);
+                Assert.InRange(host.PortReservation.Holder.ElapsedMs, PortProbe.DefaultReadMs - 20, 3000);
+                // The whole start (server included) stays far below build 25's 30 s of retries even on a slow runner.
+                Assert.InRange(watch.ElapsedMilliseconds, 0, 15000);
 
                 // args.txt was written with the bound port before the game could read it; the hooks follow too.
                 var game = GameArgsSimulator.Parse(File.ReadAllBytes(Path.Combine(root, "args.txt")));
@@ -224,7 +231,10 @@ namespace McvsOffline.Embed.Tests.Embedded
         {
             string root = TestEnvironment.NewTempDir("reset");
             using var blocker = new PortFallbackTests.ResettingHolder();
-            EmbeddedHost host = EmbeddedHost.Start(new DirectoryPlatform(root, false), new EmbeddedHostOptions { Port = blocker.Port });
+            // Long probe budgets (build 30): on a slow GitHub runner the holder's thread accepted and reset the connection after
+            // the shipped 500 ms read budget, and the probe read the holder as Silent. With 5 s/10 s the reset always arrives.
+            EmbeddedHost host = EmbeddedHost.Start(new DirectoryPlatform(root, false),
+                                                   new EmbeddedHostOptions { Port = blocker.Port, ProbePort = p => PortProbe.Probe(p, 5000, 10000) });
             try
             {
                 Assert.True(host.WaitForServer(30000));

@@ -119,8 +119,22 @@ inside a process-wide, time-bounded gate (`UpdateSimulationSteps`); settings `em
 runs.
 
 Recommended extra patches (all optional, `--patch`; the default set is `nativeonline`, `waits`, `geo`,
-`finder`, `store`, `signatures`, `inbox`, `debloat`, `adminpage`, `adminlink`, `graphics`, `targetsdk`; `lan` and `forum` only on
-request; `--art` is a separate option):
+`finder`, `store`, `signatures`, `inbox`, `debloat`, `adminpage`, `adminlink`, `graphics`, `targetsdk`, `game`, and since build 30
+`crmtables` and `jsonnorm`; `lan`, `forum` and `botmove` only on request; `--art` is a separate option):
+- `crmtables` (default, build 30, Android and PC, one fingerprint for both, `patcher/Patches/CrmTablesPatch.cs`): every CRM
+  refresh hands `Gameloft.Engine.Database.Changer` a new `CRMDatabaseChanger`, so the setter's reference test never held and a
+  database with CRM cells re-read and re-parsed its whole file each time (MCVS_Meta.xlsx, 1.6 MB of JSON, ~34 MB of garbage per
+  load): at the GS creation and the client's handshake reply of every match and on every return to the menu, because our CRM
+  document always has MCVS_Meta cells. When the new changer holds the same cells in the same order
+  (`McvsOffline.GameDataHooks.SameCrmChanges`), the setter stores it and raises `TablesLoaded` without `Load(File)`: the
+  tables already are the file's rows plus those cells, and the typed tables and listeners rebuild as before. Any other case,
+  and a missing server DLL, is the game's setter. Log: `[game] crm tables: <file> got the same CRM cells again (...)`.
+- `jsonnorm` (default, build 30, Android and PC, `patcher/Patches/JsonNormPatch.cs`): `ProfileSection.IsModified`
+  normalizes the saved and the current profile text (parse, recursive sort, re-serialization) and a save evaluates it twice:
+  four normalizations of the ~611 KB unlock-all gameProfile per save on the game thread (3-5 s blocks on the results screen,
+  when Play is pressed and back in the menu). `Gameloft.Util.Json.NormalizeJsonString` is pure, so the last 4 results of
+  inputs of 16 K characters or more are kept (`GameDataHooks.CachedNormalizedJson`/`RememberNormalizedJson`) and the same
+  characters get the same string back: one normalization per save instead of four. Log: `[game] json normalize: N chars in X ms`.
 - `waits` (default, hardening with no observed trigger): the pumping `TaskExtension.WaitAndWork` helpers wait in 100 ms
   slices (`WaitAny(handles, 100)`). This bounds the two wake-up gaps in the shipped code: a context re-enabled by
   `World.OnLoadedScene` raises no `WorkItemAdded`, and the `NativeTaskAdded` accessors install and remove the native

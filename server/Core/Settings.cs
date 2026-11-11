@@ -29,6 +29,17 @@ namespace McvsOffline.Server.Core
         public const string DefaultSuperPassword = "mcvsoffline";
         public const string DefaultDataCenter = "mcvs";
 
+        /// <summary>
+        /// Marker of the build-30 change of <c>crm.botNames</c> (the in-match bots' generated names) from on to off: present once
+        /// <see cref="Load"/> has applied it. Builds 28 and 29 wrote <c>true</c> into settings.json whenever the settings page's
+        /// Reset or a toggle back on stored that key, so a stored <c>true</c> without this marker is turned off once; a player who
+        /// turns it on from build 30 on keeps it.
+        /// </summary>
+        public const string BotNamesVersionKey = "crm.botNamesVersion";
+
+        /// <summary>The value of <see cref="BotNamesVersionKey"/>: the build whose default (off) the stored value follows.</summary>
+        public const long BotNamesVersion = 30;
+
         private readonly object gate = new object();
         private readonly Dictionary<string, object> values;
         private readonly Dictionary<string, object> overrides = new Dictionary<string, object>(StringComparer.Ordinal);
@@ -151,6 +162,7 @@ namespace McvsOffline.Server.Core
 
             var settings = new Settings(doc, full);
             settings.Validate(log);
+            if (settings.MigrateDefaults(log)) writeBack = true;
             if (writeBack)
             {
                 try
@@ -171,6 +183,7 @@ namespace McvsOffline.Server.Core
             fallback.IsFallback = true;
             fallback.LoadError = error;
             fallback.Validate(log);
+            fallback.MigrateDefaults(Log.Null);   // in memory only (the file stays as it is); a repair saves the marker with the defaults
             return fallback;
         }
 
@@ -446,6 +459,28 @@ namespace McvsOffline.Server.Core
             {
                 log.Warn("settings: dataCenter '" + DataCenter + "' must be non-empty without '-' or spaces; using " + DefaultDataCenter);
                 Override("dataCenter", DefaultDataCenter);
+            }
+        }
+
+        /// <summary>
+        /// One-time changes of stored values whose default changed (<see cref="BotNamesVersionKey"/>). Reads and writes the
+        /// document only, never the overrides. True when the document changed (the caller saves it).
+        /// </summary>
+        private bool MigrateDefaults(Log log)
+        {
+            lock (gate)
+            {
+                long? version = JsonValue.AsLong(JsonPath.Get(values, BotNamesVersionKey));
+                if (version.HasValue && version.Value >= BotNamesVersion) return false;
+                if (JsonValue.AsBool(JsonPath.Get(values, "crm.botNames")) == true)
+                {
+                    JsonPath.Set(values, "crm.botNames", false);
+                    log.Info("settings: crm.botNames turned off once (build 30: the in-match bots use the game's own names by default; " +
+                             "builds 28 and 29 stored true for a reset or a toggle back on). Turn 'Generated bot names' on again to keep them.");
+                }
+                JsonPath.Set(values, BotNamesVersionKey, BotNamesVersion);
+                effective = null;
+                return true;
             }
         }
 

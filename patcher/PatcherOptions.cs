@@ -43,11 +43,15 @@ namespace McvsOffline.Patcher
         /// GameOptions_android.json through McvsOffline.GraphicsHooks (settings graphics.profile; auto leaves it unchanged) and
         /// logs the effective options. "game" is no IL patch either: android:isGame and android:appCategory="game" on
         /// &lt;application&gt; (Manifest.ManifestGame), at any target; --target-sdk 36 needs it. "inbox" caps what an inbox message
-        /// builds (Patches.InboxPatch: the big redeem codes froze the inbox).
+        /// builds (Patches.InboxPatch: the big redeem codes froze the inbox). Build 30's hitch fixes: "crmtables" keeps a design
+        /// database's tables when the CRM hands it the same cells again instead of re-reading its file (Patches.CrmTablesPatch: the
+        /// match start and the return to the menu), "jsonnorm" does not normalize the same large profile text twice
+        /// (Patches.JsonNormPatch: every profile save).
         /// </summary>
         public static readonly string[] DefaultPatches =
         {
             "nativeonline", "waits", "geo", "finder", "store", "signatures", "inbox", "debloat", "adminpage", "adminlink", "graphics", "targetsdk", "game",
+            "crmtables", "jsonnorm",
         };
 
         /// <summary>
@@ -59,7 +63,7 @@ namespace McvsOffline.Patcher
         public static readonly string[] OptionalPatches =
         {
             "nativeonline", "waits", "geo", "finder", "lan", "store", "signatures", "inbox", "debloat", "adminpage", "adminlink", "targetsdk", "forum",
-            "graphics", "game", "botmove",
+            "graphics", "game", "botmove", "crmtables", "jsonnorm",
         };
 
         /// <summary>

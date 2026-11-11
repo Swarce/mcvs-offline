@@ -18,7 +18,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         {
             PatchIds ids = PatchPlan.Ids(Pc);
             Assert.Equal(new[] { "gameload", "graphics", "headless", "headless-diag", "headless-engine", "hook-pc", "physics", "quicklaunch" }, Sorted(ids.Mandatory));
-            Assert.Equal(new[] { "adminlink", "adminpage", "botmove", "fpslimit", "geo", "inbox", "nativeonline", "signatures", "store", "waits" }, Sorted(ids.Default));
+            Assert.Equal(new[] { "adminlink", "adminpage", "botmove", "crmtables", "fpslimit", "geo", "inbox", "jsonnorm", "nativeonline", "signatures", "store", "waits" }, Sorted(ids.Default));
             Assert.Equal(new[] { "forum" }, Sorted(ids.Optional));
             Assert.Equal(new[] { "debloat", "finder", "finderport", "game", "hook", "lan", "targetsdk" }, Sorted(ids.Excluded));
         }
@@ -35,7 +35,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             {
                 "hook-pc", "headless", "store", "signatures", "inbox", "adminpage", "forum",
                 "headless-engine", "physics", "quicklaunch", "headless-diag", "nativeonline", "waits", "adminlink", "graphics", "gameload",
-                "geo", "botmove", "fpslimit",
+                "geo", "botmove", "fpslimit", "crmtables", "jsonnorm",
             }, full.Select(p => p.Id));
             Assert.Equal(new[] { "EngineBridge.dll", "Game.dll", "Gameloft.Engine.dll", "Gameloft.Util.dll" },
                          full.Select(p => p.AssemblyFile).Distinct());

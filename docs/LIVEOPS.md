@@ -165,7 +165,8 @@ matches at 50 %); staying put takes about a sixth of that. The numbers are ours 
 Every rival (season boards and the static boards alike) carries a gamer tag, an emblem and an emblem background of its
 own (`server/Services/Leaderboards/RivalIdentity.cs`, names `server/Core/Names/GamerTags.cs`, content
 `server/Content/names.json` from `tools/content-gen/names_curated.txt` and `names_tuning.json`). The in-match bots take
-their names from the same place (docs/protocol/content.md "Bot names").
+their names from the same place only when `crm.botNames` is on (docs/protocol/content.md "Bot names"); since build 30 it
+is off by default and the bots in a match use the game's own names, while the rivals here keep theirs.
 
 - **Curated names first (build 29).** The owner found many build-28 names generic ("like an automatically picked
   username for a PSN account"). Every name now comes from a curated list of about 2,000 names written by us after

@@ -258,37 +258,53 @@ namespace McvsOffline.Embedded.Android
             copied[source] = signature;
         }
 
-        /// <summary>The tail of source into destination through a temp file (File.Copy is trimmed from the game's mscorlib: streams only).</summary>
+        /// <summary>The size of the one copy buffer (build 30: a cycle used to read each changed log into a new array of its size).</summary>
+        public const int CopyBufferBytes = 64 * 1024;
+
+        /// <summary>Used under <c>gate</c> only (the periodic cycle and the crash path both hold it while they copy).</summary>
+        private readonly byte[] copyBuffer = new byte[CopyBufferBytes];
+
+        /// <summary>
+        /// The tail of source into destination through a temp file (File.Copy is trimmed from the game's mscorlib: streams only),
+        /// streamed through <see cref="copyBuffer"/>: the same bytes as before (the last <paramref name="maxBytes"/>, or what the
+        /// file still has), without a new array of the file's size per copy (game.log and server.log of one match are 0.5 MB each,
+        /// and those arrays were large-object garbage for the Mono GC that stops the game thread).
+        /// </summary>
         private void Copy(string source, string destination, long maxBytes)
         {
-            byte[] data;
             using (var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
             {
                 long length = input.Length;
                 if (length > maxBytes) input.Seek(length - maxBytes, SeekOrigin.Begin);
-                int size = (int)Math.Min(length, maxBytes);
-                data = new byte[size];
-                int read = 0, n;
-                while (read < size && (n = input.Read(data, read, size - read)) > 0) read += n;
-                if (read < size)
+                long size = Math.Min(length, maxBytes);
+                WriteThroughTemp(destination, output =>
                 {
-                    var cut = new byte[read];
-                    Array.Copy(data, cut, read);
-                    data = cut;
-                }
+                    long left = size;
+                    int n;
+                    while (left > 0 && (n = input.Read(copyBuffer, 0, (int)Math.Min(copyBuffer.Length, left))) > 0)
+                    {
+                        output.Write(copyBuffer, 0, n);
+                        left -= n;
+                    }
+                });
             }
-            WriteThroughTemp(destination, data);
         }
 
         /// <summary>Writes a new temp file, deletes the old copy, renames the temp file into place; queues the path for the scan.</summary>
         private void WriteThroughTemp(string destination, byte[] data)
+        {
+            WriteThroughTemp(destination, output => output.Write(data, 0, data.Length));
+        }
+
+        /// <summary><see cref="WriteThroughTemp(string, byte[])"/> with the temp file's content written by <paramref name="write"/>.</summary>
+        private void WriteThroughTemp(string destination, Action<Stream> write)
         {
             string temp = destination + "." + Interlocked.Increment(ref tempCounter).ToString(CultureInfo.InvariantCulture) + ".tmp";
             try
             {
                 using (var output = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 {
-                    output.Write(data, 0, data.Length);
+                    write(output);
                 }
                 if (File.Exists(destination)) File.Delete(destination);
                 FileSystem.Rename(temp, destination);

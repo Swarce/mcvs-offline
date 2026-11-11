@@ -78,7 +78,7 @@ The patcher prints every change it makes and finishes with a signature check. Us
 
 | Option | Meaning |
 |---|---|
-| `--patch nativeonline,waits,geo,finder,store,signatures,inbox,debloat,adminpage,adminlink,graphics,targetsdk,game` | The optional patches (this is the default set; `debloat` removes dead ad/analytics/social/push pieces, see ARCHITECTURE.md §2; `adminpage` and `adminlink` open the MCVS Encore page, section 7; `graphics` is needed for the graphics profile, section 7; `targetsdk` raises the app's target Android version, see `--target-sdk`; `game` marks the app as a game for Android's Game Mode, section 6). `none` keeps only the mandatory patches (the server hook, the headless-server fixes, the server physics and, from build 26, `finderport`: the game follows its LocalAnubis port when the host moves it), `all` adds `lan`, `forum` and `botmove`, `default,forum` adds only `forum`. An older list that still names `bottile` (removed in build 21) works: the patcher prints a warning and leaves it out. |
+| `--patch nativeonline,waits,geo,finder,store,signatures,inbox,debloat,adminpage,adminlink,graphics,targetsdk,game,crmtables,jsonnorm` | The optional patches (this is the default set; `debloat` removes dead ad/analytics/social/push pieces, see ARCHITECTURE.md §2; `adminpage` and `adminlink` open the MCVS Encore page, section 7; `graphics` is needed for the graphics profile, section 7; `targetsdk` raises the app's target Android version, see `--target-sdk`; `game` marks the app as a game for Android's Game Mode, section 6). `none` keeps only the mandatory patches (the server hook, the headless-server fixes, the server physics and, from build 26, `finderport`: the game follows its LocalAnubis port when the host moves it), `all` adds `lan`, `forum` and `botmove`, `default,forum` adds only `forum`. An older list that still names `bottile` (removed in build 21) works: the patcher prints a warning and leaves it out. |
 | `--target-sdk 29` | The Android version the app declares it was built for (`targetsdk` patch). The default, 35, avoids Play Protect's "built for an older version of Android" warning up to Android 17; 36 also covers Android 18. For both the patcher also fixes the game's own Java code (`classes.dex`) where a newer target would make Android refuse it. `--target-sdk 29` keeps the game's own value and files, exactly as builds 9 and earlier: the fallback if something misbehaves on 35. By Android's rules a 29 build installs over a 35 build signed with the same key, but this has not been tried on a phone yet. 35 and 36 need `debloat` (so `--patch` without `debloat` also needs `--target-sdk 29`), and 36 also needs `game`. |
 | `--game-log all` | The game's own log at every level in logcat (`mono-stdout`), for bug reports; this is the default while the offline build is being tested. `--game-log fatal` keeps the game's original setting (fatal errors only). |
 | `--keystore <file.p12>` | Your signing key. Without it a key is created once in `~/.config/McvsOffline/` (Windows: `%APPDATA%\McvsOffline\`) and reused. |
@@ -117,6 +117,12 @@ What the patches do:
   shop (and logged as `[McvsOffline] store item <id> threw ...`) instead of closing the game.
 - **signatures**: the kill-signature screen looks your owned items up in a set instead of a list, so it does not freeze
   when you own many of them (for example after `UNLOCKALL`).
+- **crmtables** (build 30): the game re-read one of its design databases (1.6 MB) from storage every time the offline
+  server's settings for it were refreshed, even when nothing had changed: at every match start (agent selection) and on the
+  way back to the menu. With the patch a database that gets exactly the same changes again keeps its tables.
+- **jsonnorm** (build 30): every save of a big profile (for example after `UNLOCKALL`) compared the old and the new profile
+  four times in full on the game thread, which froze the game for a few seconds on the results screen, when you press Play
+  and back in the menu. With the patch the game reuses what it already worked out for the same profile text.
 - **inbox**: the inbox froze after the big unlock codes (`UNLOCKALL`, `UNLOCKPAID`, `UNLOCKCAMOS`, `UNLOCKACCESSORIES`
   and their parts): up to build 16 each code was one message with thousands of rewards, and the game built every one of
   them on opening the inbox and again every 10 seconds while it was open. Since build 17 the codes come through the
@@ -571,7 +577,7 @@ in-game host:
 | `embedded.physics.clientMultithreaded` | `true` | `false` makes the game's own physics single-threaded too. |
 | `embedded.physics.stepGate` | `true` | `false` lets several worlds step their physics at the same time again (for testing only). |
 | `embedded.physics.stepGateTimeoutMs` | `2000` | How long one world's physics waits for another's before it goes ahead anyway (logged). |
-| `diagnostics.watchdog` | `true` | Report what the game waits for when it stops responding. |
+| `diagnostics.watchdog` | `true` | Report what the game waits for when it stops responding. Since build 30 also a `HITCH` line (INFO) when the game has not finished a frame for 0.7 s or more (where the game thread was at that moment), then `hitch over` with about how long it took. Armed at the first match of a start (the loading blocks before are only counted); the first two hitches after that also log the game thread's native stacks when `diagnostics.threadDump` is on (no file, no Mono managed dump). |
 | `diagnostics.threadDump` | `true` | When the game has not responded for 15 s (and again at 180 s), write where every thread is (managed and native stacks) to the log and `logs/threaddump-*.txt`. |
 | `diagnostics.publicLogCopy` | `true` | Copies of the logs in Downloads > MCVS-Offline (Android 11+). |
 

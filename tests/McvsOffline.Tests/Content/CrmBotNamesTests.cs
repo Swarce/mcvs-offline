@@ -182,6 +182,8 @@ namespace McvsOffline.Tests.Content
             };
             using (var server = McvsOffline.Server.McvsServer.Create(options))
             {
+                // Build 30: off by default (the bots use the game's own names); these checks run with the key on.
+                server.Context.Settings.Override("crm.botNames", true);
                 // The GS reads configs/users/me/game as the game object (report 04 §5.1).
                 var game = ContentTestSupport.JsonObject(ContentTestSupport.Get(server, "/configs/users/me/game"));
                 var cells = Cells(JsonValue.AsObject(JsonPath.Get(game, "_ServerConfig.default._OverrideTables")));
@@ -211,10 +213,34 @@ namespace McvsOffline.Tests.Content
             var logs = new MemoryLogSink();
             using (var server = ContentTestSupport.CreateServer(dir.Combine("nopack"), null, logs))
             {
+                server.Context.Settings.Override("crm.botNames", true);
                 var response = ContentTestSupport.Get(server, "/configs/users/me/game");
                 Assert.Equal(200, response.StatusCode);
                 Assert.Null(JsonPath.Get(ContentTestSupport.JsonObject(response), "_ServerConfig.default._OverrideTables.MCVS_AI"));
                 Assert.True(logs.Contains("the bots keep the game's names"));
+            }
+        }
+
+        /// <summary>
+        /// Build 30 (the owner's call): <c>crm.botNames</c> is off unless settings.json turns it on. With a data pack that has the
+        /// game's bot list, the served game object carries no <c>MCVS_AI</c> cell, so the in-match bots use the game's own names
+        /// and the client never reloads MCVS_AI for them; the leaderboard rivals keep their generated names (not this key).
+        /// </summary>
+        [Fact]
+        public void BotNamesAreOffByDefaultAndTheGameObjectCarriesNoRename()
+        {
+            Assert.False(CrmOptions.FromSettings(new Settings(), Log.Null).BotNames);
+            Assert.False(new CrmOptions().BotNames);
+            using var dir = new TempDir();
+            string pack = FakePack(dir.Combine("pack"), Stock);
+            var logs = new MemoryLogSink();
+            using (var server = ContentTestSupport.CreateServer(dir.Combine("data"), pack, logs))
+            {
+                Assert.False(CrmOptions.FromSettings(server.Context.Settings, Log.Null).BotNames);
+                var game = ContentTestSupport.JsonObject(ContentTestSupport.Get(server, "/configs/users/me/game"));
+                Assert.Null(JsonPath.Get(game, "_ServerConfig.default._OverrideTables.MCVS_AI"));
+                Assert.Null(JsonPath.Get(game, "_OverrideTables.MCVS_AI"));
+                Assert.False(logs.Contains("stock names renamed"));
             }
         }
 
@@ -237,6 +263,7 @@ namespace McvsOffline.Tests.Content
             }
             using var dir = new TempDir();
             using var server = ContentTestSupport.CreateServer(dir.Combine("data"), packDir);
+            server.Context.Settings.Override("crm.botNames", true);
             // The GS parses configs/users/me/game as the game object; StandardCrm.Data reads a whole document.
             string documentText = "{\"game\":" + ContentTestSupport.Get(server, "/configs/users/me/game").BodyText + "}";
             var doc = MiniJson.ParseObject(documentText);

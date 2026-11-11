@@ -1,7 +1,7 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-The project is now called **MCVS Encore** (the display name only: the code name `McvsOffline`, the data folders, the settings keys, the `MCVSOFFLINE` code and the repository name are unchanged, so existing saves and installs keep working; the history below keeps the old name). Last updated for build 29, **the 1.0 release** (November 2026; players already use it; the owner approved every open device check of builds 22-29 except the Cosmetic crate, whose crates start on 2026-11-09): build 29 replaces the generic gamer tags with about 2,000 hand-written names; see "Build 29". Build 28 gives the leaderboard rivals gamer-tag names and their own emblems, and the in-match bots thousands of names; see "Build 28". The owner confirmed build 27's bot fix on Steam. Build 27 fixes the Steam bots (a resting bot could not start on frames shorter than 1/60 s) and adds a Steam frame rate setting up to unlimited; see "Build 27". Build 26 starts normally when another program holds the server's port (it moves to a free one and everything follows); see "Build 26". Build 25 brings the project's own launcher icon (the owner's art), a dark red launch screen and a new background for the game's data installer (kept outside the repository); see "Build 25". Build 24 keeps ABOUT centred on the return from a tab (the owner's build-23 log: the tile just tapped was still in its pressed animation and our width check refused it); see "Build 24". Build 23 fixes what the owner saw on the phone in build 22 (the PERFORMANCE title drawn over its icon, ABOUT right of centre, a small stutter on the gear tap) and adds timings to the `settings menu:` log lines; Steam is unchanged apart from log text; not yet tested on a phone or on Windows; see "Build 23". The Steam bots' report (they idle at spawn and sometimes stop moving) is open: its investigation was stopped before any result, see "Build 23". Build 22: on the owner's phone build 21 still flashed
+The project is now called **MCVS Encore** (the display name only: the code name `McvsOffline`, the data folders, the settings keys, the `MCVSOFFLINE` code and the repository name are unchanged, so existing saves and installs keep working; the history below keeps the old name). Last updated for build 30 (November 2026): build 30 removes two hitches of ours (the game no longer reloads `MCVS_Meta.xlsx` at every match, and a profile save normalizes its JSON once instead of four times), adds a hitch probe for the rest, and ships the in-match bot names off; see "Build 30". Build 29 is **the 1.0 release** (players already use it; the owner approved every open device check of builds 22-29, the Cosmetic crate included): build 29 replaces the generic gamer tags with about 2,000 hand-written names; see "Build 29". Build 28 gives the leaderboard rivals gamer-tag names and their own emblems, and the in-match bots thousands of names; see "Build 28". The owner confirmed build 27's bot fix on Steam. Build 27 fixes the Steam bots (a resting bot could not start on frames shorter than 1/60 s) and adds a Steam frame rate setting up to unlimited; see "Build 27". Build 26 starts normally when another program holds the server's port (it moves to a free one and everything follows); see "Build 26". Build 25 brings the project's own launcher icon (the owner's art), a dark red launch screen and a new background for the game's data installer (kept outside the repository); see "Build 25". Build 24 keeps ABOUT centred on the return from a tab (the owner's build-23 log: the tile just tapped was still in its pressed animation and our width check refused it); see "Build 24". Build 23 fixes what the owner saw on the phone in build 22 (the PERFORMANCE title drawn over its icon, ABOUT right of centre, a small stutter on the gear tap) and adds timings to the `settings menu:` log lines; Steam is unchanged apart from log text; not yet tested on a phone or on Windows; see "Build 23". The Steam bots' report (they idle at spawn and sometimes stop moving) is open: its investigation was stopped before any result, see "Build 23". Build 22: on the owner's phone build 21 still flashed
 MORE GAMES and the FORUM tile on a return to Settings; build 22 no longer races the game's own `setup()`: on the phone
 its stock writes are made to draw nothing (the engine's text remap turns FORUM into PERFORMANCE, the icon is out of its
 reach, the removed tiles are off the panel, ABOUT stays at the game's own place on the bottom row), prepared before
@@ -65,6 +65,53 @@ HD texture probe and a Windows test kit for the Steam version. Build 11 installs
 version into the game's own data. Build 12 accepts a full ASTC data pack with 2,215 PC textures in it: **device test 9:
 the HD textures and the graphics profiles work, at the same frame rate as before**, and builds 10 to 12 (target Android
 15) installed and played fine.
+
+## Build 30 (November 2026): fewer hitches at match start and on the results screen, in-match bot names off
+
+`9787ec8` on `wip/b30` (`McvsVersion.Build` is `30`). APK `mcvs-offline-9787ec8.apk` (SHA-256 `aad9af5d5bb56fe243405bd2ee3e32724433d8284abd957e46b61677b4138c6f`). PC kit SHA-256
+`865b48e49164fdb6b361768ff204b5d3a6070d86c09f01949c3fed7b6d306af1` (build 29's kept as `McvsOffline.PcKit-e66ca2e.exe`); PC end to end as before (install, verify, a second install with the same bytes, uninstall restores every file; ILVerify findings unchanged). Tests: 1618, Embed 1384, PcKit 63, PcSpike 62, all passed.
+
+**The owner's report:** players saw small hitches when a match ends (the results screen) and when it starts (agent
+selection), and the owner sent the logs of one full match. The Cosmetic crate works (the last open check of build 29).
+
+**What the logs showed:**
+
+- Each save of the unlock-all game profile (about 611 KB) blocks the game thread for 3 to 5 s: the game's own
+  `DoSaveProfile` normalizes the whole JSON four times per save and URL-encodes it three times. A session saves about four
+  times (the first menu, Play, the match end, the return to the menu).
+- Our CRM cells made the game re-read and re-parse `MCVS_Meta.xlsx` (1.6 MB) at every match start and on the return to
+  the menu: every CRM refresh hands `Database.Changer` a new object, so the game's "same changer" check never matched.
+- A 0.9 s block at the match start and a 3 s block on the results screen right after the save is sent log nothing; they
+  are the game's own work, not yet attributed.
+- The unobserved task exceptions at a menu change are the game's chat and alert listeners aborted by `StopListening`
+  (harmless).
+
+**The changes:**
+
+- New patch `crmtables` (`Gameloft.Engine.dll`, Android and Steam): a database that gets exactly the same CRM cells
+  again keeps its tables and raises `TablesLoaded` without reading its file. Any other change, or a missing server DLL,
+  runs the game's own setter. Log line: `crm tables: <file> got the same CRM cells again ... kept, no reload from disk`.
+- New patch `jsonnorm` (`Gameloft.Util.dll`): `Json.NormalizeJsonString` keeps its results for its 4 most recent large
+  inputs (16K+ characters, matched exactly), so a profile save normalizes once instead of four times. Log line:
+  `json normalize: N chars in X ms`.
+- `crm.botNames` is off by default: the in-match bots use the game's own names; the leaderboard rivals keep their names
+  and emblems. A `true` stored by builds 28 and 29 is turned off once (marker `crm.botNamesVersion`); a player who turns
+  it on again in build 30 keeps it.
+- Diagnostics: the watchdog has a hitch probe on the frame clock (a hitch is 700 ms without a frame), armed at the first
+  match so boot does not count; each hitch logs one `HITCH:` line with a native thread view (no file, nothing suspended),
+  then `hitch over ... after N ms`. The next match log should name the 0.9 s and 3 s blocks. The listener aborts log one
+  INFO line instead of an exception report. The step-gate status shows how many waits passed 4 and 16 ms. The log copy to
+  Downloads streams through one 64 KB buffer.
+- Tests: the timing-dependent port, watchdog and save-wait tests that failed on slow CI runners have wider time limits
+  with the same checks.
+
+**Not changed:** the game still serializes and URL-encodes the 611 KB profile on every save (the encodes are in
+`Gameloft.OnlinePlatform.dll`, which is not patched), and `--game-log all` still copies each save's text into the game's
+log (about 1 MB per save).
+
+**Checklist:** match start and the results screen feel smoother; `crm tables:` and `json normalize:` lines in the log;
+`HITCH:` lines at the match start and on the results screen (send that log); in-match bots have the game's own names,
+leaderboard rivals keep theirs; turning Generated bot names on still works.
 
 ## Build 29 (November 2026): hand-written names for rivals and bots
 

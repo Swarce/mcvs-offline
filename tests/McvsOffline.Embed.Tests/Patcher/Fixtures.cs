@@ -44,6 +44,7 @@ namespace McvsOffline
                 bootstrap,
                 FixtureCompiler.RepoSource("hosts", "embedded", "LanSupport.cs"),
                 FixtureCompiler.RepoSource("hosts", "embedded", "PortHooks.cs"),
+                FixtureCompiler.RepoSource("hosts", "embedded", "GameDataHooks.cs"),
                 FixtureCompiler.RepoSource("server", "Core", "Num.cs"));
         }
 

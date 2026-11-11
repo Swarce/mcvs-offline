@@ -50,6 +50,8 @@ namespace McvsOffline.Server.Core
         /// <summary>Route names of the settings page (server/Services/Admin).</summary>
         private const string AdminRoutePrefix = "admin.";
 
+        private const string GsLobbyKey = "lobby.gs";
+
         private readonly object gate = new object();
         private readonly Log log;
         private readonly Dictionary<string, int> counts = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -179,6 +181,23 @@ namespace McvsOffline.Server.Core
             }
         }
 
+        /// <summary>
+        /// How many GS lobbyconfigs requests came so far (the "GS match: lobbyconfigs gs #n" milestones): above 0 once the first
+        /// match was being set up. The watchdog's hitch probe is armed from then on.
+        /// </summary>
+        public int GsLobbyConfigs
+        {
+            get
+            {
+                lock (gate)
+                {
+                    int n;
+                    counts.TryGetValue(GsLobbyKey, out n);
+                    return n;
+                }
+            }
+        }
+
         /// <summary>Every milestone so far (oldest first, at most 200).</summary>
         public List<string> Milestones()
         {
@@ -282,7 +301,7 @@ namespace McvsOffline.Server.Core
                 case "matchmaker.lobbyconfigs":
                     {
                         if (path.EndsWith("/gs", StringComparison.Ordinal))
-                            return "GS match: lobbyconfigs gs #" + Count("lobby.gs").ToString(CultureInfo.InvariantCulture);
+                            return "GS match: lobbyconfigs gs #" + Count(GsLobbyKey).ToString(CultureInfo.InvariantCulture);
                         int n = Count("lobby.ts");
                         if (n == 1) return "QuickLaunch: lobbyconfigs ts";
                         if (n == 2) return "Controller 'connect game': creating the TS World (Args = cmd_args)";

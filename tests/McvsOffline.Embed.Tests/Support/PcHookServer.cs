@@ -222,7 +222,9 @@ namespace McvsOffline
             var tree = CSharpSyntaxTree.ParseText(source, parse);
             // The port hooks ('geo'; build 26) are the real file: System only, C# 7.3.
             var ports = CSharpSyntaxTree.ParseText(FixtureCompiler.RepoSource("hosts", "embedded", "PortHooks.cs"), parse);
-            var compilation = CSharpCompilation.Create("McvsOffline.Server", new[] { tree, ports }, references,
+            // So are the build-30 data hooks ('crmtables', 'jsonnorm').
+            var data = CSharpSyntaxTree.ParseText(FixtureCompiler.RepoSource("hosts", "embedded", "GameDataHooks.cs"), parse);
+            var compilation = CSharpCompilation.Create("McvsOffline.Server", new[] { tree, ports, data }, references,
                 new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Release, deterministic: true));
             using (var stream = new MemoryStream())
             {

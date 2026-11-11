@@ -105,6 +105,46 @@ namespace McvsOffline.Embed.Tests.Embedded
             Assert.True(waiterTook);
         }
 
+        /// <summary>
+        /// Build 30: the status line gives the gate's waits as a total and two counts (4 ms or more, 16 ms or more), so the next
+        /// device log tells how much of a match the game thread spent waiting for the client's deferred physics step.
+        /// </summary>
+        [Fact]
+        public void TheStatusLineCountsTheWaitsByLength()
+        {
+            GameHooks.ConfigurePhysics(false, true, true, 5000);
+            System.Text.RegularExpressions.Match Parse() => System.Text.RegularExpressions.Regex.Match(GameHooks.DescribeGate(),
+                @"^(\d+) entries, (\d+) waited \(max (\d+) ms, total (\d+) ms; (\d+) of 4 ms or more, (\d+) of 16 ms or more\), (\d+) timeouts$");
+            System.Text.RegularExpressions.Match before = Parse();
+            Assert.True(before.Success, GameHooks.DescribeGate());
+            int Field(System.Text.RegularExpressions.Match m, int i) => int.Parse(m.Groups[i].Value);
+
+            var holding = new ManualResetEventSlim(false);
+            var release = new ManualResetEventSlim(false);
+            var holder = new Thread(() =>
+            {
+                Assert.True(GameHooks.EnterPhysicsStep());
+                holding.Set();
+                release.Wait(10000);
+                GameHooks.ExitPhysicsStep();
+            });
+            holder.Start();
+            Assert.True(holding.Wait(5000));
+            var waiter = new Thread(() => { if (GameHooks.EnterPhysicsStep()) GameHooks.ExitPhysicsStep(); });
+            waiter.Start();
+            Thread.Sleep(120);   // the waiter waits about this long
+            release.Set();
+            Assert.True(waiter.Join(5000));
+            Assert.True(holder.Join(5000));
+
+            System.Text.RegularExpressions.Match after = Parse();
+            Assert.True(after.Success, GameHooks.DescribeGate());
+            Assert.Equal(Field(before, 2) + 1, Field(after, 2));
+            Assert.InRange(Field(after, 4) - Field(before, 4), 60, 5000);
+            Assert.Equal(Field(before, 5) + 1, Field(after, 5));
+            Assert.Equal(Field(before, 6) + 1, Field(after, 6));
+        }
+
         [Fact]
         public void TheGateCanBeTurnedOff()
         {

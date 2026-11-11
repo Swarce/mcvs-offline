@@ -23,7 +23,9 @@ namespace McvsOffline.Embed.Tests.Embedded
             var watchdog = new GameThreadWatchdog(() => "server state", s => reports.Enqueue(s), comm => "    \"main\" RUNNABLE\n", 50,
                                                   new[] { 300, 600 }, (tid, comm) => dumps.Enqueue(tid));
             Assert.True(watchdog.Bind(typeof(PausedGame)));
-            watchdog.PauseFor(1200, "MCVS Encore page open");
+            // The leases are long against the sleeps (build 30: a slow CI runner that is late by a second or two must not see the
+            // first lease end before the renewal, which would read as a second "paused:" line or an early STALL).
+            watchdog.PauseFor(8000, "MCVS Encore page open");
             watchdog.Start();
             try
             {
@@ -33,14 +35,16 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.Empty(dumps);
                 Assert.Contains("paused: MCVS Encore page open", watchdog.Describe());
 
-                // A renewed lease (the page pings) keeps it paused without a second line.
-                watchdog.PauseFor(1000, "MCVS Encore page open");
+                // A renewed lease (the page pings) keeps it paused without a second line; the latest call wins, so it now ends
+                // 2 s from here instead of 8 s from the start.
+                watchdog.PauseFor(2000, "MCVS Encore page open");
                 Thread.Sleep(300);
                 Assert.DoesNotContain(reports, r => r.Contains("STALL"));
+                Assert.Contains("paused: MCVS Encore page open", watchdog.Describe());
 
                 // The lease runs out: "resumed", then the normal report after the first threshold, measured from the resume.
-                Assert.True(SpinWait.SpinUntil(() => reports.Any(r => r == "[watchdog] resumed"), 5000));
-                Assert.True(SpinWait.SpinUntil(() => reports.Any(r => r.Contains("STALL")), 5000));
+                Assert.True(SpinWait.SpinUntil(() => reports.Any(r => r == "[watchdog] resumed"), 10000));
+                Assert.True(SpinWait.SpinUntil(() => reports.Any(r => r.Contains("STALL")), 10000));
                 List<string> all = reports.ToList();
                 int resumed = all.IndexOf("[watchdog] resumed");
                 Assert.True(all.FindIndex(r => r.Contains("STALL")) > resumed);

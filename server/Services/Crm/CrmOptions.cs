@@ -38,7 +38,7 @@ namespace McvsOffline.Server.Services.Crm
     ///   "offlineStore": "generated|merge|preconfig", "iap": "empty|preconfig", "iapLanguage": "en",
     ///   "keepAdPointcuts": false, "pointcutActions": [], "eventIds": [], "matchmaking": {},
     ///   "dailyCapMultiplier": 1.0, "usePreconfiguration": true, "dataPackDir": "", "overlay": {},
-    ///   "newsfeedLink": true, "omitOwnedSignatures": true, "botNames": true
+    ///   "newsfeedLink": true, "omitOwnedSignatures": true, "botNames": false
     /// }
     /// </code>
     /// <see cref="Fingerprint"/> changes whenever any of them does, so the cached document is rebuilt.
@@ -108,7 +108,8 @@ namespace McvsOffline.Server.Services.Crm
         /// <summary>
         /// Rename the in-match bots with our gamer tags (<c>crm.botNames</c>, <see cref="CrmBotNames"/>): the game object
         /// the GS fetches (<c>configs/users/me/game</c>) carries a rename cell per renamed stock bot name. Off: no cell, the game's names (from the next start: the game keeps the last
-        /// renames it installed until it restarts).
+        /// renames it installed until it restarts). Default off since build 30: the in-match bots keep the game's own names (the
+        /// leaderboard rivals keep their generated names and emblems, which do not depend on this setting).
         /// </summary>
         public bool BotNames { get; set; }
 
@@ -132,7 +133,7 @@ namespace McvsOffline.Server.Services.Crm
             DataPackDir = "";
             NewsfeedLink = true;
             OmitOwnedSignatures = true;
-            BotNames = true;
+            BotNames = false;
         }
 
         public static CrmOptions FromSettings(Settings settings, Log log)
@@ -166,7 +167,7 @@ namespace McvsOffline.Server.Services.Crm
             o.Overlay = settings.GetObject("crm.overlay");
             o.NewsfeedLink = settings.GetBool("crm.newsfeedLink", true);
             o.OmitOwnedSignatures = settings.GetBool("crm.omitOwnedSignatures", true);
-            o.BotNames = settings.GetBool("crm.botNames", true);
+            o.BotNames = settings.GetBool("crm.botNames", false);
             return o;
         }
 

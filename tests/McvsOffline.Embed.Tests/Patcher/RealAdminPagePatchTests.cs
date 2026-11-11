@@ -573,9 +573,13 @@ namespace McvsOffline
         /// </summary>
         internal static byte[] GameBclServer(string refs)
         {
-            SyntaxTree tree = CSharpSyntaxTree.ParseText(RealGamePatchTests.HookServerSource, new CSharpParseOptions(LanguageVersion.CSharp7_3));
-            CSharpCompilation compilation = CSharpCompilation.Create("McvsOffline.Server", new[] { tree },
-                new[] { MetadataReference.CreateFromFile(Path.Combine(refs, "mscorlib.dll")) },
+            var parse = new CSharpParseOptions(LanguageVersion.CSharp7_3);
+            SyntaxTree tree = CSharpSyntaxTree.ParseText(RealGamePatchTests.HookServerSource, parse);
+            // Build 30: the data hooks ('crmtables', 'jsonnorm') are the real file (mscorlib and System of the game's BCL).
+            SyntaxTree data = CSharpSyntaxTree.ParseText(FixtureCompiler.RepoSource("hosts", "embedded", "GameDataHooks.cs"), parse);
+            var bcl = new List<MetadataReference> { MetadataReference.CreateFromFile(Path.Combine(refs, "mscorlib.dll")) };
+            if (File.Exists(Path.Combine(refs, "System.dll"))) bcl.Add(MetadataReference.CreateFromFile(Path.Combine(refs, "System.dll")));
+            CSharpCompilation compilation = CSharpCompilation.Create("McvsOffline.Server", new[] { tree, data }, bcl,
                 new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Release));
             using (var stream = new MemoryStream())
             {
