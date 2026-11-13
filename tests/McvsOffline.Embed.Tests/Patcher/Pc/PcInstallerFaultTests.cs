@@ -73,7 +73,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         private static readonly string[] Steps =
         {
             "McvsOffline/bin/EngineBridge.dll", "McvsOffline/bin/Game.dll", "McvsOffline/bin/Gameloft.Engine.dll", "McvsOffline/bin/Gameloft.Util.dll",
-            "McvsOffline/bin/McvsOffline.Server.dll", "McvsOffline/install.json", "ModernCombatVersus.exe.config",
+            "McvsOffline/bin/Gameloft.Templates.dll", "McvsOffline/bin/McvsOffline.Server.dll", "McvsOffline/install.json", "ModernCombatVersus.exe.config",
         };
 
         private readonly ITestOutputHelper output;
@@ -172,7 +172,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                     Assert.Equal(old, File.ReadAllBytes(configPath));   // the old config is still the one in place
                 }
                 Assert.Equal(0, copy.Install().ExitCode);
-                Assert.Equal(PcExeConfigTests.Expected, File.ReadAllText(configPath));
+                Assert.Equal(PcExeConfigTests.Installed, File.ReadAllText(configPath));
             }
         }
 

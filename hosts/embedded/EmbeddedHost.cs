@@ -113,6 +113,9 @@ namespace McvsOffline.Embedded
         private FileLogSink bootstrapSink;
         private SafeLogFile gameLogFile;
         private IPlatformDiagnostics diagnostics;
+
+        /// <summary>Why <see cref="Watchdog"/> is null after StartDiagnostics (the status line and the page say it), or null.</summary>
+        private volatile string watchdogOff;
         private IAdminPlatform adminPlatform;
         private INotificationPlatform notificationPlatform;
         private string platformName = "directory";
@@ -240,6 +243,7 @@ namespace McvsOffline.Embedded
             {
                 if (Boot != null) sb.Append("boot: ").Append(Boot.Describe()).Append('\n');
                 if (Watchdog != null) sb.Append("watchdog: ").Append(Watchdog.Describe()).Append('\n');
+                else sb.Append("watchdog: ").Append(watchdogOff ?? "not started yet").Append('\n');
                 if (bootstrapSink != null) sb.Append("log ").Append(bootstrapSink.File.Describe()).Append('\n');
                 McvsServer s = server;
                 if (s != null)
@@ -515,6 +519,7 @@ namespace McvsOffline.Embedded
                     FallbackLogsDir = fallbackLogDir,
                     StartedUtc = startedUtc,
                     Watchdog = () => this.Watchdog,
+                    WatchdogOff = () => this.WatchdogOffReason,
                     Problems = problemSink,
                     MirrorStatus = () =>
                     {
@@ -859,6 +864,28 @@ namespace McvsOffline.Embedded
             }
         }
 
+        /// <summary>The status-line text when the settings turned the watchdog off.</summary>
+        internal const string WatchdogOffBySettings =
+            "off: settings diagnostics.watchdog is false (no stall reports, no thread dumps, no hitch probe)";
+
+        /// <summary>Build 32: the first this many hitches after arming get a managed thread dump too (at least 5 s apart).</summary>
+        internal const int HitchManagedDumpsPerStart = 3;
+
+        /// <summary>Build 32: the first this many hitches before arming get one line each when they end.</summary>
+        internal const int EarlyHitchLinesPerStart = 20;
+
+        /// <summary>The status-line text when the host's options start no watchdog (tests, tools).</summary>
+        internal const string WatchdogOffByHost = "off: this host starts no watchdog";
+
+        /// <summary>The one INFO line of a start whose settings turned the watchdog off.</summary>
+        internal const string WatchdogOffLine =
+            "off: settings diagnostics.watchdog is false (MCVS Offline page, Settings, Diagnostics, Freeze watchdog), so this start " +
+            "logs no game-thread tid, no stall report and no thread dump, and the hitch probe is off too (no HITCH: lines): it runs " +
+            "in the watchdog, on its thread and its frame clock. Turn the switch on and restart the game to get them back.";
+
+        /// <summary>Why the watchdog is not running (null while it runs or before the diagnostics start).</summary>
+        internal string WatchdogOffReason { get { return Watchdog == null ? watchdogOff : null; } }
+
         /// <summary>"[watchdog] x" → "x": the logger's category says it already.</summary>
         internal static string WithoutTag(string line, string tag)
         {
@@ -869,6 +896,17 @@ namespace McvsOffline.Embedded
         {
             try
             {
+                if (!options.Watchdog)
+                {
+                    watchdogOff = WatchdogOffByHost;
+                }
+                else if (!Settings.GetBool("diagnostics.watchdog", true))
+                {
+                    // The owner's build-29 and build-30 logs had no [watchdog] line at all (build 24 still logged "game thread is
+                    // tid"): the switch was off, and nothing said so. One line per start, and the status line repeats it.
+                    watchdogOff = WatchdogOffBySettings;
+                    Logger.For("watchdog").Info(WatchdogOffLine);
+                }
                 if (options.Watchdog && Settings.GetBool("diagnostics.watchdog", true))
                 {
                     Log watchdogLog = Logger.For("watchdog");
@@ -876,6 +914,7 @@ namespace McvsOffline.Embedded
                     if (diagnostics != null) javaStacks = diagnostics.JavaStacks;
                     Action<int, string> threadDump = null;
                     Action<int, string> hitchDump = null;
+                    Action<int, string> hitchManagedDump = null;
                     // No in-process thread dump on the .NET Framework CLR ([WH] §4.5): the PC build has only ThreadDumpStub.
                     if (diagnostics != null && !isWindows && Settings.GetBool("diagnostics.threadDump", true))
                     {
@@ -890,6 +929,14 @@ namespace McvsOffline.Embedded
                         // thread and would lengthen the player's hitch; no file, so nothing in Downloads), at INFO.
                         hitchDump = (tid, comm) => ThreadDump.Capture(tid, ThreadDump.Related(tid, comm), null, 0,
                             s => dumpLog.Info(WithoutTag(s, "[threaddump] ")));
+                        // Build 32: the owner's build-31 log had one managed dump (a STALL's) for 14 hitches, so most hitches were
+                        // told apart only by the server's requests. Mono's dump finished within ~55 ms there (it said "after 4 ms": the
+                        // time before the last 50 ms poll): the first hitches of a start get
+                        // one too (every thread in logs/threaddump-hitch-*.txt; in the log only the threads native code entered,
+                        // the game thread among them), at INFO.
+                        hitchManagedDump = (tid, comm) => ThreadDump.Capture(tid, ThreadDump.Related(tid, comm),
+                            Path.Combine(logsDir, "threaddump-hitch-" + DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + ".txt"),
+                            3000, s => dumpLog.Info(WithoutTag(s, "[threaddump] ")), ThreadDump.EnteredFromNative);
                     }
                     // Stall snapshots at WARN (the page's "recent problems"); the tid and the page's pause/resume at INFO.
                     Watchdog = new GameThreadWatchdog(() => Boot.Describe(), s => watchdogLog.Warn(WithoutTag(s, "[watchdog] ")),
@@ -902,6 +949,11 @@ namespace McvsOffline.Embedded
                         HitchMs = GameThreadWatchdog.DefaultHitchMs,
                         HitchArmed = () => Boot.GsLobbyConfigs > 0,
                         HitchDump = hitchDump,
+                        // Build 32: the first 3 hitches after arming (at least 5 s apart) with Mono's managed stacks too, and
+                        // one line for each of the first 20 hitches before arming (the boot's had no time in the build-31 log).
+                        HitchManagedDump = hitchManagedDump,
+                        HitchManagedDumps = HitchManagedDumpsPerStart,
+                        EarlyHitchLines = EarlyHitchLinesPerStart,
                     };
                     if (extensions != null)
                     {
@@ -1105,7 +1157,7 @@ namespace McvsOffline.Embedded
             return result.Content;
         }
 
-        private void RunServer(EmbeddedHostOptions options, int port, PortReservation reservation)
+        private void RunServer(EmbeddedHostOptions options, int port, PortReservation reservation, bool tookOver = false)
         {
             Socket listener = reservation == null ? null : reservation.Listener;
             try
@@ -1123,7 +1175,7 @@ namespace McvsOffline.Embedded
                     FileLog = true,
                     BootTrace = Boot,
                     FileLogOptions = LogFileOptions(),
-                    ClientCapabilities = WatchPatches().Target,
+                    ClientCapabilities = WatchPatches(!tookOver).Target,
                 };
                 // LAN is not supported on PC: the server's own copy of the settings too (never saved).
                 if (isWindows) serverOptions.LanMode = false;
@@ -1216,11 +1268,15 @@ namespace McvsOffline.Embedded
         /// The client's patches for the server (ServerOptions.ClientCapabilities): probed now, and on PC again when Game loads (the
         /// bootstrap runs before it there), with the "[boot] assemblies:" and "[boot] patches:" lines.
         /// </summary>
-        private PatchWatcher WatchPatches()
+        private PatchWatcher WatchPatches(bool onlyClient)
         {
             Func<Action<System.Reflection.Assembly>, Action> watchLoads = null;
             if (extensions != null) watchLoads = extensions.WatchAssemblyLoads;
-            PatchWatcher watcher = GamePatchProbe.Watch(new ClientCapabilities(), Logger.For("game"), watchLoads, isWindows ? Boot : null, Paths.GameRoot);
+            // The game runs in this process and is the only client of this server: a profile lock its stored profile held before
+            // this server's first request is stale. Not for a server that took the port over from another copy's (onlyClient
+            // false): until then this game used that server and may hold a live lock of its own, and the other copy may be back.
+            var capabilities = new ClientCapabilities { InProcessClient = onlyClient };
+            PatchWatcher watcher = GamePatchProbe.Watch(capabilities, Logger.For("game"), watchLoads, isWindows ? Boot : null, Paths.GameRoot);
             Patches = watcher;
             return watcher;
         }
@@ -1358,7 +1414,7 @@ namespace McvsOffline.Embedded
                                      "this game's own server takes port " + port + " over, and the game's next requests reach it");
                             Boot.Mark("offline server: took port " + port + " over after the other copy's server stopped");
                             portWatching = false;
-                            RunServer(options, port, reservation);
+                            RunServer(options, port, reservation, true);
                             return;
                         }
                     }

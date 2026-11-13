@@ -77,6 +77,21 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             ["Gameloft.Util.dll"] = new[] { "48a69bf0eeeeedfeed07667402607b28ad8349d8bf9743e619856f1f8941975c", "e9df9cf8e317570b869129b31d802f8666ca6d2a38edb70e75771f3425acd1a9", "2d2a0bd007716346f0c5514b6d5cb03d7693a3aa075969cd7bd7e0c1ebdfdb2c" },
         };
 
+        /// <summary>
+        /// Build 31: 'crmtables' also changes Database.Load (restored from memory) and Database.Game_DataChanged (Forget) and
+        /// imports three more GameDataHooks members; Gameloft.Util.dll is build 30's.
+        /// </summary>
+        private static readonly Dictionary<string, string[]> Build31 = new Dictionary<string, string[]>(StringComparer.Ordinal)
+        {
+            ["Gameloft.Engine.dll"] = new[] { "43210ccf8eb2a01d216c76cc8c377345e9de192060efdd64b07339c0d305e742", "b80dbf8bc2f718e4e0c3ba6045337c15c796f8f7584825831bfb14e9acd17b8e", "6172f3e699f2cf3d430ee594aa9de23c1d3386efd44e0c16c7e8616294c20885" },
+        };
+
+        /// <summary>Build 32: Gameloft.Templates.dll patched by 'templates' (the other files equal <see cref="Build31"/>/<see cref="Build30"/>/...).</summary>
+        private static readonly Dictionary<string, string[]> Build32 = new Dictionary<string, string[]>(StringComparer.Ordinal)
+        {
+            ["Gameloft.Templates.dll"] = new[] { "b67809fd859c5d58b1817c3c182fb4863ea7ded4391771ff164478f0518e7215", "c7e2357d9fb427d96bcad9ceba616ed60a144106ffd5344942bdec8a68e648d3", "5e410bd71db61aebda80487588d2f524200152ba62898ba9e57e58193ed2ab40" },
+        };
+
         private readonly ITestOutputHelper output;
 
         public AndroidOutputUnchangedTests(ITestOutputHelper output)
@@ -90,7 +105,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         {
             string refs = Refs();
             if (refs == null) return;
-            AssertOutput(PatchDefault(refs, true, true, "inbox", "crmtables", "jsonnorm"), Expected);
+            AssertOutput(PatchDefault(refs, true, true, "inbox", "crmtables", "jsonnorm", "templates"), Expected);
         }
 
         /// <summary>
@@ -152,34 +167,66 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         }
 
         /// <summary>The build-30 default patches (hitch fixes): the earlier tests leave them out and keep their pinned values.</summary>
-        private static readonly string[] Build30Patches = { "crmtables", "jsonnorm" };
+        private static readonly string[] Build30Patches = { "crmtables", "jsonnorm", "templates" };
 
         /// <summary>
         /// Build 30's default set: build 26's output except Gameloft.Engine.dll ('crmtables': Database.set_Changer and the
         /// McvsCrmTables helper) and Gameloft.Util.dll ('jsonnorm': Json.NormalizeJsonString and the McvsJsonNorm helper), pinned
-        /// in <see cref="Build30"/>; Game.dll and NicePlaySDK.dll unchanged.
+        /// in <see cref="Build30"/>; Game.dll and NicePlaySDK.dll unchanged. Build 31's 'crmtables' changes Database.Load and
+        /// Game_DataChanged too: its Gameloft.Engine.dll is pinned in <see cref="Build31"/>.
         /// </summary>
         [Fact]
-        public void TheBuild30DefaultOutputIsTheBuild26OutputPlusTheHitchPatches()
+        public void TheBuild31DefaultOutputIsTheBuild26OutputPlusTheHitchPatches()
         {
             string refs = Refs();
             if (refs == null) return;
             Assert.Contains("crmtables", new PatcherOptions().Patches);
             Assert.Contains("jsonnorm", new PatcherOptions().Patches);
-            Dictionary<string, byte[]> patched = PatchDefault(refs, false, false);
+            Dictionary<string, byte[]> patched = PatchDefault(refs, false, false, "templates");
             var expected = new Dictionary<string, string[]>(Expected, StringComparer.Ordinal);
             foreach (var pair in Build21) expected[pair.Key] = pair.Value;
             foreach (var pair in Build30) expected[pair.Key] = pair.Value;
+            foreach (var pair in Build31) expected[pair.Key] = pair.Value;
             AssertOutput(patched, expected);
             foreach (string file in Build30.Keys)
             {
                 Assert.NotEqual(Build26[file][1], Build30[file][1]);
                 Assert.NotEqual(Build26[file][2], Build30[file][2]);
             }
+            foreach (string file in Build31.Keys)
+            {
+                Assert.NotEqual(Build30[file][1], Build31[file][1]);
+                Assert.NotEqual(Build30[file][2], Build31[file][2]);
+            }
             using (ModuleDefinition engine = ModuleDefinition.ReadModule(new MemoryStream(patched["Gameloft.Engine.dll"]), new ReaderParameters { InMemory = true }))
                 Assert.NotNull(engine.GetType(CrmTablesPatch.HelperNamespace + "." + CrmTablesPatch.HelperType));
             using (ModuleDefinition util = ModuleDefinition.ReadModule(new MemoryStream(patched["Gameloft.Util.dll"]), new ReaderParameters { InMemory = true }))
                 Assert.NotNull(util.GetType(JsonNormPatch.HelperNamespace + "." + JsonNormPatch.HelperType));
+        }
+
+        /// <summary>
+        /// Build 32's default set: build 31's output plus Gameloft.Templates.dll ('templates': JsonTemplateReader.ReadObject with the
+        /// McvsBind/McvsIndexFor members, ReadArray, the timing calls and the McvsTemplates helper), pinned in <see cref="Build32"/>;
+        /// every other file is build 31's.
+        /// </summary>
+        [Fact]
+        public void TheBuild32DefaultOutputIsTheBuild31OutputPlusTheTemplatesPatch()
+        {
+            string refs = Refs();
+            if (refs == null) return;
+            Assert.Contains("templates", new PatcherOptions().Patches);
+            Dictionary<string, byte[]> patched = PatchDefault(refs, false, false);
+            var expected = new Dictionary<string, string[]>(Expected, StringComparer.Ordinal);
+            foreach (var pair in Build21) expected[pair.Key] = pair.Value;
+            foreach (var pair in Build30) expected[pair.Key] = pair.Value;
+            foreach (var pair in Build31) expected[pair.Key] = pair.Value;
+            foreach (var pair in Build32) expected[pair.Key] = pair.Value;
+            AssertOutput(patched, expected);
+            using (ModuleDefinition templates = ModuleDefinition.ReadModule(new MemoryStream(patched["Gameloft.Templates.dll"]), new ReaderParameters { InMemory = true }))
+            {
+                Assert.NotNull(templates.GetType(TemplatesPatch.HelperNamespace + "." + TemplatesPatch.HelperType));
+                Assert.Contains(templates.AssemblyReferences, r => r.Name == "McvsOffline.Server");
+            }
         }
 
         private string Refs()

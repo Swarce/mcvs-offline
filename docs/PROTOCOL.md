@@ -77,7 +77,7 @@ keys, with defaults and meaning in each protocol note:
 | Module | Keys |
 |---|---|
 | pandora / auth | `pandora.urls.<service>`, `auth.requireSuperPassword`, `auth.transferCodeHours` |
-| storage | `storage.backups.keep`, `storage.backups.intervalMinutes`, `storage.autoRestoreCorrupt`, `storage.absentField`, `storage.cache` |
+| storage | `storage.backups.keep`, `storage.backups.intervalMinutes`, `storage.autoRestoreCorrupt`, `storage.absentField`, `storage.cache`, `storage.clearStaleProfileOwner` |
 | crm | `crm.usePreconfiguration`, `crm.dataPackDir`, `crm.overlay`, `crm.offlineStore`, `crm.iap`, `crm.iapLanguage`, `crm.matchmaking`, `crm.redeemCoupons`, `crm.skipAgeGate`, `crm.developerIpRange`, `crm.keepAdPointcuts`, `crm.dailyCapMultiplier`, `crm.documentWaitMs`, `crm.selectorWaitMs`, `crm.omitOwnedSignatures`, `crm.botNames` |
 | matchmaker | `matchmaker.passDataCenter`, `matchmaker.tsArgs`, `matchmaker.gsArgs`, `matchmaker.tsRoomCapacity`, `matchmaker.gsRoomCapacity` |
 | assets | `assets.couponsEnabled`, `assets.coupons` |

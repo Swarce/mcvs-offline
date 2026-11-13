@@ -160,7 +160,7 @@ namespace McvsOffline.Embed.Tests.Embedded
             }
         }
 
-        /// <summary>The five redirected assemblies of a start: from McvsOffline\bin, except the names in <paramref name="fromGameFolder"/>.</summary>
+        /// <summary>The six watched (redirected) assemblies of a start: from McvsOffline\bin, except the names in <paramref name="fromGameFolder"/>.</summary>
         private static Func<Assembly, string> Locations(params string[] fromGameFolder)
         {
             return a =>
@@ -231,6 +231,41 @@ namespace McvsOffline.Embed.Tests.Embedded
                 }
                 Assert.Equal("Game loaded from the game folder; the 'store' patch is missing; the 'inbox' patch is missing; the 'botmove' patch is missing; the 'fpslimit' patch is missing; Gameloft.Util loaded from the game folder", target.NotActive);
                 Assert.Equal(2, sink.Snapshot().Count(e => e.Level == LogLevel.Error));
+            }
+        }
+
+        /// <summary>
+        /// Build 32 review: Gameloft.Templates is the fifth redirected game DLL, so it gets its "assemblies:" line, a load from the
+        /// game folder is NOT ACTIVE, and the watch ends only once it was seen too.
+        /// </summary>
+        [Fact]
+        public void GameloftTemplatesIsWatchedLikeTheOtherRedirectedDlls()
+        {
+            Assert.Contains(GamePatchProbe.TemplatesAssembly, GamePatchProbe.WatchedAssemblies);
+            Assert.Equal("Gameloft.Templates", GamePatchProbe.TemplatesAssembly);
+            Assert.Equal(McvsOffline.Patcher.Pc.GameFolder.PatchedFiles.Concat(new[] { McvsOffline.Patcher.Pc.GameFolder.ServerFile })
+                             .Select(f => f.Substring(0, f.Length - ".dll".Length)).OrderBy(n => n, StringComparer.Ordinal),
+                         GamePatchProbe.WatchedAssemblies.OrderBy(n => n, StringComparer.Ordinal));
+            var (logger, sink, boot) = Logs();
+            using (FixtureCompiler.Sandbox sandbox = Start(EngineSource, GameSource)
+                .With("Gameloft.Util", FixtureCompiler.Compile("Gameloft.Util", "namespace Gameloft.Util { public class U { } }"))
+                .With("McvsOffline.Server", FixtureCompiler.Compile("McvsOffline.Server", "namespace McvsOffline { public class S { } }"))
+                .With("Gameloft.Templates", FixtureCompiler.Compile("Gameloft.Templates", "namespace Gameloft.Templates { public class T { } }")))
+            {
+                var loads = new Loads();
+                var target = new ClientCapabilities();
+                PatchWatcher watcher = GamePatchProbe.Watch(target, logger.For("game"), loads.Watch, boot, Root, Nothing);
+                watcher.LocationOf = Locations("Gameloft.Templates");
+                foreach (string name in new[] { "EngineBridge", "Gameloft.Engine", "Game", "Gameloft.Util", "McvsOffline.Server" }) loads.Callback(sandbox.Get(name));
+                Assert.Null(target.NotActive);
+                Assert.Equal(0, loads.Unsubscribed);       // Gameloft.Templates not seen yet
+                Assert.True(watcher.Watching);
+                loads.Callback(sandbox.Get("Gameloft.Templates"));
+                Assert.Equal(1, loads.Unsubscribed);       // all six seen
+                Assert.Equal("Gameloft.Templates loaded from the game folder", target.NotActive);
+                Assert.Contains(sink.Snapshot(), e => e.Level == LogLevel.Warn &&
+                                                      e.Message.Contains("assemblies: Gameloft.Templates " + Root + "\\Gameloft.Templates.dll (GAME FOLDER): the .exe.config redirect did not apply"));
+                Assert.Single(sink.Snapshot(), e => e.Level == LogLevel.Error && e.Message.Contains("install: installed, NOT ACTIVE (Gameloft.Templates loaded from the game folder)"));
             }
         }
 

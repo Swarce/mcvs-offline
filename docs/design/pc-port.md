@@ -419,7 +419,7 @@ works): the listing records its size and time without hashing it, and `collect` 
 | line (prefix) | written by | when |
 |---|---|---|
 | `[boot] runtime: CLR <v>, mscorlib <file version>, Release <n> (<name>), <FrameworkDescription>; process x86, LAA no; OS <build>` | WP2 host | once at start (PC) |
-| `[boot] assemblies: EngineBridge <path> (McvsOffline\bin\|GAME FOLDER), Gameloft.Engine …, Game …, Gameloft.Util …, McvsOffline.Server …` | WP2 host | as each loads (`AppDomain.AssemblyLoad`); `GAME FOLDER` is a WARN (the redirect did not apply, Q1) |
+| `[boot] assemblies: EngineBridge <path> (McvsOffline\bin\|GAME FOLDER), Gameloft.Engine …, Game …, Gameloft.Util …, McvsOffline.Server …`, and from build 32 `Gameloft.Templates …` | WP2 host | as each loads (`AppDomain.AssemblyLoad`); `GAME FOLDER` is a WARN (the redirect did not apply, Q1) |
 | `[boot] load stack: <name> (GAME FOLDER) was loaded by (innermost first):` + up to 25 indented `at …` frames, or `[boot] load stack: <name> (GAME FOLDER): already loaded when the host started watching, so its loader is unknown` (build 18) | WP2 host (`PatchWatcher.ReportLoader`) | WARN right after a `GAME FOLDER` assemblies line: `Environment.StackTrace` inside the `AssemblyLoad` event, from the loader's caller on (our handler, `AppDomain.OnAssemblyLoadEvent` and the `System.Reflection`/`System.AppDomain`/`System.RuntimeType*` loader frames cut, `PatchWatcher.LoadStack`); not an `assemblies:` line, so the kit does not count it |
 | `[boot] patches: hook-pc yes, quicklaunch yes, headless-diag yes, graphics yes, gameload yes, store yes, inbox yes, botmove yes, fpslimit yes` (`inbox` since build 17, `botmove` and `fpslimit` since build 27) | WP2 host (`GamePatchProbe`, witnesses of §3.9) | once `Game` and `Gameloft.Engine` are loaded; a missing witness is `NO`, or `off (not applied)` when `install.json` `options.patches` does not list that patch (`--patch none` leaves out the default `store`) |
 | `[boot] <name>_args.txt present: the engine ignores args.txt` | WP2 host | WARN at start when a `*_args.txt` is in the game folder (also in the status) |
@@ -1235,14 +1235,15 @@ access denial: a virus scanner holding the file) up to 10 times 100 ms apart (`P
 | `forum` | Game.dll | optional | unchanged | [PP] §3 |
 | `botmove` | Game.dll | default (build 27; optional on Android) | unchanged (identical fingerprint) | §8.10 |
 | `fpslimit` | Game.dll | default (build 27) | new (PC only: Android has neither site, and its `WCPFramerateLimit` is a native `ret`) | §8.11 |
-| `crmtables` | Gameloft.Engine.dll | default (build 30, also on Android) | identical fingerprint (`Database.set_Changer`) | `patcher/Patches/CrmTablesPatch.cs` |
+| `crmtables` | Gameloft.Engine.dll | default (build 30, also on Android) | identical fingerprints (`Database.set_Changer`; build 31 also `Database.Load`, `Database.Game_DataChanged`) | `patcher/Patches/CrmTablesPatch.cs` |
 | `jsonnorm` | Gameloft.Util.dll | default (build 30, also on Android) | identical fingerprint (`Json.NormalizeJsonString`) | `patcher/Patches/JsonNormPatch.cs` |
+| `templates` | Gameloft.Templates.dll | default (build 32, also on Android) | identical fingerprints (`JsonTemplateReader.ReadObject`, `ReadArray`, `ReadDefaultTemplate`, `LoadRoot`, `TObject.FromObject`, and the methods the change relies on); the PC install redirects a fifth DLL | `patcher/Patches/TemplatesPatch.cs` |
 | `hook`, `finder`, `finderport`, `lan`, `debloat`, `targetsdk`, `game` | — | **excluded** | Android only (`finderport`: build 26, the PC ClientSettings has no Finder port; PcHooks use the Finder's PublicPort) | X; [PP] §3 |
 
 Order inside a file (as `ApkPatcher.AllPatches`, `:66-71`, then the new ones): Game.dll `headless`, `store`,
 `signatures`, `inbox`, `adminpage`, `forum`, `botmove`, `fpslimit` (build 27, last in `PcOrder`); Gameloft.Engine.dll `headless-engine`, `physics`, `quicklaunch`, `headless-diag`,
 `nativeonline`, `waits`, `adminlink`, `graphics`, `gameload`, then `crmtables` (build 30); Gameloft.Util.dll `geo`, then `jsonnorm`
-(build 30). The PC list lives in `PatchPlan` only; `ApkPatcher.AllPatches` and its
+(build 30); Gameloft.Templates.dll `templates` (build 32). The PC list lives in `PatchPlan` only; `ApkPatcher.AllPatches` and its
 test (`PatchTests.cs:277-303`) are not touched by the PC work.
 
 Per-build selection inside a patch class: fingerprints stay constants next to the patch (`…Fingerprint` for Android,

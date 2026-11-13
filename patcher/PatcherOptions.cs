@@ -46,12 +46,13 @@ namespace McvsOffline.Patcher
         /// builds (Patches.InboxPatch: the big redeem codes froze the inbox). Build 30's hitch fixes: "crmtables" keeps a design
         /// database's tables when the CRM hands it the same cells again instead of re-reading its file (Patches.CrmTablesPatch: the
         /// match start and the return to the menu), "jsonnorm" does not normalize the same large profile text twice
-        /// (Patches.JsonNormPatch: every profile save).
+        /// (Patches.JsonNormPatch: every profile save). Build 32: "templates" finds a JSON object's properties with a dictionary
+        /// in the template reader (Patches.TemplatesPatch: every bot at agent select reads the human's unlock-all profile).
         /// </summary>
         public static readonly string[] DefaultPatches =
         {
             "nativeonline", "waits", "geo", "finder", "store", "signatures", "inbox", "debloat", "adminpage", "adminlink", "graphics", "targetsdk", "game",
-            "crmtables", "jsonnorm",
+            "crmtables", "jsonnorm", "templates",
         };
 
         /// <summary>
@@ -63,7 +64,7 @@ namespace McvsOffline.Patcher
         public static readonly string[] OptionalPatches =
         {
             "nativeonline", "waits", "geo", "finder", "lan", "store", "signatures", "inbox", "debloat", "adminpage", "adminlink", "targetsdk", "forum",
-            "graphics", "game", "botmove", "crmtables", "jsonnorm",
+            "graphics", "game", "botmove", "crmtables", "jsonnorm", "templates",
         };
 
         /// <summary>

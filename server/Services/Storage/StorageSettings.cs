@@ -9,7 +9,8 @@ namespace McvsOffline.Server.Services.Storage
     ///   "backups": { "keep": 20, "intervalMinutes": 30 },
     ///   "autoRestoreCorrupt": true,
     ///   "absentField": "empty",
-    ///   "cache": true
+    ///   "cache": true,
+    ///   "clearStaleProfileOwner": true
     /// }
     /// </code>
     /// </summary>
@@ -53,6 +54,16 @@ namespace McvsOffline.Server.Services.Storage
         public bool CacheEnabled
         {
             get { return settings.GetBool("storage.cache", true); }
+        }
+
+        /// <summary>
+        /// Build 32: answer a game-profile read whose profile lock (<c>ProfileOwnerRoomId</c>) was left by an earlier start with
+        /// the lock released (<see cref="StaleProfileOwner"/>; only when the game runs in this process). false: the stored lock
+        /// is served as it is, and the game's TS waits for it (kick, reloads, 5 s).
+        /// </summary>
+        public bool ClearStaleProfileOwner
+        {
+            get { return settings.GetBool("storage.clearStaleProfileOwner", true); }
         }
 
         public string DataCenter

@@ -53,6 +53,18 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             "  </runtime>\r\n" +
             "</configuration>\r\n";
 
+        /// <summary>
+        /// What install writes since build 32: <see cref="Expected"/> with Gameloft.Templates.dll ('templates') redirected too,
+        /// before the server entry.
+        /// </summary>
+        public static readonly string Installed = Expected.Replace(
+            "      <dependentAssembly>\r\n        <assemblyIdentity name=\"McvsOffline.Server\"",
+            "      <dependentAssembly>\r\n" +
+            "        <assemblyIdentity name=\"Gameloft.Templates\" culture=\"neutral\" />\r\n" +
+            "        <codeBase version=\"1.0.0.0\" href=\"McvsOffline/bin/Gameloft.Templates.dll\" />\r\n" +
+            "      </dependentAssembly>\r\n" +
+            "      <dependentAssembly>\r\n        <assemblyIdentity name=\"McvsOffline.Server\"");
+
         /// <summary>SHA-256 of <see cref="Expected"/>: the config WR2 installed (build 13, docs/design/pc-port.md §13.2 "3ebe99b3…f94c").</summary>
         public const string ExpectedSha256 = "3ebe99b3c93a9540cd7f7b03da55fc048a544501c17e8621457884eae456f94c";
 
@@ -172,7 +184,30 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
         }
 
         /// <summary>
-        /// Install's read-back (and verify) reads the config back to the five codeBases, each pointing at the copy of its own
+        /// Build 32 review: the read-back of a config with build 31's five codeBases (no Gameloft.Templates) names the count it
+        /// expects from <see cref="GameFolder.PatchedFiles"/> plus the server (six), not a fixed "five".
+        /// </summary>
+        [Fact]
+        public void TheReadBackOfAConfigWithoutTemplatesSaysSixCodeBasesWereExpected()
+        {
+            string game = Path.Combine(Path.GetTempPath(), "mcvs-embed-tests", "pcconfig-count-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(game);
+            try
+            {
+                File.WriteAllText(Path.Combine(game, PcExeConfig.FileName), PcExeConfig.Build(BuildCodeBases()));
+                List<string> problems = PcInstaller.CheckWritten(game, new InstallManifest(), null);
+                Assert.Contains(PcExeConfig.FileName + ": expected the 6 codeBases EngineBridge, Game, Gameloft.Engine, Gameloft.Util, Gameloft.Templates, " +
+                                "McvsOffline.Server, found EngineBridge, Game, Gameloft.Engine, Gameloft.Util, McvsOffline.Server", problems);
+                Assert.DoesNotContain(problems, p => p.Contains("five"));
+            }
+            finally
+            {
+                Directory.Delete(game, true);
+            }
+        }
+
+        /// <summary>
+        /// Install's read-back (and verify) reads the config back to the six codeBases (five patched DLLs and the server), each pointing at the copy of its own
         /// assembly, and reports a qualifyAssembly entry as an old build-14/15 config. Real install of the stand-in plan; skipped
         /// without MCVS_PC_REFS.
         /// </summary>
@@ -186,8 +221,9 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
                 Assert.True(installed.ExitCode == 0, installed.Error);
                 string config = copy.Path_(PcExeConfig.FileName);
                 string text = File.ReadAllText(config);
-                Assert.Equal(Expected, text);
-                Assert.Equal(ExpectedSha256, installed.WrittenSha256[PcExeConfig.FileName]);
+                Assert.Equal(Installed, text);
+                Assert.NotEqual(Expected, Installed);
+                Assert.Equal(GameFolder.Sha256(PcExeConfig.Encode(Installed)), installed.WrittenSha256[PcExeConfig.FileName]);
                 InstallManifest manifest = copy.Status().Manifest;
                 Assert.Empty(PcInstaller.CheckWritten(copy.Game, manifest, TestEnvironment.Net452Refs));
 

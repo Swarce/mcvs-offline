@@ -30,7 +30,7 @@ namespace McvsOffline.Embed.Tests.Patcher
         {
             ["hook"] = 1, ["headless"] = 5, ["headless-engine"] = 3, ["physics"] = 2, ["finderport"] = 1, ["nativeonline"] = 1, ["waits"] = 2, ["geo"] = 1,
             ["finder"] = 1, ["lan"] = 3, ["store"] = 2, ["signatures"] = 2, ["inbox"] = 4, ["debloat"] = 7, ["adminpage"] = 2,
-            ["adminlink"] = 1, ["forum"] = 1, ["graphics"] = 1, ["botmove"] = 1, ["crmtables"] = 1, ["jsonnorm"] = 1,
+            ["adminlink"] = 1, ["forum"] = 1, ["graphics"] = 1, ["botmove"] = 1, ["crmtables"] = 2, ["jsonnorm"] = 1, ["templates"] = 4,
         };
 
         /// <summary>
@@ -78,15 +78,15 @@ namespace McvsOffline.Embed.Tests.Patcher
             PatchReport report = ApkPatcher.Run(options, s => output.WriteLine(s));
             foreach (string note in report.Notes) output.WriteLine(note);
 
-            Assert.Equal(new[] { "AndroidManifest.xml", "assemblies/Game.dll", "assemblies/Gameloft.Engine.dll", "assemblies/Gameloft.Util.dll", "assemblies/NicePlaySDK.dll",
+            Assert.Equal(new[] { "AndroidManifest.xml", "assemblies/Game.dll", "assemblies/Gameloft.Engine.dll", "assemblies/Gameloft.Templates.dll", "assemblies/Gameloft.Util.dll", "assemblies/NicePlaySDK.dll",
                                  "classes.dex", "res/layout-land/activity_in_game_browser.xml", "res/layout-port/activity_in_game_browser.xml", "res/raw/args.txt" },
                          report.Modified.OrderBy(m => m, StringComparer.Ordinal));
             Assert.Equal(new[] { "assemblies/McvsOffline.Server.dll" }, report.Added);
             // 41 IL patch notes (finderport from build 26, botmove from build 27), the manifest permission rename, the res/raw/args.txt rewrite, the ABI
             // selection, debloat's 44 manifest removals and file drop, targetsdk's 7 manifest, 2 layout, 4 Google Analytics removal and 14
-            // classes.dex edits, and game's 2 manifest flags: 118 (see IlPatchNotes / ExpectedNotes); build 30's crmtables and jsonnorm: 120.
+            // classes.dex edits, and game's 2 manifest flags: 118 (see IlPatchNotes / ExpectedNotes); build 30's crmtables and jsonnorm: 120; build 31's crmtables Load note: 121; build 32's templates (reader, timing): 123; build 32's writer/Copy/MergeWith and ToString timing: 125.
             Assert.Equal(14, DexNotes);
-            Assert.Equal(120, ExpectedNotes(options.Patches, target: 35));
+            Assert.Equal(125, ExpectedNotes(options.Patches, target: 35));
             Assert.Contains(report.Notes, n => n.Contains("BT_Action_MoveTo::adaptSpeed") && n.Contains("McvsBotMove.Ramp"));
             Assert.Equal(2, report.Notes.Count(n => n.StartsWith(ManifestGame.NotePrefix, StringComparison.Ordinal)));
             Assert.Equal(ExpectedNotes(options.Patches, target: 35), report.Notes.Count);
@@ -116,12 +116,12 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Equal(DexNotes, report.Notes.Count(n => n.StartsWith("classes.dex: ", StringComparison.Ordinal)));
             Assert.Equal(ManifestTargetSdk.GoogleAnalyticsComponents.Count, report.Notes.Count(n => n.StartsWith("manifest: - <", StringComparison.Ordinal) && n.Contains(".analytics.")));
             Assert.Equal(BrowserLayoutInsets.Layouts.Count, report.Notes.Count(n => n.Contains("activity_in_game_browser.xml: ")));
-            // arm64-v8a loses the AOT images of exactly the four modified assemblies; v1 signature files go.
+            // arm64-v8a loses the AOT images of exactly the five modified assemblies (build 32: Gameloft.Templates); v1 signature files go.
             var aot = report.Removed.Where(r => r.Contains("(AOT image")).Select(r => r.Split(' ')[0]).OrderBy(r => r).ToList();
-            Assert.Equal(4, aot.Count);
-            foreach (string dll in new[] { "Game", "Gameloft.Engine", "Gameloft.Util", "NicePlaySDK" })
+            Assert.Equal(5, aot.Count);
+            foreach (string dll in new[] { "Game", "Gameloft.Engine", "Gameloft.Templates", "Gameloft.Util", "NicePlaySDK" })
                 Assert.Contains("lib/arm64-v8a/libaot-" + dll + ".dll.so", aot);
-            // --abi arm64-v8a: every lib/armeabi-v7a entry goes (67 in 1.17.32), nothing of arm64-v8a but those four.
+            // --abi arm64-v8a: every lib/armeabi-v7a entry goes (67 in 1.17.32), nothing of arm64-v8a but those five.
             var input = ZipArchiveReader.Read(apk);
             var dropped = report.Removed.Where(r => r.Contains("(native library of an ABI not kept")).Select(r => r.Split(' ')[0]).ToList();
             Assert.Equal(input.Entries.Count(e => e.Name.StartsWith("lib/armeabi-v7a/", StringComparison.Ordinal)), dropped.Count);
@@ -152,8 +152,8 @@ namespace McvsOffline.Embed.Tests.Patcher
             // 36 IL patch notes (hook, headless 5 + 3, physics 2, finderport (build 26), nativeonline, waits 2, geo, finder, store 2,
             // signatures 2, inbox 4, debloat 7, adminpage 2, adminlink, graphics), the manifest rename, res/raw/args.txt, the ABI selection,
             // debloat's 44 + 1, targetsdk at its default 35: 7 manifest, 2 layout, 4 Google Analytics removal and 14
-            // classes.dex edits, and game's 2: 113; build 30's crmtables and jsonnorm add one note each: 115.
-            Assert.Equal(115, ExpectedNotes(PatcherOptions.DefaultPatches));
+            // classes.dex edits, and game's 2: 113; build 30's crmtables and jsonnorm add one note each: 115; build 31's crmtables a second one: 116; build 32's templates two: 118, four with the writer/Copy/MergeWith change: 120.
+            Assert.Equal(120, ExpectedNotes(PatcherOptions.DefaultPatches));
             Assert.Equal(ExpectedNotes(PatcherOptions.DefaultPatches), report.Notes.Count);
             Assert.DoesNotContain(report.Notes, n => n.Contains("McvsBotMove"));   // build 27: 'botmove' is not in the default APK
             Assert.Contains("patch targetsdk: targetSdkVersion 29 -> 35, with what that target needs in the manifest, the settings page's layouts and classes.dex", log);
@@ -178,7 +178,7 @@ namespace McvsOffline.Embed.Tests.Patcher
             // The default keeps both ABIs: both lose the AOT images of the modified assemblies.
             PatchReport both = ApkPatcher.Run(new PatcherOptions { InputApk = apk, ServerDll = server, DryRun = true }, null);
             Assert.DoesNotContain(both.Removed, r => r.Contains("(native library of an ABI not kept"));
-            Assert.Equal(8, both.Removed.Count(r => r.Contains("(AOT image")));
+            Assert.Equal(10, both.Removed.Count(r => r.Contains("(AOT image")));
             Assert.Contains("native libraries: every ABI kept (arm64-v8a, armeabi-v7a)", both.Notes);
         }
     }

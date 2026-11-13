@@ -65,6 +65,8 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.Contains("native online SDK init requested", string.Join("\n", host.Boot.Milestones()));
                 Assert.Contains("boot: ", host.DescribeState());
                 Assert.Contains("server.log: ", host.DescribeState());
+                Assert.Contains("watchdog: game thread tid ", host.DescribeState());
+                Assert.DoesNotContain("[watchdog] off", bootstrap);
             }
             finally
             {
@@ -87,6 +89,71 @@ namespace McvsOffline.Embed.Tests.Embedded
             {
                 again.Server?.Dispose();
             }
+        }
+
+        /// <summary>
+        /// Build 32: the embedded host tells its server that the game runs in this process, so the next start answers the
+        /// profile lock an earlier start left (no SaveAndReleaseProfile: the app was killed) as released, over HTTP.
+        /// </summary>
+        [Fact]
+        public void TheNextStartAnswersALockLeftByTheEarlierStartAsReleased()
+        {
+            string root = TestEnvironment.NewTempDir("host-owner");
+            Directory.CreateDirectory(Path.Combine(root, "Data"));
+            int port = TestEnvironment.FreePort();
+            const string room = "LocalAnubis-Room-18478500-6c40-4424-9b53-e40b7e14c747";
+            string Dump(string owner) => "{\"@version\":\"0.1\",\"$default\":{\"/Profile\":{\"@type\":\"Game.PlayerProfileComponent\"," +
+                                         "\"PlayerName\":\"agent-1\",\"ProfileOwnerRoomId\":" + (owner == null ? "null" : "\"" + owner + "\"") + "}}}";
+            string Token(EmbeddedHost h)
+            {
+                var account = h.Server.Context.Accounts.GetOrCreate("anonymous:owner-test", "device-owner-test");
+                return h.Server.Context.Tokens.Issue(account.Id, "anonymous:owner-test", McvsConstants.ClientId,
+                                                     new[] { "storage", "storage_ro", "storage_restricted" }, "device-owner-test", "game:mcvsoffline").Token;
+            }
+            string url = "http://127.0.0.1:" + port + "/profiles/me/myprofile/_mcvs.gameProfile";
+            using (var http = new HttpClient())
+            {
+                EmbeddedHost first = EmbeddedHost.Start(new DirectoryPlatform(root, false), new EmbeddedHostOptions { Port = port });
+                try
+                {
+                    Assert.True(first.WaitForServer(30000));
+                    Assert.True(first.Server.Context.Features.Get<ClientCapabilities>().InProcessClient);
+                    string token = Token(first);
+                    var form = new FormUrlEncodedContent(new[]
+                    {
+                        new System.Collections.Generic.KeyValuePair<string, string>("visibility", "restricted"),
+                        new System.Collections.Generic.KeyValuePair<string, string>("object", Dump(room)),
+                        new System.Collections.Generic.KeyValuePair<string, string>("access_token", token),
+                    });
+                    Assert.Equal(HttpStatusCode.OK, http.PostAsync(url, form).Result.StatusCode);
+                    Assert.Equal(Dump(room), http.GetStringAsync(url + "?access_token=" + token).Result);
+                }
+                finally
+                {
+                    first.Server?.Dispose();
+                }
+
+                EmbeddedHost second = EmbeddedHost.Start(new DirectoryPlatform(root, false), new EmbeddedHostOptions { Port = port });
+                try
+                {
+                    Assert.True(second.WaitForServer(30000));
+                    string token = Token(second);
+                    Assert.Equal(Dump(null), http.GetStringAsync(url + "?access_token=" + token).Result);
+                }
+                finally
+                {
+                    second.Server?.Dispose();
+                }
+            }
+            string logs = string.Join("\n", Array.ConvertAll(Directory.GetFiles(Path.Combine(root, "McvsOffline", "logs"), "*server.log*"), ReadShared));
+            Assert.Contains("profile: cleared a room owner left by an earlier start: " + room, logs);
+        }
+
+        private static string ReadShared(string path)
+        {
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+            using (var reader = new StreamReader(stream))
+                return reader.ReadToEnd();
         }
 
         /// <summary>
@@ -283,6 +350,36 @@ namespace McvsOffline.Embed.Tests.Embedded
             finally
             {
                 McvsOffline.PortHooks.Configure(0, 0);
+            }
+        }
+
+        /// <summary>
+        /// Build 31: the owner's build-29 and build-30 logs had no [watchdog] line at all. With settings diagnostics.watchdog false
+        /// one INFO line says so (and that the hitch probe is off with it), and the status line names the switch; the default stays on.
+        /// </summary>
+        [Fact]
+        public void AWatchdogTurnedOffInTheSettingsSaysSoInTheLogAndTheStatusLine()
+        {
+            string root = TestEnvironment.NewTempDir("watchdog-off");
+            Directory.CreateDirectory(Path.Combine(root, "McvsOffline"));
+            File.WriteAllText(Path.Combine(root, "McvsOffline", "settings.json"), "{\"diagnostics\": {\"watchdog\": false}}");
+            EmbeddedHost host = EmbeddedHost.Start(new DirectoryPlatform(root, false),
+                                                   new EmbeddedHostOptions { Port = TestEnvironment.FreePort(), StatusIntervalMs = 0 });
+            try
+            {
+                Assert.True(host.WaitForServer(30000));
+                Assert.Null(host.Watchdog);
+                Assert.Contains("watchdog: " + EmbeddedHost.WatchdogOffBySettings, host.DescribeState());
+                Assert.Contains("hitch probe", EmbeddedHost.WatchdogOffBySettings);
+                Assert.True(host.FlushLogs(10000));
+                string bootstrap = File.ReadAllText(Path.Combine(root, "McvsOffline", "logs", "bootstrap.log"));
+                Assert.Contains("INFO  [watchdog] " + EmbeddedHost.WatchdogOffLine, bootstrap);
+                Assert.Contains("no HITCH: lines", EmbeddedHost.WatchdogOffLine);
+                Assert.Contains("\"watchdog\": false", File.ReadAllText(Path.Combine(root, "McvsOffline", "settings.json")));
+            }
+            finally
+            {
+                host.Server?.Dispose();
             }
         }
 
@@ -491,6 +588,8 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.Equal(port, host.Server.Port);
                 Assert.Equal(PortOutcome.Configured, host.PortReservation.Outcome);
                 Assert.False(host.WatchingPort);
+                // Until now the game used the other copy's server (and may hold a live lock through it): locks are not followed.
+                Assert.False(host.Server.Context.Features.Get<ClientCapabilities>().InProcessClient);
                 using (var http = new HttpClient())
                 {
                     Assert.Equal(HttpStatusCode.OK, http.GetAsync("http://127.0.0.1:" + port + "/").Result.StatusCode);

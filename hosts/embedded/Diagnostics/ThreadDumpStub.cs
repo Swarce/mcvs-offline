@@ -15,6 +15,16 @@ namespace McvsOffline.Embedded.Diagnostics
         {
         }
 
+        public static void Capture(int gameTid, IList<int> scanTids, string managedDumpFile, int managedTimeoutMs, Action<string> emit,
+                                   Func<string, bool> managedThreads)
+        {
+        }
+
+        public static bool EnteredFromNative(string threadBlock)
+        {
+            return false;
+        }
+
         public static T WithDumpable<T>(Func<T> read)
         {
             return read();

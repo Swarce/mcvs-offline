@@ -51,9 +51,9 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             Assert.Equal("2620:70425:1.17.30:steam:steam", pc.ClientId);
             Assert.Equal(new Version(4, 0, 0, 0), pc.CorlibVersion);
             Assert.Equal("b77a5c561934e089", pc.CorlibPublicKeyToken);
-            Assert.Equal(new[] { "EngineBridge.dll", "Game.dll", "Gameloft.Engine.dll", "Gameloft.Util.dll" }, pc.PatchedOriginals.Keys.OrderBy(k => k, StringComparer.Ordinal));
+            Assert.Equal(new[] { "EngineBridge.dll", "Game.dll", "Gameloft.Engine.dll", "Gameloft.Templates.dll", "Gameloft.Util.dll" }, pc.PatchedOriginals.Keys.OrderBy(k => k, StringComparer.Ordinal));
             Assert.Equal(new[] { "GameManager.dll", "Gameloft.OnlinePlatform.dll" }, pc.UnchangedWitnesses.Keys.OrderBy(k => k, StringComparer.Ordinal));
-            Assert.Equal(8, pc.OriginalSha256.Count);
+            Assert.Equal(9, pc.OriginalSha256.Count);
             Assert.Equal(new[] { "Gameloft.Logs", "System", "System.Core", "mscorlib" }, pc.ServerAllowedReferences.OrderBy(k => k, StringComparer.Ordinal));
             Assert.Equal(new[] { "kernel32", "steam_api", "user32" }, pc.ServerAllowedModuleRefs.OrderBy(k => k, StringComparer.Ordinal));
             Assert.Equal("GameOptions_windows.json", pc.GameOptionsFile);

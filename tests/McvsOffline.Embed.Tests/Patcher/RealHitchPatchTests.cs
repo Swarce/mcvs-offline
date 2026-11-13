@@ -67,6 +67,16 @@ namespace McvsOffline.Embed.Tests.Patcher
             return module.GetType(CrmTablesPatch.TypeName).Methods.Single(m => m.Name == "set_Changer");
         }
 
+        private static MethodDefinition Load(ModuleDefinition module)
+        {
+            return module.GetType(CrmTablesPatch.TypeName).Methods.Single(m => m.Name == "Load" && !m.IsStatic && m.Parameters.Count == 1);
+        }
+
+        private static MethodDefinition DataChanged(ModuleDefinition module)
+        {
+            return module.GetType(CrmTablesPatch.TypeName).Methods.Single(m => m.Name == "Game_DataChanged");
+        }
+
         private static MethodDefinition Normalize(ModuleDefinition module)
         {
             return module.GetType(JsonNormPatch.TypeName).Methods.Single(m => m.Name == "NormalizeJsonString");
@@ -80,8 +90,11 @@ namespace McvsOffline.Embed.Tests.Patcher
             using (var engine = ModuleDefinition.ReadModule(Path.Combine(refs, "Gameloft.Engine.dll")))
             using (var util = ModuleDefinition.ReadModule(Path.Combine(refs, "Gameloft.Util.dll")))
             {
-                output.WriteLine("Android set_Changer " + IlPatch.Fingerprint(Setter(engine)) + ", NormalizeJsonString " + IlPatch.Fingerprint(Normalize(util)));
+                output.WriteLine("Android set_Changer " + IlPatch.Fingerprint(Setter(engine)) + ", Load " + IlPatch.Fingerprint(Load(engine)) +
+                                 ", Game_DataChanged " + IlPatch.Fingerprint(DataChanged(engine)) + ", NormalizeJsonString " + IlPatch.Fingerprint(Normalize(util)));
                 Assert.Equal(CrmTablesPatch.SetterFingerprint, IlPatch.Fingerprint(Setter(engine)));
+                Assert.Equal(CrmTablesPatch.LoadFingerprint, IlPatch.Fingerprint(Load(engine)));
+                Assert.Equal(CrmTablesPatch.DataChangedFingerprint, IlPatch.Fingerprint(DataChanged(engine)));
                 Assert.Equal(JsonNormPatch.NormalizeFingerprint, IlPatch.Fingerprint(Normalize(util)));
             }
             string pc = RealPc.Folder(output);
@@ -91,8 +104,11 @@ namespace McvsOffline.Embed.Tests.Patcher
             using (var engine = ModuleDefinition.ReadModule(new MemoryStream(File.ReadAllBytes(Path.Combine(pc, "Gameloft.Engine.dll"))), reader))
             using (var util = ModuleDefinition.ReadModule(new MemoryStream(File.ReadAllBytes(Path.Combine(pc, "Gameloft.Util.dll"))), reader))
             {
-                output.WriteLine("Steam set_Changer " + IlPatch.Fingerprint(Setter(engine)) + ", NormalizeJsonString " + IlPatch.Fingerprint(Normalize(util)));
+                output.WriteLine("Steam set_Changer " + IlPatch.Fingerprint(Setter(engine)) + ", Load " + IlPatch.Fingerprint(Load(engine)) +
+                                 ", Game_DataChanged " + IlPatch.Fingerprint(DataChanged(engine)) + ", NormalizeJsonString " + IlPatch.Fingerprint(Normalize(util)));
                 Assert.Equal(CrmTablesPatch.PcSetterFingerprint, IlPatch.Fingerprint(Setter(engine)));
+                Assert.Equal(CrmTablesPatch.PcLoadFingerprint, IlPatch.Fingerprint(Load(engine)));
+                Assert.Equal(CrmTablesPatch.PcDataChangedFingerprint, IlPatch.Fingerprint(DataChanged(engine)));
                 Assert.Equal(JsonNormPatch.PcNormalizeFingerprint, IlPatch.Fingerprint(Normalize(util)));
             }
         }
@@ -194,7 +210,352 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Equal(4, lines.Count(l => l.StartsWith("crm tables: " + file + " got the same CRM cells again (3 tables, 6 cells): kept, no reload from disk",
                                                           StringComparison.Ordinal)));
             Assert.Equal(2, lines.Count(l => l.Contains("got other CRM cells")));
-            Assert.Equal(6, lines.Count);
+            // One database: its first parse is not kept (only the second parse by a new database is), so every read is a parse.
+            Assert.Equal(withHooks.Reads, lines.Count(l => l.StartsWith("crm tables: " + file + " read from disk and parsed in ", StringComparison.Ordinal)));
+            Assert.DoesNotContain(lines, l => l.Contains("restored from memory") || l.Contains("kept in memory"));
+            Assert.Equal(6 + withHooks.Reads, lines.Count);
+        }
+
+        // ------------------------------------------------------------------------------------------------ crmtables: Database.Load
+
+        /// <summary>
+        /// The owner's build-30 agent selection, condensed: the human's database switches cells, then every bot the GS adds gets a
+        /// new database of the same file that the three Worlds' DatabaseLoaded handlers give the GS cells (in place), the client's
+        /// per-player cells (a reload) and the GS cells again (a reload); a database's rows changed by someone else, a reload to
+        /// no cells, null, and a changed data file (Game_DataChanged) among them. Op: "new db", "set db cells" ("-" = null),
+        /// "mutate db", "datachanged".
+        /// </summary>
+        private static readonly string[][] AgentSelect =
+        {
+            new[] { "new", "human" },              // parse 1 of the file by a new database: not kept
+            new[] { "set", "human", "A" },         // null -> A: in place
+            new[] { "set", "human", "B" },         // a reload: read (nothing kept yet)
+            new[] { "new", "bot1" },               // parse 2 by a new database: read, and its rows are kept
+            new[] { "set", "bot1", "B" },          // (a) the TS GameplayCRM handler: in place
+            new[] { "set", "bot1", "A" },          // (b) the client's per-player cells: restored
+            new[] { "set", "bot1", "B" },          // (c) the GS cells again: restored
+            new[] { "new", "bot2" },               // restored
+            new[] { "set", "bot2", "B" },
+            new[] { "set", "bot2", "A" },          // restored
+            new[] { "set", "bot2", "B" },          // restored
+            new[] { "mutate", "bot2" },            // someone writes into bot2's rows
+            new[] { "set", "bot2", "A" },          // restored: the file's rows again (the kept copy is not bot2's)
+            new[] { "set", "human", "A" },         // the human's database: restored
+            new[] { "set", "human", "A2" },        // the same cells as a new object: kept by the setter, no Load at all
+            new[] { "set", "human", "{}" },        // no cells: restored (the file's rows)
+            new[] { "set", "human", "-" },         // {} -> null: nothing
+            new[] { "datachanged" },               // a data file changed: nothing kept is used again
+            new[] { "new", "bot3" },               // read (parse 1 again)
+            new[] { "set", "bot3", "B" },
+            new[] { "set", "bot3", "A" },          // a reload: read
+        };
+
+        /// <summary>
+        /// A database that already has cells when it parses its file with empty Tables (the <c>File</c> setter's Unload and Load
+        /// of a database whose Changer is set): its parse is a fresh one and is kept, so the kept copy must be taken before the
+        /// game's <c>OnTableLoaded</c> applies those cells. Op "new+cells db cells": a new database with that changer, then Load.
+        /// </summary>
+        private static readonly string[][] FreshWithCells =
+        {
+            new[] { "new", "human" },              // parse 1: not kept
+            new[] { "new+cells", "bot1", "B" },    // parse 2 with B already set: read, kept (without B's cells), then B applied
+            new[] { "new", "bot2" },               // restored: the file's rows, none of B's cells
+            new[] { "set", "bot2", "A" },          // null -> A: in place
+            new[] { "set", "bot2", "B" },          // restored, then B
+            new[] { "new+cells", "bot3", "A" },    // restored, then A
+        };
+
+        private sealed class ScenarioRun
+        {
+            public List<string> Snapshots = new List<string>();
+            public List<int> Events = new List<int>();
+            public int Reads;
+            public double Ms;
+            public List<double> OpMs = new List<double>();
+        }
+
+        [Fact]
+        public void AFileParsedBeforeIsRestoredFromMemoryWithTheShippedTablesAfterEveryStep()
+        {
+            string refs = Refs();
+            if (refs == null) return;
+            string dir = TestEnvironment.NewTempDir("crmtables-load");
+            string file = Path.Combine(dir, "MCVS_Test.xlsx");
+            File.WriteAllText(file, BaseDatabase);
+            var cells = new Dictionary<string, string> { ["A"] = Cells1, ["A2"] = Cells1, ["B"] = Cells2 };
+
+            byte[] server = Server();
+            byte[] patched = RealGamePatchTests.PatchReal(refs, server, null, new CrmTablesPatch())["Gameloft.Engine.dll"];
+            ScenarioRun original = RunScenario(refs, Instrument(refs, File.ReadAllBytes(Path.Combine(refs, "Gameloft.Engine.dll"))), null, file, cells, AgentSelect, null);
+            var lines = new List<string>();
+            ScenarioRun withHooks = RunScenario(refs, Instrument(refs, patched), server, file, cells, AgentSelect, lines);
+            ScenarioRun noServer = RunScenario(refs, Instrument(refs, patched), null, file, cells, AgentSelect, null);
+            foreach (string l in lines) output.WriteLine(l);
+
+            AssertSameRuns(AgentSelect, original, withHooks, noServer);
+            // The ADD and MUL cells applied once on restored rows too, and the mutated row is gone after bot2's reload.
+            Assert.Contains("rifle|Double:16|Rifle|null|", original.Snapshots[6]);
+            Assert.Contains("rifle|Double:15|Rifle|null|", original.Snapshots[12]);
+            Assert.Contains("rifle|Int64:10|Rifle|null|", original.Snapshots[15]);
+            Assert.Contains("MUTATED", original.Snapshots[11]);
+            Assert.DoesNotContain("MUTATED", original.Snapshots[12]);
+            output.WriteLine("file reads: shipped " + original.Reads + ", patched " + withHooks.Reads + ", patched without the server " + noServer.Reads);
+            // Shipped: ops 0, 2, 3, 5, 6, 7, 9, 10, 12, 13, 14, 15, 18, 20 read the file. Patched: 0, 2 (nothing kept yet), 3 (kept from
+            // here), 18 and 20 (after Game_DataChanged); 14 is the setter's "same cells" path.
+            Assert.Equal(14, original.Reads);
+            Assert.Equal(5, withHooks.Reads);
+            Assert.Equal(original.Reads, noServer.Reads);
+            Assert.Equal(8, lines.Count(l => l.StartsWith("crm tables: " + file + " restored from memory (2 tables, 7 rows) in ", StringComparison.Ordinal) &&
+                                             l.EndsWith(", no read from disk", StringComparison.Ordinal)));
+            Assert.Equal(1, lines.Count(l => l.StartsWith("crm tables: " + file + " read from disk and parsed in ", StringComparison.Ordinal) &&
+                                             l.EndsWith(" (a new database); its rows are kept in memory for the next loads (2 tables, 7 rows, 19 cells)", StringComparison.Ordinal)));
+            Assert.Equal(5, lines.Count(l => l.Contains(" read from disk and parsed in ")));
+        }
+
+        [Fact]
+        public void TheKeptCopyOfADatabaseThatHadCellsDuringItsParseHasNoneOfThem()
+        {
+            string refs = Refs();
+            if (refs == null) return;
+            string dir = TestEnvironment.NewTempDir("crmtables-fresh-cells");
+            string file = Path.Combine(dir, "MCVS_Test.xlsx");
+            File.WriteAllText(file, BaseDatabase);
+            var cells = new Dictionary<string, string> { ["A"] = Cells1, ["B"] = Cells2 };
+
+            byte[] server = Server();
+            byte[] patched = RealGamePatchTests.PatchReal(refs, server, null, new CrmTablesPatch())["Gameloft.Engine.dll"];
+            ScenarioRun original = RunScenario(refs, Instrument(refs, File.ReadAllBytes(Path.Combine(refs, "Gameloft.Engine.dll"))), null, file, cells, FreshWithCells, null);
+            var lines = new List<string>();
+            ScenarioRun withHooks = RunScenario(refs, Instrument(refs, patched), server, file, cells, FreshWithCells, lines);
+            foreach (string l in lines) output.WriteLine(l);
+
+            AssertSameRuns(FreshWithCells, original, withHooks, null);
+            Assert.Contains("rifle|Double:16|Rifle|null|", original.Snapshots[1]);   // bot1 has B's ADD cell
+            Assert.Contains("rifle|Int64:10|Rifle|null|", original.Snapshots[2]);    // bot2: the file's value
+            Assert.DoesNotContain("Flank Sinatra", original.Snapshots[2]);
+            Assert.Contains("rifle|Double:15|Rifle|null|", original.Snapshots[5]);   // bot3: A's ADD cell once
+            // Shipped: every op but the in-place "set bot2 A" reads the file; patched: the two first parses only.
+            Assert.Equal(5, original.Reads);
+            Assert.Equal(2, withHooks.Reads);
+            Assert.Equal(1, lines.Count(l => l.Contains(" (a new database); its rows are kept in memory for the next loads (2 tables, 7 rows, 19 cells)")));
+            Assert.Equal(3, lines.Count(l => l.Contains(" restored from memory (2 tables, 7 rows) in ")));
+        }
+
+        /// <summary>
+        /// The same scenario on the player's real Design/MCVS_Meta.xlsx (MCVS_DATAPACK), with cells on its real tables in the
+        /// shape of the owner's two sets (MUL cells on many rows; the second set has one more table): the same tables after
+        /// every step, and the time of a restore against a parse. Skipped without the data pack unless MCVS_REQUIRE_REAL_CLIENT=1.
+        /// </summary>
+        [Fact]
+        public void TheRealMetaDatabaseIsRestoredFromMemoryWithTheShippedTables()
+        {
+            string refs = Refs();
+            if (refs == null) return;
+            string pack = Environment.GetEnvironmentVariable("MCVS_DATAPACK");
+            string text = null;
+            if (!string.IsNullOrEmpty(pack) && Directory.Exists(pack))
+                new McvsOffline.Server.Core.Content.DataPack(pack).TryReadText("Design/MCVS_Meta.xlsx", out text);
+            if (text == null)
+            {
+                if (Environment.GetEnvironmentVariable("MCVS_REQUIRE_REAL_CLIENT") == "1" && !string.IsNullOrEmpty(pack))
+                    throw new InvalidOperationException("MCVS_DATAPACK has no readable Design/MCVS_Meta.xlsx");
+                output.WriteLine("the data pack is not available (MCVS_DATAPACK): skipped");
+                return;
+            }
+            string dir = TestEnvironment.NewTempDir("crmtables-meta");
+            string file = Path.Combine(dir, "MCVS_Meta.xlsx");
+            File.WriteAllText(file, text);
+            var cells = MetaCells(text);
+            output.WriteLine("MCVS_Meta.xlsx " + text.Length + " chars; cell sets A " + cells["A"].Length + " chars, B " + cells["B"].Length + " chars");
+
+            byte[] server = Server();
+            byte[] patched = RealGamePatchTests.PatchReal(refs, server, null, new CrmTablesPatch())["Gameloft.Engine.dll"];
+            ScenarioRun original = RunScenario(refs, Instrument(refs, File.ReadAllBytes(Path.Combine(refs, "Gameloft.Engine.dll"))), null, file, cells, AgentSelect, null);
+            var lines = new List<string>();
+            ScenarioRun withHooks = RunScenario(refs, Instrument(refs, patched), server, file, cells, AgentSelect, lines);
+            foreach (string l in lines) output.WriteLine(l);
+            AssertSameRuns(AgentSelect, original, withHooks, null);
+            Assert.Equal(14, original.Reads);
+            Assert.Equal(5, withHooks.Reads);
+            for (int i = 0; i < AgentSelect.Length; i++)
+                output.WriteLine(string.Join(" ", AgentSelect[i]) + ": shipped " + original.OpMs[i].ToString("0.0", CultureInfo.InvariantCulture) +
+                                 " ms, patched " + withHooks.OpMs[i].ToString("0.0", CultureInfo.InvariantCulture) + " ms");
+            output.WriteLine("all steps: shipped " + original.Ms.ToString("0", CultureInfo.InvariantCulture) + " ms, patched " +
+                             withHooks.Ms.ToString("0", CultureInfo.InvariantCulture) + " ms");
+            Assert.Contains(lines, l => l.Contains("its rows are kept in memory for the next loads ("));
+        }
+
+        private static void AssertSameRuns(string[][] ops, ScenarioRun original, ScenarioRun patched, ScenarioRun latched)
+        {
+            for (int i = 0; i < ops.Length; i++)
+            {
+                string what = "op " + i + " (" + string.Join(" ", ops[i]) + ")";
+                Assert.True(original.Snapshots[i] == patched.Snapshots[i], what + ":\n" + Head(original.Snapshots[i]) + "\nvs\n" + Head(patched.Snapshots[i]));
+                Assert.True(original.Events[i] == patched.Events[i], what + ": TablesLoaded " + original.Events[i] + " vs " + patched.Events[i]);
+                if (latched == null) continue;
+                Assert.True(original.Snapshots[i] == latched.Snapshots[i], what + " (no server)");
+                Assert.Equal(original.Events[i], latched.Events[i]);
+            }
+        }
+
+        private static string Head(string s)
+        {
+            return s.Length <= 4000 ? s : s.Substring(0, 4000) + "...";
+        }
+
+        /// <summary>
+        /// The shape of the owner's two MCVS_Meta sets (docs/STATUS.md "Build 31"): A, the client's per-player document, "*1.25" on
+        /// the four Division amounts of VersusCoinsMatchRewards and CreditsCurrencyMatchRewards and the unlock-all weights of
+        /// Crate_Event_Special (row 1: 1, the others 0); B, the GS answer, the same amounts, the static weights and
+        /// KillsignatureAvatars ID@Unlockable "false" for 598-672.
+        /// </summary>
+        private static Dictionary<string, string> MetaCells(string text)
+        {
+            var options = new System.Text.Json.JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = System.Text.Json.JsonCommentHandling.Skip };
+            var root = System.Text.Json.Nodes.JsonNode.Parse(text, null, options).AsObject();
+            List<string> Keys(string table)
+            {
+                var rows = root[table]?["Rows"] as System.Text.Json.Nodes.JsonArray;
+                Assert.True(rows != null, "MCVS_Meta.xlsx has no table " + table);
+                return rows.Select(r => ((System.Text.Json.Nodes.JsonArray)r)[0].ToJsonString().Trim('"')).ToList();
+            }
+            System.Text.Json.Nodes.JsonObject Amounts()
+            {
+                var o = new System.Text.Json.Nodes.JsonObject();
+                foreach (string table in new[] { "VersusCoinsMatchRewards", "CreditsCurrencyMatchRewards" })
+                {
+                    var t = new System.Text.Json.Nodes.JsonObject();
+                    foreach (string field in new[] { "VictoryAmount", "DefeatAmount", "MVPAmount", "DailyCap" })
+                    {
+                        var cellsOf = new System.Text.Json.Nodes.JsonObject();
+                        foreach (string key in Keys(table)) cellsOf[key] = "*1.25";
+                        t["Division@" + field] = cellsOf;
+                    }
+                    o[table] = t;
+                }
+                return o;
+            }
+            List<string> crates = Keys("Crate_Event_Special");
+            var a = Amounts();
+            var weightsA = new System.Text.Json.Nodes.JsonObject();
+            for (int i = 0; i < crates.Count; i++) weightsA[crates[i]] = i == 0 ? 1 : 0;
+            a["Crate_Event_Special"] = new System.Text.Json.Nodes.JsonObject { ["Id@Weight#1"] = weightsA };
+            var b = Amounts();
+            var weightsB = new System.Text.Json.Nodes.JsonObject();
+            for (int i = 0; i < crates.Count; i++) weightsB[crates[i]] = 1000 + 37 * i;
+            b["Crate_Event_Special"] = new System.Text.Json.Nodes.JsonObject { ["Id@Weight#1"] = weightsB };
+            Keys("KillsignatureAvatars");
+            var unlockable = new System.Text.Json.Nodes.JsonObject();
+            for (int id = 598; id <= 672; id++) unlockable[id.ToString(CultureInfo.InvariantCulture)] = "false";
+            b["KillsignatureAvatars"] = new System.Text.Json.Nodes.JsonObject { ["ID@Unlockable"] = unlockable };
+            return new Dictionary<string, string> { ["A"] = a.ToJsonString(), ["A2"] = a.ToJsonString(), ["B"] = b.ToJsonString() };
+        }
+
+        /// <summary>
+        /// Runs <paramref name="ops"/> on Databases of <paramref name="engine"/> (one GameContext) and records, after each op, the
+        /// snapshot of the database it touched (all databases for "datachanged") and how often its TablesLoaded was raised.
+        /// A new database is what <c>set_File</c> makes of a new <c>Database</c>: empty Tables, the file set, <c>Load(file)</c>.
+        /// </summary>
+        private ScenarioRun RunScenario(string refs, byte[] engine, byte[] server, string file, Dictionary<string, string> cells, string[][] ops, List<string> lines)
+        {
+            bool digest = new FileInfo(file).Length > 64 * 1024;   // the real file: one SHA-256 per table, not its text
+            Func<IDictionary, Type, string> snapshot = (t, type) => digest ? Digest(t, type) : Snapshot(t, type);
+            var run = new ScenarioRun();
+            using (var game = new GameContext(refs, new Dictionary<string, byte[]> { ["Gameloft.Engine.dll"] = engine }, server))
+            {
+                Assembly gameEngine = game.Get("Gameloft.Engine");
+                if (server != null)
+                {
+                    Type hooks = game.Get("McvsOffline.Server").GetType("McvsOffline.GameDataHooks", true);
+                    hooks.GetMethod("Configure").Invoke(null, new object[] { new Action<string>(l => { lock (lines) lines.Add(l); }) });
+                }
+                Type databaseType = gameEngine.GetType("Gameloft.Engine.Database", true);
+                Type tableType = gameEngine.GetType("Gameloft.Engine.Database+Table", true);
+                Type changerType = gameEngine.GetType("Gameloft.Engine.CRMDatabaseChanger", true);
+                Type jobject = game.Get("Newtonsoft.Json").GetType("Newtonsoft.Json.Linq.JObject", true);
+                MethodInfo parse = jobject.GetMethod("Parse", new[] { typeof(string) });
+                ConstructorInfo newChanger = changerType.GetConstructor(new[] { jobject });
+                Type assetStream = gameEngine.GetType("Gameloft.Engine.AssetStream", true);
+                Type argsType = gameEngine.GetType("Gameloft.Engine.GameApplication+DataChangedEventArgs", true);
+                MethodInfo load = databaseType.GetMethod("Load", All);
+                MethodInfo dataChanged = databaseType.GetMethod("Game_DataChanged", All);
+                PropertyInfo changer = databaseType.GetProperty("Changer");
+                PropertyInfo tablesOf = databaseType.GetProperty("Tables", All);
+                var databases = new Dictionary<string, object>(StringComparer.Ordinal);
+                var events = new Dictionary<string, int>(StringComparer.Ordinal);
+                var total = System.Diagnostics.Stopwatch.StartNew();
+                foreach (string[] op in ops)
+                {
+                    var watch = System.Diagnostics.Stopwatch.StartNew();
+                    string name = op.Length > 1 ? op[1] : null;
+                    if (name != null) events[name] = 0;
+                    switch (op[0])
+                    {
+                        case "new":
+                        case "new+cells":
+                        {
+                            object database = RuntimeHelpers.GetUninitializedObject(databaseType);
+                            tablesOf.SetValue(database, Activator.CreateInstance(typeof(Dictionary<,>).MakeGenericType(typeof(string), tableType)));
+                            databaseType.GetField("file", All).SetValue(database, file);
+                            string key = name;
+                            databaseType.GetEvent("TablesLoaded").AddEventHandler(database, new EventHandler((s, e) => events[key]++));
+                            databases[name] = database;
+                            if (op[0] == "new+cells")
+                                databaseType.GetField("changer", All).SetValue(database, newChanger.Invoke(new[] { parse.Invoke(null, new object[] { cells[op[2]] }) }));
+                            load.Invoke(database, new object[] { file });
+                            break;
+                        }
+                        case "set":
+                        {
+                            string json = op[2] == "-" ? null : cells.TryGetValue(op[2], out string named) ? named : op[2];
+                            object value = json == null ? null : newChanger.Invoke(new[] { parse.Invoke(null, new object[] { json }) });
+                            changer.SetValue(databases[name], value);
+                            break;
+                        }
+                        case "mutate":
+                        {
+                            IDictionary tables = (IDictionary)tablesOf.GetValue(databases[name]);
+                            string first = tables.Keys.Cast<string>().OrderBy(n => n, StringComparer.Ordinal).First();
+                            object[][] rows = (object[][])tableType.GetField("Rows").GetValue(tables[first]);
+                            rows[0][rows[0].Length - 1] = "MUTATED";
+                            break;
+                        }
+                        case "datachanged":
+                        {
+                            // Another file changed: the game's method returns at its path check (after the patch's Forget).
+                            object args = Activator.CreateInstance(argsType, "Design/Other.xlsx");
+                            foreach (object database in databases.Values) dataChanged.Invoke(database, new[] { null, args });
+                            break;
+                        }
+                        default:
+                            throw new InvalidOperationException(op[0]);
+                    }
+                    run.OpMs.Add(watch.Elapsed.TotalMilliseconds);
+                    if (name == null)
+                    {
+                        run.Events.Add(0);
+                        run.Snapshots.Add(string.Join("\n", databases.OrderBy(d => d.Key, StringComparer.Ordinal)
+                                                                      .Select(d => d.Key + ":\n" + snapshot((IDictionary)tablesOf.GetValue(d.Value), tableType))));
+                    }
+                    else
+                    {
+                        run.Events.Add(events[name]);
+                        run.Snapshots.Add(snapshot((IDictionary)tablesOf.GetValue(databases[name]), tableType));
+                    }
+                }
+                run.Ms = total.Elapsed.TotalMilliseconds;
+                run.Reads = (int)assetStream.GetField(ReadsField, All).GetValue(null);
+                // No database shares a row array with another one (each restore is a copy).
+                var seen = new HashSet<object>(ReferenceEqualityComparer.Instance);
+                foreach (object database in databases.Values)
+                {
+                    foreach (object table in ((IDictionary)tablesOf.GetValue(database)).Values)
+                    {
+                        foreach (object[] row in (object[][])tableType.GetField("Rows").GetValue(table)) Assert.True(seen.Add(row), "a row array is shared");
+                    }
+                }
+            }
+            return run;
         }
 
         /// <summary>
@@ -257,6 +618,22 @@ namespace McvsOffline.Embed.Tests.Patcher
             return sb.ToString().Replace("String:", "").Replace("|\n", "|\n");
         }
 
+        /// <summary><see cref="Snapshot"/> per table, as "[name] rows sha256" lines (in the dictionary's order, which a Load keeps).</summary>
+        private static string Digest(IDictionary tables, Type tableType)
+        {
+            var sb = new StringBuilder();
+            sb.Append(string.Join(",", tables.Keys.Cast<string>())).Append('\n');
+            foreach (string name in tables.Keys.Cast<string>().OrderBy(n => n, StringComparer.Ordinal))
+            {
+                var one = new Hashtable { [name] = tables[name] };
+                string text = Snapshot(one, tableType);
+                byte[] hash = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(text));
+                sb.Append('[').Append(name).Append("] ").Append(((object[][])tableType.GetField("Rows").GetValue(tables[name])).Length).Append(' ')
+                  .Append(Convert.ToHexString(hash)).Append('\n');
+            }
+            return sb.ToString();
+        }
+
         private const string ReadsField = "McvsTestReads";
 
         /// <summary>
@@ -312,6 +689,29 @@ namespace McvsOffline.Embed.Tests.Patcher
                 Assert.Contains(code, i => i.OpCode == OpCodes.Call && ((MethodReference)i.Operand).Name == "Load");
                 TypeDefinition helper = module.GetType("Gameloft.Engine.McvsCrmTables");
                 Assert.NotNull(helper.Fields.Single(f => f.Name == "hooksMissing"));
+
+                // Load: "if (Restore(this, path)) { OnTableLoaded(null); return; }" first, "Parsed(this, path)" after the foreach's
+                // finally (its end and its leave target), then the game's OnTableLoaded(null).
+                MethodDefinition load = Load(module);
+                var lc = load.Body.Instructions;
+                Assert.Equal("System.Boolean Gameloft.Engine.McvsCrmTables::Restore(System.Object,System.String)", ((MethodReference)lc[2].Operand).FullName);
+                Assert.Equal(OpCodes.Brfalse, lc[3].OpCode);
+                Assert.Same(lc[8], lc[3].Operand);
+                Assert.Equal("OnTableLoaded", ((MethodReference)lc[6].Operand).Name);
+                Assert.Equal(OpCodes.Ret, lc[7].OpCode);
+                Instruction parsedCall = lc[lc.Count - 5];
+                Assert.Equal("System.Void Gameloft.Engine.McvsCrmTables::Parsed(System.Object,System.String)", ((MethodReference)parsedCall.Operand).FullName);
+                Instruction afterFinally = lc[lc.Count - 7];
+                Assert.Equal(OpCodes.Ldarg_0, afterFinally.OpCode);
+                ExceptionHandler eh = load.Body.ExceptionHandlers.Single();
+                Assert.Same(afterFinally, eh.HandlerEnd);
+                Assert.Equal(OpCodes.Endfinally, afterFinally.Previous.OpCode);
+                Assert.Contains(lc, i => (i.OpCode == OpCodes.Leave || i.OpCode == OpCodes.Leave_S) && i.Operand == afterFinally);
+                Assert.Equal("OnTableLoaded", ((MethodReference)lc[lc.Count - 2].Operand).Name);
+                // Game_DataChanged: Forget() first, then the game's code.
+                Assert.Equal("System.Void Gameloft.Engine.McvsCrmTables::Forget()", ((MethodReference)DataChanged(module).Body.Instructions[0].Operand).FullName);
+                foreach (string name in new[] { "Restore", "Parsed", "Forget" })
+                    Assert.Contains(helper.Methods.Single(m => m.Name == name).Body.Instructions, i => i.OpCode == OpCodes.Stsfld && ((FieldReference)i.Operand).Name == "hooksMissing");
                 MethodDefinition forward = helper.Methods.Single(m => m.Name == "Forward");
                 Assert.Contains(forward.Body.Instructions, i => i.OpCode == OpCodes.Call &&
                     ((MethodReference)i.Operand).FullName == "System.Boolean McvsOffline.GameDataHooks::SameCrmChanges(System.Object,System.Object,System.Object)");
@@ -440,8 +840,9 @@ namespace McvsOffline.Embed.Tests.Patcher
             string refs = Refs();
             if (refs == null) return;
             RealAdminPagePatchTests.AssertIlVerifyClean(output, refs, "Gameloft.Engine.dll", new IlPatch[] { new CrmTablesPatch() },
-                                                        new[] { @"\]Gameloft\.Engine\.Database\.set_Changer$" }, 1,
-                                                        "Database::set_Changer", "McvsCrmTables::Same", "McvsCrmTables::Forward");
+                                                        new[] { @"\]Gameloft\.Engine\.Database\.(set_Changer|Load|Game_DataChanged)$" }, 3,
+                                                        "Database::set_Changer", "Database::Load", "Database::Game_DataChanged", "McvsCrmTables::Same",
+                                                        "McvsCrmTables::Forward", "McvsCrmTables::Restore", "McvsCrmTables::Parsed", "McvsCrmTables::Forget");
             RealAdminPagePatchTests.AssertIlVerifyClean(output, refs, "Gameloft.Util.dll", new IlPatch[] { new JsonNormPatch() },
                                                         new[] { @"\]Gameloft\.Util\.Json\.NormalizeJsonString$" }, 1,
                                                         "Json::NormalizeJsonString", "McvsJsonNorm::Cached", "McvsJsonNorm::Remember");
