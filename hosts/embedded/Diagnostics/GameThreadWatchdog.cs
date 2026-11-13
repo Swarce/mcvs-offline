@@ -82,6 +82,9 @@ namespace McvsOffline.Embedded.Diagnostics
         private int hitches;
         private int armedHitches;
         private int longestHitchMs;
+        private int earlyLines;                // watchdog thread only
+        private int managedHitchDumps;         // watchdog thread only
+        private int lastManagedHitchDump;      // watchdog thread only: Environment.TickCount of the last one
 
         /// <summary>
         /// The loop's period while <see cref="HitchMs"/> is on (at most the beat interval): a block of <see cref="HitchMs"/> plus
@@ -116,6 +119,24 @@ namespace McvsOffline.Embedded.Diagnostics
         /// player's hitch) and no file, logged at INFO (a hitch is not a problem). Set before <see cref="Start"/>.
         /// </summary>
         public Action<int, string> HitchDump { get; set; }
+
+        /// <summary>
+        /// Build 32: the first this many hitches after arming start <see cref="HitchManagedDump"/> instead of <see cref="HitchDump"/>
+        /// (0, the default: never), at most one every <see cref="HitchManagedDumpSpacingMs"/>. Set before <see cref="Start"/>.
+        /// </summary>
+        public int HitchManagedDumps { get; set; }
+
+        /// <summary>A hitch within this long of the last managed hitch dump gets <see cref="HitchDump"/> instead.</summary>
+        public int HitchManagedDumpSpacingMs { get; set; } = 5000;
+
+        /// <summary>(game thread tid, its comm): the dump with Mono's managed stacks a hitch starts (see <see cref="HitchManagedDumps"/>).</summary>
+        public Action<int, string> HitchManagedDump { get; set; }
+
+        /// <summary>
+        /// Build 32: before arming, the first this many hitches get one "hitch before the probe was armed" line when they end
+        /// (no snapshot, no dump), so the boot's hitches have times too (0, the default: only counted). Set before <see cref="Start"/>.
+        /// </summary>
+        public int EarlyHitchLines { get; set; }
 
         /// <summary>Hitches seen so far (before and after arming).</summary>
         public int Hitches { get { return hitches; } }
@@ -382,7 +403,20 @@ namespace McvsOffline.Embedded.Diagnostics
             int n = Interlocked.Increment(ref armedHitches);
             if (n <= HitchSnapshots)
                 Note(Snapshot(standing, standing, false, false, "HITCH: the game thread has not finished a frame for "));
-            if (n <= HitchDumps) StartThreadDump(HitchDump ?? threadDump);
+            if (HitchManagedDump != null && managedHitchDumps < HitchManagedDumps &&
+                (managedHitchDumps == 0 || unchecked(now - lastManagedHitchDump) >= HitchManagedDumpSpacingMs))
+            {
+                managedHitchDumps++;
+                lastManagedHitchDump = now;
+                Note("[watchdog] hitch " + n.ToString(CultureInfo.InvariantCulture) + ": a managed thread dump (" +
+                     managedHitchDumps.ToString(CultureInfo.InvariantCulture) + " of at most " + HitchManagedDumps.ToString(CultureInfo.InvariantCulture) +
+                     " per start), off the game thread");
+                StartThreadDump(HitchManagedDump);
+            }
+            else if (n <= HitchDumps)
+            {
+                StartThreadDump(HitchDump ?? threadDump);
+            }
         }
 
         /// <summary>Once <see cref="HitchArmed"/> is true: one line with the hitches counted before.</summary>
@@ -414,7 +448,15 @@ namespace McvsOffline.Embedded.Diagnostics
             hitchOpen = false;
             int stood = now - hitchSince;
             if (stood > longestHitchMs) longestHitchMs = stood;
-            if (!hitchReported) return;
+            if (!hitchReported)
+            {
+                if (earlyLines >= EarlyHitchLines) return;
+                earlyLines++;
+                Note("[watchdog] hitch before the probe was armed: " + (background ? "the game went to the background after " : "the frame clock stood about ") +
+                     stood.ToString(CultureInfo.InvariantCulture) + " ms, until now (early hitch " + hitches.ToString(CultureInfo.InvariantCulture) +
+                     "; no snapshot)");
+                return;
+            }
             Note("[watchdog] hitch over: " + (background ? "the game went to the background after " : "the game thread finished a frame again after about ") +
                  stood.ToString(CultureInfo.InvariantCulture) + " ms (hitch " + armedHitches.ToString(CultureInfo.InvariantCulture) + " of this start)");
         }

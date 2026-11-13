@@ -293,14 +293,14 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Equal(new[]
                          {
                              "hook", "headless", "headless-engine", "physics", "finderport", "nativeonline", "waits", "geo", "finder", "store", "signatures", "inbox", "adminpage",
-                             "debloat", "adminlink", "graphics", "crmtables", "jsonnorm",
+                             "debloat", "adminlink", "graphics", "crmtables", "jsonnorm", "templates",
                          },
                          ApkPatcher.SelectPatches(PatcherOptions.ParsePatchList("default")).Select(p => p.Id));
             Assert.Equal(new[] { "finder", "lan" }, PatcherOptions.ParsePatchList("lan"));
             Assert.Empty(PatcherOptions.ParsePatchList("none"));
-            Assert.Equal(new[] { "adminlink", "adminpage", "botmove", "crmtables", "debloat", "finder", "forum", "game", "geo", "graphics", "inbox", "jsonnorm", "lan", "nativeonline", "signatures", "store", "targetsdk", "waits" },
+            Assert.Equal(new[] { "adminlink", "adminpage", "botmove", "crmtables", "debloat", "finder", "forum", "game", "geo", "graphics", "inbox", "jsonnorm", "lan", "nativeonline", "signatures", "store", "targetsdk", "templates", "waits" },
                          PatcherOptions.ParsePatchList("all"));
-            Assert.Equal(new[] { "adminlink", "adminpage", "crmtables", "debloat", "finder", "game", "geo", "graphics", "inbox", "jsonnorm", "nativeonline", "signatures", "store", "targetsdk", "waits" },
+            Assert.Equal(new[] { "adminlink", "adminpage", "crmtables", "debloat", "finder", "game", "geo", "graphics", "inbox", "jsonnorm", "nativeonline", "signatures", "store", "targetsdk", "templates", "waits" },
                          PatcherOptions.ParsePatchList("default"));
             Assert.Equal(new[] { "targetsdk" }, PatcherOptions.ParsePatchList("targetsdk"));
             Assert.Equal(new[] { "game" }, PatcherOptions.ParsePatchList("game"));
@@ -310,14 +310,14 @@ namespace McvsOffline.Embed.Tests.Patcher
             Assert.Throws<ArgumentException>(() => PatcherOptions.ParsePatchList("geo,unlockall"));
 
             // The settings-page triggers: adminpage and adminlink by default, forum only on request (--patch default,forum).
-            Assert.Equal(new[] { "adminlink", "adminpage", "crmtables", "debloat", "finder", "forum", "game", "geo", "graphics", "inbox", "jsonnorm", "nativeonline", "signatures", "store", "targetsdk", "waits" },
+            Assert.Equal(new[] { "adminlink", "adminpage", "crmtables", "debloat", "finder", "forum", "game", "geo", "graphics", "inbox", "jsonnorm", "nativeonline", "signatures", "store", "targetsdk", "templates", "waits" },
                          PatcherOptions.ParsePatchList("default,forum"));
             Assert.Equal(new[] { "graphics" }, PatcherOptions.ParsePatchList("graphics"));
             Assert.Equal(new[] { "hook", "headless", "headless-engine", "physics", "finderport", "graphics" }, ApkPatcher.SelectPatches(new[] { "graphics" }).Select(p => p.Id));
             Assert.Equal(new[] { "forum" }, PatcherOptions.ParsePatchList("FORUM"));
             Assert.DoesNotContain("forum", PatcherOptions.DefaultPatches);
             Assert.Equal(new[] { "lan", "forum", "botmove" }, PatcherOptions.OptionalPatches.Except(PatcherOptions.DefaultPatches));
-            // Build 27: 'botmove' only on request (the default APK's Game.dll is unchanged), after every earlier IL patch (build 30's crmtables and jsonnorm follow it).
+            // Build 27: 'botmove' only on request (the default APK's Game.dll is unchanged), after every earlier IL patch (build 30's crmtables and jsonnorm and build 32's templates follow it).
             Assert.DoesNotContain("botmove", PatcherOptions.DefaultPatches);
             Assert.Equal(new[] { "botmove" }, PatcherOptions.ParsePatchList("BotMove"));
             Assert.Equal(new[] { "hook", "headless", "headless-engine", "physics", "finderport", "graphics", "botmove" },

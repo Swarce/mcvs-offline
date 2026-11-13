@@ -33,12 +33,13 @@ Done items are struck through. Device-test history and open risks are in [STATUS
 - ~~**1.0 release** (build 29): players are using it.~~ ✅
 - **Hitches** (build 30): the match start no longer reloads `MCVS_Meta.xlsx`, a profile save normalizes once instead of four times, in-match bot names off by default; a hitch probe names the rest (needs a device log).
 - **Agent-select stutter** (build 31): a design file read before is restored from memory instead of parsed again (each bot the match adds parsed `MCVS_Meta.xlsx` three times); the log says when the watchdog is off (needs a device log).
+- **Agent-select freeze** (build 32): the template reader finds a JSON object's properties with a dictionary (each bot read the human's 611 KB unlock-all profile with a scan that is quadratic in the 11,368 Inventory keys: about 4 s per bot, 27.7 s for 7 on the owner's phone); profile loads and reloads use the same reader; managed thread dumps at the first hitches name the rest (needs a device log).
 
 ## Next
 
 Build 29 is the **1.0 release** (November 2026): players already use it. The open device checks of builds 22-29 passed and
 are approved by the owner (names, port fallback, Special Event, HD packs, Game Mode flags, the PC kit, the Cosmetic crate).
-Build 30 is the first update after it (fewer hitches, in-match bot names off). Build 31 removes the three `MCVS_Meta.xlsx` parses per bot at agent selection, the main cost of the stutter every 5 s there (to be confirmed on a device).
+Build 30 is the first update after it (fewer hitches, in-match bot names off). Build 31 removes the three `MCVS_Meta.xlsx` parses per bot at agent selection, the main cost of the stutter every 5 s there (to be confirmed on a device). Build 32 removes the quadratic name scan of the template reader behind the 27.7 s agent-select freeze of the build-31 log (to be confirmed on a device).
 
 | Priority | Item |
 |---|---|

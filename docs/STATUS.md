@@ -1,7 +1,10 @@
 # Status
 
 What is implemented, how it was checked, what the device tests showed, and the checklist for the next device sessions.
-The project is now called **MCVS Encore** (the display name only: the code name `McvsOffline`, the data folders, the settings keys, the `MCVSOFFLINE` code and the repository name are unchanged, so existing saves and installs keep working; the history below keeps the old name). Last updated for build 31 (November 2026): build 31 removes the main cost of the stutter every 5 s during agent selection (each bot the match adds made the game parse `MCVS_Meta.xlsx` three times; a file read before is now restored from memory; to be confirmed on a device, see "Build 31" for the per-bot work that is left) and says in the log when the watchdog is off by the settings; see "Build 31". Build 30 removes two hitches of ours (the game no longer reloads `MCVS_Meta.xlsx` at every match, and a profile save normalizes its JSON once instead of four times), adds a hitch probe for the rest, and ships the in-match bot names off; see "Build 30". Build 29 is **the 1.0 release** (players already use it; the owner approved every open device check of builds 22-29, the Cosmetic crate included): build 29 replaces the generic gamer tags with about 2,000 hand-written names; see "Build 29". Build 28 gives the leaderboard rivals gamer-tag names and their own emblems, and the in-match bots thousands of names; see "Build 28". The owner confirmed build 27's bot fix on Steam. Build 27 fixes the Steam bots (a resting bot could not start on frames shorter than 1/60 s) and adds a Steam frame rate setting up to unlimited; see "Build 27". Build 26 starts normally when another program holds the server's port (it moves to a free one and everything follows); see "Build 26". Build 25 brings the project's own launcher icon (the owner's art), a dark red launch screen and a new background for the game's data installer (kept outside the repository); see "Build 25". Build 24 keeps ABOUT centred on the return from a tab (the owner's build-23 log: the tile just tapped was still in its pressed animation and our width check refused it); see "Build 24". Build 23 fixes what the owner saw on the phone in build 22 (the PERFORMANCE title drawn over its icon, ABOUT right of centre, a small stutter on the gear tap) and adds timings to the `settings menu:` log lines; Steam is unchanged apart from log text; not yet tested on a phone or on Windows; see "Build 23". The Steam bots' report (they idle at spawn and sometimes stop moving) is open: its investigation was stopped before any result, see "Build 23". Build 22: on the owner's phone build 21 still flashed
+The project is now called **MCVS Encore** (the display name only: the code name `McvsOffline`, the data folders, the settings keys, the `MCVSOFFLINE` code and the repository name are unchanged, so existing saves and installs keep working; the history below keeps the old name). Last updated for build 32 (November 2026): build 32 removes the quadratic name scan of the game's template reader, which froze agent selection for 27.7 s in the owner's build-31 log (each of the 7 bots read the human's unlock-all profile again, about 4 s each; profile loads and reloads use the same reader; to be confirmed on a device), takes the same kind of scan out of the profile saves' writer and the profile loads' merge with the default profile (the
+same text and tree; their gain on a phone is not measured yet), answers a profile lock left by a start that was killed as
+released (the 7.4 s ownership loop at boot; to be confirmed on a device), names the World and callers of every profile
+save in the log, and takes managed thread dumps at the first hitches of a start; see "Build 32". Build 31 removes the main cost of the stutter every 5 s during agent selection (each bot the match adds made the game parse `MCVS_Meta.xlsx` three times; a file read before is now restored from memory; to be confirmed on a device, see "Build 31" for the per-bot work that is left) and says in the log when the watchdog is off by the settings; see "Build 31". Build 30 removes two hitches of ours (the game no longer reloads `MCVS_Meta.xlsx` at every match, and a profile save normalizes its JSON once instead of four times), adds a hitch probe for the rest, and ships the in-match bot names off; see "Build 30". Build 29 is **the 1.0 release** (players already use it; the owner approved every open device check of builds 22-29, the Cosmetic crate included): build 29 replaces the generic gamer tags with about 2,000 hand-written names; see "Build 29". Build 28 gives the leaderboard rivals gamer-tag names and their own emblems, and the in-match bots thousands of names; see "Build 28". The owner confirmed build 27's bot fix on Steam. Build 27 fixes the Steam bots (a resting bot could not start on frames shorter than 1/60 s) and adds a Steam frame rate setting up to unlimited; see "Build 27". Build 26 starts normally when another program holds the server's port (it moves to a free one and everything follows); see "Build 26". Build 25 brings the project's own launcher icon (the owner's art), a dark red launch screen and a new background for the game's data installer (kept outside the repository); see "Build 25". Build 24 keeps ABOUT centred on the return from a tab (the owner's build-23 log: the tile just tapped was still in its pressed animation and our width check refused it); see "Build 24". Build 23 fixes what the owner saw on the phone in build 22 (the PERFORMANCE title drawn over its icon, ABOUT right of centre, a small stutter on the gear tap) and adds timings to the `settings menu:` log lines; Steam is unchanged apart from log text; not yet tested on a phone or on Windows; see "Build 23". The Steam bots' report (they idle at spawn and sometimes stop moving) is open: its investigation was stopped before any result, see "Build 23". Build 22: on the owner's phone build 21 still flashed
 MORE GAMES and the FORUM tile on a return to Settings; build 22 no longer races the game's own `setup()`: on the phone
 its stock writes are made to draw nothing (the engine's text remap turns FORUM into PERFORMANCE, the icon is out of its
 reach, the removed tiles are off the panel, ABOUT stays at the game's own place on the bottom row), prepared before
@@ -65,6 +68,222 @@ HD texture probe and a Windows test kit for the Steam version. Build 11 installs
 version into the game's own data. Build 12 accepts a full ASTC data pack with 2,215 PC textures in it: **device test 9:
 the HD textures and the graphics profiles work, at the same frame rate as before**, and builds 10 to 12 (target Android
 15) installed and played fine.
+
+## Build 32 (November 2026): the template reader without its quadratic name scan (the 27.7 s agent-select freeze), the same for the saves' writer and the loads' merge, a profile lock left by an earlier start answered as released, managed dumps at the first hitches
+
+On `wip/b32` (`McvsVersion.Build` is `32`). Tests: 1655, Embed 1418, PcKit 63, PcSpike 62, all passed (the solution, the embedded and the PC server DLLs built). The APK (same key, zipalign and apksigner OK;
+`Gameloft.Templates.dll` patched and its AOT images dropped) and the PC kit are built; the PC end to end on the Steam files
+passed (install, verify and status `installed, current`, six codeBases, ILVerify findings unchanged on all five patched DLLs
+and none in the server, a second install writes the same bytes, uninstall restores every file). Not yet tested on a phone or
+on Steam.
+
+**The owner's build-31 log** (Galaxy S25 Ultra SM-S938B, unlock-all profile of ~611 KB; session `20261111-182001`, watchdog
+and hitch probe on):
+
+- Build 31's restore works: per bot the `MCVS_Meta` loads are 8-20 ms restores, about 40 ms of database work per bot.
+- **One frozen agent select:** a single hitch of 27,656 ms (18:21:22.5 to 18:21:50.1, no frame at all) while the GS added its
+  bots about every 4 s (crm lines at 26.07, 30.09, 34.05, 38.17, 42.13, 45.84). The managed dump of the 15 s STALL at 18:21:37
+  has the game thread in `GameServerComponent.<CloseRoom>d__86.MoveNext` [0x549] → `GameMatchmakingComponent.SpawnBot` →
+  `MultiplayerComponent.CreateBotWithProfile` [0x70] → `GetProfileTemplate` → `GameProfileSection.GetTemplate` →
+  `JsonTemplateReader` `ReadTemplate` → `ReadObject` ×4 → `BindNodes` [0x2f] → `TNode.HasName` → `TNode.Node` →
+  `TName.op_Equality` → `string.Equals`: `$default` → `/Profile` → `CrmStandardData` → `Inventory`.
+- **Why:** with instant bots (MinPlayers 1, MaxOpenTimeInSeconds 0) `CloseRoom` spawns all 7 bots in one `MoveNext`
+  (`while (Bots.Count() < n) SpawnBot();`, IL_0549-0566), and each bot's template is the human's profile read again from
+  its text (`GetTemplate` has no cache). The reader binds each property with `HasName` and then `Add`'s conflict scan, two
+  linear scans of the children: k² name comparisons for an object of k properties. The unlock-all
+  `CrmStandardData.Inventory` has one key per ledger key, 11,368: about 129 million comparisons per read, about 3.6-4 s
+  on the phone. `OnConstantUpdate`'s `FillWithBots` adds no bot here (with MinPlayers 1 its target is at most 1).
+  **Correction to build 31's text:** the build-30 log's "one bot every 5.2 s" was most likely this same `CloseRoom` loop
+  (one frozen lobby), not `OnConstantUpdate` (an inference; the build-30 log was not read again).
+- **The other hitches of the start** (from game.log and server.log around each; about 76 s frozen in all):
+  the TS's first profile load at boot (8.4 s, STALL 18:20:33.8) and the GS World's (18:21:09.1-16.2, 7.1 s): each a template
+  read plus the profile's game-object creation; two profile reloads at boot (3.7 s each), because the profile still carried
+  `ProfileOwnerRoomId` from the previous process (`TakeProfileLock` → `MakeSureProfileIsUnlocked`: kick, reload every 1 s for
+  5 s); the reload back in the menu (18:26:18.2-22.5, 4.3 s); the saves (Play 3.2 s, results 7.3 s with two overlapping
+  `DoSaveProfile`, menu 4.1 s, boot ~3.7 s): the template **writer** (`TObject.FromObject`, ~2.3-3 s), the normalize
+  (375-636 ms) and ~0.4 s to build the request; the match start (1.06 s) and 3 hitches before the probe was armed: not
+  determined (no lines, no dump).
+
+**The changes:**
+
+- New default patch `templates` (`Gameloft.Templates.dll`, Android 1.17.32 and Steam 1.17.30, the same fingerprints;
+  `patcher/Patches/TemplatesPatch.cs`): `JsonTemplateReader.ReadObject` gives an object of 8 properties or more a
+  `Dictionary<TName, TNode>` of the children it has bound, and binds each property with `McvsBind`: found → the game's
+  `MergeWith` on that child, not found → `Add(child, false)` and into the dictionary; attribute names (`@base` among them) and
+  a null name go to the game's `BindNodes`. `ReadArray` adds each element with `Add(node, false)` (`TArray.Add` names a new
+  element `[Count]`, which no earlier one has). Why the result is the shipped one: the parent is the reader's own new
+  `TObject`, its children change only through this loop, a merge changes the found child's subtree and keeps its name, so the
+  dictionary always holds the node `Node(name)` finds first and the conflict check after a negative `HasName` can never fire.
+  Every bot still gets a tree of its own (nothing cached, nothing shared). Pure IL, no server needed; the patcher drops
+  `Gameloft.Templates.dll`'s AOT image (JIT) like the other patched assemblies', and the PC install redirects it as a fifth DLL.
+  Every changed method and every game method the argument relies on (BindNodes, the two ReadNode, ReadValue, TNode's Add, Node,
+  HasName, MergeWith, ChangeName, TArray's and TValue's Add/MergeWith, TName's equality and hash) is checked against its
+  fingerprint first.
+- **Tests on the real assemblies of both builds** (shipped vs patched vs patched without the server DLL): an unlock-all-shaped
+  profile (the 11,368 keys of `server/Content/unlocks.json`, the kill-signature lists, 21 mercs, 611,274 chars) gives the
+  shipped tree line for line (47,117 nodes: types, names and name types, values and value types, order, parent links,
+  annotations, bases); 32 edge cases (`a`/`.a`/`'a'`, path merges, `@value`, a local `@base`, a null value merged with an
+  object, attributes, child and quoted names, odd names, errors) and 400 random documents give the same tree or the same
+  exception type and message; two reads share no node and changing one leaves the other unchanged; ILVerify: no finding
+  before or after (0 shipped findings in the assembly). **Timing** of `GetTemplate`'s body on that profile (best of 3, this
+  4-core machine): Android DLLs shipped 392-564 ms, patched 29-40 ms (10-20×); Steam DLLs shipped 345 ms, patched 40 ms
+  (9×). On the phone, about 0.15-0.3 s per read instead of ~4 s is an estimate, not a measurement.
+- **What it should change on the phone** (to be confirmed by a device log): the agent-select freeze (7 template reads), the
+  template-read part of the first profile load of each World and of every reload (boot, the ownership loop, the menu); with
+  the second part below, the writer part of every save and the default-profile merge of every load.
+- **Second part, the writer, `Copy` and `MergeWith`** (the same `templates` patch, the same fingerprints on both builds):
+  `DefaultConverter.ConvertToTemplate` (the writer behind `TObject.FromObject` of every profile save:
+  `GameProfileSection.FromGameObject`), `TNode.Copy` and `TNode.MergeWith` (`ProfileManagerComponent.ValidateProfileVersion`:
+  `LoadDefaultProfile().MergeWith(template)` at every profile load; also the reader's own merges) added each child with
+  `Add(child)`, whose conflict scan made the 11,368-key Inventory cost about 65 million name comparisons per save, and
+  `MergeWith` scanned with `Node(name)` per child too. Now:
+  - the writer: when `CreateTemplateNode` gave a new, empty, exactly-`TObject` node (`McvsConvertBegin`), each child goes
+    through `McvsConvertAdd`: from the 8th child a `HashSet<TName>` of the node's children's names (built from them once, then
+    kept): a name not in it → `Add(child, false)`; a name in it (a duplicate: the game's check throws) and a null name → the
+    game's `Add(child)`. Why it is exact: the node is the method's local, every child came through this call, and every
+    converter of the game (Gameloft.Templates, Engine, Game; both builds read) returns a node it has just created and keeps no
+    reference to it. A child that already has a parent (a converter that returns a node of another tree; none does) turns the
+    set off for the whole process (`TNode.mcvsShared`), every later conversion takes the game's checks.
+  - `Copy`: the same set (`McvsCopyAdd`) when the copy is exactly a `TObject`: the copy is new (`CopyNode` empties its list),
+    each child is a new copy, and copying the next child only reads the source.
+  - `MergeWith`: its loop starts at `McvsMergeFrom(list)`'s index instead of 0. For an exactly-`TObject` node with all names
+    different, a source of 8 children or more that is not the node itself, it runs the game's loop with a
+    `Dictionary<TName, TNode>` of the node's children instead of `Node(name)`, `Add(copy, false)` for a name not there, the
+    game's own `SetNode` for a null value, the game's `MergeWith` into a found child (only TObject, TArray, TValue: the only
+    node types of the game). After each merge into a child it checks that the node's child list is the same list with the
+    same count and the same last child; anything else (only possible when the tree is not a tree: a node in two lists, a node
+    that is its own descendant) and a null name hand the loop back to the game at the next element, on the state as it is.
+  - `TObject.ToString("j")` reports its time (`TemplateToJson`).
+  - Not changed: `TArray` parents (lists; at most 1,512 elements in the unlock-all profile: about 1 million comparisons), the
+    reader's arrays were done in the first part.
+- **Tests of the second part on the real assemblies of both builds** (`RealTemplatesWriterTests`, shipped vs patched vs
+  patched without the server DLL): a profile-save-shaped object graph (a GameObject-like `ITemplatable` root with 15 component
+  children, the 11,368-key Inventory dictionary, lists, an int-keyed dictionary of 400 gears, enums, dates, nulls, a value
+  declared as object; 26,044 nodes) gives the same tree and a byte-identical `ToString("j")` (381,430 chars); 13 child-name
+  cases (duplicates before, at and after the 8th child, empty, odd and case-different names) and a converter that returns one
+  node for three properties give the same tree or the same exception type and message (`Conflict with name ...`);
+  `Copy` of the unlock-all profile, `DefaultProfile.MergeWith(profile)` and a second merge into a copy of the result give
+  the same trees; 8 hand-made trees that are not trees (a node in two lists whose array merge removes it from the object
+  being merged, duplicate names on either side, an object merged with itself, a source that contains the target, an object
+  that is its own child, duplicates in a copy) and 300 random tree pairs (900 Copy/MergeWith outcomes, 349 of them throw)
+  give the same results. ILVerify: no finding in the changed and new methods; whole assembly unchanged (0 findings).
+  **Timings** (best of 3, this 4-core machine; Android DLLs / Steam DLLs): `FromObject` of the save shape shipped 241 / 244 ms,
+  patched 21 / 17 ms (12-15×); `Copy` of the unlock-all profile 180 / 158 ms → 18 / 17 ms; `DefaultProfile.MergeWith(profile)`
+  with the read of the default 331 / 301 ms → 24 / 23 ms; `ToString("j")` 10 ms, unchanged (linear). On the phone the save's
+  `FromObject` was 2.3-3 s in the build-31 log; how much of it is left is for the next device log (the `templates:
+  TObject.FromObject(...)` and new `templates: TObject.ToString("j") wrote N chars in X ms` lines).
+- **Diagnostics:** `[game] templates: DefaultProfile.tx read in X ms (JSON A ms, nodes B ms); N objects of 8+ names indexed,
+  the largest M names (patch 'templates')` for a read of 100 ms or more or with an object of 1,000 names or more, and
+  `templates: TObject.FromObject(GameObject) took X ms` for a FromObject of 100 ms or more (the save's writer), at most 60
+  lines per start; a template read inside another on the same thread (a base template not cached yet) has its own line and
+  is left out of the outer read's time and of the status totals (`not counting X ms in N templates read inside it`); the `[status]` line's data hooks end with `templates: N read (total, longest; slow or large ones), N objects
+  indexed (largest M names); FromObject N (of 100 ms or more, total, longest)`. Watchdog: the first 3 hitches after arming
+  (at least 5 s apart) also take Mono's managed thread dump, off the game thread (every thread in
+  `logs/threaddump-hitch-*.txt`; in the log only the threads native code entered, the game thread among them; the STALL dump of
+  the build-31 log finished within about 55 ms: its "after 4 ms" was taken before the last 50 ms poll, which build 32 fixes); each of the first 20 hitches before arming gets one `[watchdog] hitch before the probe was armed:
+  the frame clock stood about N ms` line. Both under the existing `diagnostics.watchdog` / `diagnostics.threadDump` switches;
+  no default changed.
+- PC: `Gameloft.Templates` is also in the host's boot checks: the `install:` file check compares `Gameloft.Templates.dll`
+  with install.json (a Steam update of that file alone says `stale`), and the watcher writes its `[boot] assemblies:` line and
+  reports NOT ACTIVE when it loads from the game folder. The kit's `verify` message names the number of codeBases it expects (6).
+- **Third part, the profile lock left by an earlier start** (server only; no game code changed; `StaleProfileOwner`,
+  docs/protocol/storage.md, Decisions). The build-31 log, both starts of session `20261111-182001`, in `server.log`: the
+  boot's `GET _mcvs.gameProfile`, the TS's `POST messages/secured … type=multipleConnectionDetected roomId=LocalAnubis-Room-…`,
+  the reloads 1 s apart (3.7 s each on the phone), then `TakeProfileLock`'s save (first start: #30, #43, #44, save #47 8.7 s
+  after the notice; second start: #31, #43, #44 and #47, save #50 13.8 s after the notice). The dump the earlier start left is exactly 51 characters longer than a released one
+  (`"LocalAnubis-Room-<GUID>"` instead of `null`): the earlier start ended without `SaveAndReleaseProfile`. The Play sequence
+  in the same log is the in-process order the change must keep: the TS's release save (611,299 chars, the lock `null`), the
+  GS's `LoadPlayerProfile` reads it, the GS's results save, the TS's reload in the menu (`ResumeServer`), the TS's lock save
+  (+51 chars). The lock is a TS-only thing (`TakeProfileLock` and `ResumeServer` return early on the GS); room ids are
+  `LocalAnubis-Room-` + a new GUID made in the game's process (`LocalAnubis.Lobby.GenerateRoomId`); the game writes the
+  dump only through our storage endpoints. So the embedded host now tells the server it starts with the game that the
+  game client of its process is the only one using it (`ClientCapabilities.InProcessClient`; not a server that took the
+  port over from another copy of the game mid-session, and not while LAN mode is or has been on in the process: guests'
+  rooms are made in their own processes), and the storage module remembers per account the lock the stored dump held before
+  the game's first request of this start (its first read of `_mcvs.gameProfile`, or before its first write to the account,
+  whichever comes first). While the stored lock is still exactly that id, a `GET _mcvs.gameProfile` is answered with it
+  replaced by `null` (the same text with the lock written as null, as the writer writes a released lock), the file is not changed, and the server log
+  says once `profile: cleared a room owner left by an earlier start: LocalAnubis-Room-… (<account>; ProfileOwnerRoomId
+  answered as null, the stored profile is unchanged)`. The TS's `MakeSureProfileIsUnlocked` then finds no owner: no notice,
+  no kick, no reloads, and `TakeProfileLock` saves its own room as before. A lock the game wrote in this start (every
+  `TakeProfileLock`/`ResumeServer` of this process), an absent one, a dump of another shape (a key twice, a look-alike
+  key, an owner that is not a string, a `/Profile` of another `@type`), a selector deeper than `_mcvs.gameProfile`, the
+  whole document, a LAN-forwarded account, LAN mode, a server that took the port over and the standalone host are
+  answered as stored, i.e. the game's own behaviour. Once nothing can be cleared for an account (no lock inherited, the
+  setting off, or a dump with no backslash that does not contain the inherited id), a read answers the dump without
+  scanning it (the ~611 KB dump was scanned about three times per read before).
+  `storage.clearStaleProfileOwner: false` turns it off (the lock is still remembered, so turning it on later in the same
+  start never takes this start's room for an old one).
+- **Tests of the third part:** `StaleProfileOwnerTests` (37: the game's shape found and released to the exact released
+  text, pretty-printed/escaped/BOM text, 22 shapes that are not a lock, the first read or the first write captures, the
+  setting off, accounts apart; over the storage endpoints with a restart between starts: start 1 locks and is killed, start
+  2 reads it released, then locks, releases (Play), the GS's save, locks again, all answered as stored, start 3 reads start
+  2's lock released; a write to another section or the game server's `currentMatch` write before the first read; the
+  standalone server and the setting off serve the lock as stored; the read without the scan answers exactly as the
+  always-scanning read for 400 random orders of reads over 11 dumps, both settings and an id written with escapes; LAN mode
+  on, or turned on and off in the same start, serves the lock as stored); `RealProfileOwnerTests` on the real Gameloft.Templates.dll
+  of both builds, shipped and with the 'templates' patch, on the unlock-all-shaped profile: the answered text reads to the
+  stale tree with exactly one difference (the lock's `TValue` is `Null`), the game's writer writes the stale tree with that
+  value set to null as `"ProfileOwnerRoomId":null` and reads back to the same tree, and `DefaultConverter.ConvertFromTemplate`
+  gives a null string for it; `EmbeddedHostTests.TheNextStartAnswersALockLeftByTheEarlierStartAsReleased`: two real embedded
+  host starts over HTTP, the second answers the first one's lock released and logs the line;
+  `WhenTheOtherCopysServerStopsThisGamesOwnServerTakesThePortOver`: the takeover server does not follow locks.
+- **Review of the second and third parts** (no change in what the game gets on the paths already tested): the takeover
+  server and LAN mode no longer follow locks (above); a read with nothing to clear no longer scans the dump (about 1.3 ms
+  per read for a 455 KB dump on the build machine before, nothing now; more on a phone); the 'templates' patch resolves
+  its HashSet/Dictionary/GetTypeFromHandle references in its checks, before the reader change is applied (the patched IL
+  is unchanged); the writer tests' tree comparison also prints each name's kind, each value's `ValueType`, `DeclaredBase`
+  and the annotations; a caller chain holds 8 game methods (was 6).
+- **The results screen's two saves, from the code** (behaviour unchanged): the build-31 results screen has one
+  `gameProfile` POST (18:25:12.5) and two sections merges (`DoSaveProfile:807` at 15.887 and 15.914), so a second
+  `DoSaveProfile` ran while the first one's request was in flight (`ProfileSection.Save` goes through a
+  `NonConcurrentTask`). In a GS match `OfflineBotsGameplayComponent`'s `forceSaveIfPaused` save does not run (it is the TS's
+  save for a bot match the client runs itself, reported by `OfflineMatchAgainstBotsOver`); the GS's own candidates are
+  `GameplayComponent.OnMatchOverAsync`'s per-player save (then `DisableSave`) and `SaveAndReleaseProfile` from the
+  client's `CloseConnection`, which can start before that `DisableSave`. Not provably redundant: a later save carries what
+  changed after the first one's `FromObject`. So only diagnostics: every profile save now gets a `[game] profile: save in
+  the TS|GS|client World, for GameProfileSection.FromGameObject <- PlayerProfileComponent.DoSaveProfile <-
+  ProfileComponent.SaveProfile <- <caller>; FromObject X ms; N ms after the previous one (<its World>: <its callers>)` line
+  (from `TObject.FromObject` of a GameObject, which runs before `DoSaveProfile`'s first await, so the stack still holds the
+  callers; at most 40 per start; no IL change, host code only), and the `templates: DefaultProfile.tx read in …` line of a
+  profile-text read ends with `; for <the game methods that read it>` (a World's first load, a bot's template, a reload).
+  `ReloadProfileAsync` has only two callers, both on the TS (`ResumeServer`, `MakeSureProfileIsUnlocked`); after an await
+  the stack no longer shows which, so its read line names `ReloadProfileAsync` and the server log's order tells the rest.
+  Tested on a fixture assembly named `Game` with the game's type names and async shapes (`ProfileSaveLineTests`).
+- **The match start's 1.06 s** (hitch 4 of the build-31 start, 1.5 s after the frozen agent select): no line, no dump
+  (only the first 3 hitches after arming take one, 5 s apart). Diagnostics only: if a save or a profile read is in it, the
+  new lines say so; with the agent-select freeze shorter it may be one of the first three dumped hitches now.
+- `McvsVersion.Build` 32.
+
+**Not changed (open):**
+
+- The saves (3-7 s each in the build-31 log): the writer's scan is gone (second part, not yet confirmed on a device); the
+  rest of `FromObject` (reflection over the components), `ToString("j")`, the normalize (0.3-0.6 s) and the request build
+  (~0.4 s) are unchanged; the two overlapping saves on the results screen stay two (their callers are logged now).
+- The profile's game-object creation at a World's first load (the rest of the 7-8 s); the per-bot apply of the
+  template (`AddGameObject`, about 0.25 s per bot in the log); the 7 bots are still spawned in one frame (spreading them would
+  change the order against `BalanceTeams`, `RoomClosed` and the saves).
+- The boot's ownership loop (7.4 s in the build-31 log) is expected to be skipped after a start that ended without a
+  release (third part); to be confirmed on a device. It stays for a lock the server cannot tell is old (another shape of
+  dump, the setting off, LAN mode, a server that took the port over, the standalone host).
+- Which two callers make the results screen's overlapping saves, what the match start's 1.06 s is, the 3 early boot
+  hitches: not determined (the new `profile:` lines and the hitch dumps should tell).
+
+**Checklist (phone), third part:** close the game from the recent-apps list (or restart it from the settings page)
+in the menu, start it again: `server.log` has `profile: cleared a room owner left by an earlier start: LocalAnubis-Room-…`
+right after the boot's `GET …/_mcvs.gameProfile`, no `type=multipleConnectionDetected` POST, no second `_mcvs.gameProfile`
+GET before the lock save, and the boot's hitch lines are shorter than build 31's (two reloads of 3.7 s each before); the
+inbox has no new message; play a match and go back to the menu (no `cleared` line then); the results screen's two
+`profile: save in the … World, for …` lines with their callers, and the lines at the match start. Send the log.
+
+**Checklist (phone):** agent select with an unlock-all profile: how long the lobby freezes (the `hitch over` line), and
+`templates: DefaultProfile.tx read in ...` lines, one per bot plus the profile loads, with their times; the boot and the
+menu return (their hitch lines and the reload's `templates:` line); the `threaddump-hitch-*.txt` files and the
+`hitch before the probe was armed` lines; the `[status]` line's `templates:` part (`FromObject` and `ToString(j)` counts and
+longest); a save (Play, the results screen, back in the menu): its hitch line next to `templates: TObject.FromObject(GameObject)
+took X ms` (a line only from 100 ms) and the save's `json normalize` line; the boot's reload hitches; send the log. PC: the install writes five
+DLLs into `McvsOffline\bin` and the game starts; `bootstrap.log` has `[boot] assemblies: Gameloft.Templates …\McvsOffline\bin\Gameloft.Templates.dll
+(McvsOffline\bin)` and `install: current`.
 
 ## Build 31 (November 2026): no more `MCVS_Meta.xlsx` parses per bot at agent selection, and a visible watchdog switch
 

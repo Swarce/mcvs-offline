@@ -519,7 +519,7 @@ namespace McvsOffline.Embed.Tests.Embedded
                 TypeDefinition dump = module.GetType("McvsOffline.Embedded.Diagnostics.ThreadDump");
                 Assert.NotNull(dump);   // the stub
                 Assert.DoesNotContain(dump.Methods, m => m.IsPInvokeImpl);
-                Assert.Equal(3, dump.Methods.Count(m => m.IsPublic && m.IsStatic));
+                Assert.Equal(5, dump.Methods.Count(m => m.IsPublic && m.IsStatic));   // build 32: Capture with a thread filter, EnteredFromNative
             }
         }
     }

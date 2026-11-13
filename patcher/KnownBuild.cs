@@ -34,6 +34,7 @@ namespace McvsOffline.Patcher
             ["Game.dll"] = new Guid("d9067738-21d0-412d-b185-e040fd20b5ee"),
             ["Gameloft.Engine.dll"] = new Guid("e4f25834-594a-49fc-9afd-8767ed2d9d03"),
             ["Gameloft.Util.dll"] = new Guid("fa21a3ea-bb70-4229-9e02-7fc537749a0c"),
+            ["Gameloft.Templates.dll"] = new Guid("ca358d5d-c9d1-4ed0-b5c1-19e3b6e72350"),
         };
 
         /// <summary>The only assemblies McvsOffline.Server.dll may reference: the game's own copies (verify-C7 §6).</summary>

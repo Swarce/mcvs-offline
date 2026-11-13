@@ -37,6 +37,8 @@ namespace McvsOffline.Embedded
         public const string EngineBridgeAssembly = "EngineBridge";
         public const string EngineAssembly = "Gameloft.Engine";
         public const string UtilAssembly = "Gameloft.Util";
+        /// <summary>The fifth redirected game assembly (build 32, patch 'templates').</summary>
+        public const string TemplatesAssembly = "Gameloft.Templates";
         public const string ServerAssembly = "McvsOffline.Server";
 
         /// <summary>hook-pc: the private static helper <c>McvsOfflineInit</c> in <c>EngineBridge.Class1</c>.</summary>
@@ -62,7 +64,7 @@ namespace McvsOffline.Embedded
         public const string FrameRateType = "Game.McvsFrameRate";
 
         /// <summary>The assemblies the "[boot] assemblies:" lines report.</summary>
-        public static readonly string[] WatchedAssemblies = { EngineBridgeAssembly, ServerAssembly, EngineAssembly, GameAssembly, UtilAssembly };
+        public static readonly string[] WatchedAssemblies = { EngineBridgeAssembly, ServerAssembly, EngineAssembly, GameAssembly, UtilAssembly, TemplatesAssembly };
 
         /// <summary>Probes the assemblies loaded in this process. Never throws: what cannot be found out is null (unknown).</summary>
         public static ClientCapabilities Detect(Log log = null)

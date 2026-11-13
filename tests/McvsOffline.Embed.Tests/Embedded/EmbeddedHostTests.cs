@@ -92,6 +92,71 @@ namespace McvsOffline.Embed.Tests.Embedded
         }
 
         /// <summary>
+        /// Build 32: the embedded host tells its server that the game runs in this process, so the next start answers the
+        /// profile lock an earlier start left (no SaveAndReleaseProfile: the app was killed) as released, over HTTP.
+        /// </summary>
+        [Fact]
+        public void TheNextStartAnswersALockLeftByTheEarlierStartAsReleased()
+        {
+            string root = TestEnvironment.NewTempDir("host-owner");
+            Directory.CreateDirectory(Path.Combine(root, "Data"));
+            int port = TestEnvironment.FreePort();
+            const string room = "LocalAnubis-Room-18478500-6c40-4424-9b53-e40b7e14c747";
+            string Dump(string owner) => "{\"@version\":\"0.1\",\"$default\":{\"/Profile\":{\"@type\":\"Game.PlayerProfileComponent\"," +
+                                         "\"PlayerName\":\"agent-1\",\"ProfileOwnerRoomId\":" + (owner == null ? "null" : "\"" + owner + "\"") + "}}}";
+            string Token(EmbeddedHost h)
+            {
+                var account = h.Server.Context.Accounts.GetOrCreate("anonymous:owner-test", "device-owner-test");
+                return h.Server.Context.Tokens.Issue(account.Id, "anonymous:owner-test", McvsConstants.ClientId,
+                                                     new[] { "storage", "storage_ro", "storage_restricted" }, "device-owner-test", "game:mcvsoffline").Token;
+            }
+            string url = "http://127.0.0.1:" + port + "/profiles/me/myprofile/_mcvs.gameProfile";
+            using (var http = new HttpClient())
+            {
+                EmbeddedHost first = EmbeddedHost.Start(new DirectoryPlatform(root, false), new EmbeddedHostOptions { Port = port });
+                try
+                {
+                    Assert.True(first.WaitForServer(30000));
+                    Assert.True(first.Server.Context.Features.Get<ClientCapabilities>().InProcessClient);
+                    string token = Token(first);
+                    var form = new FormUrlEncodedContent(new[]
+                    {
+                        new System.Collections.Generic.KeyValuePair<string, string>("visibility", "restricted"),
+                        new System.Collections.Generic.KeyValuePair<string, string>("object", Dump(room)),
+                        new System.Collections.Generic.KeyValuePair<string, string>("access_token", token),
+                    });
+                    Assert.Equal(HttpStatusCode.OK, http.PostAsync(url, form).Result.StatusCode);
+                    Assert.Equal(Dump(room), http.GetStringAsync(url + "?access_token=" + token).Result);
+                }
+                finally
+                {
+                    first.Server?.Dispose();
+                }
+
+                EmbeddedHost second = EmbeddedHost.Start(new DirectoryPlatform(root, false), new EmbeddedHostOptions { Port = port });
+                try
+                {
+                    Assert.True(second.WaitForServer(30000));
+                    string token = Token(second);
+                    Assert.Equal(Dump(null), http.GetStringAsync(url + "?access_token=" + token).Result);
+                }
+                finally
+                {
+                    second.Server?.Dispose();
+                }
+            }
+            string logs = string.Join("\n", Array.ConvertAll(Directory.GetFiles(Path.Combine(root, "McvsOffline", "logs"), "*server.log*"), ReadShared));
+            Assert.Contains("profile: cleared a room owner left by an earlier start: " + room, logs);
+        }
+
+        private static string ReadShared(string path)
+        {
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+            using (var reader = new StreamReader(stream))
+                return reader.ReadToEnd();
+        }
+
+        /// <summary>
         /// Log retention per start (docs/design/settings-page.md §7.7): every start begins new log files, records itself in
         /// logs/starts.txt and deletes the files of starts older than the previous one; the restart marker is still taken.
         /// </summary>
@@ -523,6 +588,8 @@ namespace McvsOffline.Embed.Tests.Embedded
                 Assert.Equal(port, host.Server.Port);
                 Assert.Equal(PortOutcome.Configured, host.PortReservation.Outcome);
                 Assert.False(host.WatchingPort);
+                // Until now the game used the other copy's server (and may hold a live lock through it): locks are not followed.
+                Assert.False(host.Server.Context.Features.Get<ClientCapabilities>().InProcessClient);
                 using (var http = new HttpClient())
                 {
                     Assert.Equal(HttpStatusCode.OK, http.GetAsync("http://127.0.0.1:" + port + "/").Result.StatusCode);

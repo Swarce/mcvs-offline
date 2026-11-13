@@ -44,6 +44,7 @@ namespace McvsOffline.Patcher.Core
                 ["Game.dll"] = new Guid("577aad49-7a49-41ba-86f1-ff84bbbb33d9"),
                 ["Gameloft.Engine.dll"] = new Guid("f8984bac-0e4b-4ce8-84d8-020035dcbb92"),
                 ["Gameloft.Util.dll"] = new Guid("0f8f34ba-99d2-49b3-8715-9fc261b9fa5e"),
+                ["Gameloft.Templates.dll"] = new Guid("9f721b87-0a1c-4de7-bdca-b5d0ad95dc03"),
             },
             unchangedWitnesses: new Dictionary<string, Guid>(StringComparer.Ordinal)
             {
@@ -57,6 +58,7 @@ namespace McvsOffline.Patcher.Core
                 ["Game.dll"] = "7459eea9478df895257c1470888bb2b96666d71c892eb9a50783f2a1a946bf9d",
                 ["Gameloft.Engine.dll"] = "e38e7eeab9a22e89b5b5c67b1a7c8452205d5a224b22d69ae84405fc19cb4785",
                 ["Gameloft.Util.dll"] = "8adb19442c9237edc57ef8ef62f7ea3a674282864ffb0e9e87b49c547cd82fe1",
+                ["Gameloft.Templates.dll"] = "894b582b70715d672b889c862f2c7bccaefaf8944033a7494e2f8c91505336c8",
                 ["GameManager.dll"] = "3c97ab98cc74a4e9d88659facf8e9c994d298dee82515f7543a3b84929630284",
                 ["Gameloft.OnlinePlatform.dll"] = "c93650f8fe8957f24c1ea5611e69197fe5ac75e61308577821f1e0a272e7c333",
                 ["Gameloft.Logs.dll"] = "33314aa441830790efbad7803c73f8626d23adca6d56015645224d36533319e7",
@@ -109,7 +111,7 @@ namespace McvsOffline.Patcher.Core
         /// <summary>Assemblies that are not patched but identify the build (PC: GameManager, Gameloft.OnlinePlatform); Android: empty.</summary>
         public IReadOnlyDictionary<string, Guid> UnchangedWitnesses { get; }
 
-        /// <summary>Lower-case SHA-256 of the shipped files (PC: the exe and 7 DLLs); Android: empty (MVIDs only).</summary>
+        /// <summary>Lower-case SHA-256 of the shipped files (PC: the exe and 8 DLLs); Android: empty (MVIDs only).</summary>
         public IReadOnlyDictionary<string, string> OriginalSha256 { get; }
 
         /// <summary>The only assembly names McvsOffline.Server.dll may reference for this build.</summary>

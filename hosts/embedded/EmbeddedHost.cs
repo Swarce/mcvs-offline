@@ -868,6 +868,12 @@ namespace McvsOffline.Embedded
         internal const string WatchdogOffBySettings =
             "off: settings diagnostics.watchdog is false (no stall reports, no thread dumps, no hitch probe)";
 
+        /// <summary>Build 32: the first this many hitches after arming get a managed thread dump too (at least 5 s apart).</summary>
+        internal const int HitchManagedDumpsPerStart = 3;
+
+        /// <summary>Build 32: the first this many hitches before arming get one line each when they end.</summary>
+        internal const int EarlyHitchLinesPerStart = 20;
+
         /// <summary>The status-line text when the host's options start no watchdog (tests, tools).</summary>
         internal const string WatchdogOffByHost = "off: this host starts no watchdog";
 
@@ -908,6 +914,7 @@ namespace McvsOffline.Embedded
                     if (diagnostics != null) javaStacks = diagnostics.JavaStacks;
                     Action<int, string> threadDump = null;
                     Action<int, string> hitchDump = null;
+                    Action<int, string> hitchManagedDump = null;
                     // No in-process thread dump on the .NET Framework CLR ([WH] §4.5): the PC build has only ThreadDumpStub.
                     if (diagnostics != null && !isWindows && Settings.GetBool("diagnostics.threadDump", true))
                     {
@@ -922,6 +929,14 @@ namespace McvsOffline.Embedded
                         // thread and would lengthen the player's hitch; no file, so nothing in Downloads), at INFO.
                         hitchDump = (tid, comm) => ThreadDump.Capture(tid, ThreadDump.Related(tid, comm), null, 0,
                             s => dumpLog.Info(WithoutTag(s, "[threaddump] ")));
+                        // Build 32: the owner's build-31 log had one managed dump (a STALL's) for 14 hitches, so most hitches were
+                        // told apart only by the server's requests. Mono's dump finished within ~55 ms there (it said "after 4 ms": the
+                        // time before the last 50 ms poll): the first hitches of a start get
+                        // one too (every thread in logs/threaddump-hitch-*.txt; in the log only the threads native code entered,
+                        // the game thread among them), at INFO.
+                        hitchManagedDump = (tid, comm) => ThreadDump.Capture(tid, ThreadDump.Related(tid, comm),
+                            Path.Combine(logsDir, "threaddump-hitch-" + DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + ".txt"),
+                            3000, s => dumpLog.Info(WithoutTag(s, "[threaddump] ")), ThreadDump.EnteredFromNative);
                     }
                     // Stall snapshots at WARN (the page's "recent problems"); the tid and the page's pause/resume at INFO.
                     Watchdog = new GameThreadWatchdog(() => Boot.Describe(), s => watchdogLog.Warn(WithoutTag(s, "[watchdog] ")),
@@ -934,6 +949,11 @@ namespace McvsOffline.Embedded
                         HitchMs = GameThreadWatchdog.DefaultHitchMs,
                         HitchArmed = () => Boot.GsLobbyConfigs > 0,
                         HitchDump = hitchDump,
+                        // Build 32: the first 3 hitches after arming (at least 5 s apart) with Mono's managed stacks too, and
+                        // one line for each of the first 20 hitches before arming (the boot's had no time in the build-31 log).
+                        HitchManagedDump = hitchManagedDump,
+                        HitchManagedDumps = HitchManagedDumpsPerStart,
+                        EarlyHitchLines = EarlyHitchLinesPerStart,
                     };
                     if (extensions != null)
                     {
@@ -1137,7 +1157,7 @@ namespace McvsOffline.Embedded
             return result.Content;
         }
 
-        private void RunServer(EmbeddedHostOptions options, int port, PortReservation reservation)
+        private void RunServer(EmbeddedHostOptions options, int port, PortReservation reservation, bool tookOver = false)
         {
             Socket listener = reservation == null ? null : reservation.Listener;
             try
@@ -1155,7 +1175,7 @@ namespace McvsOffline.Embedded
                     FileLog = true,
                     BootTrace = Boot,
                     FileLogOptions = LogFileOptions(),
-                    ClientCapabilities = WatchPatches().Target,
+                    ClientCapabilities = WatchPatches(!tookOver).Target,
                 };
                 // LAN is not supported on PC: the server's own copy of the settings too (never saved).
                 if (isWindows) serverOptions.LanMode = false;
@@ -1248,11 +1268,15 @@ namespace McvsOffline.Embedded
         /// The client's patches for the server (ServerOptions.ClientCapabilities): probed now, and on PC again when Game loads (the
         /// bootstrap runs before it there), with the "[boot] assemblies:" and "[boot] patches:" lines.
         /// </summary>
-        private PatchWatcher WatchPatches()
+        private PatchWatcher WatchPatches(bool onlyClient)
         {
             Func<Action<System.Reflection.Assembly>, Action> watchLoads = null;
             if (extensions != null) watchLoads = extensions.WatchAssemblyLoads;
-            PatchWatcher watcher = GamePatchProbe.Watch(new ClientCapabilities(), Logger.For("game"), watchLoads, isWindows ? Boot : null, Paths.GameRoot);
+            // The game runs in this process and is the only client of this server: a profile lock its stored profile held before
+            // this server's first request is stale. Not for a server that took the port over from another copy's (onlyClient
+            // false): until then this game used that server and may hold a live lock of its own, and the other copy may be back.
+            var capabilities = new ClientCapabilities { InProcessClient = onlyClient };
+            PatchWatcher watcher = GamePatchProbe.Watch(capabilities, Logger.For("game"), watchLoads, isWindows ? Boot : null, Paths.GameRoot);
             Patches = watcher;
             return watcher;
         }
@@ -1390,7 +1414,7 @@ namespace McvsOffline.Embedded
                                      "this game's own server takes port " + port + " over, and the game's next requests reach it");
                             Boot.Mark("offline server: took port " + port + " over after the other copy's server stopped");
                             portWatching = false;
-                            RunServer(options, port, reservation);
+                            RunServer(options, port, reservation, true);
                             return;
                         }
                     }

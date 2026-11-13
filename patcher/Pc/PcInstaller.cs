@@ -33,7 +33,7 @@ namespace McvsOffline.Patcher.Pc
             InstallerName = "McvsOffline.Patcher";
         }
 
-        /// <summary>The Steam install folder (ModernCombatVersus.exe, the four DLLs, Data\MCVS.game).</summary>
+        /// <summary>The Steam install folder (ModernCombatVersus.exe, the five patched DLLs, Data\MCVS.game).</summary>
         public string GameFolder { get; set; }
 
         /// <summary>The PC McvsOffline.Server.dll (the kit's embedded copy, or --server).</summary>
@@ -213,7 +213,7 @@ namespace McvsOffline.Patcher.Pc
         /// <summary>Files whose SHA-256 or MVID is not build 6372049's.</summary>
         public List<string> UnknownFiles { get; private set; }
 
-        /// <summary>The build identity, file by file (exe, the four DLLs, the witnesses, Gameloft.Logs).</summary>
+        /// <summary>The build identity, file by file (exe, the five patched DLLs, the witnesses, Gameloft.Logs).</summary>
         public List<PcFileIdentity> Identity { get; private set; }
 
         /// <summary>A foreign or spike config, an args.txt block while not installed, *.mcvs-tmp files, the spike's data folder.</summary>
@@ -323,7 +323,9 @@ namespace McvsOffline.Patcher.Pc
         /// <summary>
         /// The names of <paramref name="files"/> (game-folder file names) whose SHA-256 is that of our copy of the same name: the one
         /// <paramref name="manifest"/> records (when there is one) or the one in McvsOffline\bin now. A hand copy of bin into the game
-        /// folder, which Steam's own files never are.
+        /// folder, which Steam's own files never are. A file whose SHA-256 is the shipped original's (the manifest's record of it, or
+        /// the verified build's) is the game's own, also when our copy of it is unpatched (build 32: a plan without 'templates'
+        /// redirects Gameloft.Templates.dll to an unchanged copy).
         /// </summary>
         /// <summary>A status problem: <paramref name="file"/> in the game folder is one of our McvsOffline\bin copies.</summary>
         private static string CopyProblem(string file)
@@ -338,6 +340,11 @@ namespace McvsOffline.Patcher.Pc
             {
                 string now = GameFolder.TrySha256(Path.Combine(game, file));
                 if (now == null) continue;
+                InstallOriginal original = manifest == null ? null : manifest.FindOriginal(file);
+                string shipped;
+                if ((original != null && string.Equals(original.Sha256, now, StringComparison.Ordinal)) ||
+                    (BuildProfile.PcSteam6372049.OriginalSha256.TryGetValue(file, out shipped) && string.Equals(shipped, now, StringComparison.Ordinal)))
+                    continue;
                 string relative = GameFolder.BinRelative(file);
                 InstallWritten recorded = manifest == null ? null : manifest.FindWritten(relative);
                 string bin = GameFolder.Resolve(game, relative);
@@ -1388,7 +1395,7 @@ namespace McvsOffline.Patcher.Pc
         /// <summary>
         /// The re-read of install step 6 and verify: every written file has the recorded SHA-256 and (assemblies) the recorded
         /// MVID read with Cecil, the witness of every applied patch that has one is present, and the config parses back to the
-        /// five codeBases whose hrefs exist, each naming the assembly of the file it points to, and has no
+        /// codeBases of the patched DLLs and the server (six from build 32) whose hrefs exist, each naming the assembly of the file it points to, and has no
         /// <c>&lt;qualifyAssembly&gt;</c> (builds 14 and 15 wrote them; most likely they make .NET ignore the whole file: SSCLI
         /// evidence, WR3 confirms, §7.4).
         /// </summary>
@@ -1440,7 +1447,7 @@ namespace McvsOffline.Patcher.Pc
                         if (PcExeConfig.HasQualifyAssembly(configText)) problems.Add(PcExeConfig.FileName + " " + PcExeConfig.QualifyLeftoverProblem + ": run install again");
                         var expected = GameFolder.PatchedFiles.Concat(new[] { GameFolder.ServerFile }).Select(f => Path.GetFileNameWithoutExtension(f)).ToList();
                         if (codeBases.Count != expected.Count || !expected.All(e => codeBases.Any(c => c.AssemblyName == e)))
-                            problems.Add(PcExeConfig.FileName + ": expected the five codeBases " + string.Join(", ", expected) + ", found " +
+                            problems.Add(PcExeConfig.FileName + ": expected the " + expected.Count.ToString(CultureInfo.InvariantCulture) + " codeBases " + string.Join(", ", expected) + ", found " +
                                          string.Join(", ", codeBases.Select(c => c.AssemblyName)));
                         foreach (PcCodeBase c in codeBases)
                         {

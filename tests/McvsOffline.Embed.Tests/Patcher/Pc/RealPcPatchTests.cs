@@ -126,7 +126,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
             }
             var all = new List<string>();
             Dictionary<string, byte[]> full = RealPc.Patch(pc, PcHookServer.Compile(), all, Pc, plan.ToArray());
-            Assert.Equal(new[] { "EngineBridge.dll", "Game.dll", "Gameloft.Engine.dll", "Gameloft.Util.dll" }, full.Keys.OrderBy(k => k, StringComparer.Ordinal));
+            Assert.Equal(new[] { "EngineBridge.dll", "Game.dll", "Gameloft.Engine.dll", "Gameloft.Templates.dll", "Gameloft.Util.dll" }, full.Keys.OrderBy(k => k, StringComparer.Ordinal));
             Assert.Contains(all, n => n.Contains("(M3)"));
             Assert.Contains(all, n => n.Contains("(P1)"));
         }
@@ -631,7 +631,7 @@ namespace McvsOffline.Embed.Tests.Patcher.Pc
     /// <summary>Shared helpers of the PC real-file tests (RealPc*Tests, PcHookContractTests).</summary>
     internal static class RealPc
     {
-        public static readonly string[] PatchedFiles = { "EngineBridge.dll", "Game.dll", "Gameloft.Engine.dll", "Gameloft.Util.dll" };
+        public static readonly string[] PatchedFiles = { "EngineBridge.dll", "Game.dll", "Gameloft.Engine.dll", "Gameloft.Util.dll", "Gameloft.Templates.dll" };
 
         /// <summary>MCVS_PC_REFS with the four patched files and the net452 BCL, or null (skipped; a failure under MCVS_REQUIRE_PC=1).</summary>
         public static string Folder(ITestOutputHelper output)

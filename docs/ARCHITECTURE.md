@@ -119,8 +119,8 @@ inside a process-wide, time-bounded gate (`UpdateSimulationSteps`); settings `em
 runs.
 
 Recommended extra patches (all optional, `--patch`; the default set is `nativeonline`, `waits`, `geo`,
-`finder`, `store`, `signatures`, `inbox`, `debloat`, `adminpage`, `adminlink`, `graphics`, `targetsdk`, `game`, and since build 30
-`crmtables` and `jsonnorm`; `lan`, `forum` and `botmove` only on request; `--art` is a separate option):
+`finder`, `store`, `signatures`, `inbox`, `debloat`, `adminpage`, `adminlink`, `graphics`, `targetsdk`, `game`, since build 30
+`crmtables` and `jsonnorm`, and since build 32 `templates`; `lan`, `forum` and `botmove` only on request; `--art` is a separate option):
 - `crmtables` (default, build 30, Android and PC, one fingerprint for both, `patcher/Patches/CrmTablesPatch.cs`): every CRM
   refresh hands `Gameloft.Engine.Database.Changer` a new `CRMDatabaseChanger`, so the setter's reference test never held and a
   database with CRM cells re-read and re-parsed its whole file each time (MCVS_Meta.xlsx, 1.6 MB of JSON, ~34 MB of garbage per
@@ -144,6 +144,28 @@ Recommended extra patches (all optional, `--patch`; the default set is `nativeon
   when Play is pressed and back in the menu). `Gameloft.Util.Json.NormalizeJsonString` is pure, so the last 4 results of
   inputs of 16 K characters or more are kept (`GameDataHooks.CachedNormalizedJson`/`RememberNormalizedJson`) and the same
   characters get the same string back: one normalization per save instead of four. Log: `[game] json normalize: N chars in X ms`.
+- `templates` (default, build 32, Android and PC, one fingerprint for both, `patcher/Patches/TemplatesPatch.cs`; the first patch
+  of `Gameloft.Templates.dll`, whose AOT image the patcher then drops like the others'): `JsonTemplateReader.ReadObject` bound each
+  property with `BindNodes` (`HasName`, then `Add`'s conflict scan): k² name comparisons for an object of k properties. The
+  unlock-all profile's `CrmStandardData.Inventory` has 11,368 keys (~129 million comparisons per read), and every bot at agent
+  select reads the human's profile again (`MultiplayerComponent.CreateBotWithProfile` → `GetProfileTemplate` →
+  `GameProfileSection.GetTemplate`), as does every profile load and reload. An object of 8 properties or more now keeps a
+  `Dictionary<TName, TNode>` of its children (`McvsBind`: found → `MergeWith`, else `Add(child, false)`; attribute and null names
+  take the game's `BindNodes`), and `ReadArray` adds without the conflict scan (`TArray.Add` names a new element `[Count]`).
+  The tree is the shipped one node for node; every bot still gets its own. Pure IL; `ReadDefaultTemplate`, `LoadRoot` and
+  `TObject.FromObject` also report their times (`GameDataHooks.TemplateRead`/`TemplateFromObject`, a `hooksMissing` latch). Log:
+  `[game] templates: DefaultProfile.tx read in X ms (JSON A ms, nodes B ms); N objects of 8+ names indexed, the largest M names`,
+  `templates: TObject.FromObject(GameObject) took X ms` (the save's writer), `templates: TObject.ToString("j") wrote N chars in
+  X ms` (its text), and per profile save `[game] profile: save in the TS|GS|client World, for <the game methods on the stack>;
+  FromObject X ms; N ms after the previous one (...)` (the read line of a profile text ends with `; for <callers>`);
+  status `templates: N read (...)`; a template read inside another on the same thread (a base template) is
+  left out of the outer read's time and counted once. Second part (build 32): the writer `DefaultConverter.ConvertToTemplate`
+  (`McvsConvertBegin`/`McvsConvertAdd`), `TNode.Copy` (`McvsCopyAdd`) and `TNode.MergeWith` (`McvsMergeFrom`) no longer scan a
+  `TObject`'s children per child: from the 8th child a `HashSet<TName>` (a `Dictionary<TName, TNode>` in MergeWith) of the
+  children's names; a name in the set, a null name, any other node type and a merge whose child list changed under it (only
+  possible when the tree is not a tree) take the game's code. A converter that returns a node already in a tree turns the
+  writer's set off for the process (`TNode.mcvsShared`; none of the game's does). Tree-identical and `ToString("j")`
+  byte-identical on the real DLLs of both builds (`RealTemplatesWriterTests`).
 - `waits` (default, hardening with no observed trigger): the pumping `TaskExtension.WaitAndWork` helpers wait in 100 ms
   slices (`WaitAny(handles, 100)`). This bounds the two wake-up gaps in the shipped code: a context re-enabled by
   `World.OnLoadedScene` raises no `WorkItemAdded`, and the `NativeTaskAdded` accessors install and remove the native
@@ -268,7 +290,10 @@ verification to the issuing device.
 serialisation with read-your-writes. Saves return exactly **200**. Missing root → `200 {}`; missing
 `_mcvs.gameProfile` → `200 {}`; missing `_mcvs.currentMatch` → `200 {}`. **No ETag** (a per-document
 ETag makes every later save fail with 412). **Never 403/404 for existing data** (403 wipes the profile).
-Also the IAP `inventory` section `{rewardId: int}` (a generic grant channel).
+Also the IAP `inventory` section `{rewardId: int}` (a generic grant channel). Build 32: with the embedded host
+(`ClientCapabilities.InProcessClient`) a `_mcvs.gameProfile` read whose `ProfileOwnerRoomId` is still the one the dump held
+before the game's first request of this start (a start killed without `SaveAndReleaseProfile`) is answered with it `null`,
+so the TS is expected to skip its 5 s ownership loop (to be confirmed on a device; `StaleProfileOwner`, `storage.clearStaleProfileOwner`, docs/protocol/storage.md).
 
 **CRM.** `configs/users/me` and `configs/users/me/game` must return **200** with a complete document
 (the GS waits forever otherwise; a partial 200 is worse than an error for the TS). Base it on the
